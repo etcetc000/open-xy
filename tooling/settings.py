@@ -67,7 +67,8 @@ def state(image, profile=None):
 def built(image, profile=None):
     """Build capability -> whether the image was built with it (docs/cpu-capabilities.md),
     read from its sites: every one stock, or every one holding the capability's bytes (a
-    hook: a reviewed branch of its form; a profiling-only hook is left out)."""
+    hook: a reviewed branch of its form, a fixed edit: its bytes; a profiling-only hook
+    is left out)."""
     profile = profile or config()
     require(len(image) >= profile['stock_bytes'], 'Not OP-XY OS 1.2.1 or an open-xy OS made from it')
     blocks = ldr(image)

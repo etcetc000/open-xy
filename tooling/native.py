@@ -18,7 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, extensions, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables, voice_heap
+from . import benchmark, extensions, load_governor, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables, voice_heap
 from .adapters import (pad_mix, played_pad, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
@@ -113,6 +113,7 @@ def configuration(entries=None, layout=None):
     stock_tables.check_profile(profile)
     stock_limits.check_profile(profile)
     release_floor.check_profile(profile, document(ROOT / extensions.PROFILE)['capabilities'])
+    load_governor.check_profile(profile, document(ROOT / extensions.PROFILE)['capabilities'])
     extensions.check_profile(profile)
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
     machines = Collection(collection(entries, layout), extensions.check_collection(

@@ -72,6 +72,27 @@ class Registry(unittest.TestCase):
         with registry_with(missing={'build': True}), self.assertRaises(ValueError):
             extensions.capabilities()
 
+    def test_a_build_capabilitys_limit_edits_are_marked(self):
+        """Every fixed-byte (limit) edit of a build capability carries the "build" mark, the
+        one thing the builder's kit check reads. An unmarked one is refused."""
+        self.assertTrue(all(p.get('build') is True for p in config()['patches']
+                            if p['kind'] == 'limit' and REGISTRY.get(p.get('service'), {}).get('build')))
+        for marked in (False, True):
+            profile = copy.deepcopy(document(ROOT / 'profiles/opxy-1.2.1.json'))
+            hook = next(p for p in profile['patches'] if p.get('service') == 'idle')
+            extra = {k: v for k, v in hook.items() if k not in ('symbol', 'call')}
+            extra.update(kind='limit', address='0x8d5116a8', before='0000', after='0100', length=2)
+            if marked:
+                extra['build'] = True
+            profile['patches'].append(extra)
+            with mock.patch.object(extensions, 'document',
+                                   lambda path: profile if 'opxy-' in str(path) else document(path)):
+                if marked:
+                    extensions.capabilities()
+                else:
+                    with self.assertRaisesRegex(ValueError, 'Invalid build capability: idle'):
+                        extensions.capabilities()
+
     def test_an_image_capability_has_no_hooks(self):
         for name, capability in REGISTRY.items():
             if not capability.get('build'):
@@ -211,6 +232,32 @@ class Built(unittest.TestCase):
 
 
 class Extensions(unittest.TestCase):
+    def test_one_cpu_extension_labelled_experimental(self):
+        # One CPU extension, labelled experimental, always; it carries the
+        # load governor (a switch: named, it is on).
+        self.assertEqual(sorted(p.name for p in (ROOT / 'extensions').iterdir() if p.is_dir()), ['cpu'])
+        cpu = extension_at(ROOT / 'extensions' / 'cpu')
+        self.assertEqual((cpu.id, cpu.text['name'], cpu.capabilities, cpu.linked, cpu.settings),
+                         ('cpu', 'CPU (experimental)',
+                          ('boot_log_fix', 'idle', 'block_trims', 'output_slack', 'load_governor'), False,
+                          {}))
+        for key in ('description', 'note'):
+            self.assertIn('experimental', cpu.text[key].lower(), key)
+        self.assertIn('sdk.py build', cpu.text['note'])
+        for words in ('Governor on',):
+            self.assertIn(words, cpu.text['note'])
+        # Voices idle only with release_floor, which it does not select.
+        self.assertIn('voices with release_floor', cpu.text['description'])
+        self.assertNotIn('release_floor', cpu.capabilities)
+        services = active_services(config(), native.service_users(Machines(cpu)))
+        self.assertEqual(services, set(CPU) | {'boot_log_fix', 'load_governor'})
+
+    def test_a_collection_may_select_a_subset_with_its_own_extension(self):
+        # A collection's own settings extension in place of cpu: only what it names is on.
+        subset = extension_at(folder(self, ('boot_log_fix', 'idle', 'block_trims')))
+        services = active_services(config(), native.service_users(Machines(subset)))
+        self.assertEqual(services & (set(CPU) | {'boot_log_fix', 'load_governor'}), {'boot_log_fix', 'idle', 'block_trims'})
+
     def test_the_boot_log_fix_is_its_own_image_capability(self):
         # One data byte, fixed bytes: an image setting, separate from idle.
         profile = config()

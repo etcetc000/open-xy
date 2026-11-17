@@ -101,8 +101,9 @@ test('a kit refuses an extension naming a build capability (hooks into SDK code)
   await openKit(k);
   // idle: a build capability of this profile (hooks into SDK code). master_filter: a service of this profile
   // named after itself whose edits are hooks; it passes every other capability rule, so only the limit-only
-  // rule refuses it.
-  for (const capability of ['idle', 'master_filter']) {
+  // rule refuses it. load_governor: a build capability of fixed-byte limit edits, each marked "build" in the
+  // profile; only that mark refuses it.
+  for (const capability of ['idle', 'master_filter', 'load_governor']) {
     k.extensions = [{...meta, id:'faster', capabilities:[capability]}];
     await assert.rejects(openKit(k), /Invalid extension capabilities/, capability);
   }

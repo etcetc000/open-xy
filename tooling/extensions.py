@@ -74,17 +74,23 @@ def capabilities():
 
     A build capability (docs/cpu-capabilities.md) is chosen when the firmware is built
     (`sdk.py build`), never written into an existing image: its edits may be hooks into SDK
-    code its service links."""
+    code its service links. Each of its fixed-byte (limit) edits is marked `"build": true` in
+    the firmware profile, so a browser kit can tell it apart from an image capability's
+    (load_governor has only such edits). A build capability has no setting."""
     data, firmware = document(ROOT / PROFILE)['capabilities'], document(ROOT / FIRMWARE_PROFILE)
     require(isinstance(data, dict) and len(data) <= 32, 'Capabilities are a registry')
     for name, capability in data.items():
         edits = [p for p in firmware['patches'] if p.get('service') == name]
         require(NAME.fullmatch(name) and firmware['services'].get(name) == [name], 'Invalid capability: ' + name)
         if capability.get('build') is not None:
+            # Hooks, and fixed bytes each marked as the build's (the mark is what tells a
+            # browser kit a build capability's limit edit); no setting.
             require(capability == {'build': True} and edits and
-                    all(p['kind'] in ('hook', 'limit') and 'choices' not in p for p in edits),
+                    all((p['kind'] == 'hook' or p['kind'] == 'limit' and p.get('build') is True) and
+                        'choices' not in p and 'setting' not in p for p in edits),
                     'Invalid build capability: ' + name)
             continue
+        require(not any('build' in p for p in edits), 'Only a build capability marks its edits as the build ones: ' + name)
         # Fixed bytes only, so the builder can tell from an image that a capability is on.
         require(edits and all(p['kind'] == 'limit' for p in edits), 'Invalid capability: ' + name)
         require(any('choices' not in p and p['before'] != p['after'] for p in edits),

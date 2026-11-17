@@ -2,7 +2,7 @@
 
 Build capabilities ([settings extensions](extensions.md#settings-extensions),
 `"build": true` in [`profiles/extensions.json`](../profiles/extensions.json)) that
-cut the stock firmware's audio work, and
+cut the stock firmware's audio work, or change how it sheds load, and
 one image capability, `boot_log_fix`, kept with them because the `cpu` extension selects it. All of them are
 **experimental**. Each is a named group of SDK-owned edits, off unless a settings
 extension in the collection names it. Off, every one of its sites holds stock's
@@ -21,6 +21,14 @@ Firmware coverage: every capability below has addresses for **OP-XY OS 1.2.1 onl
 service fails with "the <name> capability has no firmware sites for OP-XY OS
 <version>".
 
+The SDK's one CPU extension, `extensions/cpu` ("CPU (experimental)"), selects all five:
+`boot_log_fix`, `idle`, `block_trims`, `output_slack` and `load_governor`. It needs `sdk.py build`. It
+does not select `release_floor`, whose threshold the idle cut uses: with `cpu` alone, `idle` skips
+silent sends and cuts no voice ([idle](#idle)). A
+collection that wants only some of the capabilities selects them with a settings
+extension of its own that names just those, in place of `cpu` (`sdk.py build`
+takes a settings extension from any folder the collection names).
+
 **What has run on a device: nothing from this repository.** No build made from this
 repository with any of these capabilities on has run on a device. A capability
 off leaves stock's bytes, which a build
@@ -32,6 +40,7 @@ without it has byte for byte ([Off means off](#off-means-off)).
 | `idle` | hooks `sdk_send_fx` at `8d5116a0` and `8d511908`, `sdk_idle_render` at `8d51c7a6` | `send_fx`, `idle_cut` |
 | `block_trims` | hooks `sdk_track_mix` at `8d511014` and (without profiling) `8d510f04`, `sdk_lfo_pass` at `11a044e6`, `sdk_tape_play` at `8d503878`, `sdk_tape_tail` at `8d50fac4` | `track_hooks`, `floor_hooks` |
 | `output_slack` | hook `sdk_dsp_block_audio` at `8c0c6ffe` (and, once armed, a run-time swap of the audio task's block pointer `11b008cc`) | `dsp_block`, `dsp_block_hooks`, `output_slack`, `output_slack_hooks` |
+| `load_governor` (fixed bytes, no code) | limits `8d51c430`, `8d51c48c`, `8d51c492`, `8d51c49a`, `8d51e4f0`, `8d51e4fe` | none |
 
 ## Budgets
 
@@ -47,6 +56,7 @@ disassembly of the build shows it); anything else is said not to be measured her
 | `idle` | per send per block: `sdk_send_fx` (a scan of 384 words while the send is quiet, then the effect's call is skipped once idle); per sounding voice per block: `sdk_idle_render` (stock's chooser plus a check) | a quiet send: its scans, one hardware loop of two instructions a word over 384 words (about 770 instructions; counted from the built code, not timed); a sounding send: a scan of its 128-word bus before the effect's call, one hardware loop of two instructions a word (about 260 instructions), and about 90 more of checks (counted from the built code, not timed); with `release_floor`, the drum sampler's tables scan up to 1,024 samples a block in all (not counted); with `cpu` alone, an SDK voice whose engine defines `settled()` still takes its block's peak and asks `settled()` every block, though nothing is cut (no catalog engine defines `settled()`, so nothing for the catalog; not counted). Saves an idle send's whole effect call and a cut voice's remaining blocks; not measured in this repository |
 | `block_trims` | per sounding track per block: `sdk_track_mix`; per LFO pass: `sdk_lfo_pass`; per block: `sdk_tape_play`, `sdk_tape_tail` | Functional-Sim, from this repository's tests ([block_trims](#block_trims)): a silent sounding track's mixes 402 against stock's 1,704; an LFO pass check 45 against 58 (up to 72 calls a block); an idle tape about 2,610 a block |
 | `output_slack` | per block: `sdk_dsp_block_audio`; until armed, a quiet check of the newest block (256 words, more with USB multichannel); once armed, each period a copy of one block (1,024 words) out of a 4 KB queue | the copy about 2,050 instructions a period (counted from the built code: a hardware loop of two instructions a word over 1,024 words; not timed) |
+| `load_governor` | stock's governor, as before, on its edited bytes | 0 (it changes when voices are cut, not the work) |
 
 ## Off means off
 
@@ -234,3 +244,132 @@ about-4 s wait, delivery); a host test pins the hook's call to the stock address
 replaced instruction called (`test_cpu_capabilities.py`). That its output equals the
 build without it one block later, and that it hides late blocks on a device, are not
 measured in this repository.
+
+## load_governor
+
+A plain switch: six fixed-byte edits and no code, each marked `"build": true` in
+the firmware profile. Off, all six sites hold stock's bytes. On, stock's governor
+acts on a short mean of the block load instead of its held peaks, cuts voices only
+near continuous saturation and gives them back sooner.
+
+What stock does (OS 1.2.1, read from the code): every audio block ends in
+`8d50ec6c`, which makes a load byte from the block's own cycle count: cycles x 256 /
+550,000, at most 255, so 255 from 547,852 cycles (94.4 % of the 580,352-cycle period;
+100 % of the byte's scale would be 550,000 cycles, 94.8 %). It then calls the
+voice manager's governor `8d51e4c4`. With L = the byte x 256 (of 65,536):
+- the smoothed load (`pool+0xe0`) rises a quarter of the gap in any block whose L is
+  higher, then holds for 256 blocks (0.37 s), then falls 8 a block (`8d51c480`);
+- a block whose own L reaches 89.8 % kills one released voice at or below -26 dB that
+  is at least 8 blocks old, two from 93 % (`8d51e3fc`, stock's one-block fade);
+- a smoothed load of 94.5 % or more drops the voice budget to max(12, active - 2) and
+  kills every voice over it (`8d51cf3c`); under 84.8 % the budget comes back one voice
+  every 32 blocks, up to 24 + 3;
+- at 84.8 % or more the track voice loop starts one stolen note per track per block
+  (`8d51c708`: the others wait two blocks).
+While USB audio is configured every threshold is lower by 0x26c + 0xa3 per routed USB
+stream (`0803ba84`). A few heavy blocks (a chord's note starts) can lift the smoothed
+load past 94.5 %, and the 256-block hold keeps it there: the budget stays down through
+the hold and the fixed fall after it, and every new note steals.
+
+What it changes, on:
+- The load figure becomes a short mean of the block load. `8d51c480` is rewritten
+  inside its own bytes: every block the figure moves 1/8 of the way to the block's
+  load, whether the block is above or below it (`8d51c492`: `LSHIFT R1 >>= 2` becomes
+  `ASHIFT R1 >>>= 3` on the signed gap), with no hold and no fixed fall (`8d51c48c`:
+  the rise test and its branch to the hold, decay and floor paths become
+  `R2 = R1 >> 1`; those paths stay in the image, unreachable; the hold word
+  `pool+0xe4` is no longer read or written). Time constant 8 blocks (about 12 ms).
+  The pool is the voice manager, a member of the audio engine object: stock passes the
+  engine at `0x84c696fc` to its audio loop (`11a02b32`..`11a02b3a`, a call of
+  `8d510760`), whose load step (`8d50ec6c`, called at `8d51231c`) passes the engine plus
+  `0x13c` to the governor (`8d50ed1c`..`8d50ed26`); so `pool+0xe0` is `0x84c69918` and
+  `pool+0xe4` is `0x84c6991c`. The stock voice routine at `8d51b274` also reads `+0xe0` and
+  `+0xe4` of a record (`8d51b330`, `8d51b31c`), but of another object: the per-track
+  table at `0x84eab39c`, 0xe8 bytes a track (`8d51b2a2`..`8d51b2ae` through
+  `8d518d94`, base + track × 0xe8), 2.3 MB from the pool. It does not read the
+  governor's words.
+- The routine returns `0x6680 + L / 2` (`8d51c49a`, where it used to reload the hold
+  with 256), and the single-block test compares 89.8 % with that return instead of
+  the block's own load (`8d51e4f0`: R4 = R0 before the test; this edit marks the
+  capability on). So the single-block kill fires only on a block at the load byte's
+  ceiling (547,852 cycles or more, 94.4 % of the period): one released voice at or
+  below -26 dB, never two (the 93 % test needs `0xee00`, above the routine's largest
+  return) unless USB audio's overhead term reaches 0x800: 9 or more routed USB
+  entries, and then only on a saturated block.
+- The budget cut's line moves from 94.5 % to 99.0 % of the load byte's scale
+  (`8d51c430`: `R1 = 0xf200 (Z)` becomes `R1 = 0xfd70 (Z)` in `8d51c420`, whose only
+  caller is that test). The byte saturates at 255 (any block of 547,852 cycles or
+  more: the figure can never read more than 0xff00, 99.6 %), and the mean settles at
+  least 0xfef9 under saturation on every block, so the line is reached: after 27
+  saturated blocks from 80 %, and by a constant byte of 254 (99.2 %), never by 253.
+- The recovery (one voice per 32 blocks) starts under 93.0 % instead of 84.8 %: its
+  threshold routine (`8d51c468`) is shared with the pacing of stolen notes
+  (`8d51c778`), so its constant stays and the pacing stays at 84.8 %; instead the
+  recovery's own call (`8d51e4fe`) goes to `8d51c438`, which returns 0xee00 (93.0 %)
+  less the same USB overhead term. Between 93 % and 99 % neither the cut nor the
+  recovery moves the budget: after a cut, a steady 92 % gets every voice back, a
+  steady 95 % keeps the budget down.
+Everything else is stock's and reads the new figure: the kill routine, the floor of
+12, the 84.8 % pacing of stolen notes, the single-block and two-tail thresholds and
+the load byte's scale.
+
+Every percentage above is of the governor's scale, on which 100 % is 550,000 cycles,
+94.8 % of the real 580,352-cycle block. In both units (scale / real block):
+
+| line | stock | on |
+| --- | --- | --- |
+| budget cut | 94.5 % / 89.6 % | 99.0 % / 93.8 % |
+| recovery | 84.8 % / 80.3 % | 93.0 % / 88.1 % |
+| pacing of stolen notes | 84.8 % / 80.3 % | unchanged |
+| one quiet tail killed | the block's own load from 89.8 % / 85.1 % | only at the byte's ceiling, 99.6 % / 94.4 % |
+| two tails | from 93.0 % / 88.1 % | never (without USB audio) |
+| the byte's ceiling | 99.6 % / 94.4 % | unchanged |
+
+So on, a steady load of about 94 % of a real block is cut (stock: 89.6 %), and the
+governor is blind to anything above 94.4 % of a block: a block at 95 % and one at
+200 % read the same.
+
+Off: the six sites hold stock's bytes.
+
+What it saves: no CPU. It changes when stock takes voices away under load.
+
+What it risks, bluntly: **it never sheds overload that comes in bursts.** It cuts
+only near-continuous saturation. It does NOT cut: a constant load up to 98.8 % of the
+byte's scale; saturated blocks alternating with 95 % blocks (the figure reads about
+97 %, while the saturated blocks may each be far over the period: the byte cannot
+show by how much); three saturated blocks in four with the fourth at 90 %; a
+saturated block every 2nd, 4th or 8th block on a lighter base; any pattern of very
+late blocks between light ones (say every 2nd block at twice the period, the others
+at 40 %: the mean stays near 70 %). Each of those can be a real overload that runs
+late block after block. Until the load drops, such a project lags or clicks; the
+output slack hides one late block, not a run of them, and long runs of late blocks
+may also starve the screen board's link (the author saw an assertion in the SPI
+bridge's code on one OP-XY when the audio board stopped reading, which this repository
+cannot reproduce).
+Stock's held peaks cut such patterns.
+- The pacing of stolen notes (`8d51c708`: while the figure is over 84.8 % each track
+  starts one waiting stolen note per block and the others wait two blocks) follows
+  the mean: it is on only while the short mean is over 84.8 %, where stock keeps it
+  on for seconds after any peak. So stolen notes are staggered less often than in
+  stock (in a host model over the same load sequences, never in a block where
+  stock's would not be, without USB audio and with up to 102 routed USB entries; at
+  103, 114 and 125 entries a constant load reached from above can keep it on where
+  stock's is off; whether that many entries can be routed is not known).
+- The single-block kill now needs a saturated block (stock: 89.8 %), so quiet
+  released tails (at or below -26 dB) are trimmed less early. With USB audio this
+  holds up to 36 routed entries: from 37 the one-tail kill fires on blocks where
+  stock's does not, from 49 also the two-tail kill (released voices at or below
+  -26 dB only); whether the routing table can hold 37 or more entries is not known.
+- The time constant was chosen by the author on synthetic loads in a simulator outside
+  this repository, not on a real project's load; what it then does is what the host
+  tests check.
+- The edits are fixed bytes at stock sites. The SDK writes them only in `sdk.py
+  build`, but any tool that writes bytes into an image could write them.
+
+Tests: host only. `test_load_governor.py`: the edits and their encodings, the
+smoother's bytes run instruction by instruction off and on against models of stock's
+and the mean's arithmetic and return value, the cut and recovery lines decoded from
+the image's bytes, what it cuts and what it does not (saturation on every block from
+80 % cuts on the 27th block), that it has no setting and its refusals outside `sdk.py
+build`. Nothing runs stock's governor routine itself on the edited bytes in this
+repository.

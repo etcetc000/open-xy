@@ -226,10 +226,11 @@ machines. Every capability site must hold stock or reviewed bytes.
 
 A **build capability** (`"build": true` in the registry) is switched the same way,
 by a settings extension naming it, but only when the firmware is built
-(`sdk.py build`): its edits are hooks into SDK code its service links, so it
+(`sdk.py build`): its edits are hooks into SDK code its service links (or, for
+`load_governor`, fixed bytes the firmware profile marks as the build's), so it
 cannot be written into an existing image (`settings apply` refuses it; `settings
-show` reports whether an image was built with it), and browser kits do not offer
-it. Off, every one of its sites stays stock and its SDK units are not linked. Each
+show` reports whether an image was built with it, or its setting), and browser kits
+do not offer it. Off, every one of its sites stays stock and its SDK units are not linked. Each
 is listed, with what it changes, saves and risks and the firmware versions it has
 addresses for, in
 [CPU capabilities](cpu-capabilities.md). Selecting a capability that has no sites

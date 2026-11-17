@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '798ce9cd8e08db0b41da52e288bb8130b3e54c4661e1d263d4e75c882592e08d';
+export const PROFILE_SHA256 = '250a0e6dc5772bc2c4e10663d67ec4d684aac9eddc8c826e47b8a47b4af2360e';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -659,8 +659,9 @@ export async function openKit(kit) {
       e.capabilities.every(c => /^[a-z][a-z0-9_]{0,31}$/.test(c) && kit.profile.services?.[c]?.join() === c &&
         kit.profile.patches.some(edit => edit.service === c && !edit.choices && edit.before !== edit.after) &&
         // Image capabilities only: fixed-byte limit edits. A build capability (hooks into SDK
-        // code) is chosen by sdk.py build; a kit cannot carry it.
-        kit.profile.patches.every(edit => edit.service !== c || edit.kind === 'limit'))) &&
+        // code, or fixed bytes the profile marks as the build's) is chosen by sdk.py build; a
+        // kit cannot carry it.
+        kit.profile.patches.every(edit => edit.service !== c || edit.kind === 'limit' && !edit.build))) &&
       (e.linked === undefined || e.linked === false && e.capabilities && !e.claims.length && !e.actions.length &&
         !processorOf(e) && !kit.objects.some(o => o.extension === e.id)), 'Invalid extension capabilities');
     // A capability setting: its range and the extension's value; the profile lists every value's bytes.
