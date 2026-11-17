@@ -9,6 +9,7 @@
   },
   "capabilities": {
     "long_samples": {},
-    "release_floor": {"setting": {"label": "Idle threshold", "unit": "dB", "minimum": -66, "maximum": -20, "default": -48}}
+    "release_floor": {"setting": {"label": "Idle threshold", "unit": "dB", "minimum": -66, "maximum": -20, "default": -48}},
+    "boot_log_fix": {}
   }
 }

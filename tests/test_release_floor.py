@@ -19,6 +19,10 @@ from tooling.formats import header, ldr
 from tooling.pipeline import ROOT, check_patch_boundaries, config, document
 from tooling.stock_tables import decode
 
+# Image capabilities this SDK has beside these two (such as boot_log_fix); each is off.
+IMAGE_CAPABILITIES = tuple(c for c in capabilities() if c not in extensions.build_capabilities())
+OTHER_IMAGE_CAPABILITIES = {c: None for c in IMAGE_CAPABILITIES if c not in ('long_samples', 'release_floor')}
+
 REGISTRY = document(ROOT / 'profiles/extensions.json')['capabilities']
 
 
@@ -170,7 +174,7 @@ class Image(unittest.TestCase):
 
     def image(self):
         profile = config()
-        edits = [p for p in profile['patches'] if p.get('service') in ('long_samples', 'release_floor')]
+        edits = [p for p in profile['patches'] if p.get('service') in IMAGE_CAPABILITIES]
         records = [header(0x5004, 0, 0, 0)]
         for patch in edits:
             records.append(header(1, int(patch['address'], 16), patch['length'], 0) + bytes.fromhex(patch['before']))
@@ -188,11 +192,11 @@ class Image(unittest.TestCase):
 
     def test_apply_and_show(self):
         data, profile = self.image()
-        self.assertEqual(image_settings.state(data, profile), {'long_samples': None, 'release_floor': None})
+        self.assertEqual(image_settings.state(data, profile), {**OTHER_IMAGE_CAPABILITIES, 'long_samples': None, 'release_floor': None})
         extension = extension_at(folder(self, settings={'release_floor': -40}))
         result, values = image_settings.apply(data, [extension], {}, profile)
         self.assertEqual(values, {'release_floor': -40})
-        self.assertEqual(image_settings.state(result, profile), {'long_samples': None, 'release_floor': -40})
+        self.assertEqual(image_settings.state(result, profile), {**OTHER_IMAGE_CAPABILITIES, 'long_samples': None, 'release_floor': -40})
         self.assertEqual(sum(a != b for a, b in zip(data, result)), 5)
         again, values = image_settings.apply(result, [extension], {'release_floor': -66}, profile)
         self.assertEqual(image_settings.state(again, profile)['release_floor'], -66)
@@ -244,7 +248,7 @@ class Image(unittest.TestCase):
                     code = exit.code
             return code, out.getvalue(), err.getvalue()
         code, text, _ = run('show', '--image', work / 'os.ldr')
-        self.assertEqual((code, json.loads(text)), (0, {'long_samples': None, 'release_floor': None}))
+        self.assertEqual((code, json.loads(text)), (0, {**OTHER_IMAGE_CAPABILITIES, 'long_samples': None, 'release_floor': None}))
         code, _, _ = run('apply', '--image', work / 'os.ldr', '--extension', extension,
                          '--set', 'release_floor=-30', '--out', work / 'out')
         report = json.loads((work / 'out/settings.json').read_text(encoding='utf-8'))
@@ -269,7 +273,7 @@ class Image(unittest.TestCase):
     @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Private stock input not supplied')
     def test_stock_holds_the_audited_preimages(self):
         stock = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
-        self.assertEqual(image_settings.state(stock), {'long_samples': None, 'release_floor': None})
+        self.assertEqual(image_settings.state(stock), {**OTHER_IMAGE_CAPABILITIES, 'long_samples': None, 'release_floor': None})
 
 
 if __name__ == '__main__':

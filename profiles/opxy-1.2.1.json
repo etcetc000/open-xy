@@ -180,6 +180,9 @@
     ],
     "synth_shift": [
       "synthShift"
+    ],
+    "boot_log_fix": [
+      "boot_log_fix"
     ]
   },
   "patches": [
@@ -2503,6 +2506,16 @@
       "symbol": "sdk_drumline_page_hook",
       "call": true,
       "service": "drumline"
+    },
+    {
+      "kind": "limit",
+      "name": "GUI board: do not forward log lines over the SPI bridge (log-sink switch 1 -> 0, a data byte; boot_log_fix)",
+      "address": "0x8400ea65",
+      "file_offset": "0x1d759",
+      "length": 1,
+      "before": "01",
+      "after": "00",
+      "service": "boot_log_fix"
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches",

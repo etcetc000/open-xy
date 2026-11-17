@@ -152,3 +152,12 @@ class Built(unittest.TestCase):
             self.built([0xaa, 0xbb, 3, 4, 5, 6, 7, 8])
         with self.assertRaisesRegex(ValueError, 'Unexpected bytes at a capability site'):
             self.built([0xaa, 0xbc, 3, 4, 0xcc, 0xdd, 7, 8])
+
+
+class Extensions(unittest.TestCase):
+    def test_the_boot_log_fix_is_its_own_image_capability(self):
+        # One data byte, fixed bytes: an image setting, not a build capability (owner's decision).
+        profile = config()
+        self.assertEqual(edits_of(profile, 'boot_log_fix'), {'0x8400ea65': 'limit'})
+        self.assertNotIn('boot_log_fix', extensions.build_capabilities())
+        self.assertIn('boot_log_fix', extensions.capabilities())
