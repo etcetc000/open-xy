@@ -10,7 +10,7 @@ static_assert(@SHARED_BYTES@ == 0 ? __is_empty(Shared) : sizeof(Shared) == @SHAR
 static Voice voices[8];
 static Shared shared;
 static opxy::u32 owner(Voice* voice) { return static_cast<opxy::u32>(voice - voices) + 1; }
-// A drum kit's previewed model (the harness's Shift + 1); unused by synths.
+// A drum kit's previewed model (the harness's Shift / Model control); unused by synths.
 static opxy::u32 drum_model;
 extern "C" {
 opxy::u32 opxy_preview_abi() { return 1; }

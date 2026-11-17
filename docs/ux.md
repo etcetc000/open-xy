@@ -57,8 +57,10 @@ is the reference for each of them.
   four, so a press means the same thing everywhere. If a position has no
   alternate, repeat its first-page control in the second row; both edit the
   same saved parameter. Do not add filler parameters to reach eight. A drum
-  kit's eight controls page the same way, always: a press switches the row
-  between the key's first four controls and its last four. A
+  kit's eight controls page the same way: a press switches the row
+  between the key's first four controls and its last four when its model uses
+  any of the last four (below its count and named), and always on a `padMix`
+  kit. A
   [note player](api.md#note-players) with five to eight parameters pages the
   same way; the SDK draws its header.
 - **A Shift row for more.** A synth that needs more than eight controls
@@ -66,7 +68,7 @@ is the reference for each of them.
   more under each page, which Shift and that page's encoders turn. Holding
   Shift turns both rows of the header into the Shift controls, page 1's on
   top and page 2's under them, the page the encoders are on bright, as on a
-  drum kit; keep what is played on the pages and what is set less often on
+  `padMix` kit; keep what is played on the pages and what is set less often on
   the row. A press switches pages with Shift held too, and the row follows,
   so the player reaches the other page's entries without letting go. Presets
   and step locks keep the row as they keep the pages.

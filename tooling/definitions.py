@@ -286,7 +286,7 @@ def validate_definition(value, kind):
         require(kind in ('synth', 'effect', 'player') and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
                 alternates and len(set(alternates)) == len(alternates),
                 '"press": "page" needs five to eight synth, effect or player parameters and at most one alternate per position; '
-                "a drum kit's press always pages its row")
+                'a drum kit declares no "press": its paging is built in')
     # A player's encoders have no alternates of their own: a press shows its second four.
     require(kind != 'player' or len(parameters) <= SYNTH_POSITIONS or paged(value),
             'A note player with more than four parameters pages them: "press": "page"')

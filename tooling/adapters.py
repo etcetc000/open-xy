@@ -556,7 +556,8 @@ def generate_synth_controls(directory, machines):
                              '        return true;'])
         body.extend(['    default: return false;', '    }', '}'])
         formatters.append('\n'.join(body))
-        # A drum kit's press always pages its whole row.
+        # A drum kit's press pages its whole row, on a key that has a second row
+        # (synth_controls.cpp second_row).
         page = m.kind == 'drum' or own_screen and count > 4 or paged(m.definition)
         # An effect's shift row: its choice counts and titles; other rows leave the fields zero.
         extra = ''
