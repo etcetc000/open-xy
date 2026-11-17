@@ -102,10 +102,17 @@ void sdk_drum_pad_values(opxy::u32 track, opxy::i32* values) {
         bool sign;
         values[i] = 0;
         if (!record || !machine->pad_field(i, low, bits, sign)) continue;
-        if (ready) values[i] = drum_field_get(reinterpret_cast<const opxy::i32*>(record)[kDrumPadWord / 4], low, bits, sign);
         const opxy::i32 lock = locks.offset[kHitPad1 + i];   // the pad controls, then FX I and FX II
+        if (i >= kDrumKitPadFields) {
+            // A send's index (drum_send.hpp): TRK on a key not set up.
+            const opxy::u32 send = i - kDrumKitPadFields;
+            opxy::u32 index = drum_send_index(drum_send_record_pair(record), send);
+            if (lock) drum_send_lock_index(lock, index);
+            values[i] = static_cast<opxy::i32>(index);
+            continue;
+        }
+        if (ready) values[i] = drum_field_get(reinterpret_cast<const opxy::i32*>(record)[kDrumPadWord / 4], low, bits, sign);
         if (!lock) continue;
-        values[i] = i < kDrumKitPadFields
-            ? drum_lock_clamp(values[i] + lock, drum_field_min(bits, sign), drum_field_max(bits, sign)) : lock - 1;
+        values[i] = drum_lock_clamp(values[i] + lock, drum_field_min(bits, sign), drum_field_max(bits, sign));
     }
 }

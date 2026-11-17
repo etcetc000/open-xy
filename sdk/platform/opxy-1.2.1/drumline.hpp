@@ -11,14 +11,17 @@
 //   writes (stock's samplers keep a frame count there). Its upper half is the
 //   page's owner tag, its lower half the parameters' codes (drumline_page.hpp):
 //   each choice less its default, so 0 is neutral. A word without the tag, a
-//   pad from before or from another extension, reads as every default.
+//   pad from before or from another extension, reads as every default. A send
+//   (SDK 1.15) is a padMix key's: its amount in the record's byte +0x19 or +0x1b,
+//   its 3-bit code the amount's coarse copy (drum_send.hpp drum_send_stored),
+//   both read only behind the tag.
 // - Audio: at every publication of a Drumline pad (8d5ad776) the GUI carries the
-//   codes in payload bits the dbox DSP ignores (drumline_carry). A wrapper of the
-//   dbox render (drumline.cpp) keeps each voice's payload from its first block,
-//   runs the extension's processor on the voice's mono block after stock's level
-//   and envelope while any of its own parameters is off its default, and hands
-//   the send codes to the per-key send hooks (drum_send.hpp), which mix them as a
-//   padMix kit's.
+//   send pair and the other codes in payload bits the dbox DSP ignores
+//   (drumline_carry). A wrapper of the dbox render (drumline.cpp) keeps each
+//   voice's payload from its first block, runs the extension's processor on the
+//   voice's mono block after stock's level and envelope while any of its own
+//   parameters is off its default, and hands the send pair to the per-key send
+//   hooks (drum_send.hpp), which mix it as a padMix kit's.
 // - Locks: with a step held, a turn on page 2 locks that parameter for the step's
 //   hits of the key stock edits, a choice in the step-lock handles' pool
 //   (lock_handles.hpp) under fields 8.. (drumline_pool_field), apart from a kit's
@@ -46,6 +49,17 @@ inline u32 drumline_choice(const DrumlinePageParameter& p, u32 code) {
     const u32 choice = (p.neutral + code) & drumline_code_mask(p);
     return choice < p.count ? choice : p.neutral;
 }
+// Whether a parameter is a send, and which (0 FX I, 1 FX II).
+inline bool drumline_send(const DrumlinePageParameter& p) { return p.role == kDrumlineSend1 || p.role == kDrumlineSend2; }
+inline u32 drumline_send_of(const DrumlinePageParameter& p) { return p.role == kDrumlineSend2 ? 1 : 0; }
+// The lowest code bit of the page's own parameters (tooling/extensions.py puts the
+// sends' codes first), or 16 when it has none.
+inline u32 drumline_own_low(const DrumlinePage& page) {
+    u32 low = kDrumlineCodeBits;
+    for (u32 i = 0; i < page.count; ++i)
+        if (!drumline_send(page.parameters[i]) && page.parameters[i].shift < low) low = page.parameters[i].shift;
+    return low;
+}
 // The page's codes as choices, and back.
 inline void drumline_unpack(const DrumlinePage& page, u32 codes, drumline::Choices& out) {
     for (u32 i = 0; i < drumline::max_parameters; ++i)
@@ -69,34 +83,46 @@ inline u32 drumline_word(const DrumlinePage& page, u32 codes) {
 }
 
 // The payload carrier. The dbox DSP decodes word 0 as ((w >>> 8) * 66) >>> 23
-// (11a06d62..11a06d80), so its bits 0..7 never matter: the codes' bits 0..6
-// there, and bit 7 set when word 6 carries the rest. Word 6 (random, which the
-// DSP squares, 11a06db8) then carries bits 7..15 in its bits 0..8, a change
-// below 2^-22 of full scale; with them 0 it is stock's. tooling/extensions.py
-// places the sends' codes first, in bits 0..5, so sends alone never touch word 6.
-const u32 kDrumlineCarried = 1u << 7, kDrumlineLowBits = 7, kDrumlineHighMask = 0x1ffu;
-inline void drumline_carry(i32* payload, u32 codes) {
-    const u32 high = (codes & kDrumlineCodeMask) >> kDrumlineLowBits;
-    payload[0] = static_cast<i32>((static_cast<u32>(payload[0]) & ~0xffu) | (codes & ((1u << kDrumlineLowBits) - 1)) |
-                                  (high ? kDrumlineCarried : 0u));
-    if (high) payload[6] = static_cast<i32>((static_cast<u32>(payload[6]) & ~kDrumlineHighMask) | high);
+// (11a06d62..11a06d80), and the builder puts it mid-bin, 2^22 from an edge, so
+// its bits 0..15 never move a bin: the hit's send pair in bits 0..6 and 8..14
+// (drum_send_carry, as a kit's), and bit 7 set when word 6 carries the page's
+// own parameters' codes, from `low` (drumline_own_low) up, in its bits 0..15.
+// Word 6 is random, which the DSP squares (11a06db8): the codes change it by less
+// than 2^(16 - low) LSB, below 2^-21 of full scale for a page with both sends;
+// with them 0 it is stock's, so sends alone never touch word 6.
+const u32 kDrumlineCarried = 1u << 7;
+inline void drumline_carry(i32* payload, u32 pair, u32 codes, u32 low) {
+    const u32 high = low < kDrumlineCodeBits ? (codes & kDrumlineCodeMask) >> low : 0;
+    drum_send_carry(payload, pair);
+    payload[0] = static_cast<i32>((static_cast<u32>(payload[0]) & ~kDrumlineCarried) | (high ? kDrumlineCarried : 0u));
+    if (high) payload[6] = static_cast<i32>((static_cast<u32>(payload[6]) & ~kDrumlineCodeMask) | high);
 }
-inline u32 drumline_carried(const i32* payload) {
-    const u32 low = static_cast<u32>(payload[0]);
-    u32 codes = low & ((1u << kDrumlineLowBits) - 1);
-    if (low & kDrumlineCarried) codes |= (static_cast<u32>(payload[6]) & kDrumlineHighMask) << kDrumlineLowBits;
-    return codes;
+// The page's own codes a payload carries (its sends' codes 0: drum_send_carried
+// has the sends).
+inline u32 drumline_carried(const i32* payload, u32 low) {
+    if (!(static_cast<u32>(payload[0]) & kDrumlineCarried) || low >= kDrumlineCodeBits) return 0;
+    return ((static_cast<u32>(payload[6]) & kDrumlineCodeMask) << low) & kDrumlineCodeMask;
 }
-// A hit's send codes, as drum_send_codes gives a kit's (FX I in bits 0..2, FX II
-// in 3..5): a send parameter's choice is its code, 0 TRK.
-inline u32 drumline_sends(const DrumlinePage& page, const drumline::Choices& choices) {
-    u32 codes = 0;
-    for (u32 i = 0; i < page.count; ++i) {
-        const u32 role = page.parameters[i].role;
-        if (role == kDrumlineSend1 || role == kDrumlineSend2)
-            codes |= (choices.choice[i] & (kDrumSendCodes - 1)) << ((role - kDrumlineSend1) * kDrumSendCodeBits);
-    }
-    return codes;
+// A pad's send pair: each send parameter's amount byte and code (its choice), read
+// as a padMix key's (drum_send_stored); TRK where the page has no such send, and
+// on a pad without the page's tag (`tagged`).
+inline u32 drumline_pair(const DrumlinePage& page, const unsigned char* record, bool tagged,
+                         const drumline::Choices& choices) {
+    u32 pair = 0;
+    if (!record || !tagged) return 0;
+    for (u32 i = 0; i < page.count; ++i)
+        if (drumline_send(page.parameters[i])) {
+            const u32 send = drumline_send_of(page.parameters[i]);
+            pair = drum_send_with(pair, send, drum_send_stored(record[kDrumSendByte[send]], choices.choice[i]));
+        }
+    return pair;
+}
+// The choices the processor sees for a hit's sends: each send's 3-bit code as SDK
+// 1.10..1.14 gave it (drum_send_shown), so Choices keeps its meaning.
+inline void drumline_send_choices(const DrumlinePage& page, u32 pair, drumline::Choices& choices) {
+    for (u32 i = 0; i < page.count; ++i)
+        if (drumline_send(page.parameters[i]))
+            choices.choice[i] = static_cast<u8>(drum_send_shown(drum_send_index(pair, drumline_send_of(page.parameters[i])), false));
 }
 // Whether the processor runs for a hit: one of the extension's own parameters is
 // off its default.
@@ -120,7 +146,8 @@ inline u32 dbox_index(u32 object) {
 
 // A parameter's lock in the handles' pool: field 8 + its index, apart from a
 // padMix kit's 0..5 (DrumHitField), since stock copies a step's handle with the
-// step to any track. The value is the locked choice plus 1.
+// step to any track. The value is the locked choice plus 1; a send's is a kit's
+// send lock (drum_locks.hpp drum_send_lock_index), whose old form is that too.
 const u32 kDrumlinePoolFields = 8;
 inline u32 drumline_pool_field(u32 parameter) { return kDrumlinePoolFields + parameter; }
 // A locked value as a choice, or false when it is out of the parameter's range.
@@ -130,13 +157,19 @@ inline bool drumline_lock_choice(const DrumlinePageParameter& p, i32 value, u32&
     return true;
 }
 // A step's choices for a key: the pad's, each locked one (`mask` and `values` by
-// pool field, as step_locks::handle_fields gives them) in its place.
-inline void drumline_lock_choices(const DrumlinePage& page, u32 mask, const i32* values, drumline::Choices& choices) {
+// pool field, as step_locks::handle_fields gives them) in its place; a locked
+// send in its place in `pair`.
+inline void drumline_lock_choices(const DrumlinePage& page, u32 mask, const i32* values, drumline::Choices& choices,
+                                  u32& pair) {
     for (u32 i = 0; i < page.count; ++i) {
         const u32 field = drumline_pool_field(i);
-        u32 choice;
-        if (mask >> field & 1u && drumline_lock_choice(page.parameters[i], values[field], choice))
+        if (!(mask >> field & 1u)) continue;
+        u32 choice, index;
+        if (drumline_send(page.parameters[i])) {
+            if (drum_send_lock_index(values[field], index)) pair = drum_send_with(pair, drumline_send_of(page.parameters[i]), index);
+        } else if (drumline_lock_choice(page.parameters[i], values[field], choice)) {
             choices.choice[i] = static_cast<u8>(choice);
+        }
     }
 }
 
@@ -165,9 +198,9 @@ extern "C" {
 const void* sdk_drumline_get() __asm__("sdk_drumline_get");
 // The linked drumline_page extension's page (tooling/extensions.py).
 const opxy::platform::DrumlinePage* sdk_drumline_page_extension() __asm__("sdk_drumline_page_extension");
-// Each stock dbox voice's send codes of its last block (drum_send.cpp), as the
-// render wrapper keeps them; 0 (TRK) in a build without the service.
-extern opxy::u8 sdk_drum_send_dbox[opxy::platform::kDboxVoices] __asm__("sdk_drum_send_dbox");
+// Each stock dbox voice's send pair (drum_send_pair) of its last block
+// (drum_send.cpp), as the render wrapper keeps it; 0 (TRK) in a build without the service.
+extern opxy::u16 sdk_drum_send_dbox[opxy::platform::kDboxVoices] __asm__("sdk_drum_send_dbox");
 }
 
 namespace opxy { namespace platform {

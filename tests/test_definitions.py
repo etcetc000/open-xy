@@ -3,6 +3,7 @@ import dataclasses
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 from types import SimpleNamespace
 import tempfile
@@ -104,6 +105,28 @@ class Definitions(unittest.TestCase):
                              (m.id, 4, 'OP-XY', []))
             self.assertEqual(preset['engine']['params'], catalog_defaults(m.definition))
             self.assertFalse(preset['fx']['active'] or preset['lfo']['active'])
+
+    def test_preset_defaults_set_the_init_presets_track_volume(self):
+        from tooling.machines import machine_at
+        synth = fixture('probesynth')
+        self.assertEqual(default_preset(synth)['engine']['volume'], 16384)  # the template's
+        louder = dataclasses.replace(synth, preset_defaults=dict(synth.preset_defaults, volume=20000))
+        self.assertEqual(default_preset(louder)['engine']['volume'], 20000)
+        self.assertEqual(default_preset(louder)['envelope'], default_preset(synth)['envelope'])
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / 'probesynth'
+            shutil.copytree(FOLDER / 'probesynth', root)
+            record = json.loads((root / 'machine.json').read_text(encoding='utf-8'))
+            for volume, valid in ((0, True), (32767, True), (32768, False), (-1, False), (True, False), (1.5, False),
+                                  ('20000', False)):
+                (root / 'machine.json').write_text(json.dumps(dict(record, presetDefaults={'volume': volume})),
+                                                   encoding='utf-8')
+                with self.subTest(volume=volume):
+                    if valid:
+                        self.assertEqual(machine_at(root).preset_defaults, {'volume': volume})
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'Invalid preset volume default'):
+                            machine_at(root)
 
     def test_a_machines_own_default_preset_replaces_the_generated_one(self):
         synth = fixture('probesynth')
@@ -252,7 +275,7 @@ class Definitions(unittest.TestCase):
             machine = SimpleNamespace(kind='player', prefix='probeplayer', native_name='probeplayer', display='stock',
                                       identity=dict(player=6, page=90), definition=player)
             text = generate_player_object(directory, machine).read_text(encoding='utf-8')
-        self.assertIn('{0, 0, 0, 1}', text)
+        self.assertIn('{0, 0, 0, 1, 1, 1, 1, 1}, false, false}', text)
         player['parameters'][3]['label'] = 'X'
         with self.assertRaises(ValueError): validate_definition(player, 'player')
         machines = [SimpleNamespace(kind='synth', prefix='gap', identity=dict(engine=5), definition=value)]
@@ -294,7 +317,10 @@ class Definitions(unittest.TestCase):
         self.assertEqual(control_cycles(value), [5, 6, 7, 4, 3, 0, 1, 2])
         self.assertFalse(paged(self.engine))
         rejected = []
-        for bad in ('next', True, None):
+        # "click" is a note player's alone (test_players), on four controls or eight.
+        clicking = copy.deepcopy(self.engine); clicking['press'] = 'click'
+        rejected.append(clicking)
+        for bad in ('next', True, None, 'click'):
             changed = copy.deepcopy(value); changed['press'] = bad
             rejected.append(changed)
         short = copy.deepcopy(value); del short['parameters'][-1]

@@ -85,14 +85,18 @@ int main() {
     for (unsigned i = 0; i < opxy::block_frames; ++i) fixture_amplitude[i] = 0x7fffffff;
     for (unsigned i = 0; i < 8; ++i) offsets[i] = 0x40000000;
     for (unsigned i = 0; i < 256; ++i) CHECK(objects[i] = probe_factory(i, i % 8));
-    // In word 6, FILTER and SRR bits, FX I's code 5 and FX II's 3, on a key the kit set up.
-    const opxy::i32 word = opxy::platform::drum_send_store(
-        opxy::platform::drum_send_store(0x00120000 | opxy::platform::kDrumPadReady, 0, 5), 1, 3);
+    // In word 6, FILTER and SRR bits on a key the kit set up; in word 0, FX I at 37
+    // and FX II at the old code 3 (33).
+    namespace p = opxy::platform;
+    const opxy::i32 word = 0x00120000 | p::kDrumPadReady;
+    const opxy::u32 pair = p::drum_send_pair(p::drum_send_index_of_amount(37), p::drum_send_index_of_code(3));
     opxy::i32 marked[8] = {kMarked, 0, 0, 0, 0, 0, word, 0};
     opxy::i32 unmarked[8] = {0, 0, 0, 0, 0, 0, word, 0};
+    p::drum_send_carry(marked, pair);
+    p::drum_send_carry(unmarked, pair);
     // A key an SDK 1.9 kit marked keeps whatever stock left in the word: here stock's
-    // default kit's last key (0x26660000, FX I 3 and FX II 2 if it were read) and an
-    // editor value with its low half.
+    // default kit's last key (0x26660000) and an editor value with its low half,
+    // each beside word 0's low bits as stock's builder leaves them (0x1b25).
     opxy::i32 old_default[8] = {kMarked, 0, 0, 0, 0, 0, 0x26660000, 0};
     opxy::i32 old_editor[8] = {kMarked, 0, 0, 0, 0, 0, opxy::i32(199 * 10737418 + 5368709), 0};
     note(1, 53);
@@ -104,7 +108,7 @@ int main() {
     render(2, unmarked);
     render(3, old_default);
     render(4, old_editor);
-    CHECK(probe_drum_send(objects[1]) == (PAD_MIX ? 5u + (3u << 3) : 0u));
+    CHECK(probe_drum_send(objects[1]) == (PAD_MIX ? pair : 0u));
     CHECK(probe_drum_send(objects[2]) == 0);       // a pad the kit has not marked follows
     CHECK(probe_drum_send(objects[3]) == 0);       // nor one it has not set up
     CHECK(probe_drum_send(objects[4]) == 0);
@@ -113,7 +117,7 @@ int main() {
     // A note keeps the codes of its first block's payload: the payload is the
     // pad's, which a later note on the pad replaces.
     render(1, nullptr);
-    CHECK(probe_drum_send(objects[1]) == (PAD_MIX ? 5u + (3u << 3) : 0u));
+    CHECK(probe_drum_send(objects[1]) == (PAD_MIX ? pair : 0u));
     note(1, 53);
     render(1, nullptr);
     CHECK(probe_drum_send(objects[1]) == 0);
@@ -128,10 +132,10 @@ int main() {
     // A stolen handle: its voice went to another note, so the block it renders
     // is silence and follows the track, whatever the voice's new key sends.
     end(2);
-    const opxy::i32 other_word = opxy::platform::drum_send_store(
-        opxy::platform::drum_send_store(opxy::platform::kDrumPadReady, 0, 2), 1, 6);
-    opxy::i32 other[8] = {kMarked, 0, 0, 0, 0, 0, other_word, 0};
-    const opxy::u32 codes = PAD_MIX ? 5u + (3u << 3) : 0u, other_codes = PAD_MIX ? 2u + (6u << 3) : 0u;
+    const opxy::u32 other_pair = p::drum_send_pair(p::drum_send_index_of_code(2), p::drum_send_index_of_amount(100));
+    opxy::i32 other[8] = {kMarked, 0, 0, 0, 0, 0, p::kDrumPadReady, 0};
+    p::drum_send_carry(other, other_pair);
+    const opxy::u32 codes = PAD_MIX ? pair : 0u, other_codes = PAD_MIX ? other_pair : 0u;
     note(1, 53);
     render(1, marked);
     note(6, 57); note(7, 58); note(8, 59);         // the other three voices

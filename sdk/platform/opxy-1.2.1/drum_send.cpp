@@ -18,7 +18,7 @@ extern DrumSendState sdk_drum_send_state __asm__("sdk_drum_send_state");
 }
 
 DrumSendState sdk_drum_send_state;
-opxy::u8 sdk_drum_send_dbox[kDboxVoices];
+opxy::u16 sdk_drum_send_dbox[kDboxVoices];
 
 namespace {
 // Per send, the followers' sum and the own-amount sum. One set is enough: the
@@ -76,11 +76,12 @@ i32 dry_query(u32 s) {
     return query(object, kRecords + (14 + s) * kRecordBytes);
 }
 
-u32 codes_of(const unsigned char* voice) {
+// A voice's send pair (drum_send_pair): 0 for a stock voice, which follows the track.
+u32 pair_of(const unsigned char* voice) {
     const void* object = *reinterpret_cast<const void* const*>(voice + kVoiceObject);
     if (!object) return 0;
     const void* table = *static_cast<const void* const*>(object);
-    // A stock Drumline voice: the codes its render kept (drumline.cpp, with a
+    // A stock Drumline voice: the send pair its render kept (drumline.cpp, with a
     // drumline_page extension; 0 without one). Only stock's dbox factory makes an
     // object with this method table, so no kit's voice reads here.
     if (reinterpret_cast<__UINTPTR_TYPE__>(table) == kDboxMethods) {
@@ -99,7 +100,7 @@ void sdk_drum_send_begin() { drum_send_begin(sdk_drum_send_state); }
 // 8d51c7b2: before stock adds `voice` (its rendered block at 0x11b01548) into
 // the sum of `track`.
 void sdk_drum_send_voice(const unsigned char* voice, u32 track) {
-    drum_send_voice(sdk_drum_send_state, follow, own, raw, track, kTrackSum, kVoiceOutput, codes_of(voice));
+    drum_send_voice(sdk_drum_send_state, follow, own, raw, track, kTrackSum, kVoiceOutput, pair_of(voice));
 }
 
 // 8d510ea8: stock has just scaled the sum of `track` in place by the track's

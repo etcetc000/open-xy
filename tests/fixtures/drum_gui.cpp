@@ -15,10 +15,16 @@ const void* sdk_drumline_get() { return nullptr; }
 
 extern "C" {
 void sdk_synth_press(opxy::u32) __asm__("sdk_synth_press");
+void sdk_synth_shift_press(opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_synth_shift_press");
+const char* sdk_synth_title(opxy::u32, opxy::u32) __asm__("sdk_synth_title");
 opxy::u32 sdk_synth_turn(opxy::u32, opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_synth_turn");
 opxy::u32 sdk_synth_scramble(opxy::u32, opxy::u32, opxy::u32, opxy::i32) __asm__("sdk_synth_scramble");
 opxy::u32 sdk_scramble_engine(opxy::u32) __asm__("sdk_scramble_engine");
 void sdk_drum_scramble() __asm__("sdk_drum_scramble");
+opxy::u32 sdk_drum_held_pad_engine(opxy::u32) __asm__("sdk_drum_held_pad_engine");
+opxy::u32 sdk_drum_pad_reset(opxy::u32, opxy::u32) __asm__("sdk_drum_pad_reset");
+void sdk_drum_pad_scramble(opxy::u32) __asm__("sdk_drum_pad_scramble");
+opxy::u32 sdk_drum_shift_pad(opxy::u32) __asm__("sdk_drum_shift_pad");
 }
 namespace {
 using namespace opxy;
@@ -84,6 +90,20 @@ i32 scrambled(u32 slot, u32 flag) {
 }
 u32 stock_scrambles;
 void stock_scramble() { ++stock_scrambles; }
+// A pad's key-layer doubles: pads are codes 26..49 (stock's 8d5b8814), each the
+// canonical key 53 + code - 26 at octave 0, 12 more an octave; one code may be held
+// (M1, code 6, among others); stock's playing bytes; stock Drumline's one-pad scramble.
+u32 held_code, stock_pad_scrambles, stock_pad_scrambled;
+i32 octave;
+unsigned char playing[2];
+u32 is_pad(u32 code) { return code - 26 < 24; }
+i32 track_octave(u32 selected) { require(selected == track); return octave; }
+u32 canonical_pad(u32 code, i32 shift) { return static_cast<u32>(static_cast<i32>(code) + 27 + 12 * shift); }
+u32 key_held(u32 code) { return held_code && code == held_code; }
+void stock_pad_scramble(u32 pad) { ++stock_pad_scrambles; stock_pad_scrambled = pad; }
+// Stock's default kit (8d582048 reads its choke groups at 0x8409fce0) and its reset.
+u32 default_groups[24], stock_resets;
+u32 stock_reset(u32, u32) { ++stock_resets; return 7; }
 // The 33-model kit narrows its first control to 100 and its third to 40..50.
 void narrow(u32, u32 slot, u8* low, u8* high) {
     require(*low == 0 && *high == 127);
@@ -122,6 +142,11 @@ u32 get_shift() { return shifted; }
 u32 canonical(u32 selected, u32 note) { require(selected == track); return shifted_octave && note == 53 ? 65 : note; }
 const u32* top() { return &controller; }
 void press(u32) { ++clicks; }
+// Stock's Shift-press action (8c0b270e), as the shifted key handler calls it.
+u32 shift_actions, shift_track, shift_code, shift_last;
+void shift_action(u32 selected, u32 code, u32 last) {
+    ++shift_actions; shift_track = selected; shift_code = code; shift_last = last;
+}
 void* region(u32 selected, u32 note, u32* scratch, u32 nearest) {
     note = canonical(selected, note);
     require(selected == track && note >= 53 && note < 77 && !nearest);
@@ -163,15 +188,22 @@ const opxy::platform::DrumMachine sdk_drum_machines[] = {
      2, pad_bits, 1, pad_labels, pad_text}
 };
 const opxy::u32 sdk_drum_machine_count = 6;
+// Engine 50: a paged synth with a Shift row of eight amounts (SDK 1.13); engine 51
+// the same synth without one.
+static const char* const probe_shift_titles[] = {"s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7"};
+static const opxy::platform::SynthShift probe_shift = {8, {0, 0, 0, 0, 0, 0, 0, 0}, {10, 11, 12, 13, 14, 15, 16, 17}, probe_shift_titles};
 const opxy::platform::SynthControls sdk_synth_controls[] = {
     {reinterpret_cast<const char*>(34), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
     {reinterpret_cast<const char*>(37), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
     {reinterpret_cast<const char*>(38), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
     {reinterpret_cast<const char*>(39), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
     {reinterpret_cast<const char*>(40), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
-    {reinterpret_cast<const char*>(41), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true}
+    {reinterpret_cast<const char*>(41), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
+    {reinterpret_cast<const char*>(50), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true, 0, 0,
+     0, {1, 1, 1, 1}, nullptr, {0, 0, 0, 0}, &probe_shift},
+    {reinterpret_cast<const char*>(51), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true}
 };
-const opxy::u32 sdk_synth_control_count = 6;
+const opxy::u32 sdk_synth_control_count = 8;
 }
 
 namespace {
@@ -224,6 +256,7 @@ opxy::platform::Address opxy::platform::host_stock_address(Address address) {
     case 0x8d51f184: return reinterpret_cast<Address>(&get_shift);
     case 0x8c0944b0: return reinterpret_cast<Address>(&top);
     case 0x8d51f1fc: return reinterpret_cast<Address>(&press);
+    case 0x8c0b270e: return reinterpret_cast<Address>(&shift_action);
     case 0x8d58926c: return reinterpret_cast<Address>(&region);
     case 0x8d589210: return reinterpret_cast<Address>(&canonical);
     case 0x8d585ee8: return reinterpret_cast<Address>(&changed);
@@ -241,12 +274,22 @@ opxy::platform::Address opxy::platform::host_stock_address(Address address) {
     case 0x8d5acf28: return reinterpret_cast<Address>(&set);
     case 0x8c0b5230: return reinterpret_cast<Address>(&scrambled);
     case 0x8d4d622c: return reinterpret_cast<Address>(&stock_scramble);
+    case 0x8d5b8814: return reinterpret_cast<Address>(&is_pad);
+    case 0x8d58f65c: return reinterpret_cast<Address>(&track_octave);
+    case 0x8d5b89ac: return reinterpret_cast<Address>(&canonical_pad);
+    case 0x8d5b7d7c: return reinterpret_cast<Address>(&key_held);
+    case 0x8d4d60f4: return reinterpret_cast<Address>(&stock_pad_scramble);
+    case 0x8d582048: return reinterpret_cast<Address>(&stock_reset);
+    case 0x860c9b39: return reinterpret_cast<Address>(playing);
+    case 0x860c9b3a: return reinterpret_cast<Address>(playing + 1);
     case 0x8c0b2468: return reinterpret_cast<Address>(&stock_steps);
     case 0x840a0528: return reinterpret_cast<Address>(&loading);
     case 0x1000: return reinterpret_cast<Address>(turn_event);
     default:
         if (address >= kObject && address < kObject + sizeof(object))
             return reinterpret_cast<Address>(object) + (address - kObject);
+        if (address >= 0x8409fce0 && address < 0x8409fce0 + sizeof(default_groups))
+            return reinterpret_cast<Address>(default_groups) + (address - 0x8409fce0);
         if (address >= reinterpret_cast<Address>(preset_pattern) &&
             address < reinterpret_cast<Address>(preset_pattern) + sizeof(preset_pattern)) return address;
         std::abort();
@@ -517,13 +560,16 @@ int main() {
         sdk_drum_edit(54, 4, up, 0);   // no pad controls here: positions 0 and 1 turn nothing
         sdk_drum_edit(54, 5, up, 0);
         require(publications == before);
-        sdk_drum_edit(54, 6, up, 0);   // FX I
-        sdk_drum_edit(54, 7, ten, 0);  // FX II, to its top
+        sdk_drum_edit(54, 6, up, 0);   // FX I: TRK to 0
+        sdk_drum_edit(54, 7, ten, 0);  // FX II: TRK to 9, a percent a detent
         require(publications == before + 2 && drum_marked(other[24]));
-        require(((static_cast<u32>(*other_word) >> 25) & 7) == 1 && ((static_cast<u32>(*other_word) >> 28) & 7) == 7);
+        // Each amount in its byte (FX I +0x19, FX II +0x1b), its code the nearest
+        // old step (0: 1, 9: 2), which older firmware plays.
+        require(other[0x19] == drum_send_index_of_amount(0) && other[0x1b] == drum_send_index_of_amount(9));
+        require(((static_cast<u32>(*other_word) >> 25) & 7) == 1 && ((static_cast<u32>(*other_word) >> 28) & 7) == 2);
         i32 values[4];
         sdk_drum_pad_values(0, values);
-        require(!values[0] && !values[1] && values[2] == 1 && values[3] == 7);
+        require(!values[0] && !values[1] && values[2] == 1 && values[3] == 10);
         sdk_drum_edit(54, 6, back, 0);   // back to 0: TRK, the track's send
         sdk_drum_pad_values(0, values);
         require(!values[2] && other[0x1e] == 0 && other[0x1d] == 0);
@@ -583,10 +629,18 @@ int main() {
         require(values[0] == -16);
         sdk_drum_edit(57, 4, far, 0);
         sdk_drum_edit(57, 5, far, 0);
-        sdk_drum_edit(57, 6, far, 0);
+        sdk_drum_edit(57, 6, far, 0);    // FX I from TRK: 99
         sdk_drum_edit(57, 7, up, 0);
         sdk_drum_pad_values(0, values);
-        require(values[0] == 15 && values[1] == 15 && values[2] == 7 && values[3] == 1);
+        require(values[0] == 15 && values[1] == 15 && values[2] == static_cast<i32>(drum_send_index_of_amount(99)) &&
+                values[3] == static_cast<i32>(drum_send_index_of_amount(0)));
+        // A fast turn: (speed + 1) a detent, so 0..100 takes a few detents.
+        const u32 fast[3] = {0, 1, 4};
+        sdk_drum_edit(57, 7, fast, 0);
+        sdk_drum_pad_values(0, values);
+        require(values[3] == static_cast<i32>(drum_send_index_of_amount(5)) && pad[0x1b] == drum_send_index_of_amount(5));
+        sdk_drum_edit(57, 7, back, 0);
+        sdk_drum_edit(57, 7, up, 0);
         require((static_cast<u32>(*word) >> 16 & 31) == 15 && (static_cast<u32>(*word) >> 21 & 15) == 15 &&
                 (static_cast<u32>(*word) >> 25 & 7) == 7 && (static_cast<u32>(*word) >> 28 & 7) == 1);
         before = publications;
@@ -684,7 +738,8 @@ int main() {
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
         require(shown.offset[kHitPad1] == 2 && shown.offset[kHitPad2] == -1 && shown.offset[kHitLevel] == -30);
         // A send lock starts from what the key plays: key 57, set up, plays FX I
-        // at code 3 (lock 4), so a detent up locks 4 + 1; FX II from TRK (lock 1).
+        // at its old code 3 (33), so a detent up locks 34; FX II from TRK, 0. A send
+        // lock is kDrumSendLockBase + its index (drum_locks.hpp).
         u8* pad = reinterpret_cast<u8*>(regions[4]);
         pad[24] = drum_mark(0x20);
         regions[4][5] = static_cast<i32>((3u << 25) | kDrumPadReady);
@@ -693,21 +748,27 @@ int main() {
         require(writes == 6 && written_index == kHitSend1);
         sdk_synth_turn(project, 0, 7, event);
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
-        require(shown.offset[kHitSend1] == 5 && shown.offset[kHitSend2] == 2 && shown.offset[kHitLevel] == -30);
-        turn_by(20);    // at most 100 (lock 8)
+        require(shown.offset[kHitSend1] == drum_send_lock_of(drum_send_index_of_amount(34)) &&
+                shown.offset[kHitSend2] == drum_send_lock_of(drum_send_index_of_amount(0)) && shown.offset[kHitLevel] == -30);
+        turn_by(20, 9);    // fast: 10 a detent, at most 100
         sdk_synth_turn(project, 0, 7, event);
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
-        require(shown.offset[kHitSend2] == 8);
+        require(shown.offset[kHitSend2] == drum_send_lock_of(drum_send_index_of_amount(100)));
+        turn_by(-30);
+        sdk_synth_turn(project, 0, 7, event);
+        drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
+        require(shown.offset[kHitSend2] == drum_send_lock_of(drum_send_index_of_amount(70)));
         // The Shift row shows what the step plays: the pad controls with their
-        // offsets, a send with its override (code = lock - 1).
+        // offsets, a send with its override.
         i32 values[4];
         sdk_drum_pad_values(0, values);
-        require(values[0] == 2 && values[1] == 0 && values[2] == 4 && values[3] == 7);   // SRR clamps at its 0
+        require(values[0] == 2 && values[1] == 0 && values[2] == static_cast<i32>(drum_send_index_of_amount(34)) &&
+                values[3] == static_cast<i32>(drum_send_index_of_amount(70)));   // SRR clamps at its 0
         // Turned back to 0, a field is unlocked: FILTER from 2 by -2.
         turn_by(-2);
         sdk_synth_turn(project, 0, 4, event);
         drum_lock_store_held(*sdk_drum_machine(41), 0, shown);
-        require(writes == 9 && !shown.offset[kHitPad1] && shown.offset[kHitPad2] == -1);
+        require(writes == 10 && !shown.offset[kHitPad1] && shown.offset[kHitPad2] == -1);
         i32 stored_value;
         require(!lock_pool.own(step_handle[37], 57, kHitPad1, stored_value));
         // Per key: another selected key shows and locks its own.
@@ -873,7 +934,7 @@ int main() {
         held = false;
         require(sdk_drum_pan(0) == -20 && sdk_drum_level(0) == -12);
         sdk_drum_pad_values(0, values);
-        require(values[0] == 0 && values[2] == 3 && values[3] == 0);
+        require(values[0] == 0 && values[2] == static_cast<i32>(drum_send_index_of_code(3)) && values[3] == 0);
         pad[0x1e] = pad[0x1d] = 0;
         pad[24] = 0; regions[4][5] = 0;
 
@@ -1069,6 +1130,147 @@ int main() {
         std::memcpy(regions, saved, sizeof(regions));
         engine = saved_engine; key = saved_key; publications = saved_publications; dirty = saved_dirty;
         last_key = saved_last;
+    }
+
+    {
+        // Shift and a pad (the shifted key handler's pad check, 8c0b2978): on an owned
+        // kit the pad is held for per-key editing, its canonical key at the track's
+        // octave, as stock holds a Drumline pad; not while playing, not for a key that
+        // is no pad, and never on another engine (stock holds Drumline's itself).
+        const u32 saved_engine = engine, saved_latch = edit_latch;
+        engine = 41; edit_latch = 60;
+        require(sdk_drum_shift_pad(30) == 1 && edit_latch == 57 && drum_edit_key(0) == 57);
+        octave = 1;
+        require(sdk_drum_shift_pad(27) == 1 && edit_latch == 66);
+        octave = 0;
+        for (u32 other_key : {12u, 25u, 50u, 53u, 55u, 57u})   // no pad: past 26..49
+            require(sdk_drum_shift_pad(other_key) == 0 && edit_latch == 66);
+        playing[1] = 1;
+        require(sdk_drum_shift_pad(31) == 1 && edit_latch == 66);
+        playing[1] = 0;
+        for (u32 other : {4u, 3u, 34u + 43u}) {
+            engine = other;
+            require(sdk_drum_shift_pad(32) == 1 && edit_latch == 66);
+        }
+
+        // A pad held and key code 6 (the key-down handler's held-pad action, 8c0b309c):
+        // an owned kit's held key alone is re-rolled, as its track scramble rolls each
+        // key; Drumline and every other engine keep stock's own test and scramble.
+        i32 saved[24][32];
+        std::memcpy(saved, regions, sizeof(regions));
+        const u32 saved_publications = publications, saved_dirty = dirty, saved_last = last_key;
+        rolling = true;
+        engine = 41;
+        // 8c0b2068 shows an owned kit's held pad on Drumline's page (4), never the drum
+        // sampler's; every other engine keeps its own.
+        require(sdk_drum_held_pad_engine(0) == 4);
+        for (u32 other : {3u, 4u, 34u + 43u}) {
+            engine = other;
+            require(sdk_drum_held_pad_engine(0) == other);
+        }
+        engine = 41;
+        const u32 before = publications, changes = dirty;
+        bool moved = false;
+        for (u32 round = 0; round < 6; ++round) {
+            i32 was[24][32];
+            std::memcpy(was, regions, sizeof(regions));
+            sdk_drum_pad_scramble(58);
+            require(publications == before + round + 1 && dirty == changes + round + 1 && last_key == 58);
+            // The key keeps its model: a held pad's scramble re-rolls only its controls, as
+            // stock's does.
+            u8 kept = 99, now = 98, values[8];
+            if (round) require(drum_unpack(was[5] + 1, &kept, values));
+            require(drum_unpack(regions[5] + 1, &now, values) && (!round || now == kept));
+            for (u32 pad = 0; pad < 24; ++pad)
+                if (pad != 5) require(!std::memcmp(regions[pad], was[pad], sizeof(was[pad])));
+            moved = moved || std::memcmp(regions[5], was[5], sizeof(was[5]));
+            require(drum_marked(reinterpret_cast<const u8*>(regions[5])[24]) && drum_ready(regions[5]));
+        }
+        require(moved && !stock_pad_scrambles);
+        // M4's reset: the key back to the kit's defaults (defaults(): model 1 for key 58,
+        // controls 20 + slot, the last the key), marked with stock's default choke group, every pad field
+        // neutral, its sends TRK, 0 dB and centred; the pads beside it untouched.
+        u8* pad = reinterpret_cast<u8*>(regions[5]);
+        regions[5][kDrumPadWord / 4] = static_cast<i32>((7u << 16) | (5u << 25) | kDrumPadReady);
+        pad[0x19] = 40; pad[0x1b] = 9; pad[kDrumLevel] = static_cast<u8>(-12); pad[kDrumPan] = 33;
+        default_groups[5] = 2;
+        i32 beside[32];
+        std::memcpy(beside, regions[6], sizeof(beside));
+        const u32 resets_before = publications;
+        require(sdk_drum_pad_reset(0, 58) == 1 && publications == resets_before + 1 && last_key == 58);
+        u8 reset_model = 99, reset_controls[8];
+        require(drum_unpack(regions[5] + 1, &reset_model, reset_controls) && reset_model == 1);
+        for (u32 slot = 0; slot < 8; ++slot) require(reset_controls[slot] == (slot == 7 ? 58u : 20u + slot));
+        require(drum_marked(pad[24]) && drum_choke(pad[24]) == 1 && (pad[24] >> 4) == 2);
+        require(regions[5][kDrumPadWord / 4] == static_cast<i32>(kDrumPadReady) && !pad[0x19] && !pad[0x1b]);
+        require(!pad[kDrumLevel] && !pad[kDrumPan] && !std::memcmp(beside, regions[6], sizeof(beside)));
+        engine = 4;
+        require(sdk_drum_pad_reset(0, 60) == 7 && stock_resets == 1);
+        sdk_drum_pad_scramble(60);
+        require(stock_pad_scrambles == 1 && stock_pad_scrambled == 60);
+        held_code = 0;
+        rolling = false;
+        std::memcpy(regions, saved, sizeof(regions));
+        engine = saved_engine; edit_latch = saved_latch;
+        publications = saved_publications; dirty = saved_dirty; last_key = saved_last;
+    }
+
+    {
+        // A synth with a Shift row (engine 50): with Shift held, a press (stock's
+        // shifted key handler, through the hook at 8c0b2a5e) switches its pages as a
+        // press without Shift does, and the row the header names follows (the
+        // display's line is the same page, shift_page). Stock's Shift-press action
+        // still runs first, with its arguments, and the press recorder never sees it.
+        // Another track, encoder, page or controller, a synth without a row and a kit
+        // keep stock's alone. (The row's values read the track's words directly, which
+        // this double doesn't map, so the titles stand for the row shown.)
+        const u32 saved_engine = engine, saved_key = key;
+        auto titled = [](u32 machine, u32 position, const char* expected) {
+            return std::strcmp(sdk_synth_title(machine, position), expected) == 0;
+        };
+        engine = 50; shifted = true;
+        const u32 clicks_before = clicks;
+        u32 actions = shift_actions;
+        shown(0,1,2,3);
+        require(titled(50, 1, "s1") && titled(50, 3, "s3"));
+        sdk_synth_shift_press(0, 12, 0x2000); shown(4,5,6,7);
+        require(shift_actions == ++actions && shift_track == 0 && shift_code == 12 && shift_last == 0x2000);
+        require(titled(50, 0, "s4") && titled(50, 1, "s5"));
+        sdk_synth_shift_press(0, 10, 0x2000); shown(0,1,2,3);
+        require(shift_actions == ++actions && titled(50, 1, "s1"));
+        sdk_synth_shift_press(1, 10, 0x2000);                   // another track
+        sdk_synth_shift_press(0, 14, 0x2000);                   // no such encoder
+        sdk_synth_shift_press(0, 9, 0x2000);
+        page = 1;
+        sdk_synth_shift_press(0, 10, 0x2000);
+        page = 0;
+        controller = 0x1234;
+        sdk_synth_shift_press(0, 10, 0x2000);
+        controller = 0x8400dff8;
+        shown(0,1,2,3);
+        require(shift_actions == actions + 5 && clicks == clicks_before);
+        actions = shift_actions;
+        // Without Shift, a press pages it as before and the header is stock's; the
+        // row keeps the page, so Shift then names page 2's entries.
+        shifted = false;
+        sdk_synth_press(1); ++presses; shown(4,5,6,7);
+        require(titled(50, 1, "stock"));
+        shifted = true;
+        require(titled(50, 1, "s5"));
+        shifted = false;
+        sdk_synth_press(2); ++presses; shown(0,1,2,3);
+        require(shift_actions == actions);
+        // A synth without a row, and a kit: a Shift press reaches stock's action only.
+        shifted = true;
+        engine = 51;
+        shown(0,1,2,3);
+        sdk_synth_shift_press(0, 11, 0x2000); shown(0,1,2,3);
+        require(titled(51, 1, "stock"));
+        engine = 39; key = 54;
+        shown(0,1,2,3);
+        sdk_synth_shift_press(0, 11, 0x2000); shown(0,1,2,3);
+        require(shift_actions == actions + 2 && clicks == clicks_before + 2);
+        engine = saved_engine; key = saved_key; shifted = false;
     }
 
     ownership = 0;

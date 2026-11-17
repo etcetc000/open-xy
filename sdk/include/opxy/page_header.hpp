@@ -94,9 +94,12 @@ static inline void page_header(PageHeader& state, const Input& input, F& frame,
 
 // The same header for a synth with a Shift row (SDK 1.13): pass draw::shift_row(input)
 // (opxy/synth_shift.hpp) as `shift`, with the row's titles and captions indexed by
-// entry, 0..7. While Shift is held, the bright row names and shows the entries
-// under the page the encoders are on, as Shift turns them; the other row and the
-// motion are unchanged. Absent entries take an empty title and caption.
+// entry, 0..7. While Shift is held, both rows name and show the row instead, as a
+// drum kit's header shows its two Shift rows: page 1's entries (0..3) on top and
+// page 2's (4..7) under them, the page the encoders are on bright on the bar and
+// the other small and grey. A press, with Shift held or not, moves the bar as it
+// does without Shift. Absent entries take an empty title and caption. Shift's press
+// and release change only the sixteen texts and the four header strings.
 template <class F, class Row>
 static inline void page_header(PageHeader& state, const Input& input, F& frame,
                         const char* const (&titles)[8], const char (&values)[8][header_capacity],
@@ -109,21 +112,10 @@ static inline void page_header(PageHeader& state, const Input& input, F& frame,
     u32 page = 0;
     for (u32 col = 0; col < 4; ++col)
         if (slots[1][col] != slots[0][col] && input.shown[col] == slots[1][col]) page = 1;
-    // Columns 0..3 hold the other row's controls, 4..7 the page's Shift entries; the
-    // shown slots select the same page, so the rows keep their places.
-    const char* row_titles[8];
-    char row_values[8][header_capacity];
-    u8 row_slots[2][4];
+    // The entries in column order: the shown slots select the same page, so the bar
+    // keeps its place and the rows their order.
     Input row_input = input;
-    for (u32 col = 0; col < 4; ++col) {
-        row_slots[1 - page][col] = static_cast<u8>(col);
-        row_slots[page][col] = static_cast<u8>(4 + col);
-        row_input.shown[col] = static_cast<u8>(4 + col);
-        row_titles[col] = titles[slots[1 - page][col]];
-        copy(row_values[col], header_capacity, values[slots[1 - page][col]]);
-        row_titles[4 + col] = shift_titles[4 * page + col];
-        copy(row_values[4 + col], header_capacity, shift_values[4 * page + col]);
-    }
-    page_header(state, row_input, frame, row_titles, row_values, first_node, row_slots);
+    for (u32 col = 0; col < 4; ++col) row_input.shown[col] = static_cast<u8>(4 * page + col);
+    page_header(state, row_input, frame, shift_titles, shift_values, first_node);
 }
 }} // namespace opxy::draw

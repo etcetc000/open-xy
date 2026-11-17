@@ -15,13 +15,26 @@ from .formats import require
 # polyphony of the heaviest. Those three are whole kits, against the same budget.
 # Optional for a kit: voice_peak_percent, its worst block over the single-voice runs
 # only, which the builder's CPU-high label uses (whole-kit runs are left out).
-BENCHMARKS = {'synth': 'opxy-synth-c8-sweep-v1', 'effect': 'opxy-effect-callback-v1',
-              'sample': 'opxy-sample-callback-v1', 'drum': 'opxy-drum-callback-v1'}
+# Those runs play the kit as it starts, the track's M3 off. filter_percent is full
+# polyphony of the heaviest with M3 on, the ladder on every voice, and the optional
+# filter_peak_percent its worst block; peak_percent leaves that run out.
+BENCHMARKS = {'synth': 'opxy-synth-c8-sweep-v1', 'effect': 'opxy-effect-callback-v2',
+              'sample': 'opxy-sample-callback-v2', 'drum': 'opxy-drum-callback-v3'}
 # Records from before the sweep, kept by entries that have not changed since.
 LEGACY = {'synth': 'opxy-synth-c8-v1'}
+# Earlier workloads whose figures overstate rather than hide a cost: still accepted, new
+# or not. Effect v1, sample v1 and drum v2 timed each block with interrupts enabled, so a
+# handler's time could land in it (the current IDs mask them, as stock's synth runner
+# does). Drum v1 also ran M3's ladder on every voice and had no separate filter run.
+EARLIER = {'effect': {'opxy-effect-callback-v1'}, 'sample': {'opxy-sample-callback-v1'},
+           'drum': {'opxy-drum-callback-v1', 'opxy-drum-callback-v2'}}
+DRUM_BENCHMARKS = {BENCHMARKS['drum'], *EARLIER['drum']}
+# Drum workloads with the separate M3-on filter run.
+FILTERED = {BENCHMARKS['drum'], 'opxy-drum-callback-v2'}
 FIELDS = {'benchmark', 'commit', 'firmware_sha256', 'runs', 'block_percent'}
 SWEEP_FIELDS = FIELDS | {'midpoint_percent', 'combined_percent', 'worst_setting'}
 DRUM_FIELDS = FIELDS | {'midpoint_percent', 'kit_percent', 'choke_percent', 'ceiling_percent', 'worst_model'}
+FILTER_FIELDS = DRUM_FIELDS | {'filter_percent'}
 # The share of the stock block budget a machine should stay within (docs/profiling.md).
 # Above it a machine is still accepted, with a warning.
 RECOMMENDED_PERCENT = 3.5
@@ -35,7 +48,7 @@ def worst_case(value):
     """The reported worst case: (percent, 'peak') when the record has a peak, else (percent, 'average').
     A drum kit is judged by its worst single sound, never its whole-kit runs: its
     single-voice peak when recorded, else its heaviest single voice's average."""
-    peak = 'voice_peak_percent' if value.get('benchmark') == BENCHMARKS['drum'] else 'peak_percent'
+    peak = 'voice_peak_percent' if value.get('benchmark') in DRUM_BENCHMARKS else 'peak_percent'
     return (value[peak], 'peak') if peak in value else (value['block_percent'], 'average')
 
 
@@ -44,7 +57,7 @@ def high(value):
     percent, metric = worst_case(value)
     if percent <= HIGH_PERCENT:
         return None
-    drum = value.get('benchmark') == BENCHMARKS['drum']
+    drum = value.get('benchmark') in DRUM_BENCHMARKS
     what = (('worst single sound peak' if drum else 'worst observed block peak') if metric == 'peak' else
             'worst single sound average (no single-sound peak recorded)' if drum else 'average (no peak reported)')
     return f"the builder labels it CPU-high: {what} {percent:.3f}% is above {HIGH_PERCENT}%"
@@ -81,18 +94,21 @@ def validate(value, kind, commit=None, legacy=True):
     """A measurement's fields; with a commit, also that it measured that commit. Without
     `legacy`, average-only records and records from before the synth sweep are refused."""
     require(isinstance(value, dict), 'cpu: unexpected measurement fields')
-    allowed = {BENCHMARKS.get(kind)} | ({LEGACY[kind]} if legacy and kind in LEGACY else set())
+    allowed = ({BENCHMARKS.get(kind)} | ({LEGACY[kind]} if legacy and kind in LEGACY else set()) |
+               EARLIER.get(kind, set()))
     require(kind in BENCHMARKS and isinstance(value.get('benchmark'), str) and value['benchmark'] in allowed,
             'cpu: benchmark must match the machine kind' +
             ('; synths submit a control sweep (docs/profiling.md)'
              if kind in LEGACY and value.get('benchmark') == LEGACY[kind] else ''))
     sweep = value['benchmark'] == BENCHMARKS['synth']
     drum = kind == 'drum'
+    filtered = drum and value['benchmark'] in FILTERED
     require(legacy or 'peak_percent' in value,
             'cpu: average and worst observed block peak are required; rerun sdk.py profile report '
             'with the original captures (docs/profiling.md)')
-    require(set(value) - {'report', 'peak_percent'} - ({'voice_peak_percent'} if drum else set()) ==
-            (SWEEP_FIELDS if sweep else DRUM_FIELDS if drum else FIELDS),
+    require(set(value) - {'report', 'peak_percent'} - ({'voice_peak_percent'} if drum else set()) -
+            ({'filter_peak_percent'} if filtered else set()) ==
+            (SWEEP_FIELDS if sweep else FILTER_FIELDS if filtered else DRUM_FIELDS if drum else FIELDS),
             'cpu: unexpected measurement fields')
     require(isinstance(value['commit'], str) and re.fullmatch(r'[0-9a-f]{40}', value['commit']),
             'cpu: commit is the full SHA of the measured machine source')
@@ -132,6 +148,14 @@ def validate(value, kind, commit=None, legacy=True):
                 'cpu: peak_percent must be an unsaturated, positive percentage of the stock block budget')
         require(peak >= max(value[field] for field in fields),
                 'cpu: peak_percent must cover every measured run, including whole-kit runs')
+    if filtered:
+        number = value['filter_percent']
+        require(type(number) in (int, float) and math.isfinite(number) and 0 < number < 100,
+                'cpu: filter_percent must be an unsaturated, positive percentage of the stock block budget')
+    if 'filter_peak_percent' in value:
+        peak = value['filter_peak_percent']
+        require(type(peak) in (int, float) and math.isfinite(peak) and value['filter_percent'] <= peak < 100,
+                'cpu: filter_peak_percent is the filter run\'s worst block: at least filter_percent, unsaturated')
     if 'voice_peak_percent' in value:
         voice = value['voice_peak_percent']
         require('peak_percent' in value and type(voice) in (int, float) and math.isfinite(voice) and

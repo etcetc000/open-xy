@@ -35,11 +35,17 @@ using namespace opxy::platform;
 #define CHECK(condition) do { if (!(condition)) { std::fprintf(stderr, "line %d: %s\n", __LINE__, #condition); std::exit(1); } } while (0)
 
 const u32 kProject = 0x86bd027c, kLive = kProject + 0x4080;
+const u32 kTrack = 2;
 i32 live[8 * 58];
-i32 records[24][8];
+// The track's 24 pad entries, 0x80 bytes each, the record first (8d58926c finds
+// slot k at the track object + 0x394c + k * 0x80).
+i32 records[24][32];
+// The track's engine as 8d58781c answers it: the last note's.
+u32 engine_now = 41;
+u32 engine_of(u32 track) { CHECK(track == kTrack); return engine_now; }
+Address object_of(u32 track) { CHECK(track == kTrack); return reinterpret_cast<Address>(records) - 0x394c; }
 i32 payload[8], published[8];
 u32 publications, published_track, built, flushes, flushed_at;
-const u32 kTrack = 2;
 
 int ready() { return 1; }
 // Key 53's default is model 1, every control 30 + its slot.
@@ -95,6 +101,7 @@ const u32 kHandle = 7;
 // then runs; a live note runs with none noted.
 void note(u32 engine, u32 key, bool sequenced = true) {
     if (sequenced) noted[kTrack] = kHandle, fresh[kTrack] = true;
+    engine_now = engine;
     sdk_drum_lock_note(kProject, kTrack, key, engine, 0, 0, 0);
 }
 // A step's locks for `key` (or every key the step plays): PAN, LEVEL, the pad
@@ -140,8 +147,12 @@ Address opxy::platform::host_stock_address(Address address) {
     case 0x8d5ad604: return reinterpret_cast<Address>(&gain);
     case 0x8d58926c: return reinterpret_cast<Address>(&region);
     case 0x8d589210: return reinterpret_cast<Address>(&canonical);
+    case 0x8d58781c: return reinterpret_cast<Address>(&engine_of);
+    case 0x8d587708: return reinterpret_cast<Address>(&object_of);
     default:
         if (address >= kLive && address < kLive + sizeof(live)) return reinterpret_cast<Address>(live) + (address - kLive);
+        if (address >= reinterpret_cast<Address>(records) && address < reinterpret_cast<Address>(records) + sizeof(records))
+            return address;
         std::abort();
     }
 }
@@ -170,6 +181,11 @@ int main() {
     std::memcpy(base, published, sizeof(base));
     CHECK(publications == 1 && built == 1 && published_track == kTrack && drum_marked_q31(base[0]));
     CHECK(base[5] == drum_pan_word(70) && base[7] == gain(-6));
+    // Its sends ride in word 0's low bits (drum_send_carry): its old codes, exactly,
+    // and stock's model bin above them.
+    const u32 old56 = drum_send_pair(drum_send_index_of_code(5), drum_send_index_of_code(6));
+    const i32 stock_word0 = static_cast<i32>((6 * 7 + 2) * 0x01f07c1fu + 0x00f83e0fu);
+    CHECK(drum_send_codes(base) == old56 && (base[0] >> 16) == (stock_word0 >> 16));
     CHECK(flushes == 1 && flushed_at == 0);
 
     // A step's locks: each into its word, clamped to the field. PAN is an
@@ -196,15 +212,39 @@ int main() {
     CHECK(published[7] == gain(-3) && published[5] == base[5]);
     bytes(53)[0x1d] = static_cast<unsigned char>(-6);
 
-    // Per-hit sends: an override of the key's code, TRK (1) or an amount (2..8);
-    // the other send and the pad controls stay the key's.
+    // Per-hit sends: an override of the key's send in word 0, in SDK 1.10's form
+    // (1 + an old code: 1 TRK, 2..8) or SDK 1.15's (kDrumSendLockBase + an index);
+    // the other send, word 6 and the pad controls stay the key's.
     lock(0, 0, 0, 1, 0);
     note(41, 53);
-    CHECK(drum_send_codes(published) == (0u | 6u << 3) && (published[6] & 0x1ffffff) == (base[6] & 0x1ffffff));
+    CHECK(drum_send_codes(published) == drum_send_pair(0, drum_send_index_of_code(6)) && published[6] == base[6]);
     lock(0, 0, 0, 8, 2);
     note(41, 53);
-    CHECK(drum_send_code(drum_send_codes(published), 0) == 7 && drum_send_code(drum_send_codes(published), 1) == 1);
-    CHECK(published[7] == base[7]);
+    CHECK(drum_send_codes(published) == drum_send_pair(drum_send_index_of_code(7), drum_send_index_of_code(1)));
+    CHECK(published[7] == base[7] && published[6] == base[6]);
+    lock(0, 0, 0, drum_send_lock_of(drum_send_index_of_amount(37)), drum_send_lock_of(0));
+    note(41, 53);
+    CHECK(drum_send_codes(published) == drum_send_pair(drum_send_index_of_amount(37), 0));
+    CHECK((published[0] >> 16) == (base[0] >> 16) && published[6] == base[6]);
+    // A key's own amount: its byte (FX I +0x19, FX II +0x1b) with its code the
+    // amount's nearest step. A byte the code doesn't match is stale: the code wins.
+    unlock();
+    bytes(53)[0x19] = static_cast<unsigned char>(drum_send_index_of_amount(37));
+    bytes(53)[0x1b] = static_cast<unsigned char>(drum_send_index_of_amount(99));
+    note(41, 53);
+    CHECK(drum_send_codes(published) == old56);
+    records[0][5] = drum_send_store(drum_send_store(records[0][5], 0, drum_send_shadow(37)), 1, drum_send_shadow(99));
+    CHECK(drum_send_shadow(37) == 3 && drum_send_shadow(99) == 7);
+    note(41, 53);
+    CHECK(drum_send_codes(published) == drum_send_pair(drum_send_index_of_amount(37), drum_send_index_of_amount(99)));
+    lock(0, 0, 0, 0, 1);
+    note(41, 53);
+    CHECK(drum_send_codes(published) == drum_send_pair(drum_send_index_of_amount(37), 0));
+    unlock();
+    bytes(53)[0x19] = bytes(53)[0x1b] = 0;
+    records[0][5] = static_cast<i32>(((32u - 3u) << 16) | (9u << 21) | (5u << 25) | (6u << 28) | kDrumPadReady);
+    note(41, 53);
+    CHECK(!std::memcmp(published, base, sizeof(base)));
 
     // A step-wide lock: every key the step plays gets it on its own pad.
     lock(-2, 0, 0);
@@ -236,12 +276,13 @@ int main() {
     unlock();
     lock(0, -4, 2, 0, 3);
     note(41, 54);
-    CHECK(drum_marked_q31(published[0]) && published[0] == drum_marked_word(0x43));
+    CHECK(drum_marked_q31(published[0]) && (published[0] & ~0x7f7f) == (drum_marked_word(0x43) & ~0x7f7f));
     u8 model = 99, controls[8];
     CHECK(drum_unpack(published + 1, &model, controls) && model == 1);
     for (u32 i = 0; i < 8; ++i) CHECK(controls[i] == 30 + i);
     CHECK(drum_field_get(published[6], 16, 5, true) == -4 && drum_field_get(published[6], 21, 4, false) == 2);
-    CHECK(drum_send_codes(published) == (0u | 2u << 3) && drum_pad_ready(published[6]) && published[7] == gain(0));
+    CHECK(drum_send_codes(published) == drum_send_pair(0, drum_send_index_of_code(2)) && drum_pad_ready(published[6]) &&
+          published[7] == gain(0));
     CHECK(records[1][1] == 0x0abc0000 && bytes(54)[24] == 0x43);       // the record itself is untouched
     // A key an SDK 1.9 kit marked but never set up (key 55): stock's default
     // kit's level and pad word play as 0 dB and neutral; its locks start there,
@@ -256,7 +297,7 @@ int main() {
     note(41, 55);
     CHECK(!std::memcmp(published + 1, records[2] + 1, 4 * sizeof(i32)) && published[7] == gain(-4));
     CHECK(drum_field_get(published[6], 16, 5, true) == 3 && drum_field_get(published[6], 21, 4, false) == 0);
-    CHECK(drum_send_codes(published) == (0u | 1u << 3) && drum_pad_ready(published[6]));
+    CHECK(drum_send_codes(published) == drum_send_pair(0, drum_send_index_of_code(1)) && drum_pad_ready(published[6]));
 
     // A note played live takes no step: the key's own values.
     unlock();
@@ -283,12 +324,15 @@ int main() {
     const u32 flushed = flushes, taken = takes;
     lock(-10, 3, 3, 5, 5);
     note(34, 53);
-    CHECK(!std::memcmp(published, base, sizeof(base)) && flushes == flushed && takes == taken);
+    CHECK(!std::memcmp(published + 1, base + 1, 7 * sizeof(i32)) && published[0] == stock_word0 &&
+          flushes == flushed && takes == taken);
     // Every other caller of the builder (the per-key editor, its previews)
     // publishes the key's own values.
     unlock();
+    engine_now = 41;
     lock(-5, 3, 3, 4);
     std::memcpy(payload, base, sizeof(payload));
+    payload[0] = stock_word0;   // as the builder fills it: the hook carries the key's sends
     sdk_drum_lock_publish(kProject, kTrack, 0, payload);
     CHECK(!std::memcmp(published, base, sizeof(base)));
     // And a note's locks end with its own publication.

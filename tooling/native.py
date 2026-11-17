@@ -18,7 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, extensions, runtime, screen, startup_label, stock_tables
+from . import benchmark, extensions, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables
 from .adapters import (pad_mix, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
@@ -27,7 +27,7 @@ from .adapters import (pad_mix, sends_per_key, aux_preset_files, catalog_entry, 
                        generate_voice, generate_drum_callbacks, preset_files, sample_callbacks, track_control,
                        control_callbacks)
 from .contributors import validate_source_boundary
-from .definitions import synth_shift
+from .definitions import paged, synth_shift
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
 from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, sample_path, tree
@@ -73,6 +73,30 @@ def extensions_of(machines):
     return getattr(machines, 'extensions', ())
 
 
+def linked_extensions(machines):
+    """The extensions whose code a build links; settings extensions link none."""
+    return tuple(e for e in extensions_of(machines) if e.linked)
+
+
+def build_settings(machines):
+    """Capability settings a build's extensions choose: the first extension that sets one wins."""
+    settings = {}
+    for e in extensions_of(machines):
+        for name, value in getattr(e, 'settings', {}).items():
+            settings.setdefault(name, value)
+    return settings
+
+
+def fixed_after(patch, services, profiling, chosen):
+    """An edit's bytes in a build when no module symbol decides them: stock for an inactive
+    edit, the chosen value's reviewed bytes for a capability setting; else None."""
+    if not patch_active(patch, services, profiling):
+        return patch['before']  # inactive hooks retain stock code
+    if 'setting' in patch:
+        return chosen[patch['address']]  # the reviewed bytes of the chosen value
+    return None
+
+
 def subset(machines, chosen, chosen_extensions=None):
     """Some of a collection's machines, with all of its extensions, or with those in
     chosen_extensions when it is given."""
@@ -86,6 +110,8 @@ def configuration(entries=None, layout=None):
     machines.read_collection's."""
     profile = config()
     stock_tables.check_profile(profile)
+    stock_limits.check_profile(profile)
+    release_floor.check_profile(profile, document(ROOT / extensions.PROFILE)['capabilities'])
     extensions.check_profile(profile)
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
     machines = Collection(collection(entries, layout), extensions.check_collection(
@@ -204,7 +230,7 @@ def plan(machines, profile=None):
     services = active_services(profile or config(), service_users(machines))
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
               if UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services]
-    units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in extensions_of(machines)]
+    units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in linked_extensions(machines)]
     names = [name for name, _m, _step in units]
     require(len(names) == len(set(names)), 'Duplicate object name')
     return units
@@ -224,7 +250,8 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel',
              'players', 'player_hooks', 'player_table', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
              'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_hooks',
-             'drum_send', 'drum_send_hooks', 'drum_locks', 'lock_handles', 'drumline', 'drumline_hooks')
+             'drum_send', 'drum_send_hooks', 'drum_locks', 'lock_handles', 'drumline', 'drumline_hooks',
+             'synth_shift_hooks')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -244,6 +271,9 @@ UNIT_SERVICES['lock_handles'] = 'drum_locks'
 # A drumline_page extension: stock Drumline's second page (drumline.hpp). It also
 # uses the drums, samples, octaves, drum_sends and drum_locks services' hooks.
 UNIT_SERVICES.update(dict.fromkeys(('drumline', 'drumline_hooks'), 'drumline'))
+# A synth's Shift row (SDK 1.13): Shift and an encoder press switch its pages, as a
+# press does without Shift (synth_controls.cpp sdk_synth_shift_press).
+UNIT_SERVICES['synth_shift_hooks'] = 'synth_shift'
 # Track control and hidden pages run from the GUI tick hook; startup stands in for
 # the saved data's entry points in builds that don't link it.
 UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'track_control_hooks',
@@ -259,16 +289,18 @@ def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, the features
     they declare ('trackControl', 'auxTrack', 'hidePages', 'padMix', 'synthShift': a synth's
     Shift row, whose presets and step locks use the drums and drum_locks services),
-    'extension' when it links extensions (native builds link all of the collection's),
-    and the capabilities they declare ('master_filter', 'drumline_page')."""
-    users = [m.kind for m in machines] + (['extension'] if extensions_of(machines) else [])
+    'extension' when it links extension code (native builds link all of the collection's;
+    settings extensions link none), the capabilities they declare ('master_filter',
+    'drumline_page') and the registry capabilities its extensions declare."""
+    users = [m.kind for m in machines] + (['extension'] if linked_extensions(machines) else [])
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
             ['padMix' for m in machines if pad_mix(m)] +
             ['synthShift' for m in machines if m.kind == 'synth' and synth_shift(m.definition)] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
-            (['drumline_page'] if any(e.drumline_page is not None for e in extensions_of(machines)) else []))
+            (['drumline_page'] if any(e.drumline_page is not None for e in extensions_of(machines)) else []) +
+            [c for e in extensions_of(machines) for c in e.capabilities])
 
 
 def module_bytes(profile):
@@ -523,7 +555,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step == 'extension_runtime':
                 return cxx('sdk/platform/extension_runtime.cpp', obj)
             if step == 'extension_collection':
-                return cxx(str(extensions.generate_collection(folder, extensions_of(machines))), obj)
+                return cxx(str(extensions.generate_collection(folder, linked_extensions(machines))), obj)
             if step == 'screen_order':
                 return cxx(str(generate_screen_order(folder)), obj)
             if step == 'sample_callbacks':
@@ -578,6 +610,9 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         # Disable string pooling so the browser linker places sections exactly as GNU ld does.
         obj.write_bytes(normalize_object(read(obj)))
         require('R_BFIN_RIMM16' not in execute([tools['objdump'], '-r', obj]), 'Truncated address relocation in ' + name)
+    # Before any link: one that leaves some machines out (linked_machines) can't see their clash.
+    one_definition([(owner, read(directory / name)) for name, owner in object_owners(machines, profile).items()],
+                   {m.id: m.name for m in machines})
     stack_usage(directory)
     runtime_members = runtime_objects(directory, gcc, plan(machines, profile), definitions)
     linked = linked_machines(directory, tools, profile, machines, definitions, runtime_members)
@@ -625,6 +660,60 @@ def normalize_object(data):
                 if out[symbol + 12] >> 4 == 2 and struct.unpack_from('<H', out, symbol + 14)[0]:
                     out[symbol + 12] = 0x10 | out[symbol + 12] & 15
     return bytes(out)
+
+
+def global_definitions(data):
+    """The names one object defines for the link, as both linkers read them (builder/core.mjs
+    linkKit): defined, global or weak, named, and not a file symbol."""
+    headers = [h for _at, h in elf_sections(data)]
+    names = set()
+    for _name, kind, _flags, _addr, offset, size, link, *_rest in headers:
+        if kind != 2:
+            continue
+        require(link < len(headers) and offset + size <= len(data), 'Invalid object symbol table')
+        strings = headers[link]
+        text = data[strings[4]:strings[4] + strings[5]]
+        for at in range(offset, offset + size, 16):
+            name, _value, _size, info, _other, section = struct.unpack_from('<IIIBBH', data, at)
+            if name and section and info >> 4 in (1, 2) and info & 15 != 4:
+                end = text.find(b'\0', name)
+                names.add(text[name:end if end >= 0 else len(text)].decode('ascii'))
+    return names
+
+
+def readable_symbol(name):
+    """A C++ symbol by its qualified name (opxy::draw::rotation for __ZN4opxy4draw8rotationEl);
+    any other as it is."""
+    mangled = name[1:] if name.startswith('__Z') else name
+    match = re.match(r'_Z(N?)', mangled)
+    parts, at = [], match.end() if match else 0
+    while match and (length := re.match(r'\d+', mangled[at:])):
+        at += length.end()
+        parts.append(mangled[at:at + int(length.group())])
+        at += int(length.group())
+        if not match.group(1):
+            break
+    return '::'.join(parts) or name
+
+
+def one_definition(objects, names):
+    """Fails when two machines define the same global symbol: no firmware can hold both,
+    and a collection that links only some of them (linked_machines) would not notice.
+    objects: (owner, object bytes) pairs, the owner a machine ID or None for the SDK's;
+    names: machine ID -> its name."""
+    owners = {}
+    for owner, data in objects:
+        if owner is not None:
+            for symbol in global_definitions(data):
+                if owner not in owners.setdefault(symbol, []):
+                    owners[symbol].append(owner)
+    pairs = {}
+    for symbol, machines in owners.items():
+        for i, first in enumerate(machines):
+            for second in machines[i + 1:]:
+                pairs.setdefault((first, second), set()).add(readable_symbol(symbol))
+    require(not pairs, '\n'.join(f"{names[a]} and {names[b]} can't be in one OS: both define {', '.join(sorted(symbols))}"
+                                 for (a, b), symbols in sorted(pairs.items())))
 
 
 def check_native_object(listing, unit, name):
@@ -825,9 +914,11 @@ def check_module(directory, tools, profile, machines, profiling=True, runtime_me
     hooks = {}
     text = allocated['.text']
     services = active_services(profile, service_users(machines))
+    chosen = extensions.setting_edits(profile, build_settings(machines))
     for patch in patch_profile['patches']:
-        if not patch_active(patch, services, profiling):
-            patch['after'] = patch['before']  # inactive hooks retain stock code
+        fixed = fixed_after(patch, services, profiling, chosen)
+        if fixed is not None:
+            patch['after'] = fixed
         elif patch['kind'] == 'startup':
             patch['after'] = startup_label.jump(symbols[patch['symbol']]['value']).hex()
         elif patch['kind'] == 'hook':
@@ -847,6 +938,11 @@ def player_page_ids(prefix):
     """A player page's artwork IDs: input dots, the chord line, output keys and activity dots."""
     return ([f'{prefix}_dot_{i}' for i in range(24)] + [f'{prefix}_text'] +
             [f'{prefix}_key_{i}' for i in range(128)] + [f'{prefix}_played_{i}' for i in range(128)])
+
+
+def player_header_ids(identity):
+    """The two-row header the SDK adds to a paged player's page: eight bar nodes, then sixteen texts."""
+    return [f'{identity}_node_{i}' for i in range(8)] + [f'{identity}_text_{i}' for i in range(16)]
 
 
 def display_ids(prefix, display):
@@ -971,6 +1067,18 @@ def validate_panel(m, fragment=None):
     return fragment
 
 
+def page_artwork(m):
+    """A machine's validated artwork. A paged player's gains the two-row header,
+    first in its root group so that it paints under the player's own artwork."""
+    fragment = validate_panel(m)
+    if m.display != 'player' or not paged(m.definition):
+        return fragment
+    root = re.match(rb'\s*<g\b[^<>]*(?<!/)>', fragment)
+    require(root, "A paged player's artwork needs a <g> root: " + m.source('panel.svg.fragment'))
+    header = screen.page_header(m.prefix + '_header', 0).rstrip().encode('utf-8')
+    return fragment[:root.end()] + b'\n' + header + fragment[root.end():]
+
+
 def extend_catalog(catalog, profile, machines):
     """Append each machine's entry to its stock list; nothing else changes.
 
@@ -992,23 +1100,32 @@ def extend_catalog(catalog, profile, machines):
 def prepare_assets(catalog, profile, machines):
     require(sha(catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     outputs = {'content/op1_factory.json': extend_catalog(catalog, profile, machines)}
+    owners = {}  # every file a machine or extension adds, by who adds it
     for m in machines:
         if m.display != 'stock':
-            outputs[f'content/display/{m.native_name}.svg'] = screen.compose(validate_panel(m))
+            outputs[f'content/display/{m.native_name}.svg'] = screen.compose(page_artwork(m))
         for path, preset in preset_files(m).items():
             outputs[path] = (json.dumps(preset, indent=2) + '\n').encode('utf-8')
         # A sample engine's own samples (SDK 1.10), installed as they are.
         for name, sample in (m.samples or {}).items():
             outputs[sample_path(m.id, name)] = sample.path.read_bytes()
+        owners.update({path: 'Machine ' + m.id for path in outputs if path not in owners})
     check_aux_presets(machines)
     for m in machines:
         outputs.update(aux_preset_files(m))
+        owners.update({path: 'Machine ' + m.id for path in outputs if path not in owners})
     for e in extensions_of(machines):
         if e.master_processor is not None:
             path = e.root / e.master_processor['artwork']
             name = 'content/display/' + path.name
             require(name not in outputs, 'Display asset collision: ' + name)
             outputs[name] = extensions.validate_master_artwork(path)
+            owners[name] = 'Extension ' + e.id
+    # Stock's own content is never replaced (tooling.stock_content). The menu file is the
+    # one stock file a build writes: stock's, extended.
+    for path, owner in owners.items():
+        if path != 'content/op1_factory.json':
+            stock_content.check_output(path, owner, profile)
     return outputs
 
 

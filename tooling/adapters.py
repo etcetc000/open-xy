@@ -418,6 +418,7 @@ namespace {{
 struct Machine {{
     static const char* const ids[{len(ids)}];
     static const bool sample = {'true' if getattr(m, 'kind', 'synth') == 'sample' else 'false'};   // reads its sample's overview
+    static const bool percent_sends = {'true' if getattr(m, 'sdk', (1, 0)) >= (1, 15) else 'false'};   // pad[2..3] as percent + 1 (SDK 1.15)
 }};
 const char* const Machine::ids[{len(ids)}] = {{
 {table}}};
@@ -764,12 +765,26 @@ def generate_fx_object(directory, m, benchmark=False):
     # The buffer's scratch call, the transport and the shift row use stock addresses.
     if bytes_ is not None or resources.get('transport') or shift:
         values['OBJECT'] = '#include "stock.hpp"\n' + ('#include "shift_row.hpp"\n' if shift else '') + values['OBJECT']
+    values.update(effect_bus_values(m))
+    if resources.get('busShift'):
+        values['OBJECT'] = '#include "send_bus.hpp"\n' + values['OBJECT']
     path = expand('fx_object.cpp.in', dict(values, PREFIX=m.prefix, NAMESPACE=m.definition['id'],
                                            NAME=m.native_name, LABELS=stock_labels(m),
                                            DRY_LEVEL=f'parameters[{m.dry_parameter}]' if m.dry_parameter is not None
                                            else f'{m.dry_level:#x}' if m.dry_level is not None else '0x7fffffff'),
                   Path(directory) / f'fx_object_{m.prefix}.cpp')
     return append_callback(path, m) if benchmark else path
+
+
+def effect_bus_values(m):
+    """An effect's bus shift (resources.busShift, send_bus.hpp): the block raised by
+    N bits, saturating, ahead of the shift row, and the result lowered by N, rounded,
+    after process. Empty, leaving the object's source as it was, without one."""
+    n = m.definition['resources'].get('busShift', 0)
+    if not n:
+        return dict(BUS_RAISE='', BUS_LOWER='')
+    return dict(BUS_RAISE=f'    opxy::platform::send_bus::raise<{n}>(left, right);\n',
+                BUS_LOWER=f'\n    opxy::platform::send_bus::lower<{n}>(left, right);')
 
 
 def stock_labels(m):
@@ -846,19 +861,26 @@ def catalog_entry(m):
 
 def generate_player_object(directory, m):
     """A player's stock object methods around its press and release, and its own page when it has one."""
-    from .native import player_page_ids
+    from .native import player_header_ids, player_page_ids
     values = dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'], NAME=m.native_name,
-                  PAGE='nullptr', PAGE_READY='nullptr', PAGE_DECLARATIONS='', PAGE_UNIT='')
+                  PAGE='nullptr', PAGE_READY='nullptr', PAGE_DECLARATIONS='', PAGE_UNIT='',
+                  PAGED='true' if paged(m.definition) else 'false',
+                  CLICKS='true' if m.definition.get('press') == 'click' else 'false')
     # One choice marks an absent slot: its encoder turns nothing (players.cpp).
+    # So do the second page's slots a player leaves out.
     steps = [1 if p.get('absent') else enum_steps(p) for p in m.definition['parameters']]
-    values['STEPS'] = ', '.join(map(str, steps + [0] * (4 - len(steps))))
+    values['STEPS'] = ', '.join(map(str, steps + [1] * (8 - len(steps))))
+    values.update(player_shift_values(m))
     if m.display == 'player':
         p = m.prefix
         page = (TEMPLATES / 'player_page.cpp.in').read_text(encoding='utf-8')
         titles = [json.dumps(parameter['label'].lower()) for parameter in m.definition['parameters']]
-        titles += ['""'] * (4 - len(titles))
-        for key, value in dict(IDS='\n'.join(f'    "{name}",' for name in player_page_ids(p)),
-                               TITLES=', '.join(titles), PAGE_LIMIT=RELOCATED['PAGE_LIMIT'], PREFIX=p,
+        titles += ['""'] * (8 - len(titles))
+        # A paged player's page also drives the two-row header in its artwork (native.page_artwork).
+        ids = player_page_ids(p) + (player_header_ids(p + '_header') if paged(m.definition) else [])
+        for key, value in dict(IDS='\n'.join(f'    "{name}",' for name in ids), ID_COUNT=str(len(ids)),
+                               PAGED=values['PAGED'], TITLES=', '.join(titles),
+                               PAGE_LIMIT=RELOCATED['PAGE_LIMIT'], PREFIX=p,
                                NAMESPACE=m.definition['id'], NAME=m.native_name).items():
             page = page.replace('@' + key + '@', value)
         values.update(PAGE=f'{p}_page_id', PAGE_READY=f'{p}_screen_ready', PAGE_UNIT=page,
@@ -866,6 +888,27 @@ def generate_player_object(directory, m):
                                                     f'int {p}_screen_register() __asm__("{p}_screen_register");',
                                                     f'int {p}_screen_ready() __asm__("{p}_screen_ready");']))
     return expand('player_object.cpp.in', values, Path(directory) / f'player_object_{m.prefix}.cpp')
+
+
+def player_shift_values(m):
+    """A player's shift row (SDK 1.16) as its Player's table, or nothing, which leaves the
+    generated source of a player without one as it was."""
+    shift = shift_parameters(m.definition)
+    if not shift:
+        return dict(SHIFT_TABLE='', SHIFT='')
+    choices, defaults = [], []
+    for parameter in shift:
+        count = len(parameter['mapping']['labels'])
+        # The stored default (catalog_defaults' Q15) and its choice, as the SDK steps an enum.
+        bucket = min((math.floor(parameter['default'] * 32767 + 0.5) * count) >> 15, count - 1)
+        width = 0x7fffffff // count
+        choices.append(count)
+        defaults.append(bucket * width + width // 2)
+    choices += [0] * (8 - len(shift))
+    defaults += [0] * (8 - len(shift))
+    table = (f'static const opxy::platform::PlayerShift player_shift = {{{len(shift)}, '
+             f'{{{", ".join(map(str, choices))}}}, {{{", ".join(map(str, defaults))}}}}};\n')
+    return dict(SHIFT_TABLE=table, SHIFT=', &player_shift')
 
 
 def generate_player_table(directory, machines):
@@ -900,6 +943,8 @@ def default_preset(m):
     preset['engine']['params'] = list(entry['default_params'])
     # Match a device-saved minimum amp release: the stored endpoint is 32767.
     preset['envelope']['amp'].update(amp)
+    if 'volume' in m.preset_defaults:
+        preset['engine']['volume'] = m.preset_defaults['volume']
     preset['type'] = entry['type']
     return preset
 

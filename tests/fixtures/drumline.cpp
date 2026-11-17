@@ -37,7 +37,7 @@ const void* sdk_drumline_service() __asm__("sdk_drumline_service");
 }
 
 // drum_send.cpp's, which this fixture does not link.
-opxy::u8 sdk_drum_send_dbox[opxy::platform::kDboxVoices];
+opxy::u16 sdk_drum_send_dbox[opxy::platform::kDboxVoices];
 // The step-lock handles (lock_handles.cpp), which this fixture does not link:
 // a double over the real pool, a handle for each held step it locks, and the
 // handle the next note start takes (as the sequencer's step hook notes it).
@@ -354,12 +354,23 @@ opxy::drumline::Choices choices_of_word(u32 word) {
     drumline_unpack(line_page, drumline_codes_of(line_page, word), c);
     return c;
 }
-// Whether a payload carries these choices.
+// A send pair of two old 3-bit codes, and of two amounts (drum_send.hpp).
+u32 old_pair(u32 fx1, u32 fx2) { return drum_send_pair(drum_send_index_of_code(fx1), drum_send_index_of_code(fx2)); }
+u32 amounts(u32 fx1, u32 fx2) { return drum_send_pair(drum_send_index_of_amount(fx1), drum_send_index_of_amount(fx2)); }
+// Whether a payload carries these choices, a send as its 3-bit code (drum_send_shown).
 bool carries(const i32* words, u32 filter, u32 srr, u32 fx1, u32 fx2) {
     opxy::drumline::Choices c;
-    drumline_unpack(line_page, drumline_carried(words), c);
+    drumline_unpack(line_page, drumline_carried(words, drumline_own_low(line_page)), c);
+    drumline_send_choices(line_page, drum_send_carried(words), c);
     return is(c, filter, srr, fx1, fx2);
 }
+#ifdef DRUMLINE_ON
+// A payload carrying these choices, the sends as old codes, as the GUI carries a pad's.
+void carry(i32* words, u32 filter, u32 srr, u32 fx1, u32 fx2) {
+    drumline_carry(words, old_pair(fx1, fx2), drumline_pack(line_page, make_choices(filter, srr, fx1, fx2)),
+                   drumline_own_low(line_page));
+}
+#endif
 }
 
 namespace {
@@ -383,6 +394,7 @@ void stock_pad(u32 track) {
     bytes[0x1d] = static_cast<unsigned char>(-6);
     fields(track, 53) = pad_word(12, 5, 3, 0);
     bytes[26] = 53;
+    bytes[0x19] = bytes[0x1b] = 0;            // no amounts of its own: the codes play
 }
 
 void packing() {
@@ -406,33 +418,54 @@ void packing() {
     CHECK(drumline_code(three, 1) == 0 && drumline_code(three, 0) == 3 && drumline_code(three, 2) == 1);
     CHECK(drumline_choice(three, 0) == 1 && drumline_choice(three, 1) == 2 && drumline_choice(three, 3) == 0);
     CHECK(drumline_choice(three, 2) == 1);
-    // The carrier: codes bits 0..6 in word 0's low byte, bit 7 set when word 6's
-    // bits 0..8 carry bits 7..15.
+    // The carrier: the send pair in word 0's bits 0..6 and 8..14 (a kit's form),
+    // bit 7 set when word 6's bits 0..15 carry the page's own codes from bit 6
+    // (drumline_own_low: the sends' codes take 0..5) up; stock's bits elsewhere stay.
+    CHECK(drumline_own_low(p) == 6);
     i32 words[8] = {0x12345678, 1, 2, 3, 4, 5, 0x7fffffff, 7};
-    drumline_carry(words, 0x2f03u);
-    CHECK(words[0] == static_cast<i32>(0x12345600u | 0x03u | 0x80u) && words[6] == static_cast<i32>(0x7ffffe00u | 0x5eu));
-    CHECK(drumline_carried(words) == 0x2f03u && carries(words, 12, 5, 3, 0));
-    drumline_carry(words, 0x7fffu);
-    CHECK(words[0] == static_cast<i32>(0x123456ffu) && words[6] == static_cast<i32>(0x7ffffeffu));
-    CHECK(drumline_carried(words) == 0x7fffu && carries(words, 15, 15, 7, 7));
-    // The sends (bits 0..5) and FILTER's lowest bit (6) stay in word 0: word 6 is stock's own.
+    drumline_carry(words, old_pair(3, 0), 0x2f03u, 6);
+    CHECK(words[0] == static_cast<i32>(0x12340000u | 0x80u | old_pair(3, 0)) && words[6] == static_cast<i32>(0x7fff0000u | 0xbcu));
+    CHECK(drumline_carried(words, 6) == 0x2f00u && drum_send_carried(words) == old_pair(3, 0) && carries(words, 12, 5, 3, 0));
+    drumline_carry(words, old_pair(7, 7), 0x7fffu, 6);
+    CHECK(words[0] == static_cast<i32>(0x12340000u | 0x80u | old_pair(7, 7)) && words[6] == static_cast<i32>(0x7fff01ffu));
+    CHECK(drumline_carried(words, 6) == 0x7fc0u && carries(words, 15, 15, 7, 7));
+    // The sends alone stay in word 0: word 6 is stock's own.
     words[6] = 0x0abcdef9;
-    drumline_carry(words, 1u | 6u << 3);
-    CHECK(words[0] == static_cast<i32>(0x12345631u) && words[6] == 0x0abcdef9 && drumline_carried(words) == 0x31u);
-    drumline_carry(words, 1u << 6);
-    CHECK(words[0] == static_cast<i32>(0x12345640u) && words[6] == 0x0abcdef9 && carries(words, 17, 0, 0, 0));
-    drumline_carry(words, 0);
-    CHECK(words[0] == static_cast<i32>(0x12345600u) && words[6] == 0x0abcdef9 && !drumline_carried(words));
+    drumline_carry(words, amounts(37, 100), drumline_pack(p, make_choices(16, 0, 3, 7)), 6);
+    CHECK(words[0] == static_cast<i32>(0x12340000u | amounts(37, 100)) && words[6] == 0x0abcdef9 && !drumline_carried(words, 6));
+    CHECK(drum_send_carried(words) == amounts(37, 100) && carries(words, 16, 0, 3, 7));
+    // FILTER's lowest bit (6) is word 6's bit 0.
+    drumline_carry(words, 0, 1u << 6, 6);
+    CHECK(words[0] == static_cast<i32>(0x12340080u) && words[6] == 0x0abc0001 && carries(words, 17, 0, 0, 0));
+    drumline_carry(words, 0, 0, 6);
+    CHECK(words[0] == static_cast<i32>(0x12340000u) && words[6] == 0x0abc0001 && !drumline_carried(words, 6));
     // Without bit 7 word 6 carries nothing, whatever it holds.
-    words[0] = static_cast<i32>(0x12345631u);
-    words[6] = 0x1ff;
-    CHECK(drumline_carried(words) == 0x31u);
-    // The DSP's decode of word 0 never sees the low byte: 66 bins from bits 8..31.
-    for (u32 low = 0; low < 256; ++low)
-        CHECK((((0x55aa1200u | low) >> 8) * 66u) >> 23 == ((0x55aa1200u >> 8) * 66u) >> 23);
-    // A hit's sends, as a kit's codes (FX I bits 0..2, FX II 3..5), and whether the
-    // processor runs: only for an own parameter off its default.
-    CHECK(drumline_sends(p, make_choices(12, 5, 3, 6)) == (3u | 6u << 3) && !drumline_sends(p, make_choices(0, 15, 0, 0)));
+    words[6] = 0xffff;
+    CHECK(!drumline_carried(words, 6));
+    // Neither decode of word 0 sees its low 16 bits: the dbox DSP's 66 bins from
+    // bits 8..31 and a kit's from 16..31, for every bin as the builder centres it.
+    for (u32 bin = 0; bin < 66; ++bin) {
+        const u32 w = bin * 0x01f07c1fu + 0x00f83e0fu;
+        for (u32 low : {0u, 0x7f7fu, 0xffffu, 0x1234u})
+            CHECK((((w & ~0xffffu) | low) >> 8) * 66u >> 23 == bin && ((((w & ~0xffffu) | low) >> 16) * 66u) >> 15 == bin);
+    }
+    // A pad's sends (drumline_pair): each send's byte and code (its choice) read as
+    // a kit's, behind the tag; a byte its code doesn't match is stale.
+    {
+        unsigned char pad[0x80] = {};
+        const opxy::drumline::Choices c3 = make_choices(12, 5, 3, 0);
+        CHECK(drumline_pair(p, pad, true, c3) == old_pair(3, 0));
+        pad[0x19] = static_cast<unsigned char>(drum_send_index_of_amount(37));   // its shadow is 3
+        CHECK(drumline_pair(p, pad, true, c3) == drum_send_pair(drum_send_index_of_amount(37), 0));
+        CHECK(drumline_pair(p, pad, false, c3) == 0 && drumline_pair(p, nullptr, true, c3) == 0);
+        pad[0x1b] = 50;                                                          // FX II's code is TRK
+        CHECK(drumline_pair(p, pad, true, c3) == drum_send_pair(drum_send_index_of_amount(37), 0));
+        CHECK(drumline_pair(p, pad, true, make_choices(12, 5, 2, 0)) == old_pair(2, 0));
+        opxy::drumline::Choices shown = make_choices(12, 5, 0, 0);
+        drumline_send_choices(p, drum_send_pair(drum_send_index_of_amount(37), drum_send_index_of_code(5)), shown);
+        CHECK(is(shown, 12, 5, 3, 5));
+    }
+    // Whether the processor runs: only for an own parameter off its default.
     CHECK(!drumline_processed(p, make_choices(16, 0, 7, 7)) && drumline_processed(p, make_choices(17, 0, 0, 0)));
     CHECK(drumline_processed(p, make_choices(16, 1, 0, 0)) && drumline_processed(p, make_choices(0, 0, 0, 0)));
     // Locks: in the handles' pool at fields 8.., apart from a padMix kit's 0..5,
@@ -445,18 +478,24 @@ void packing() {
     CHECK(drumline_lock_choice(p.parameters[0], 32, choice) && choice == 31);
     CHECK(!drumline_lock_choice(p.parameters[2], 9, choice) && drumline_lock_choice(p.parameters[2], 8, choice) && choice == 7);
     {
-        // A kit's fields (0..5) lock nothing of Drumline's; the page's put their choices in place.
+        // A kit's fields (0..5) lock nothing of Drumline's; the page's put their choices
+        // in place, a send's its index in the pair (either lock form, drum_locks.hpp).
         i32 values[step_locks::kFields] = {50, -3, 7, 2, 4, 5};
         opxy::drumline::Choices c = make_choices(12, 5, 3, 0);
-        drumline_lock_choices(p, 0x3fu, values, c);
-        CHECK(is(c, 12, 5, 3, 0));
+        u32 pair = old_pair(3, 0);
+        drumline_lock_choices(p, 0x3fu, values, c, pair);
+        CHECK(is(c, 12, 5, 3, 0) && pair == old_pair(3, 0));
         values[drumline_pool_field(0)] = 14;
         values[drumline_pool_field(1)] = 40;   // past SRR's choices: ignored
         values[drumline_pool_field(3)] = 3;    // outside the mask: ignored
-        drumline_lock_choices(p, 0x3fu | 1u << drumline_pool_field(0) | 1u << drumline_pool_field(1), values, c);
-        CHECK(is(c, 13, 5, 3, 0));
-        drumline_lock_choices(p, 1u << drumline_pool_field(3), values, c);
-        CHECK(is(c, 13, 5, 3, 2));
+        drumline_lock_choices(p, 0x3fu | 1u << drumline_pool_field(0) | 1u << drumline_pool_field(1), values, c, pair);
+        CHECK(is(c, 13, 5, 3, 0) && pair == old_pair(3, 0));
+        drumline_lock_choices(p, 1u << drumline_pool_field(3), values, c, pair);
+        CHECK(is(c, 13, 5, 3, 0) && pair == old_pair(3, 2));
+        values[drumline_pool_field(2)] = drum_send_lock_of(drum_send_index_of_amount(64));
+        values[drumline_pool_field(3)] = 9;    // neither form: ignored
+        drumline_lock_choices(p, 1u << drumline_pool_field(2) | 1u << drumline_pool_field(3), values, c, pair);
+        CHECK(is(c, 13, 5, 3, 0) && pair == drum_send_pair(drum_send_index_of_amount(64), drum_send_index_of_code(2)));
     }
     // The dbox object index: stock's 27 objects, nothing else.
     CHECK(dbox_index(0x84c50b9c) == 0 && dbox_index(0x84c50b9c + 26 * 0x230) == 26);
@@ -488,7 +527,7 @@ void filter_words_are_stocks() {
     for (u32 index : kFilterWords) live[kLine * 58 + index] = 0x13572468;
     note(kLine, 53);
     CHECK(!std::memcmp(published + 1, built + 1, 5 * sizeof(i32)) && published[7] == built[7]);
-    CHECK((published[0] & ~0xff) == (built[0] & ~0xff));
+    CHECK((published[0] & ~0xffff) == (built[0] & ~0xffff));
     // Load, scramble and the frame's refresh leave every stored and live word alone.
     for (u32 i = 0; i < 58; ++i) stored(kLine)[i] = 0x1111 * static_cast<i32>(i + 1);
     CHECK(sdk_drum_load_engine(4, track_object(kLine)) == 4);
@@ -567,12 +606,28 @@ void pages() {
     CHECK(is(choices_of_word(fields(kLine, 53)), 0, 6, 3, 0) && republished == 4);
     sdk_drum_edit(53, 1, far_up, 0);
     CHECK(is(choices_of_word(fields(kLine, 53)), 0, 15, 3, 0) && republished == 5);
-    // FX I and FX II, TRK and seven amounts.
+    // FX I and FX II: TRK, then 0..100 a percent a detent, (speed + 1) when fast. FX
+    // I's old code 3 turns from the 33 it shows to 73: its byte, and its code the
+    // nearest old step (5, 67).
     sdk_drum_edit(53, 2, far_up, 0);
     sdk_drum_edit(53, 3, down, 0);            // already TRK
-    CHECK(is(choices_of_word(fields(kLine, 53)), 0, 15, 7, 0) && republished == 6);
+    CHECK(is(choices_of_word(fields(kLine, 53)), 0, 15, 5, 0) && republished == 6);
+    CHECK(record(kLine, 53)[0x19] == drum_send_index_of_amount(73) && !record(kLine, 53)[0x1b]);
+    sdk_drum_edit(53, 3, up, 0);              // TRK up: 0
+    CHECK(is(choices_of_word(fields(kLine, 53)), 0, 15, 5, 1) && fields(kLine, 53) >> 16 == kTag);
+    CHECK(record(kLine, 53)[0x1b] == drum_send_index_of_amount(0));
+    const u32 fast_down[3] = {1000, static_cast<u32>(-3), 4};   // three detents at speed 4: 15 steps
+    sdk_drum_edit(53, 2, fast_down, 0);
+    CHECK(record(kLine, 53)[0x19] == drum_send_index_of_amount(58) && is(choices_of_word(fields(kLine, 53)), 0, 15, 4, 1));
+    sdk_drum_edit(53, 2, far_up, 0);          // 98, then 100 and no further
+    sdk_drum_edit(53, 2, far_up, 0);
+    sdk_drum_edit(53, 2, up, 0);
+    CHECK(record(kLine, 53)[0x19] == drum_send_index_of_amount(100) && is(choices_of_word(fields(kLine, 53)), 0, 15, 7, 1));
+    const u32 to_trk[3] = {1000, static_cast<u32>(-127), 25};
+    sdk_drum_edit(53, 3, to_trk, 0);          // FX II down past 0: TRK, its byte 0
+    CHECK(is(choices_of_word(fields(kLine, 53)), 0, 15, 7, 0) && !record(kLine, 53)[0x1b]);
     sdk_drum_edit(53, 3, up, 0);
-    CHECK(is(choices_of_word(fields(kLine, 53)), 0, 15, 7, 1) && fields(kLine, 53) >> 16 == kTag);
+    CHECK(is(choices_of_word(fields(kLine, 53)), 0, 15, 7, 1) && record(kLine, 53)[0x1b] == drum_send_index_of_amount(0));
     CHECK(stock_edits == edits0 + 9);
     // Shift's encoders stay stock's on page 2: TYPE, RANDOM, PAN, VOLUME.
     for (u32 control = 4; control < 8; ++control) {
@@ -624,28 +679,36 @@ void publications_carry_the_choices() {
     stock_pad(kLine);
     note(kLine, 53);
     CHECK(published_track == kLine && published_kind == 0);
-    CHECK((published[0] & ~0xff) == (built[0] & ~0xff) && (published[0] & 0xff) == 0x83);
+    CHECK((published[0] & ~0xffff) == (built[0] & ~0xffff) && (published[0] & 0xffff) == static_cast<i32>(0x80u | old_pair(3, 0)));
     CHECK(!std::memcmp(published + 1, built + 1, 5 * sizeof(i32)) && published[7] == built[7]);
-    CHECK(published[6] == static_cast<i32>((static_cast<u32>(built[6]) & ~0x1ffu) | 0x5eu));
+    CHECK(published[6] == static_cast<i32>((static_cast<u32>(built[6]) & ~0xffffu) | 0xbcu));
     CHECK(carries(published, 12, 5, 3, 0));
     // The sends alone: word 6 is stock's own.
     fields(kLine, 53) = pad_word(16, 0, 1, 6);
     note(kLine, 53);
-    CHECK(published[6] == built[6] && (published[0] & 0xff) == 0x31 && carries(published, 16, 0, 1, 6));
+    CHECK(published[6] == built[6] && (published[0] & 0xffff) == static_cast<i32>(old_pair(1, 6)) && carries(published, 16, 0, 1, 6));
     std::memcpy(payload, built, sizeof(payload));
     sdk_drum_lock_publish(kProject, kLine, 0, payload);   // the editor's and its previews'
-    CHECK(published[6] == built[6] && (published[0] & 0xff) == 0x31);
+    CHECK(published[6] == built[6] && (published[0] & 0xffff) == static_cast<i32>(old_pair(1, 6)));
+    // A key's own amounts: its bytes, each behind its code's nearest step.
+    record(kLine, 53)[0x19] = static_cast<unsigned char>(drum_send_index_of_amount(5));     // shadow 1
+    record(kLine, 53)[0x1b] = static_cast<unsigned char>(drum_send_index_of_amount(84));    // shadow 6
+    note(kLine, 53);
+    CHECK(drum_send_carried(published) == amounts(5, 84) && published[6] == built[6]);
+    record(kLine, 53)[0x19] = record(kLine, 53)[0x1b] = 0;
     // Every default, or a word another extension tagged: nothing carried.
     for (u32 w : {0u, kForeign << 16 | 0x2f03u}) {
         fields(kLine, 53) = w;
         note(kLine, 53);
-        CHECK(published[6] == built[6] && (published[0] & 0xff) == 0 && (published[0] & ~0xff) == (built[0] & ~0xff));
+        CHECK(published[6] == built[6] && (published[0] & 0xffff) == 0 && (published[0] & ~0xffff) == (built[0] & ~0xffff));
     }
     stock_pad(kLine);
-    // A kit (aliased to 4) and the drum sampler publish as before: no carrier.
+    // A kit (aliased to 4) carries its key's sends, here a key it has not set up:
+    // TRK, whatever word 0 held. The drum sampler publishes as before.
     std::memcpy(record(kKit, 53), record(kLine, 53), 0x80);
     note(kKit, 53);
-    CHECK(published_track == kKit && !std::memcmp(published, built, sizeof(built)));
+    CHECK(published_track == kKit && !std::memcmp(published + 1, built + 1, 7 * sizeof(i32)));
+    CHECK((published[0] & ~0x7f7f) == (built[0] & ~0x7f7f) && !drum_send_carried(published));
     std::memcpy(payload, built, sizeof(payload));
     sdk_drum_lock_publish(kProject, kSampler, 0, payload);
     CHECK(published_track == kSampler && !std::memcmp(published, built, sizeof(built)));
@@ -688,10 +751,17 @@ void page_texts() {
         sdk_drumline_page(page);
         CHECK(values(c.text[0], c.text[1], c.text[2], c.text[3]));
     }
-    // Another extension's word: every default.
+    // A key's own amounts show as themselves.
+    fields(kLine, 53) = pad_word(16, 0, drum_send_shadow(37), drum_send_shadow(1));
+    record(kLine, 53)[0x19] = static_cast<unsigned char>(drum_send_index_of_amount(37));
+    record(kLine, 53)[0x1b] = static_cast<unsigned char>(drum_send_index_of_amount(1));
+    sdk_drumline_page(page);
+    CHECK(values("OPEN", "OFF", "37", "1"));
+    // Another extension's word: every default, its bytes too.
     fields(kLine, 53) = kForeign << 16 | 0x2f03u;
     sdk_drumline_page(page);
     CHECK(values("OPEN", "OFF", "TRK", "TRK"));
+    record(kLine, 53)[0x19] = record(kLine, 53)[0x1b] = 0;
     // The key stock edits: a pad held for editing (0x8400dfc8) shows, not the last played.
     stock_pad(kLine);
     std::memcpy(record(kLine, 60), record(kLine, 53), 0x80);
@@ -765,11 +835,17 @@ void locks() {
     sdk_synth_turn(kProject, kLine, 2, turning(-1));
     sdk_synth_turn(kProject, kLine, 3, turning(3));
     CHECK(step_locks::held_value(kLine, 53, drumline_pool_field(1), v) && v == 8);
-    CHECK(step_locks::held_value(kLine, 53, drumline_pool_field(2), v) && v == 3);
-    CHECK(step_locks::held_value(kLine, 53, drumline_pool_field(3), v) && v == 4);
+    // A send locks as a kit's: its index in lock form, a percent a detent from what
+    // the step plays (FX I's old 33, FX II's TRK).
+    CHECK(step_locks::held_value(kLine, 53, drumline_pool_field(2), v) && v == drum_send_lock_of(drum_send_index_of_amount(32)));
+    CHECK(step_locks::held_value(kLine, 53, drumline_pool_field(3), v) && v == drum_send_lock_of(drum_send_index_of_amount(2)));
     stock_texts();
     sdk_drumline_page(page);
-    CHECK(values("L4", "S7", "17", "33"));
+    CHECK(values("L4", "S7", "32", "2"));
+    sdk_synth_turn(kProject, kLine, 3, turning(-3));   // FX II back at the key's own TRK: unlocked
+    CHECK(!step_locks::held_value(kLine, 53, drumline_pool_field(3), v));
+    sdk_synth_turn(kProject, kLine, 3, turning(3));
+    CHECK(step_locks::held_value(kLine, 53, drumline_pool_field(3), v) && v == drum_send_lock_of(drum_send_index_of_amount(2)));
     // Past a two-parameter page's parameters a turn does nothing, stock's lock neither.
     shown_page = &short_page;
     {
@@ -786,7 +862,7 @@ void locks() {
     // A note on the step plays its key's locks; another key, none; a live note, none.
     noted_handle = step_handles[21];
     note(kLine, 53);
-    CHECK(carries(published, 12, 7, 2, 3));
+    CHECK(carries(published, 12, 7, 3, 1) && drum_send_carried(published) == amounts(32, 2));
     std::memcpy(record(kLine, 54), record(kLine, 53), 0x80);
     noted_handle = step_handles[21];
     note(kLine, 54);
@@ -831,24 +907,24 @@ void render_wrapper() {
     std::memset(voice, 0, 0x230);
     // A hit with only its sends set: stock's block bit for bit, and its codes.
     i32 region[8] = {0x12345600, 1, 2, 3, 4, 0x40000000, 0x00500000, 0x08000000};
-    drumline_carry(region, drumline_pack(line_page, make_choices(16, 0, 3, 6)));
+    carry(region, 16, 0, 3, 6);
     const u32 starts0 = starts, processes0 = processes;
     sdk_dbox_render(voice, out, region, params);
     CHECK(!std::memcmp(rendered, region, sizeof(rendered)));
-    CHECK(sdk_drum_send_dbox[5] == (3u | 6u << 3) && !sdk_drum_send_dbox[4]);
+    CHECK(sdk_drum_send_dbox[5] == old_pair(3, 6) && !sdk_drum_send_dbox[4]);
     CHECK(plain(out, region) && starts == starts0 && processes == processes0);
     // The next block: the pad republished meanwhile; the voice keeps its first
     // block's payload and choices.
     i32 next[8] = {0x12345600, 9, 9, 9, 9, 0x40000000, 0x00500000, 0x04000000};
-    drumline_carry(next, drumline_pack(line_page, make_choices(16, 3, 7, 7)));
+    carry(next, 16, 3, 7, 7);
     sdk_dbox_render(voice, out, next, params);
-    CHECK(!std::memcmp(rendered, region, sizeof(rendered)) && sdk_drum_send_dbox[5] == (3u | 6u << 3));
+    CHECK(!std::memcmp(rendered, region, sizeof(rendered)) && sdk_drum_send_dbox[5] == old_pair(3, 6));
     CHECK(plain(out, region) && processes == processes0);
     // A new note (stock's trigger zeroes +0x30) takes its payload. SRR off its
     // default runs the processor: start once, then process, with the hit's choices.
     std::memset(voice + 0x30, 0, 4);
     sdk_dbox_render(voice, out, next, params);
-    CHECK(!std::memcmp(rendered, next, sizeof(rendered)) && sdk_drum_send_dbox[5] == (7u | 7u << 3));
+    CHECK(!std::memcmp(rendered, next, sizeof(rendered)) && sdk_drum_send_dbox[5] == old_pair(7, 7));
     CHECK(starts == starts0 + 1 && processes == processes0 + 1 && !dirty_starts);
     CHECK(is(started_with, 16, 3, 7, 7) && is(processed_with, 16, 3, 7, 7) && last_state == 101);
     CHECK(plain(out, next, kProcessed));
@@ -860,7 +936,7 @@ void render_wrapper() {
     CHECK(starts == starts0 + 1 && processes == processes0 + 3 && last_state == 103);
     // The next note's start finds the state zeroed again; FILTER alone runs it too.
     i32 filtered[8] = {0x12345600, 1, 2, 3, 4, 0x40000000, 0x00500000, 0x7f000000};
-    drumline_carry(filtered, drumline_pack(line_page, make_choices(30, 0, 0, 0)));
+    carry(filtered, 30, 0, 0, 0);
     std::memset(voice + 0x30, 0, 4);
     sdk_dbox_render(voice, out, filtered, params);
     CHECK(starts == starts0 + 2 && !dirty_starts && is(started_with, 30, 0, 0, 0) && last_state == 101);
@@ -872,7 +948,13 @@ void render_wrapper() {
     // Voices are their own; an object outside stock's 27 gets stock's render untouched.
     std::memset(dbox_objects[0], 0, 0x230);
     sdk_dbox_render(dbox_objects[0], out, region, params);
-    CHECK(sdk_drum_send_dbox[4] == (3u | 6u << 3) && sdk_drum_send_dbox[5] == (3u | 6u << 3));
+    CHECK(sdk_drum_send_dbox[4] == old_pair(3, 6) && sdk_drum_send_dbox[5] == old_pair(3, 6));
+    // A hit with amounts of its own sends them, whatever its choices show.
+    i32 fine[8] = {0x12345600, 1, 2, 3, 4, 0x40000000, 0x00500000, 0x08000000};
+    drumline_carry(fine, amounts(1, 99), drumline_pack(line_page, make_choices(16, 0, 1, 7)), 6);
+    std::memset(voice + 0x30, 0, 4);
+    sdk_dbox_render(voice, out, fine, params);
+    CHECK(sdk_drum_send_dbox[5] == amounts(1, 99) && plain(out, fine));
     unsigned char stray[0x230] = {};
     const u32 processes1 = processes;
     sdk_dbox_render(stray, out, filtered, params);

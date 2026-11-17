@@ -31,8 +31,8 @@ static void init(void* self, opxy::u32 slot) {
 // +0x10: one 64-sample block, left and right processed in place.
 static void process(void* self, opxy::i32* left, opxy::i32* right, const opxy::i32* parameters) {
     Object* object = static_cast<Object*>(self);
-@SHIFT_PRELUDE@
-    @NAMESPACE@::process(object->state, @BUFFER@@TRANSPORT@left, right, @PARAMETERS@);
+@BUS_RAISE@@SHIFT_PRELUDE@
+    @NAMESPACE@::process(object->state, @BUFFER@@TRANSPORT@left, right, @PARAMETERS@);@BUS_LOWER@
 }
 void* @PREFIX@_fx_factory(void* storage) {
     if (!storage) return nullptr;

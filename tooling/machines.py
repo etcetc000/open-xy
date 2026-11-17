@@ -55,7 +55,11 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # and a synth's voice release callback (resources.releaseCallback).
 # 1.13 gives a synth a Shift row: up to eight more controls under its pages ("shift"),
 # kept in the instrument track's words 36 and 37, and opxy/synth_shift.hpp for its display.
-SDK_VERSION = (1, 13)
+# 1.16 gives an effect a bus shift: its send's audio raised by a fixed number of
+# bits around process (resources.busShift), and lets a note player page eight
+# controls ("press": "page"); and gives a note player a shift row ("shift"),
+# Shift turns and encoder clicks in its Controls, and its step clock's tempo.
+SDK_VERSION = (1, 16)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -538,6 +542,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 2), 'An effect buffer (bufferBytes)')
     if definition['resources'].get('transport'):
         require_sdk(version, (1, 2), "An effect's tempo (transport)")
+    if definition['resources'].get('busShift'):
+        require_sdk(version, (1, 16), "An effect's bus shift (busShift)")
     if any(p['display'] == 'division' for p in definition['parameters']):
         require_sdk(version, (1, 2), 'A division control')
     if kind == 'sample' and 'display' in definition['resources']:
@@ -552,6 +558,12 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 9), 'Hidden stock pages ("hidePages")')
     if kind == 'effect' and paged(definition):
         require_sdk(version, (1, 7), 'An effect whose press switches the page ("press": "page")')
+    if kind == 'player' and paged(definition):
+        require_sdk(version, (1, 16), 'A note player whose press switches the page ("press": "page")')
+    if kind == 'player' and definition.get('press') == 'click':
+        require_sdk(version, (1, 16), 'A note player whose presses are only its clicks ("press": "click")')
+    if shift_parameters(definition) and kind == 'player':
+        require_sdk(version, (1, 16), 'A player\'s shift row ("shift")')
     if shift_parameters(definition):
         require_sdk(version, (1, 7), 'An effect\'s shift row ("shift")')
     if synth_shift(definition):
@@ -609,7 +621,9 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 9), 'Track control (trackControl)')
         require((root / 'control.cpp').is_file(), 'A synth with track control supplies control.cpp')
     defaults = value.get('presetDefaults', {})
-    require(isinstance(defaults, dict) and set(defaults) <= {'amp'}, 'Invalid preset defaults')
+    require(isinstance(defaults, dict) and set(defaults) <= {'amp', 'volume'}, 'Invalid preset defaults')
+    require('volume' not in defaults or (type(defaults['volume']) is int and 0 <= defaults['volume'] <= 32767),
+            'Invalid preset volume default')
     amp = defaults.get('amp', {})
     require(isinstance(amp, dict) and set(amp) <= {'attack', 'decay', 'release', 'sustain'} and
             all(type(v) is int and 0 <= v <= 32767 for v in amp.values()), 'Invalid preset amp defaults')
