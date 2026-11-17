@@ -22,6 +22,8 @@ REGISTRY = document(ROOT / 'profiles/extensions.json')['capabilities']
 CPU = {
     'idle': ({'0x8d5116a0': 'hook', '0x8d511908': 'hook', '0x8d51c7a6': 'hook'},
              ('send_fx', 'idle_cut')),
+    'block_trims': ({'0x8d511014': 'hook', '0x8d510f04': 'hook', '0x11a044e6': 'hook', '0x8d503878': 'hook',
+                     '0x8d50fac4': 'hook'}, ('track_hooks', 'floor_hooks')),
 }
 FIXTURES = ROOT / 'tests/fixtures/machines'
 

@@ -258,7 +258,7 @@ def plan(machines, profile=None):
 # The SDK's shared objects, after every machine's. Sources are TEMPLATES/<unit>.cpp
 # or .s, except the generated units and the Blackfin runtime.
 SDK_UNITS = ('divide', 'sample_kernel', 'memory', 'registration', 'registration_stock', 'startup', 'startup_exit', 'startup_label', 'benchmark', 'benchmark_clock', 'voice_clock',
-             'hook', 'send_fx', 'idle_cut', 'sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache', 'sample_cache_stock',
+             'hook', 'send_fx', 'track_hooks', 'floor_hooks', 'idle_cut', 'sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache', 'sample_cache_stock',
              'sample_cache_hooks', 'sample_progress', 'sample_progress_stock', 'pad_assignment',
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
@@ -316,6 +316,8 @@ UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks',
 # their adapters write it only in builds with idle).
 UNIT_SERVICES['send_fx'] = 'idle'
 UNIT_SERVICES['idle_cut'] = 'idle'
+# Track mixing, the LFO pass check and the idle tape.
+UNIT_SERVICES.update(dict.fromkeys(('track_hooks', 'floor_hooks'), 'block_trims'))
 
 
 def service_users(machines):

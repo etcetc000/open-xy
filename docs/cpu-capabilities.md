@@ -30,6 +30,7 @@ without it has byte for byte ([Off means off](#off-means-off)).
 | --- | --- | --- |
 | `boot_log_fix` (an image capability) | limit `8400ea65` (one data byte) | none |
 | `idle` | hooks `sdk_send_fx` at `8d5116a0` and `8d511908`, `sdk_idle_render` at `8d51c7a6` | `send_fx`, `idle_cut` |
+| `block_trims` | hooks `sdk_track_mix` at `8d511014` and (without profiling) `8d510f04`, `sdk_lfo_pass` at `11a044e6`, `sdk_tape_play` at `8d503878`, `sdk_tape_tail` at `8d50fac4` | `track_hooks`, `floor_hooks` |
 
 ## Budgets
 
@@ -43,6 +44,7 @@ disassembly of the build shows it); anything else is said not to be measured her
 | --- | --- | --- |
 | `boot_log_fix` | nothing | 0 |
 | `idle` | per send per block: `sdk_send_fx` (a scan of 384 words while the send is quiet, then the effect's call is skipped once idle); per sounding voice per block: `sdk_idle_render` (stock's chooser plus a check) | a quiet send: its scans, one hardware loop of two instructions a word over 384 words (about 770 instructions; counted from the built code, not timed); a sounding send: a scan of its 128-word bus before the effect's call, one hardware loop of two instructions a word (about 260 instructions), and about 90 more of checks (counted from the built code, not timed); with `release_floor`, the drum sampler's tables scan up to 1,024 samples a block in all (not counted); with `cpu` alone, an SDK voice whose engine defines `settled()` still takes its block's peak and asks `settled()` every block, though nothing is cut (no catalog engine defines `settled()`, so nothing for the catalog; not counted). Saves an idle send's whole effect call and a cut voice's remaining blocks; not measured in this repository |
+| `block_trims` | per sounding track per block: `sdk_track_mix`; per LFO pass: `sdk_lfo_pass`; per block: `sdk_tape_play`, `sdk_tape_tail` | Functional-Sim, from this repository's tests ([block_trims](#block_trims)): a silent sounding track's mixes 402 against stock's 1,704; an LFO pass check 45 against 58 (up to 72 calls a block); an idle tape about 2,610 a block |
 
 ## Off means off
 
@@ -150,3 +152,35 @@ table, so `sdk_idle_render` passes them by and they end as stock's sampler voice
 Tests: `test_send_fx.py`, `test_idle_cut.py`, `test_voices.py`,
 `test_drum_voices.py` (host); this file's tests show the sites stock and the unit
 absent with the capability off.
+
+## block_trims
+
+What it changes in stock: per-block work replaced by exact equivalents that skip
+what cannot change the result.
+- [Track mixing](abi-1.2.1.md#track-mixing) (`8d511014`): a sounding track's five
+  bus mixes skip a zero gain or an all-zero track buffer; without profiling,
+  `8d510f04` also skips the monitor tap's stage timer.
+- [LFO pass check](abi-1.2.1.md#lfo-pass-check) (`11a044e6`) without its two DDR
+  helper calls.
+- [Idle tape](abi-1.2.1.md#idle-tape): tape playback (`8d503878`) and tape track
+  mixing (`8d50fac4`) skipped while the tape is silent.
+
+Off: every site keeps stock's bytes and `track_hooks` and `floor_hooks` are not linked.
+
+What it saves (BF707 Functional-Sim, from this repository's tests; no cache, no DDR
+model, not a device measurement): a sounding track's mixes 1,704 cycles (stock)
+against 402 on a silent buffer; an LFO pass check 58 against 45 (up to 72 calls a block,
+so about 940 cycles, 0.16 % of a block, in the simulator; what the check avoids is two
+calls into DDR code, whose cache misses the simulator does not model, so the device figure
+is unknown and may be larger or no better); a block with the tape idle about 2,610 cycles. To print them (needs CCES's simulator and a stock OS image,
+neither in this repository): `python tests/sim_cycles.py`, with `OPXY_TEST_STOCK_OS` and
+`OPXY_TEST_CCES` set as for the tests.
+
+What it risks: each hook re-implements a stock loop; a mistake changes audio.
+
+Tests: each hook against stock's own relocated bytes on the Functional-Sim
+(`test_track_hooks.py`, `test_floor_hooks.py`; they need a stock OS image, which is
+not in this repository, and the simulator, so CI skips them); host tests pin each hook's
+stock addresses and its scan's length against the stock bytes it replaces
+(`test_cpu_capabilities.py`, `test_track_hooks.py`). Never measured in a whole loop
+with voices sounding on a device.

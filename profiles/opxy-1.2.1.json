@@ -184,6 +184,9 @@
     "idle": [
       "idle"
     ],
+    "block_trims": [
+      "block_trims"
+    ],
     "boot_log_fix": [
       "boot_log_fix"
     ]
@@ -1914,6 +1917,62 @@
       "symbol": "sdk_send_fx",
       "call": true,
       "service": "idle"
+    },
+    {
+      "kind": "hook",
+      "name": "A sounding track's five bus mixes: skipped for a zero gain or an all-zero track buffer",
+      "address": "0x8d511014",
+      "file_offset": "0x148270",
+      "length": 6,
+      "before": "1090c1e00afc",
+      "symbol": "sdk_track_mix",
+      "call": false,
+      "service": "block_trims"
+    },
+    {
+      "kind": "hook",
+      "name": "Without profiling, a sounding track's monitor-tap timer is not recorded: straight to its bus mixes",
+      "address": "0x8d510f04",
+      "file_offset": "0x148160",
+      "length": 4,
+      "before": "30009631",
+      "symbol": "sdk_track_mix",
+      "call": false,
+      "profiling": false,
+      "service": "block_trims"
+    },
+    {
+      "kind": "hook",
+      "name": "LFO evaluator: its pass check without the two DDR helper calls",
+      "address": "0x11a044e6",
+      "file_offset": "0x7b76",
+      "length": 8,
+      "before": "00de508dd44a0000",
+      "symbol": "sdk_lfo_pass",
+      "call": false,
+      "service": "block_trims"
+    },
+    {
+      "kind": "hook",
+      "name": "Tape playback skipped while the tape is silent: heads and crossfade stepped, output zeroed",
+      "address": "0x8d503878",
+      "file_offset": "0x13aad4",
+      "length": 4,
+      "before": "ffe368fe",
+      "symbol": "sdk_tape_play",
+      "call": false,
+      "service": "block_trims"
+    },
+    {
+      "kind": "hook",
+      "name": "Tape track mixing skipped for an all-zero tape buffer: ramps, pan curve and meter kept",
+      "address": "0x8d50fac4",
+      "file_offset": "0x146d20",
+      "length": 8,
+      "before": "09dab011d51d0000",
+      "symbol": "sdk_tape_tail",
+      "call": false,
+      "service": "block_trims"
     },
     {
       "kind": "hook",

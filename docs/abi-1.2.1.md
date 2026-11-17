@@ -45,8 +45,9 @@ version is rejected. The output differs from stock in exactly these places:
 | Display note releases | 2 | Observes both stock note-off map updates while preserving their original calls |
 | Project companions | 7 | Writes a [companion](projects.md) after every project save, maps a project's machine numbers through its companion on every load, gives track control machines what they kept after every load (and nothing after a new project), and shows companions beside projects over MTP |
 | Diagnostic benchmark | 1 | Extends explicit command 0xc8 with the selected machines; no normal-playback callbacks added |
-| Per-voice profiling | 10 optional | Bypasses diagnostic timing in both stock voice renderers when built with profiling off |
+| Per-voice profiling | 10 optional (11 with `block_trims`) | Bypasses diagnostic timing in both stock voice renderers, and (with [`block_trims`](cpu-capabilities.md#block_trims)) the audio loop's per-track monitor-tap timer, when built with profiling off |
 | Track control | 6 | Runs a synth's track control once per GUI tick, after stock's own call at that site, notes encoder edits, lets it play notes and take its own encoder turns, shows its overlays as parameter values, and keeps overlays off a parameter a step's lock holds (three lock writes) |
+| Audio floor | 3 | The LFO evaluator's pass check without its two DDR calls ([LFO pass check](#lfo-pass-check)); the tape track's playback and mixing skipped while the tape is silent ([idle tape](#idle-tape)); exact, with [`block_trims`](cpu-capabilities.md#block_trims) |
 | Aux tracks | 13 | Lets a track control machine take over aux track 12 (CV): its chooser on Shift + M1 (the effect list on the sends), its presets on Shift + track key, its page on M1, its parameter names on the LFO's destinations, its own LFO whichever track is selected, and CV and gate kept silent; four MTP allowlist edits show the user's aux presets |
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
@@ -95,7 +96,22 @@ into stock bookkeeping and jump to stock continuations in the existing frame.
 They preserve audio processing and voice-lifetime return paths. Counter
 initialization, resets, exporters, coarse timing and deadline clocks remain
 stock. These shims are linked in both modes so the browser can select the mode
-without recompilation; enabled builds leave all ten stock hook sites intact.
+without recompilation; enabled builds leave all their stock hook sites intact
+(ten, or eleven with [`block_trims`](cpu-capabilities.md#block_trims)).
+
+The eleventh, at `8d510f04` (`CLI R0; R2 = CYCLES`), exists only with
+[`block_trims`](cpu-capabilities.md#block_trims): it is the end of the audio
+loop's stage timer around each sounding track's monitor tap (slot 17,
+`08035228`): read the cycle counter, subtract the start, update last, max,
+min, sum and count, once a sounding track and block. Without
+profiling it jumps straight to `sdk_track_mix` ([track mixing](#track-mixing)),
+which recomputes the first aux term and `P3` the timer code also set up and
+reads none of the registers it writes. Only stock's diagnostic exporter and
+its resets read slot 17; it simply stays at its reset values. On the BF707
+Functional-Sim (`tests/test_track_hooks.py`, 160 random cases, the hook
+entered with junk in every register the timer code writes): memory and `P3`
+identical to stock's timer then mixes, 1,800 cycles against 1,039 a sounding
+track (`python tests/sim_cycles.py` prints them).
 
 The diagnostic runner calls stock's nine synth tests, then the selected SDK
 machines in build order. Synths reuse stock's benchmark-one routine,
@@ -1207,6 +1223,106 @@ magnitude (a saturating `ABS` and a `MAX` a word, one hardware loop of two instr
 counts as loud): 384 words a send when every buffer is below the floor. The first block in
 which any condition fails runs the call on that block, on the state as it was.
 On idling the send's two meters are published as zero.
+
+## Track mixing
+
+The audio loop `8d510760` runs each instrument track whose silence counter is
+below 2 (a voice rendered, or its level follower above 1%, within the last two
+blocks) through its gain ramp, meter and monitor tap, then mixes the track
+buffer `11903600` (64 stereo frames, 128 words) into five buses with five
+128-word loops, `8d511014`..`8d511180`:
+
+| bus | where | gain |
+| --- | --- | --- |
+| aux (the loop's third argument, tapped as monitor slot 8) | `[FP-0x7c]` | `R5`, each product shifted left 11 with saturation |
+| tape input | `84caa740` | `R6` |
+| FX I | `84caa140` | `[FP-8]`, stepping by `[FP-0xc]` per word (always 0: stock stores `R4`), the last value stored back |
+| FX II | `84caa340` | `R7` |
+| master | `[SP+0x58]` | a ramp per word from the track's ramp state `[FP-0x34]` (+0 step, +4 gain, +8 halfword shift, +0xa snap byte) towards `[FP-0x50]` times `[[FP+0xc]]`; `[FP+0xc]` stepped by `[SP+0x48]` into `P3`, read at `8d5111b4` |
+
+Each word is `bus = sat(bus + gain * x (T))`. The `(T)` product of a zero
+operand is exactly 0 and a saturating add of 0 returns the bus unchanged, so a
+loop with a zero gain, or over an all-zero buffer, changes nothing; only the
+two gain sequences carry state. The hook at `8d511014` (`R0 = [P2++]` and the
+aux loop's `LSETUP`, after stock's stage timing of the tap) jumps to
+`sdk_track_mix` (`track_hooks.s`, with the [`block_trims` capability](cpu-capabilities.md#block_trims)). It scans the buffer (both
+halves at once, leaving at the first nonzero word) and runs the same five
+mixes, skipping a loop whose gain is 0 (FX I only while its step is 0; the
+master only while its first gain and step are both 0) and every loop when the
+buffer is all zero, while still stepping the master ramp and storing FX I's
+last gain as stock does. It jumps back to `8d511182` with `P3` as stock
+leaves it; `R4` (0), `P4`, `P5`, `FP` and `SP` are untouched and every other
+register it uses is written before it is read there. On the BF707
+Functional-Sim, against stock's own relocated bytes from the same memory
+(`tests/test_track_hooks.py`, 400 random cases plus four named ones, no
+mismatch): stock spends 1,704 cycles a sounding track; the hook 402 on a
+silent buffer (`python tests/sim_cycles.py` prints both; a count moves by a few
+cycles with where the harness places the code). The sim has no DDR model; the
+buses are in DDR on the device.
+
+## LFO pass check
+
+Stock's LFO evaluator `11a0446e(state, track, params, pass)` (L1) runs for
+each track (passes 2, 4 and 3) and, while a track's LFO is on, for each of its
+voices (passes 0 and 1). Before anything else it works out which pass the LFO
+belongs to with two helpers in DDR and returns 0 unless the asked pass is that
+one: `8d504ad4(type, p60, p68, p6c, flag pointer)` (types 0 and 6: 3; type 3:
+a 9-bit field of `p68`, or of `p6c` plus 3, and the flag from `p60`; other
+types: `((p68 >>> 8) * 6) >>> 24` and the flag from bit 23) and
+`8d504a50(r, dest, engine, flag, track)` (1 for r >= 3; 2 for r 0, destination
+3 and engine 6, 0x20 or 0x12; 4 for r 2 and engine 3 or 4 (`8d5b79f0`) or
+`84042700[track] == 0x12`; else 2 when the flag is clear, 0 when set). Both are
+pure. The hook at `11a044e6` (`ABSCALL 8d504ad4`, 8 bytes) jumps to
+`sdk_lfo_pass` (`floor_hooks.s`, with `block_trims`), which does both with stock's own
+arithmetic and makes the same stores stock makes between and around the calls
+(the flag byte, `[FP+0x10]`, `[SP+0xc]`, `[SP+0x10]`, `[SP+0x14]`, `R7`), then
+returns to `11a0451c` with `R0` the pass as stock leaves it (`R1` is written
+before it is read on every path from there). Functional-Sim, stock's relocated
+`11a044e6`..`11a0451c` against the hook from the same registers and frame
+(`tests/test_floor_hooks.py`, 3,000 random cases over every type, field value
+and engine, no mismatch): 58 cycles a call against 45 (`python tests/sim_cycles.py`). It runs only while
+LFOs are on, up to 72 calls a block.
+
+## Idle tape
+
+The tape track `8d50fa88` (stage slot 6) runs every block. Its tape machine
+`8d50374c` calls `8d503548(tape, L, R, rate)` (`8d503878`), which reads 64
+frames through two heads into two scratch buffers, stepping the heads (`+8`,
+`+0xc`) by `rate` a frame and the crossfade `+0xf4` by `+0xf8` (saturating,
+floored at 0); then it writes the tape buffer `11903600` (128 words) as the
+output gain times the scratch words `(T)`, the gain stepping from `+0xf0`
+towards the play gain while `+0x100` (playing) is set and towards 0 otherwise.
+The track then runs the tape filter `8d50f944` while `11b01dd5` is set, steps
+its level and pan ramps (`84c68c08`, `84c68c14`), writes the pan curve
+`11902e00`, mixes the buffer into the master, FX I and FX II buses, and meters
+it (`84ca9d9c`, `8d4d666a(0x11, m)`).
+
+While the target gain and `+0xf0` are both 0 (not playing and faded out: the
+normal state of a project that does not use the tape), every output word is
+`0 * x (T)` = 0. `sdk_tape_play` (a jump at `8d503878`, with `block_trims`) then steps
+the heads and the crossfade as `8d503548` would, writes the 128 zero words and
+continues at `8d503904` (stock's stores of the gain and `+0x20`); otherwise it
+makes stock's call and returns to `8d50387c`. The two scratch buffers keep
+their last contents; only that gain loop reads them, after `8d503548` rewrites
+them. `sdk_tape_tail` (a jump at `8d50fac4`, `IMM32 P1 = 11b01dd5`) takes the
+filter-off case with both ramps constructed and an all-zero buffer (marked by
+`sdk_tape_play` this block, or checked word by word): every mixed term has a
+buffer word as a factor, so the buses stay as they are; it does the two ramps,
+the pan curve, the 64 level steps and the meter with stock's instructions and
+leaves through stock's epilogue (`8d50fd22`). Otherwise it loads `P1` as the
+replaced instruction did and returns to `8d50facc`. The start-up clear (16 KiB
+a block until `+4` reaches `0x80000`) and the record path are unchanged.
+
+Functional-Sim with stock OS 1.2.1 loaded at its own addresses and built by
+its own constructor table (`tests/test_floor_hooks.py`): 400 tape-track calls
+from the same memory (idle, filter on, fading, playing at gain 0, playing,
+random, with the same registers for both: stock's tape machine can read the
+caller's `R4` before setting it, which in the firmware is the audio loop's own
+`R4` either way) leave the tape, filter, ramp, bus, meter and pan-curve state
+as stock's; the whole audio loop from start-up with and without the hooks (160
+blocks; a hash of the audio state after every block) differs only in
+`84c69918`, stock's smoothed CPU load, which follows `CYCLES`. A steady idle block costs
+32,563 cycles against 29,953 (`python tests/sim_cycles.py`).
 
 ## Synthesis drum transport
 

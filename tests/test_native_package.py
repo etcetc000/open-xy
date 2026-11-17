@@ -110,10 +110,26 @@ class PackageVerification(unittest.TestCase):
 
     def test_profiling_hooks_match_mode_and_stay_in_platform_unit(self):
         symbols, _undefined = object_symbols(read(self.package / 'analysis/sdk/profiling.o'))
+        services, owner_of = native.object_services(self.machines), self.owners()
         for edit in self.report['patches']:
             if edit.get('profiling') is False:
-                self.assertIn(edit['symbol'], symbols)
-                self.assertEqual(edit['after'] == edit['before'], self.report['profiling'])
+                if 'service' in edit:
+                    # A service's own bypass without profiling (block_trims: sdk_track_mix) lives in that
+                    # service's units and is applied only when the service is.
+                    self.assertEqual(services.get(owner_of[edit['symbol']]), edit['service'], edit['symbol'])
+                    active = edit['service'] in self.report['services']
+                else:
+                    self.assertIn(edit['symbol'], symbols)
+                    active = True
+                self.assertEqual(edit['after'] == edit['before'], self.report['profiling'] or not active, edit['symbol'])
+
+    def owners(self):
+        """Symbol -> the package object defining it."""
+        owner_of = {}
+        for name in self.report['objects']:
+            defined, _undefined = object_symbols(read(self.package / 'analysis' / name))
+            owner_of.update(dict.fromkeys(defined, name))
+        return owner_of
 
     def test_service_hooks_live_in_their_units_and_only_their_users_reach_them(self):
         services = native.object_services(self.machines)
