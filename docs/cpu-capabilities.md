@@ -8,21 +8,26 @@ one image capability, `boot_log_fix`, kept with them because the `cpu` extension
 extension in the collection names it. Off, every one of its sites holds stock's
 bytes and its SDK units are not linked. Every edit carries
 the stock bytes it replaces (`before`), and the build refuses an image whose site
-differs (`tooling/firmware.py` `assemble`).
+differs (`tooling/firmware.py` `assemble`). `fast_helpers` is the exception: it
+has no site and no unit of its own, and its two units are linked either way, from
+the plain sources when it is off ([below](#fast_helpers)).
 
 The build capabilities are chosen only by `sdk.py build`: `sdk.py settings apply` refuses them and
 browser kits cannot carry them. `boot_log_fix`, one fixed data byte, is an image
 capability: `sdk.py settings apply` can write it into an existing image and a browser kit can carry it.
 `sdk.py settings show --image os.ldr` reports
-whether an image was built with each.
+whether an image was built with each, except `fast_helpers`, which has no site in
+the image: a build's `analysis/compile-report.json` names the sources it chose
+under `unit_sources` when the setting is 1 (the key is absent at 0).
 
 Firmware coverage: every capability below has addresses for **OP-XY OS 1.2.1 only**
 (`profiles/opxy-1.2.1.json`). A build whose profile lacks a selected capability's
 service fails with "the <name> capability has no firmware sites for OP-XY OS
 <version>".
 
-The SDK's one CPU extension, `extensions/cpu` ("CPU (experimental)"), selects all five:
-`boot_log_fix`, `idle`, `block_trims`, `output_slack` and `load_governor`. It needs `sdk.py build`. It
+The SDK's one CPU extension, `extensions/cpu` ("CPU (experimental)"), selects all six:
+`boot_log_fix`, `idle`, `block_trims`, `output_slack`, `load_governor` and
+`fast_helpers`, the last at its setting 0, off. It needs `sdk.py build`. It
 does not select `release_floor`, whose threshold the idle cut uses: with `cpu` alone, `idle` skips
 silent sends and cuts no voice ([idle](#idle)). A
 collection that wants only some of the capabilities selects them with a settings
@@ -31,7 +36,7 @@ takes a settings extension from any folder the collection names).
 
 **What has run on a device: nothing from this repository.** No build made from this
 repository with any of these capabilities on has run on a device. A capability
-off leaves stock's bytes, which a build
+off leaves stock's bytes (and, for `fast_helpers`, the plain helpers), which a build
 without it has byte for byte ([Off means off](#off-means-off)).
 
 | Capability | Edits | Units linked when on |
@@ -41,6 +46,7 @@ without it has byte for byte ([Off means off](#off-means-off)).
 | `block_trims` | hooks `sdk_track_mix` at `8d511014` and (without profiling) `8d510f04`, `sdk_lfo_pass` at `11a044e6`, `sdk_tape_play` at `8d503878`, `sdk_tape_tail` at `8d50fac4` | `track_hooks`, `floor_hooks` |
 | `output_slack` | hook `sdk_dsp_block_audio` at `8c0c6ffe` (and, once armed, a run-time swap of the audio task's block pointer `11b008cc`) | `dsp_block`, `dsp_block_hooks`, `output_slack`, `output_slack_hooks` |
 | `load_governor` (fixed bytes, no code) | limits `8d51c430`, `8d51c48c`, `8d51c492`, `8d51c49a`, `8d51e4f0`, `8d51e4fe` | none |
+| `fast_helpers` (a setting, 0 off or 1 on; default 0) | none: it chooses the source of two units every build links | at 1, `divide` from `divide_fast.s` and `memory` from `memory_fast.cpp`; at 0, the plain `divide.s` and `memory.cpp` |
 
 ## Budgets
 
@@ -57,6 +63,7 @@ disassembly of the build shows it); anything else is said not to be measured her
 | `block_trims` | per sounding track per block: `sdk_track_mix`; per LFO pass: `sdk_lfo_pass`; per block: `sdk_tape_play`, `sdk_tape_tail` | Functional-Sim, from this repository's tests ([block_trims](#block_trims)): a silent sounding track's mixes 402 against stock's 1,704; an LFO pass check 45 against 58 (up to 72 calls a block); an idle tape about 2,610 a block |
 | `output_slack` | per block: `sdk_dsp_block_audio`; until armed, a quiet check of the newest block (256 words, more with USB multichannel); once armed, each period a copy of one block (1,024 words) out of a 4 KB queue | the copy about 2,050 instructions a period (counted from the built code: a hardware loop of two instructions a word over 1,024 words; not timed) |
 | `load_governor` | stock's governor, as before, on its edited bytes | 0 (it changes when voices are cut, not the work) |
+| `fast_helpers` | whenever machine code calls `memset`, `memcpy` or an integer divide | less per call; never measured as a share of a block |
 
 ## Off means off
 
@@ -373,3 +380,52 @@ the image's bytes, what it cuts and what it does not (saturation on every block 
 80 % cuts on the 27th block), that it has no setting and its refusals outside `sdk.py
 build`. Nothing runs stock's governor routine itself on the edited bytes in this
 repository.
+
+## fast_helpers
+
+What it changes: no stock byte. Every native build links two SDK units that
+compiled machine code calls: `memory` (`memset`, `memcpy`: struct initialization
+and copies) and `divide` (`___udivsi3`, `___umodsi3`, `___divsi3`, `___modsi3`:
+GCC's names for integer division and modulo). With its setting at 1 a build
+compiles them from `sdk/platform/blackfin/memory_fast.cpp` (hand-written: whole
+words when source and destination agree mod 4, half-words when they agree mod 2,
+the byte loop under 16 bytes or when the ranges overlap) and `divide_fast.s`
+(a divisor below 32768 uses the chip's divide steps, DIVS then 16 DIVQ: once when
+the quotient fits 16 bits, twice when it does not; larger divisors keep the plain
+shift/subtract loop). The objects keep their names and their place in the link
+order. `divide_fast.s` differs from `divide.s` only in `___udivsi3`; its three
+wrappers are `divide.s`'s text, and a test fails if they ever differ.
+
+Off (setting 0: the default, the `cpu` extension's value, and every build without
+the capability): the plain `divide.s` and `memory.cpp`, byte for byte, as in a
+build that selects no capability. Host and browser-preview builds always compile
+`memory.cpp`'s C and never link either fast file.
+
+What it costs: 248 bytes of every image that turns it on (fill and copy 216 bytes
+against 140, divide 336 against 164).
+
+What it saves: time per call (word copies instead of byte loops; 17 divide steps
+instead of up to 32 shift/subtract steps for a small divisor). Never measured as
+a share of an audio block.
+
+What it risks, bluntly: every native machine calls these routines, so a fault in
+them is a fault in every machine, at any time. Their results are C's according to
+an instruction model (`tests/blackfin_model.py`, `tests/test_runtime_helpers.py`)
+written from the instruction-set reference, not according to silicon: a model and
+a routine that read DIVS/DIVQ the same wrong way would both pass. No build from this
+repository with them has run on a device. The BF70x silicon anomaly list was not
+checked for DIVS/DIVQ or for the hardware loops these use. The two-pass divide (a
+divisor below 32768 with a quotient wider than 16 bits, such as 0x7fffffff / 10) is
+checked only in the model. `memset` and `memcpy` count in LC0 where the plain compiled
+C uses LC1, so hand assembly that calls them inside an LC0 hardware loop must save it:
+no SDK assembly does, and no catalog machine's hand assembly calls anything (the
+catalog's pinned commits when this was written; a machine added later is not
+checked). `sdk.py settings show` cannot tell whether an image has them; the build's
+compile report can.
+
+Tests: host only. The instruction model runs both fast files' own text:
+quotients, remainders and the signed wrappers against C over edge and random
+operands, `memset` and `memcpy` against byte loops at every alignment and overlap
+in a window, and a register check that refuses a helper which changes a
+callee-saved register. A link test shows a build at 0 links the plain objects and
+one at 1 the fast ones, with the sizes above.

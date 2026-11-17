@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 import shutil
 
-from .extensions import build_capabilities, capabilities, capability_settings, extension_at
+from .extensions import build_capabilities, capabilities, capability_settings, extension_at, unit_capabilities
 from .firmware import hook_target
 from .formats import ldr, mapped_offset, require
 from .pipeline import ROOT, add_overwrite_argument, config, fresh_output, read
@@ -67,13 +67,17 @@ def state(image, profile=None):
 def built(image, profile=None):
     """Build capability -> whether the image was built with it (docs/cpu-capabilities.md),
     read from its sites: every one stock, or every one holding the capability's bytes (a
-    hook: a reviewed branch of its form, a fixed edit: its bytes; a profiling-only hook
-    is left out)."""
+    hook: a reviewed branch of its form, a fixed edit: its bytes; a profiling-only hook is
+    left out). A unit capability (fast_helpers) has no site, so an image cannot say whether
+    it was built with it: it is left out here (the build's analysis/compile-report.json
+    lists the sources it chose under unit_sources)."""
     profile = profile or config()
     require(len(image) >= profile['stock_bytes'], 'Not OP-XY OS 1.2.1 or an open-xy OS made from it')
     blocks = ldr(image)
     result = {}
     for name in build_capabilities():
+        if name in unit_capabilities():
+            continue
         edits = [p for p in capability_edits(profile, name) if 'profiling' not in p]
         stock = []
         for patch in edits:

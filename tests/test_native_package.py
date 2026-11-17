@@ -234,10 +234,11 @@ class CapabilityUses(unittest.TestCase):
     """The service-reach rule's capability uses (no package needed)."""
 
     def test_only_idle_counts_as_a_machines_use(self):
-        every = SimpleNamespace(capabilities=('boot_log_fix', 'idle', 'block_trims', 'output_slack', 'load_governor'))
+        every = SimpleNamespace(capabilities=('boot_log_fix', 'idle', 'block_trims', 'output_slack', 'load_governor',
+                                              'fast_helpers'))
         self.assertEqual(machine_capability_uses([every]), {'idle'})
         # A capability outside the list is refused as a machine's use, selected or not.
-        for capability in ('boot_log_fix', 'block_trims', 'output_slack', 'load_governor', 'anything'):
+        for capability in ('boot_log_fix', 'block_trims', 'output_slack', 'load_governor', 'fast_helpers', 'anything'):
             with self.subTest(capability=capability):
                 self.assertEqual(machine_capability_uses([SimpleNamespace(capabilities=(capability,))]), set())
         self.assertEqual(machine_capability_uses([]), set())

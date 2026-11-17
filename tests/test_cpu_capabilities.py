@@ -100,6 +100,104 @@ class Registry(unittest.TestCase):
                                     if p.get('service') == name))
 
 
+class UnitCapability(unittest.TestCase):
+    """fast_helpers: a build capability with no edit whose setting (0 off, the default, or 1) chooses SDK units'
+    sources (tooling/native.py UNIT_SOURCES)."""
+    REAL = REGISTRY['fast_helpers']
+
+    def test_the_registry_entry_and_the_tooling_agree(self):
+        self.assertEqual(self.REAL, {'build': True, 'units': ['divide', 'memory'],
+                                     'setting': {'label': 'Fast helpers', 'unit': '0 off, 1 on',
+                                                 'minimum': 0, 'maximum': 1, 'default': 0}})
+        self.assertEqual(extensions.unit_capabilities(), {'fast_helpers': ('divide', 'memory')})
+        self.assertEqual(native.UNIT_SOURCES, {'fast_helpers': {'divide': 'sdk/platform/blackfin/divide_fast.s',
+                                                                'memory': 'sdk/platform/blackfin/memory_fast.cpp'}})
+        self.assertEqual((native.RUNTIME_ASM, native.RUNTIME_CXX),
+                         ('sdk/platform/blackfin/divide.s', 'sdk/platform/blackfin/memory.cpp'))
+        self.assertEqual(edits_of(config(), 'fast_helpers'), {})
+        self.assertIn('fast_helpers', extensions.build_capabilities())
+        native.check_unit_sources()  # configuration() runs it on every build
+
+    def test_the_registry_refuses_other_shapes(self):
+        setting = self.REAL['setting']
+        for shape in ({'build': True, 'units': ['divide']},                                # no setting
+                      {'build': True, 'units': [], 'setting': setting},                    # no unit
+                      {'build': True, 'units': ['divide', 'divide'], 'setting': setting},
+                      {'build': True, 'units': ['divide'], 'setting': dict(setting, default=1)},   # on by default
+                      {'build': True, 'units': ['divide'], 'setting': dict(setting, maximum=2)},
+                      {'build': True, 'units': ['divide'], 'setting': dict(setting, minimum=-1)},
+                      {'build': True, 'units': ['divide'], 'setting': setting, 'extra': 1},
+                      {'units': ['divide'], 'setting': setting}):                          # not a build capability
+            with self.subTest(shape=shape), registry_with(fast_helpers=shape), self.assertRaises(ValueError):
+                extensions.capabilities()
+        # A unit capability has no edit: one in the profile is refused.
+        profile = copy.deepcopy(document(ROOT / 'profiles/opxy-1.2.1.json'))
+        edit = copy.deepcopy(next(p for p in profile['patches'] if p.get('service') == 'load_governor'
+                                  and 'choices' not in p))
+        edit.update(service='fast_helpers', address='0x8d51e4f2')
+        profile['patches'].append(edit)
+        with mock.patch.object(extensions, 'document', lambda path: profile if 'opxy-' in str(path) else document(path)):
+            with self.assertRaisesRegex(ValueError, 'Invalid build capability: fast_helpers'):
+                extensions.capabilities()
+
+    def test_the_tooling_refuses_sources_the_registry_does_not_name(self):
+        for sources in ({'fast_helpers': {'divide': native.UNIT_SOURCES['fast_helpers']['divide']}},
+                        {**native.UNIT_SOURCES, 'other': {'memory': 'sdk/platform/blackfin/memory_fast.cpp'}},
+                        {'fast_helpers': {**native.UNIT_SOURCES['fast_helpers'],
+                                          'divide': 'sdk/platform/blackfin/nothing.s'}},
+                        {'fast_helpers': {'memory': 'sdk/platform/blackfin/memory_fast.cpp',
+                                          'nounit': 'sdk/platform/blackfin/divide_fast.s'}}):
+            with self.subTest(sources=sources), mock.patch.object(native, 'UNIT_SOURCES', sources):
+                with self.assertRaisesRegex(ValueError, 'The unit capabilities and their sources differ'):
+                    native.check_unit_sources()
+
+    def test_a_unit_no_build_step_matches_is_refused(self):
+        # The names agree and the file exists: only the SDK-unit check refuses it. Without it a build that asks
+        # for the capability would compile no step from the chosen source and silently link the plain one.
+        source = native.UNIT_SOURCES['fast_helpers']['divide']
+        with mock.patch.object(extensions, 'unit_capabilities', lambda: {'fast_helpers': ('divide', 'nounit')}), \
+                mock.patch.object(native, 'UNIT_SOURCES', {'fast_helpers': {'divide': source, 'nounit': source}}):
+            with self.assertRaisesRegex(ValueError, 'The unit capabilities and their sources differ'):
+                native.check_unit_sources()
+
+    def test_every_configuration_checks_the_unit_sources(self):
+        # configuration(), which every compile and build runs first, refuses sources the registry does not name.
+        entries = [{'path': str(ROOT / 'tests/fixtures/machines/probesynth')}]
+        native.configuration(entries)
+        divide = {'divide': native.UNIT_SOURCES['fast_helpers']['divide']}
+        with mock.patch.object(native, 'UNIT_SOURCES', {'fast_helpers': divide}):
+            with self.assertRaisesRegex(ValueError, 'The unit capabilities and their sources differ'):
+                native.configuration(entries)
+
+    def test_only_setting_1_chooses_the_fast_sources(self):
+        self.assertEqual(native.unit_sources(Machines(), config()), {})
+        for settings, expected in (({}, {}), ({'fast_helpers': 0}, {}),
+                                   ({'fast_helpers': 1}, native.UNIT_SOURCES['fast_helpers'])):
+            with self.subTest(settings=settings):
+                e = extension_at(folder(self, ['fast_helpers'], **({'settings': settings} if settings else {})))
+                self.assertEqual(native.unit_sources(Machines(e), config()), expected)
+        # The SDK's own extension: off unless its setting is changed.
+        cpu = extension_at(ROOT / 'extensions' / 'cpu')
+        self.assertEqual(native.unit_sources(Machines(cpu), config()), {})
+        # A setting for a capability the extension does not declare, or out of range, is refused.
+        with self.assertRaises(ValueError):
+            extension_at(folder(self, ['idle'], settings={'fast_helpers': 1}))
+        for value in (2, -1, True, '1'):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                extension_at(folder(self, ['fast_helpers'], settings={'fast_helpers': value}))
+
+    def test_an_image_cannot_take_it_and_cannot_be_read_for_it(self):
+        e = extension_at(folder(self, ['fast_helpers'], settings={'fast_helpers': 1}))
+        with self.assertRaisesRegex(ValueError, 'Chosen when the firmware is built.*fast_helpers'):
+            image_settings.apply(b'', [e])
+        from tooling import browser_kit
+        with self.assertRaisesRegex(ValueError, 'a browser kit cannot carry them: fast_helpers'):
+            browser_kit.refuse_build_capabilities([e])
+        # No site: settings.built leaves it out rather than report it off (the compile report says it).
+        with mock.patch.object(image_settings, 'build_capabilities', lambda: ('fast_helpers',)):
+            self.assertEqual(image_settings.built(loader(bytes(range(16))), dict(stock_bytes=16, patches=[])), {})
+
+
 class Coverage(unittest.TestCase):
     def test_a_capability_without_sites_in_the_profile_fails(self):
         for name in REGISTRY:
@@ -234,23 +332,24 @@ class Built(unittest.TestCase):
 class Extensions(unittest.TestCase):
     def test_one_cpu_extension_labelled_experimental(self):
         # One CPU extension, labelled experimental, always; it carries the
-        # load governor (a switch: named, it is on).
+        # load governor (a switch: named, it is on) and the fast helpers at 0, off.
         self.assertEqual(sorted(p.name for p in (ROOT / 'extensions').iterdir() if p.is_dir()), ['cpu'])
         cpu = extension_at(ROOT / 'extensions' / 'cpu')
         self.assertEqual((cpu.id, cpu.text['name'], cpu.capabilities, cpu.linked, cpu.settings),
                          ('cpu', 'CPU (experimental)',
-                          ('boot_log_fix', 'idle', 'block_trims', 'output_slack', 'load_governor'), False,
-                          {}))
+                          ('boot_log_fix', 'idle', 'block_trims', 'output_slack', 'load_governor', 'fast_helpers'),
+                          False, {'fast_helpers': 0}))
         for key in ('description', 'note'):
             self.assertIn('experimental', cpu.text[key].lower(), key)
         self.assertIn('sdk.py build', cpu.text['note'])
-        for words in ('Governor on',):
+        for words in ('Governor on', 'Fast helpers off, 1 on'):
             self.assertIn(words, cpu.text['note'])
-        # Voices idle only with release_floor, which it does not select.
-        self.assertIn('voices with release_floor', cpu.text['description'])
+        # It names what is off, and that voices idle only with release_floor, which it does not select.
+        for words in ('fast helpers (off)', 'voices with release_floor'):
+            self.assertIn(words, cpu.text['description'])
         self.assertNotIn('release_floor', cpu.capabilities)
         services = active_services(config(), native.service_users(Machines(cpu)))
-        self.assertEqual(services, set(CPU) | {'boot_log_fix', 'load_governor'})
+        self.assertEqual(services, set(CPU) | {'boot_log_fix', 'load_governor', 'fast_helpers'})
 
     def test_a_collection_may_select_a_subset_with_its_own_extension(self):
         # A collection's own settings extension in place of cpu: only what it names is on.
@@ -268,6 +367,58 @@ class Extensions(unittest.TestCase):
         idle_only = active_services(profile, native.service_users(Machines(extension_at(folder(self, ['idle'])))))
         self.assertFalse(any(patch_active(p, idle_only, True) for p in profile['patches']
                              if p.get('service') == 'boot_log_fix'))
+
+
+@unittest.skipUnless(off_path_code.toolchain(), 'No Blackfin toolchain')
+class FastHelpersLink(unittest.TestCase):
+    """What each build links as its divide and memory units: the plain helpers without fast_helpers or with its
+    setting at 0, the fast files with 1, under the same object names and the same global symbols; the compile
+    report names the fast sources only then. Nothing here pins the plain helpers' own bytes or sizes: a change to
+    them that keeps their symbols passes."""
+    def test_off_links_the_public_helpers_and_on_the_fast_ones(self):
+        import re, subprocess, sys
+        out = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, out)
+        compiler = off_path_code.toolchain()
+        objdump = next((compiler / 'bin').glob('bfin-elf-objdump*'))
+        units = ('memory', 'divide')
+        found = {}
+        for case, setting in (('none', None), ('zero', 0), ('one', 1)):
+            command = [sys.executable, str(ROOT / 'sdk.py'), 'compile', '--toolchain', str(compiler / 'bin'),
+                       '--compiler', str(compiler), '--out', str(out / case), '--overwrite',
+                       '--machine', str(ROOT / 'tests/fixtures/machines/probesynth')]
+            if setting is not None:
+                command += ['--extension', str(folder(self, ['fast_helpers'], settings={'fast_helpers': setting}))]
+            run = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stdout[-2000:] + run.stderr[-2000:])
+
+            def functions(path):
+                table = subprocess.run([str(objdump), '-t', str(path)], capture_output=True, text=True).stdout
+                return {name: int(size, 16) for size, name in
+                        re.findall(r'\sg\s+F \.text\s+([0-9a-f]{8}) (\S+)$', table, re.M)}
+            objects = {unit: functions(out / case / 'sdk' / (unit + '.o')) for unit in units}
+            module = functions(out / case / 'module.elf')
+            found[case] = (objects, module, document(out / case / 'compile-report.json').get('unit_sources'),
+                           {unit: (out / case / 'sdk' / (unit + '.o')).read_bytes() for unit in units})
+        # Off and setting 0: the very same objects, and no unit sources in the report; 1: the fast sources.
+        self.assertEqual(found['none'][3], found['zero'][3], 'setting 0 links the very objects of a build without it')
+        self.assertIsNone(found['none'][2])
+        self.assertIsNone(found['zero'][2])
+        self.assertEqual(found['one'][2], native.UNIT_SOURCES['fast_helpers'])
+        for unit in units:
+            with self.subTest(unit=unit):
+                # On, each unit is another object with the same global functions; both define the helpers the
+                # compiler calls.
+                self.assertNotEqual(found['one'][3][unit], found['none'][3][unit])
+                self.assertEqual(set(found['one'][0][unit]), set(found['none'][0][unit]))
+        self.assertTrue({'_memset', '_memcpy'} <= set(found['none'][0]['memory']))
+        self.assertIn('___udivsi3', found['none'][0]['divide'])
+        # The module links the helpers from those objects: each one's size in the module is its object's.
+        for case in found:
+            objects, module = found[case][:2]
+            for unit in units:
+                for name, size in objects[unit].items():
+                    self.assertEqual(module.get(name), size, f'{case}: {name}')
 
 
 class StockAddresses(unittest.TestCase):
@@ -344,7 +495,8 @@ class LinkOrder(unittest.TestCase):
         self.assertEqual(hashlib.sha256((ROOT / native.LINKER).read_bytes()).hexdigest(), profile['linker_sha256'])
         names = set(off_path_code.cpu_capabilities(ROOT))
         self.assertFalse([p for p in profile['patches'] if p.get('service') in names and 'linker' in json.dumps(p)])
-        owned = [u for u, service in native.UNIT_SERVICES.items() if service in names]
+        owned = [s for chosen in native.UNIT_SOURCES.values() for s in chosen.values()]
+        owned += [u for u, service in native.UNIT_SERVICES.items() if service in names]
         self.assertFalse([o for o in owned if Path(o).suffix == '.ld' or Path(o).name == Path(native.LINKER).name])
 
 

@@ -75,7 +75,11 @@ class Profile(unittest.TestCase):
                 floor.floor(value)
 
     def test_registry_setting(self):
-        self.assertEqual(capability_settings(), {'release_floor': floor.SPEC})
+        # The capabilities with a setting: this one and fast_helpers, whose setting chooses SDK units' sources and
+        # has no edit (test_cpu_capabilities).
+        self.assertEqual(capability_settings(), {'release_floor': floor.SPEC,
+                                                 'fast_helpers': dict(label='Fast helpers', unit='0 off, 1 on',
+                                                                      minimum=0, maximum=1, default=0)})
         self.assertEqual(setting_edits(config(), {'release_floor': -40}),
                          {'0x8d50e226': floor_edits(config())[0]['choices']['-40']})
         self.assertEqual(setting_edits(config(), {}), {'0x8d50e226': floor_edits(config())[0]['after']})

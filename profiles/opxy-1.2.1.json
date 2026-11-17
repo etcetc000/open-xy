@@ -195,6 +195,9 @@
     ],
     "load_governor": [
       "load_governor"
+    ],
+    "fast_helpers": [
+      "fast_helpers"
     ]
   },
   "patches": [

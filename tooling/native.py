@@ -88,6 +88,32 @@ def build_settings(machines):
     return settings
 
 
+# Build capabilities that choose an SDK unit's source (the registry's "units", docs/cpu-capabilities.md):
+# set to 1, the unit compiles from the file named here; at 0 (the default), and in every build that does
+# not select the capability, from its plain source (RUNTIME_ASM, RUNTIME_CXX). The object keeps its name
+# and its place in the link order. fast_helpers: the hand-written fill and copy (memory) and the divide
+# steps (divide); the plain files are public's, and the host and browser preview never use these.
+UNIT_SOURCES = {'fast_helpers': {'divide': 'sdk/platform/blackfin/divide_fast.s',
+                                 'memory': 'sdk/platform/blackfin/memory_fast.cpp'}}
+
+
+def check_unit_sources():
+    """UNIT_SOURCES names exactly the registry's unit capabilities and their units, each an SDK unit with
+    an existing file."""
+    require({name: set(units) for name, units in extensions.unit_capabilities().items()} ==
+            {name: set(units) for name, units in UNIT_SOURCES.items()} and
+            all(unit in SDK_UNITS and (ROOT / source).is_file() for units in UNIT_SOURCES.values()
+                for unit, source in units.items()), 'The unit capabilities and their sources differ')
+
+
+def unit_sources(machines, profile):
+    """SDK unit -> the source a unit capability chooses for it in this build: only those whose
+    capability the build selects with its setting at 1 (none otherwise)."""
+    services, settings = active_services(profile, service_users(machines)), build_settings(machines)
+    return {unit: source for name, units in UNIT_SOURCES.items() if name in services and settings.get(name, 0) == 1
+            for unit, source in units.items()}
+
+
 def fixed_after(patch, services, profiling, chosen):
     """An edit's bytes in a build when no module symbol decides them: stock for an inactive
     edit, the chosen value's reviewed bytes for a capability setting; else None."""
@@ -115,6 +141,7 @@ def configuration(entries=None, layout=None):
     release_floor.check_profile(profile, document(ROOT / extensions.PROFILE)['capabilities'])
     load_governor.check_profile(profile, document(ROOT / extensions.PROFILE)['capabilities'])
     extensions.check_profile(profile)
+    check_unit_sources()
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
     machines = Collection(collection(entries, layout), extensions.check_collection(
         [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]))
@@ -591,6 +618,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
     effects, sample_engines = by_kind(machines, 'effect'), by_kind(machines, 'sample')
 
     data_services = selected_services(profile, machines)
+    # The SDK units whose source a unit capability chooses (fast_helpers); none in most builds.
+    chosen_sources = unit_sources(machines, profile)
 
     def assemble_unit(source, obj):
         execute([tools['as'], '-mcpu=bf707', '-I', ROOT, '-o', obj, source])
@@ -634,11 +663,11 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step == 'registration_stock':
                 return cxx(str(generate_registration_stock(folder)), obj)
             if step == 'divide':
-                return assemble_unit(ROOT / RUNTIME_ASM, obj)
+                return assemble_unit(ROOT / chosen_sources.get('divide', RUNTIME_ASM), obj)
             if step == 'sample_kernel':
                 return assemble_unit(ROOT / KERNEL_ASM, obj)
             if step == 'memory':
-                return cxx(RUNTIME_CXX, obj)
+                return cxx(chosen_sources.get('memory', RUNTIME_CXX), obj)
             if step == 'startup_label':
                 return assemble_unit(startup_label.generate(folder, version), obj)
             if step == 'startup':
@@ -691,6 +720,9 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                   hardware_tested=False, cpu_timing_measured=False)
     if runtime_members:
         report['runtime'] = runtime_members
+    if chosen_sources:
+        # No image site says it (sdk.py settings show cannot read it): the report does.
+        report['unit_sources'] = chosen_sources
     # Heap voices: the stock heap each heap synth of the collection reserves at boot, outside
     # the module, over the whole collection as the 1 MiB check counts them.
     heap = {m.id: voice_heap.arena_bytes(m) for m in machines if voice_heap.on_heap(m)}
