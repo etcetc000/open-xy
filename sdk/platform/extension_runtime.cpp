@@ -166,4 +166,11 @@ void extensions_queued_control(const extensions::Control& control) {
     }
     dispatching = false;
 }
+void extensions_usb_host_ready(const usb::Registry& registry) {
+    if (dispatching || !ready()) return;
+    dispatching = true;
+    for (u32 i = 0; i < entry_count; ++i)
+        if (entries[i].hooks->usb_host_ready) entries[i].hooks->usb_host_ready(registry);
+    dispatching = false;
+}
 }}
