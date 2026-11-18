@@ -628,8 +628,8 @@
       "maintainer": "MartinfraDD",
       "status": "published",
       "repository": "https://github.com/MartinfraDD/scales",
-      "tag": "v1.0.0",
-      "commit": "ddba02717fb76d1245518fa6aa72d51e6201fc4e",
+      "tag": "v1.1.0",
+      "commit": "47986121f401f7c95722626f5eae591918002d92",
       "path": ".",
       "keywords": [
         "chord"
@@ -1825,6 +1825,28 @@
       }
     },
     {
+      "id": "tesla",
+      "kind": "synth",
+      "maintainer": "lowlevelgamedev",
+      "status": "published",
+      "repository": "https://github.com/meemknight/OPXY-Tesla",
+      "tag": "v1.0.0",
+      "commit": "a03e42c57f7e62440c3e76c41120946bade75145",
+      "path": ".",
+      "keywords": ["emulation", "analog", "lofi", "modulation", "noise"],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "a03e42c57f7e62440c3e76c41120946bade75145",
+        "firmware_sha256": "dbd5d39e8d93668b86ab925ae834b031bcae0443ecd279eab08be4253a02fbb7",
+        "runs": 3,
+        "block_percent": 3.132677,
+        "peak_percent": 3.323415,
+        "midpoint_percent": 2.317845,
+        "combined_percent": 2.384985,
+        "worst_setting": {"control": 4, "label": "Crush", "value": 268435455}
+      }
+    },
+    {
       "id": "halo",
       "kind": "effect",
       "maintainer": "kristapskristaps",
@@ -2475,6 +2497,36 @@
         "worst_setting": {
           "control": 2,
           "label": "Fold",
+          "value": 1610612735
+        }
+      }
+    },
+    {
+      "id": "neuroform",
+      "kind": "synth",
+      "maintainer": "V714",
+      "status": "published",
+      "repository": "https://github.com/V714/opxy-synths",
+      "tag": "neuroform-v1.0.0",
+      "commit": "1011581b7023d88d65a6a4f0bfbd8754847e1510",
+      "path": "neuroform",
+      "keywords": [
+        "bass",
+        "fm",
+        "analog"
+      ],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "1011581b7023d88d65a6a4f0bfbd8754847e1510",
+        "firmware_sha256": "91cd895fd049a38e1b81017433d849fb750d1b53501b36771b58439796890258",
+        "runs": 1,
+        "block_percent": 2.772564,
+        "peak_percent": 2.879377,
+        "midpoint_percent": 2.755779,
+        "combined_percent": 2.281224,
+        "worst_setting": {
+          "control": 3,
+          "label": "overload",
           "value": 1610612735
         }
       }
