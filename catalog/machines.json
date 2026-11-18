@@ -358,7 +358,7 @@
     {
       "id": "vibe",
       "kind": "effect",
-      "maintainer": "meemknight",
+      "maintainer": "lowlevelgamedev",
       "status": "published",
       "repository": "https://github.com/meemknight/vibe",
       "tag": "v1.0.0",
