@@ -2272,6 +2272,12 @@
         "peak_percent": 4.664683,
         "report": "https://github.com/etcetc000/open-xy/pull/541"
       }
+    },
+    {
+      "id": "seedsynth",
+      "kind": "synth",
+      "maintainer": "galfaroth",
+      "status": "reserved"
     }
   ]
 }
