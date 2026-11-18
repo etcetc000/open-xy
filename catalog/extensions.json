@@ -30,6 +30,12 @@
       "tag": "checkpoint-v0.1.0",
       "commit": "5fedd9903d7dace1657863b0c0ffcd6d843b1b05",
       "path": "extensions/checkpoint"
+    },
+    {
+      "id": "pulsarsnap",
+      "kind": "extension",
+      "maintainer": "rastalukee",
+      "status": "reserved"
     }
   ]
 }
