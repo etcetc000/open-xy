@@ -1,4 +1,4 @@
-/* Sample Studio (private, OP-XY-Dev drafts/sample-editor.md §0): the stubs.
+/* Sample Studio (docs/sample-studio.md): the stubs.
  *
  * Five sites are entry branches, as the sequence page's are: the build writes
  * an absolute jump over the first eight bytes of the sample library
@@ -6,7 +6,7 @@
  * slots are each method's only reference), and of the shared browser screen's
  * frame (slot 3 of 0x84058644, likewise its only reference), straight to the
  * C++ in sample_studio_host.cpp, which returns to stock's caller. No branch lands
- * inside any of those eight bytes (drafts/sample-editor-firmware.md §2, §3).
+ * inside any of those eight bytes.
  * The trampolines below give the C++ stock's own method: each replays the eight
  * bytes exactly and jumps to the instruction after them, whose epilogue then
  * returns to the C++ caller. P0 is never an argument, so it is free at every

@@ -36,7 +36,7 @@ u32 sdk_sample_ui_engine(u32) __asm__("sdk_sample_ui_engine");
 }
 
 namespace {
-// The library controller (firmware notes §2): its object, the renaming and delete-prompt flags in it,
+// The library controller: its object, the renaming and delete-prompt flags in it,
 // and the controller stack (five pointers, the count at +0x14), whose top is the library while it shows.
 const u32 kLibrary = 0x0801f2fc, kRenaming = kLibrary + 0x50, kDeletePrompt = kLibrary + 0x5c;
 const u32 kStack = 0x0801ed24, kStackCount = 0x14;

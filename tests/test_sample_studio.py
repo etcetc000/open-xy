@@ -129,7 +129,7 @@ class Services(unittest.TestCase):
 
     def test_the_surface_checks_and_applies_only_the_bound_slots(self):
         # An editor binds fewer slots than the Surface holds; the empty ones would fail draw::valid
-        # and drop every frame (026 on the device), so neither the check nor the apply is whole-frame.
+        # and drop every frame, so neither the check nor the apply is whole-frame.
         host = code(HOST)
         present = re.search(r'\nvoid surface_present\(const Surface& frame\) \{(.*?)\n\}', host, re.S).group(1)
         self.assertNotIn('Renderer::apply(', present)

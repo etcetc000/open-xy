@@ -2511,7 +2511,7 @@
     },
     {
       "kind": "hook",
-      "name": "Sample Studio (private): the sample library controller's press: the studio's label key and, while it is open, its keys",
+      "name": "Sample Studio: the sample library controller's press: the studio's label key and, while it is open, its keys",
       "address": "0x8c0a330a",
       "file_offset": "0xda546",
       "length": 8,
@@ -2522,7 +2522,7 @@
     },
     {
       "kind": "hook",
-      "name": "Sample Studio (private): the sample library controller's Shift press: Shift + M1 opens the studio; undo, compare, save",
+      "name": "Sample Studio: the sample library controller's Shift press: Shift + M1 opens the studio; undo, compare, save",
       "address": "0x8c0a2be4",
       "file_offset": "0xd9e20",
       "length": 8,
@@ -2533,7 +2533,7 @@
     },
     {
       "kind": "hook",
-      "name": "Sample Studio (private): the sample library controller's release: compare ends",
+      "name": "Sample Studio: the sample library controller's release: compare ends",
       "address": "0x8c0a2d68",
       "file_offset": "0xd9fa4",
       "length": 8,
@@ -2544,7 +2544,7 @@
     },
     {
       "kind": "hook",
-      "name": "Sample Studio (private): the sample library controller's encoder turns go to the studio while it is open",
+      "name": "Sample Studio: the sample library controller's encoder turns go to the studio while it is open",
       "address": "0x8c0a24d0",
       "file_offset": "0xd970c",
       "length": 8,
@@ -2555,7 +2555,7 @@
     },
     {
       "kind": "hook",
-      "name": "Sample Studio (private): the browser screen's frame paints the studio, or the label over the library",
+      "name": "Sample Studio: the browser screen's frame paints the studio, or the label over the library",
       "address": "0x8d55341c",
       "file_offset": "0x18a678",
       "length": 8,
