@@ -2278,6 +2278,12 @@
       "kind": "synth",
       "maintainer": "galfaroth",
       "status": "reserved"
+    },
+    {
+      "id": "pulsar",
+      "kind": "player",
+      "maintainer": "rastalukee",
+      "status": "reserved"
     }
   ]
 }
