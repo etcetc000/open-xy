@@ -62,7 +62,8 @@ the frame to stock.
 The editor draws on a retained surface over the library. `surface_ready(ids, ...)`
 binds the artwork's node, text and palette IDs, and `surface_present(frame)`
 shows a `studio::Surface` frame: up to 32 mutable paths of 64 points, 96 nodes,
-32 texts and 8 palette entries.
+32 texts and 8 palette entries. Only the bound slots are drawn, and the rest may
+stay empty. A frame whose bound slots are out of range is not drawn at all.
 
 Its services:
 

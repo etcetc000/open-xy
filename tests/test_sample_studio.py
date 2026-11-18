@@ -127,6 +127,20 @@ class Services(unittest.TestCase):
             self.assertIn('__attribute__((weak))', send[send.index('void ' + name):][:200], name)
             self.assertRegex(AUDIO.read_text(), r'\n(void) ' + name + r'\(')
 
+    def test_the_surface_checks_and_applies_only_the_bound_slots(self):
+        # An editor binds fewer slots than the Surface holds; the empty ones would fail draw::valid
+        # and drop every frame (026 on the device), so neither the check nor the apply is whole-frame.
+        host = code(HOST)
+        present = re.search(r'\nvoid surface_present\(const Surface& frame\) \{(.*?)\n\}', host, re.S).group(1)
+        self.assertNotIn('Renderer::apply(', present)
+        self.assertNotIn('draw::valid', present)
+        self.assertIn('bound_valid(frame)', present)
+        for part, count in (('path', 'bound_paths'), ('node', 'bound_nodes'), ('text', 'bound_texts')):
+            self.assertRegex(present, rf'< {count}; \+\+\w\) Renderer::apply_{part}\(&object, frame, \w\);')
+        check = re.search(r'\nbool bound_valid\(const studio::Surface& frame\) \{(.*?)\n\}', host, re.S).group(1)
+        for count in ('bound_paths', 'bound_nodes', 'bound_texts', 'bound_palette'):
+            self.assertIn(count, check)
+
     def test_the_pool_keeps_stocks_headroom(self):
         header = API.read_text()
         self.assertIn('pool_capacity = 0x03f00000u, pool_headroom = 8u << 20;', header)

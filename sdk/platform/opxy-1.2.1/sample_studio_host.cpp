@@ -303,9 +303,50 @@ bool surface_ready(const char* const* artwork, u32 paths, u32 nodes, u32 texts, 
     }
     return bound;
 }
+}}  // namespace opxy::studio
+
+namespace {
+// draw::valid for the slots the artwork bound. The Surface is fixed at its capacities and an
+// editor binds fewer; its unbound slots stay zero, which draw::valid refuses (no path key, no
+// scale), so the check and the apply both stop at the bound counts.
+bool bound_valid(const studio::Surface& frame) {
+    using namespace opxy::draw;
+    for (u32 p = 0; p < bound_paths; ++p) {
+        if (!frame.paths[p].key) return false;
+        for (u32 i = 0; i < studio::surface_points; ++i) {
+            const Point& point = frame.paths[p].points[i];
+            if (point.x < -path_extent * unit || point.x > path_extent * unit ||
+                point.y < -path_extent * unit || point.y > path_extent * unit) return false;
+        }
+    }
+    for (u32 i = 0; i < bound_nodes; ++i) {
+        const Node& node = frame.nodes[i];
+        if (!placement(node.x, node.y, node.scale) || !rotation_valid(node.cos, node.sin) ||
+            node.shade >= bound_palette || node.paint > fill_and_stroke) return false;
+    }
+    for (u32 i = 0; i < bound_texts; ++i) {
+        const Text& text = frame.texts[i];
+        if (!placement(text.x, text.y, text.scale) || !terminated(text.chars, text_capacity)) return false;
+    }
+    for (u32 i = 0; i < opxy::page_controls; ++i)
+        if (!terminated(frame.header[i], header_capacity)) return false;
+    return true;
+}
+bool refusal_said;
+}  // namespace
+
+namespace opxy { namespace studio {
+// Only the bound slots are checked and applied: the rest of the Surface is the editor's to leave empty.
 void surface_present(const Surface& frame) {
     if (!bound) return;
-    Renderer::apply(&object, frame);
+    if (!bound_valid(frame)) {
+        if (!refusal_said) log(__LINE__, "surface: a frame out of range, not drawn");
+        refusal_said = true;
+        return;
+    }
+    for (u32 p = 0; p < bound_paths; ++p) Renderer::apply_path(&object, frame, p);
+    for (u32 i = 0; i < bound_nodes; ++i) Renderer::apply_node(&object, frame, i);
+    for (u32 i = 0; i < bound_texts; ++i) Renderer::apply_text(&object, frame, i);
     opxy::screen::draw(&object.base);
 }
 void surface_blank() {

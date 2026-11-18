@@ -107,6 +107,8 @@ typedef draw::Frame<surface_paths, surface_points, surface_nodes, surface_texts,
 // Binds the artwork's IDs: `nodes` node IDs (the first `paths` are its mutable paths), `texts` text
 // IDs and `palette` palette IDs, in that order. False until the artwork is loaded.
 bool surface_ready(const char* const* ids, u32 paths, u32 nodes, u32 texts, u32 palette);
+// Shows the bound slots of `frame`; the rest are ignored and may stay empty. A frame whose bound
+// slots are out of range (draw::valid's rules) is not drawn at all.
 void surface_present(const Surface& frame);
 void surface_blank();                            // the stage's area cleared, while the artwork loads
 void stock_frame();                              // stock's library frame, now (inside frame() only)
