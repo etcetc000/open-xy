@@ -16,8 +16,10 @@ namespace opxy { namespace studio {
 struct Editor {
     bool (*press)(u32 key, bool shift);   // a key pressed in the library (codes below)
     bool (*release)(u32 key);
-    bool (*turn)(u32 encoder, i32 detents);
-    bool (*frame)(i32 elapsed);           // every library frame: true when it drew it (stock_frame() first, if wanted)
+    bool (*turn)(u32 encoder, i32 detents);   // encoders 0..3; the library's other positions stay stock's
+    // Every frame of the library, while it is on top (the browser screen's other browsers stay
+    // stock's): true when it drew it (stock_frame() first, if wanted).
+    bool (*frame)(i32 elapsed);
 };
 // Library key codes (press, release).
 const u32 key_m1 = 6, key_m2 = 7, key_m3 = 8, key_m4 = 9, key_click0 = 10, key_click3 = 13, key_sample = 23;
@@ -105,7 +107,8 @@ void send(u32 channel, i32 value);
 const u32 surface_paths = 32, surface_points = 64, surface_nodes = 96, surface_texts = 32, surface_palette = 8;
 typedef draw::Frame<surface_paths, surface_points, surface_nodes, surface_texts, surface_palette> Surface;
 // Binds the artwork's IDs: `nodes` node IDs (the first `paths` are its mutable paths), `texts` text
-// IDs and `palette` palette IDs, in that order. False until the artwork is loaded.
+// IDs and `palette` palette IDs, in that order. False until the artwork is loaded. Called with other
+// IDs or counts, it binds again.
 bool surface_ready(const char* const* ids, u32 paths, u32 nodes, u32 texts, u32 palette);
 // Shows the bound slots of `frame`; the rest are ignored and may stay empty. A frame whose bound
 // slots are out of range (draw::valid's rules) is not drawn at all.

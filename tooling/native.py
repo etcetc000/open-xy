@@ -9,7 +9,6 @@ import argparse
 import copy
 import hashlib
 import json
-import os
 from pathlib import Path
 import re
 import shutil
@@ -251,8 +250,8 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel',
              'players', 'player_hooks', 'player_table', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
              'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_hooks',
-             'drum_send', 'drum_send_hooks', 'drum_locks', 'lock_handles', 'drumline', 'drumline_hooks',
-             'synth_shift_hooks')
+             'mixer', 'mixer_hooks', 'drum_send', 'drum_send_hooks', 'drum_locks', 'lock_handles', 'drumline',
+             'drumline_hooks', 'synth_shift_hooks', 'sample_studio_host', 'sample_studio_hooks', 'sample_studio_audio')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -263,8 +262,11 @@ UNIT_SERVICES['keyboard_octaves'] = 'octaves'
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock', 'usb_host'), 'extensions'))
 UNIT_SERVICES['drum_hooks'] = 'drums'
 UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
-# Per-key sends hook stock's mixer, so only a build with a padMix kit or a drumline_page
-# extension links them.
+# Stock's mixer: four sites the per-key sends and Sample Studio's player share (mixer.cpp),
+# linked for a padMix kit, a drumline_page extension or a sample_studio extension.
+UNIT_SERVICES.update(dict.fromkeys(('mixer', 'mixer_hooks'), 'mixer'))
+# Per-key sends: the send buses' sources and the sends themselves, only for a padMix kit or
+# a drumline_page extension.
 UNIT_SERVICES.update(dict.fromkeys(('drum_send', 'drum_send_hooks'), 'drum_sends'))
 # A padMix kit's step locks hook note start's pad payload (drum_locks.cpp).
 UNIT_SERVICES['drum_locks'] = 'drum_locks'
@@ -285,6 +287,12 @@ UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'tra
 UNIT_SERVICES.update(dict.fromkeys(('aux_tracks', 'aux_hooks'), 'aux'))
 
 UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks','master_filter_panel'), 'master_filter'))
+# Sample Studio (docs/sample-studio.md): an extension's editor in stock's sample library and its
+# player on the audio board, by the library controller's entry branches and the browser screen's
+# frame (service sample_studio), the master bus (master_bus) and the mixer (mixer).
+SAMPLE_STUDIO_UNITS = ('sample_studio_host', 'sample_studio_hooks', 'sample_studio_audio')
+UNIT_SERVICES.update(dict.fromkeys(SAMPLE_STUDIO_UNITS, 'sample_studio'))
+SAMPLE_STUDIO_ASSET = 'content/display/sample_studio.svg'
 
 
 def service_users(machines):
@@ -293,8 +301,14 @@ def service_users(machines):
     Shift row, whose presets and step locks use the drums and drum_locks services),
     'extension' when it links extension code (native builds link all of the collection's;
     settings extensions link none), the capabilities they declare ('master_filter',
-    'drumline_page') and the registry capabilities its extensions declare."""
+    'drumline_page', 'sampleStudio': a sample_studio extension, which needs a sample-family
+    machine or a drumline_page extension for the samples service) and the registry
+    capabilities its extensions declare."""
     users = [m.kind for m in machines] + (['extension'] if linked_extensions(machines) else [])
+    studio = any(e.sample_studio for e in extensions_of(machines))
+    require(not studio or 'sample' in users or 'drum' in users or
+            any(e.drumline_page is not None for e in extensions_of(machines)),
+            'Sample Studio needs a sample-family machine in the build (the samples service)')
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
@@ -302,6 +316,7 @@ def service_users(machines):
             ['synthShift' for m in machines if m.kind == 'synth' and synth_shift(m.definition)] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
             (['drumline_page'] if any(e.drumline_page is not None for e in extensions_of(machines)) else []) +
+            (['sampleStudio'] if studio else []) +
             [c for e in extensions_of(machines) for c in e.capabilities])
 
 
@@ -420,8 +435,9 @@ def service_fallbacks(services):
     """What a selection that does not use a service gets for the service's entry points
     that shared objects (startup's included) import: kit_absent, which answers 0. Track
     control's saved data, the aux service's start, every call into the step-lock
-    handles (startup.LOCK_CALLS) and stock Drumline's second page (startup's
-    sdk_drumline_get)."""
+    handles (startup.LOCK_CALLS), stock Drumline's second page (startup's
+    sdk_drumline_get), and the mixer's two users (mixer.cpp): the per-key sends and
+    Sample Studio's player, either of which a build that links the mixer may lack."""
     fallbacks = {}
     if 'control' in services:
         fallbacks['control'] = dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'), 'kit_absent')
@@ -431,7 +447,16 @@ def service_fallbacks(services):
         fallbacks['drum_locks'] = dict.fromkeys(('sdk_step_locks_' + call[1] for call in LOCK_CALLS), 'kit_absent')
     if 'drumline' in services:
         fallbacks['drumline'] = {'sdk_drumline_service': 'kit_absent'}
+    if 'mixer' in services:
+        fallbacks['drum_sends'] = dict.fromkeys(MIXER_SENDS, 'kit_absent')
+        fallbacks['sample_studio'] = dict.fromkeys(MIXER_STUDIO, 'kit_absent')
     return fallbacks
+
+
+# What mixer.cpp calls at each of the mixer's sites: the per-key sends' entry points and
+# Sample Studio's player's.
+MIXER_SENDS = ('sdk_drum_send_begin', 'sdk_drum_send_voice', 'sdk_drum_send_gain', 'sdk_drum_send_own_mix')
+MIXER_STUDIO = ('sdk_studio_mixer_begin', 'sdk_studio_voice', 'sdk_studio_gain', 'sdk_studio_level')
 
 
 def absent_extension_symbols(e):
@@ -855,8 +880,8 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines, native=None
         entries = [symbols[name]['value']
                    for name in ('sdk_drum_send_voice_hook', 'sdk_drum_send_gain_hook', 'sdk_drum_send_own')
                    if name in symbols]
-        require(all(entry in body for entry in entries), 'Per-key send entry is not a function start')
-        bounds['sdk:drum_sends'] = max(depth(entry) for entry in entries)
+        require(all(entry in body for entry in entries), 'Mixer entry is not a function start')
+        bounds['sdk:mixer'] = max(depth(entry) for entry in entries)
     return bounds
 
 
@@ -1123,6 +1148,10 @@ def prepare_assets(catalog, profile, machines):
             require(name not in outputs, 'Display asset collision: ' + name)
             outputs[name] = extensions.validate_master_artwork(path)
             owners[name] = 'Extension ' + e.id
+        if e.sample_studio:
+            require(SAMPLE_STUDIO_ASSET not in outputs, 'Display asset collision: ' + SAMPLE_STUDIO_ASSET)
+            outputs[SAMPLE_STUDIO_ASSET] = read(e.root / extensions.SAMPLE_STUDIO_ARTWORK)
+            owners[SAMPLE_STUDIO_ASSET] = 'Extension ' + e.id
     # Stock's own content is never replaced (tooling.stock_content). The menu file is the
     # one stock file a build writes: stock's, extended.
     for path, owner in owners.items():
@@ -1351,40 +1380,3 @@ def main(argv=None, command=None):
         if created and args.out.exists():
             shutil.rmtree(args.out)
         return 1
-
-
-# --- Sample Studio (docs/sample-studio.md) --------------------------------------
-# An extension's editor in stock's library and its player on the audio board, linked when
-# an extension declares "sample_studio" (tooling/extensions.py). The SDK's units take the
-# library controller's methods and the browser screen's frame by entry branches (profile
-# service sample_studio), the master bus and the per-key send mixer (services master_bus,
-# drum_sends), and serve the editor and player (opxy/sample_studio.hpp); the extension's
-# artwork is installed as content/display/sample_studio.svg.
-def sample_studio_asked(machines):
-    return any(e.sample_studio for e in extensions_of(machines))
-
-
-SAMPLE_STUDIO_UNITS = ('sample_studio_host', 'sample_studio_hooks', 'sample_studio_audio')
-SDK_UNITS = SDK_UNITS + SAMPLE_STUDIO_UNITS
-UNIT_SERVICES.update(dict.fromkeys(SAMPLE_STUDIO_UNITS, 'sample_studio'))
-SAMPLE_STUDIO_ASSET = 'content/display/sample_studio.svg'
-_service_users_without_sample_studio = service_users
-_prepare_assets_without_sample_studio = prepare_assets
-
-
-def service_users(machines):
-    users = _service_users_without_sample_studio(machines)
-    if not sample_studio_asked(machines):
-        return users
-    require('sample' in users or 'drum' in users or 'drumline_page' in users,
-            'Sample Studio needs a sample-family machine in the build (the samples service)')
-    return users + ['sampleStudio']
-
-
-def prepare_assets(catalog, profile, machines):
-    outputs = _prepare_assets_without_sample_studio(catalog, profile, machines)
-    if sample_studio_asked(machines):
-        require(SAMPLE_STUDIO_ASSET not in outputs, 'Display asset collision: ' + SAMPLE_STUDIO_ASSET)
-        studio = next(e for e in extensions_of(machines) if e.sample_studio)
-        outputs[SAMPLE_STUDIO_ASSET] = read(studio.root / extensions.SAMPLE_STUDIO_ARTWORK)
-    return outputs

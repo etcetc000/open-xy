@@ -1,5 +1,5 @@
-// Per-key sends (drum_send.hpp): the C++ side of the stock mixer hooks in
-// drum_send_hooks.s. Audio role only; nothing here allocates or waits.
+// Per-key sends (drum_send.hpp): the C++ side of the stock mixer's sites, reached through
+// mixer.cpp (mixer_hooks.s) and drum_send_hooks.s. Audio role only; nothing here allocates or waits.
 #include "drum_send.hpp"
 #include "drumline.hpp"
 
@@ -13,12 +13,6 @@ void sdk_drum_send_begin() __asm__("sdk_drum_send_begin");
 void sdk_drum_send_voice(const unsigned char* voice, u32 track) __asm__("sdk_drum_send_voice");
 void sdk_drum_send_gain(u32 track, i32 gain, i32 step) __asm__("sdk_drum_send_gain");
 void sdk_drum_send_own_mix(u32 track, i32 level, const unsigned char* frame) __asm__("sdk_drum_send_own_mix");
-// Sample Studio's player, through sample_studio_audio.cpp, when the build carries it (weak:
-// absent, null): silences the voices of the track the studio has open.
-void sdk_studio_voice(i32* out, u32 track) __asm__("sdk_studio_voice") __attribute__((weak));
-void sdk_studio_gain(u32 track, i32 gain) __asm__("sdk_studio_gain") __attribute__((weak));
-void sdk_studio_level(u32 track, i32 level) __asm__("sdk_studio_level") __attribute__((weak));
-void sdk_studio_mixer_begin() __asm__("sdk_studio_mixer_begin") __attribute__((weak));
 // Read by sdk_drum_send_source_1 and _2: per send, the track plus one and its source.
 extern DrumSendState sdk_drum_send_state __asm__("sdk_drum_send_state");
 }
@@ -102,14 +96,12 @@ u32 pair_of(const unsigned char* voice) {
 
 // 8d510bea: a track's voice loop is about to run.
 void sdk_drum_send_begin() {
-    if (sdk_studio_mixer_begin) sdk_studio_mixer_begin();   // the studio's block and its sends (player P10)
     drum_send_begin(sdk_drum_send_state);
 }
 
 // 8d51c7b2: before stock adds `voice` (its rendered block at 0x11b01548) into
 // the sum of `track`.
 void sdk_drum_send_voice(const unsigned char* voice, u32 track) {
-    if (sdk_studio_voice) sdk_studio_voice(const_cast<i32*>(kVoiceOutput), track);
     drum_send_voice(sdk_drum_send_state, follow, own, raw, track, kTrackSum, kVoiceOutput, pair_of(voice));
 }
 
@@ -117,7 +109,6 @@ void sdk_drum_send_voice(const unsigned char* voice, u32 track) {
 // gain (8d510e60..8d510e98); `gain` is where its ramp ended (R0), `step` its
 // step per frame (R2).
 void sdk_drum_send_gain(u32 track, i32 gain, i32 step) {
-    if (sdk_studio_gain) sdk_studio_gain(track, gain);
     drum_send_track_gain(sdk_drum_send_state, follow, own, raw, track, gain, step);
 }
 
@@ -126,7 +117,6 @@ void sdk_drum_send_gain(u32 track, i32 gain, i32 step) {
 // 8d510d38), `frame` the engine's frame pointer.
 void sdk_drum_send_own_mix(u32 track, i32 level, const unsigned char* frame) {
     DrumSendState& state = sdk_drum_send_state;
-    if (sdk_studio_level) sdk_studio_level(track, level);
     drum_send_own(state, own, kSendBuses, track, level);
     if (track >= kDrumSendTracks) return;
     if (state.own[0] != track + 1 && state.own[1] != track + 1) {

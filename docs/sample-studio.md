@@ -51,8 +51,8 @@ machine or a `drumline_page` extension, for the samples service.
 | --- | --- |
 | `press(key, shift)` | A key in the library: M1 to M4, the encoder clicks, Sample. |
 | `release(key)` | Its release. |
-| `turn(encoder, detents)` | An encoder turn, encoders 0 to 3. |
-| `frame(elapsed)` | Every library frame. |
+| `turn(encoder, detents)` | An encoder turn, encoders 0 to 3; any other position stays stock's. |
+| `frame(elapsed)` | Every frame of the library, while it is on top. |
 
 Each returns whether it took the input. What it doesn't take goes to stock's
 library, unchanged. `frame` returns true when it drew the frame. It can call
@@ -60,7 +60,8 @@ library, unchanged. `frame` returns true when it drew the frame. It can call
 the frame to stock.
 
 The editor draws on a retained surface over the library. `surface_ready(ids, ...)`
-binds the artwork's node, text and palette IDs, and `surface_present(frame)`
+binds the artwork's node, text and palette IDs (called with other IDs or counts,
+it binds again), and `surface_present(frame)`
 shows a `studio::Surface` frame: up to 32 mutable paths of 64 points, 96 nodes,
 32 texts and 8 palette entries. Only the bound slots are drawn, and the rest may
 stay empty. A frame whose bound slots are out of range is not drawn at all.
@@ -108,7 +109,16 @@ All OS 1.2.1, in [`profiles/opxy-1.2.1.json`](../profiles/opxy-1.2.1.json):
 - service `master_bus`: the master EQ call and the audio board's B3 receiver.
   IDs 138 to 152 go to the player and never to stock; every other ID goes to
   stock's setter (`sample_studio_audio.cpp`);
-- service `drum_sends`: the first mixer call of each block and the voice hook,
-  through weak calls, so a build without the extension is unchanged.
+- service `mixer`: four sites in stock's mixer (a track's voice loop, each
+  rendered voice, the track gain and the send loops' end), shared with the
+  per-key sends (`mixer_hooks.s`, `mixer.cpp`). A build with the mixer and no
+  studio resolves the player's entry points to `kit_absent`, and one with the
+  studio and no per-key sends resolves theirs.
 
-Without a `sample_studio` extension, none of it is linked.
+Without a `sample_studio` extension, the `sample_studio` and `master_bus` sites
+aren't linked, and the mixer only for a `padMix` kit or a `drumline_page`
+extension.
+
+The browser builder does the same: it links the studio when its extension is
+chosen, installs its artwork, refuses a second studio or a master processor
+beside it, and asks for a sample engine or Drumline page 2.

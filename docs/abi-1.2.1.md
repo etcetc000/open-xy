@@ -60,7 +60,10 @@ the SDK code behind them, only when it includes a sample engine or synthesis dru
 kit. Synthesis drum transport is the `drums` service, used by drum kits and,
 for its preset sites, by a synth with a [Shift row](#a-synths-shift-row), and
 per-key sends the `drum_sends` service, used only by a kit declaring `padMix` and
-by a `drumline_page` extension.
+by a `drumline_page` extension. Four of the mixer sites the sends hook are the
+`mixer` service (`mixer_hooks.s`, `mixer.cpp`), which those two share with a
+`sample_studio` extension; a build with one of them resolves the others' entry
+points to `kit_absent`. The send buses' two sources stay `drum_sends`.
 The step locks of a kit's Shift fields are the `drum_locks` service, used by a
 `padMix` kit, by a synth with a Shift row and by a `drumline_page` extension. The [track filter](#the-track-filter-on-kit-voices) on kit
 voices needs no hook: it is in every kit's adapter.
@@ -1705,7 +1708,7 @@ active pool as it was.
 ### Drumline's second page
 
 A [`drumline_page` extension](drumline-page.md) (the `drumline` service, which
-also turns on `samples`, `octaves`, `drums`, `drum_sends` and `drum_locks`)
+also turns on `samples`, `octaves`, `drums`, `mixer`, `drum_sends` and `drum_locks`)
 extends stock's own Drumline, engine 4 ("dbox": its page `dbox.svg`, its factory
 `8d513d1c`, its voices' method table `0x8404ce3c`), on every Drumline track
 ([`drumline.hpp`](../sdk/platform/opxy-1.2.1/drumline.hpp)). The extension

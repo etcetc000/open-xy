@@ -144,6 +144,7 @@ static_assert(sizeof(StockString) == 0x1c, "stock's string: the text at +4, its 
 // The highlighted file's full path ("" for a folder or nothing), as stock's press reads it:
 // 8c0a84b4(&string, 8c0ad5dc()), the library tree's highlighted entry.
 bool highlighted(char* out, u32 size) {
+    if (!out || !size) return false;
     StockString text;
     __builtin_memset(&text, 0, sizeof text);
     const u32 tree = stock<u32()>(0x8c0ad5dc)();
@@ -195,8 +196,8 @@ void set_entry_tuning(unsigned char* entry, u32 root, i32 fine) {
 void set_entry_whole(unsigned char* entry, u32 frames) {
     using namespace opxy::platform::pad_record;
     u32* w = reinterpret_cast<u32*>(entry);
-    w[kFrames] = w[kEnd] = frames;
-    w[kStart] = 0;
+    w[kFrames] = w[kEnd] = w[kLoopEnd] = frames;
+    w[kStart] = w[kLoopStart] = 0;
 }
 // A file on a key as the library loads one (8d5893bc names it; a drum key takes its length with
 // 8d589ac0, which keeps the key's root and fine: an empty key's are 0, 0, which the voices read as 60
@@ -284,6 +285,11 @@ namespace opxy { namespace studio {
 bool surface_ready(const char* const* artwork, u32 paths, u32 nodes, u32 texts, u32 palette) {
     if (paths > surface_paths || nodes > surface_nodes || texts > surface_texts || palette > surface_palette || paths > nodes)
         return false;
+    // Other IDs or counts than the last bind's: bind again, so the checks and applies below never
+    // run past what the artwork's nodes were bound for.
+    if (bound && (artwork != bound_ids || paths != bound_paths || nodes != bound_nodes || texts != bound_texts ||
+                  palette != bound_palette))
+        bound = false;
     bound_ids = artwork;
     bound_paths = paths;
     bound_nodes = nodes;
@@ -357,7 +363,7 @@ void surface_blank() {
 }}  // namespace opxy::studio
 
 // ---------------------------------------------------------------- the library's entry branches
-// A1 Keys: the library controller's methods see every key and encoder while the library is on top:
+// The library controller's methods see every key and encoder while the library is on top:
 // press (ctl, event) with event[0] the key, Shift press likewise, release (ctl, key), turn (ctl,
 // position, event) with event[1] the detents. Returning 1 keeps the key from the global handlers.
 u32 sdk_sample_studio_press(unsigned char* controller, const u32* event) {
@@ -377,7 +383,7 @@ u32 sdk_sample_studio_release(unsigned char* controller, u32 key) {
 }
 void sdk_sample_studio_turn(unsigned char* controller, u32 position, const i32* event) {
     const studio::Editor* e = editor();
-    if (event && e && e->turn(position & 3u, event[1])) return;
+    if (event && e && position < 4 && e->turn(position, event[1])) return;   // encoders 0..3; any other is stock's
     sdk_sample_studio_stock_turn(controller, position, event);
 }
 namespace {
@@ -391,7 +397,9 @@ void opxy::studio::stock_frame() {
     sdk_sample_studio_stock_frame(frame_screen, frame_elapsed);
 }
 void sdk_sample_studio_frame(void* screen, i32 elapsed) {
-    const studio::Editor* e = editor();
+    // The hook is on the browser screen stock's other browsers share: the editor sees only the
+    // library's frames, and every other browser's frame is stock's, untouched.
+    const studio::Editor* e = studio::library_on_top() ? editor() : nullptr;
     frame_screen = screen;
     frame_elapsed = elapsed;
     stock_drawn = false;

@@ -5,6 +5,8 @@ service the header declares is defined by the SDK, that the master-bus receiver 
 player its channels and stock the rest, and the tooling: the extension field, its exports and
 artwork, one studio per build, and the units and asset it brings.
 """
+import base64
+import hashlib
 import json
 import re
 import sys
@@ -46,7 +48,7 @@ def code(path):
 
 class Studio:
     sample_studio, master_processor, drumline_page, capabilities, linked = True, None, None, (), True
-    root = None
+    id, root = 'studio_test', None
 
 
 class Built(list):
@@ -64,7 +66,8 @@ class Sites(unittest.TestCase):
                          {a: (b, s) for a, (b, s, _) in SITES.items()})
         for p in mine:
             self.assertEqual((p['kind'], p['length'], p['call']), ('hook', 8, False))
-        self.assertIn('sampleStudio', profile['services']['drum_sends'])
+        self.assertIn('sampleStudio', profile['services']['mixer'])
+        self.assertNotIn('sampleStudio', profile['services']['drum_sends'])   # the send buses' sources stay the sends'
         bus = [p for p in profile['patches'] if p.get('service') == 'master_bus']
         self.assertEqual(sorted(p['address'] for p in bus), ['0x8d511b80', '0x8d5b145e'])
 
@@ -88,10 +91,27 @@ class Sites(unittest.TestCase):
             self.assertIn(f'__asm__("{stub}")', host)
             fallback = 'studio::stock_frame()' if symbol.endswith('frame') else stub + '('
             self.assertIn(fallback, body.group(1), symbol)              # what the editor doesn't take is stock's
-            self.assertIn('const studio::Editor* e = editor();', body.group(1), symbol)
+            editor = ('const studio::Editor* e = studio::library_on_top() ? editor() : nullptr;' if symbol.endswith('frame')
+                      else 'const studio::Editor* e = editor();')
+            self.assertIn(editor, body.group(1), symbol)
         self.assertIn('const studio::Editor* editor() { return sdk_sample_studio_editor(); }', host)
         frame = re.search(r'\nvoid sdk_sample_studio_frame\(void\* screen, i32 elapsed\) \{(.*?)\n\}', host, re.S).group(1)
         self.assertIn('e->frame(elapsed)', frame)
+
+    def test_the_editor_sees_only_the_librarys_frames(self):
+        # The frame site is the browser screen stock's other browsers share: their frames stay stock's.
+        host = code(HOST)
+        frame = re.search(r'\nvoid sdk_sample_studio_frame\(void\* screen, i32 elapsed\) \{(.*?)\n\}', host, re.S).group(1)
+        self.assertLess(frame.index('studio::library_on_top()'), frame.index('e->frame(elapsed)'))
+        self.assertIn('const bool drew = e && e->frame(elapsed);', frame)
+        self.assertIn('if (!drew) studio::stock_frame();', frame)
+
+    def test_only_encoders_0_to_3_reach_the_editor(self):
+        # The library's other positions go to stock as they are, never folded onto 0..3.
+        turn = re.search(r'\nvoid sdk_sample_studio_turn\([^)]*\) \{(.*?)\n\}', code(HOST), re.S).group(1)
+        self.assertNotIn('& 3', turn)
+        self.assertIn('if (event && e && position < 4 && e->turn(position, event[1])) return;', turn)
+        self.assertIn('sdk_sample_studio_stock_turn(controller, position, event);', turn)
 
 
 class Services(unittest.TestCase):
@@ -121,11 +141,36 @@ class Services(unittest.TestCase):
         master = re.search(r'void sdk_master_process\(void\* object, i32\* left, i32\* right\) \{(.*?)\n\}', audio, re.S).group(1)
         self.assertLess(master.index('0x11a02c10'), master.index('p->master(left, right)'))   # stock's EQ first
 
-    def test_the_voice_hooks_stay_weak(self):
-        send = (PLATFORM / 'drum_send.cpp').read_text()
-        for name in ('sdk_studio_voice', 'sdk_studio_gain', 'sdk_studio_level', 'sdk_studio_mixer_begin'):
-            self.assertIn('__attribute__((weak))', send[send.index('void ' + name):][:200], name)
-            self.assertRegex(AUDIO.read_text(), r'\n(void) ' + name + r'\(')
+    def test_the_player_reaches_the_mixer_through_its_service(self):
+        # mixer.cpp calls the player's four entry points, which this board's unit defines; a build
+        # with the mixer and no studio resolves them to kit_absent (no weak symbols: the browser
+        # builder links none).
+        from tooling import native
+        mixer = code(PLATFORM / 'mixer.cpp')
+        for name in native.MIXER_STUDIO:
+            self.assertRegex(code(AUDIO), r'\nvoid ' + name + r'\([^)]*\) \{', name)
+            self.assertEqual(len(re.findall(r'\n    ' + name + r'\(', mixer)), 1, name)
+        self.assertEqual(native.service_fallbacks({'mixer'})['sample_studio'], dict.fromkeys(native.MIXER_STUDIO, 'kit_absent'))
+        self.assertNotIn('sample_studio', native.service_fallbacks({'drum_sends', 'drums'}))
+        for path in (PLATFORM / 'drum_send.cpp', PLATFORM / 'mixer.cpp', AUDIO):
+            self.assertNotIn('weak', path.read_text(), path.name)
+
+    def test_the_surface_binds_again_for_other_ids_or_counts(self):
+        ready = re.search(r'\nbool surface_ready\([^)]*\) \{(.*?)\n\}', code(HOST), re.S).group(1)
+        rebind = ready.index('bound = false;')
+        self.assertLess(ready.index('if (bound && (artwork != bound_ids || paths != bound_paths || nodes != bound_nodes'), rebind)
+        self.assertLess(rebind, ready.index('bound_ids = artwork;'))
+        self.assertLess(ready.index('bound_palette = palette;'), ready.index('init(&object);'))
+        for name in ('texts != bound_texts', 'palette != bound_palette'):
+            self.assertIn(name, ready)
+
+    def test_a_whole_entry_and_an_empty_highlight(self):
+        host = code(HOST)
+        whole = re.search(r'\nvoid set_entry_whole\([^)]*\) \{(.*?)\n\}', host, re.S).group(1)
+        self.assertIn('w[kFrames] = w[kEnd] = w[kLoopEnd] = frames;', whole)
+        self.assertIn('w[kStart] = w[kLoopStart] = 0;', whole)
+        highlighted = re.search(r'\nbool highlighted\(char\* out, u32 size\) \{(.*?)\n\}', host, re.S).group(1)
+        self.assertTrue(highlighted.lstrip().startswith('if (!out || !size) return false;'))
 
     def test_the_surface_checks_and_applies_only_the_bound_slots(self):
         # An editor binds fewer slots than the Surface holds; the empty ones would fail draw::valid
@@ -166,8 +211,12 @@ class Tooling(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             e = extensions.extension_at(self.extension(folder, data))
             self.assertTrue(e.sample_studio and e.linked)
-            self.assertEqual(extensions.metadata([e], {'studio_test': 'personal'})[0]['sample_studio'], True)
-        for broken in (dict(cpp=None), dict(artwork=False), dict(cpp=EXTENSION.replace('player', 'other'))):
+            row = extensions.metadata([e], {'studio_test': 'personal'})[0]['sample_studio']
+            self.assertEqual(row['asset'], 'sample_studio.svg')
+            self.assertEqual(base64.b64decode(row['artwork']), ARTWORK.encode())
+            self.assertEqual(row['sha256'], hashlib.sha256(ARTWORK.encode()).hexdigest())
+        unqualified = EXTENSION.replace('const studio::Player player', 'const int player')   # the word alone isn't enough
+        for broken in (dict(cpp=None), dict(artwork=False), dict(cpp=EXTENSION.replace('player', 'other')), dict(cpp=unqualified)):
             with tempfile.TemporaryDirectory() as folder, self.assertRaises(Exception, msg=str(broken)):
                 extensions.extension_at(self.extension(folder, data, **broken))
         with tempfile.TemporaryDirectory() as folder, self.assertRaises(Exception):
@@ -200,19 +249,21 @@ class Tooling(unittest.TestCase):
             self.assertTrue((PLATFORM / (unit + ('.s' if unit.endswith('hooks') else '.cpp'))).is_file())
 
     def test_the_artwork_is_installed_only_with_the_extension(self):
+        from unittest import mock
         from tooling import native
-        original = native._prepare_assets_without_sample_studio
-        native._prepare_assets_without_sample_studio = lambda *a: {}
-        try:
-            with tempfile.TemporaryDirectory() as folder:
-                studio = Studio()
-                studio.root = Path(folder)
-                (studio.root / 'sample_studio.svg').write_text(ARTWORK)
-                self.assertEqual(native.prepare_assets(None, None, []), {})
-                self.assertEqual(native.prepare_assets(None, None, Built([], [studio])),
-                                 {'content/display/sample_studio.svg': ARTWORK.encode()})
-        finally:
-            native._prepare_assets_without_sample_studio = original
+        profile = {'stock_catalog_sha256': native.sha(b'{}')}
+        with tempfile.TemporaryDirectory() as folder, \
+                mock.patch.object(native, 'extend_catalog', lambda *a: b'{}'), \
+                mock.patch.object(native.stock_content, 'check_output', lambda *a: None):
+            studio = Studio()
+            studio.master_processor = None
+            studio.root = Path(folder)
+            (studio.root / 'sample_studio.svg').write_text(ARTWORK)
+            catalog = 'content/op1_factory.json'
+            self.assertEqual(set(native.prepare_assets(b'{}', profile, Built([]))), {catalog})
+            outputs = native.prepare_assets(b'{}', profile, Built([], [studio]))
+            self.assertEqual(outputs['content/display/sample_studio.svg'], ARTWORK.encode())
+            self.assertEqual(set(outputs), {catalog, 'content/display/sample_studio.svg'})
 
 
 if __name__ == '__main__':

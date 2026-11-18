@@ -137,6 +137,9 @@ class Extension:
 
 
 SAMPLE_STUDIO_ARTWORK = 'sample_studio.svg'   # a sample_studio extension's page artwork
+# Its two tables, as extension.cpp declares them: `extern const studio::Editor editor = {...};`
+# (the type qualified from studio:: up, extern optional) and the same for Player and player.
+SAMPLE_STUDIO_EXPORT = r'(?:\bextern\s+)?\bconst\s+(?:::\s*)?(?:opxy\s*::\s*)?studio\s*::\s*{kind}\s+{symbol}\s*(?:=|\{{)'
 
 
 def extension_at(folder):
@@ -181,8 +184,8 @@ def extension_at(folder):
     sample_studio = 'sample_studio' in data
     require(not sample_studio or data['sample_studio'] == {}, f'{name}: sample_studio takes no fields: {{}}')
     require(not sample_studio or linked and all(
-        re.search(r'\b' + symbol + r'\b', (root / 'extension.cpp').read_text(encoding='utf-8'))
-        for symbol in ('editor', 'player')) and (root / SAMPLE_STUDIO_ARTWORK).is_file(),
+        re.search(SAMPLE_STUDIO_EXPORT.format(kind=kind, symbol=symbol), (root / 'extension.cpp').read_text(encoding='utf-8'))
+        for kind, symbol in (('Editor', 'editor'), ('Player', 'player'))) and (root / SAMPLE_STUDIO_ARTWORK).is_file(),
             f'{name}: a sample_studio extension exports opxy::extensions::{name}::editor and ::player from '
             f'extension.cpp and holds its artwork, {SAMPLE_STUDIO_ARTWORK}')
     claims, actions = registry()
@@ -435,7 +438,10 @@ def metadata(extensions, origins):
             # (builder/core.mjs exclusiveUses).
             row['drumline_page'] = True
         if e.sample_studio:
-            row['sample_studio'] = True   # exclusive too, and never beside a master processor
+            # Exclusive too, and never beside a master processor; the builder installs its artwork.
+            data = (e.root / SAMPLE_STUDIO_ARTWORK).read_bytes()
+            row['sample_studio'] = dict(asset=SAMPLE_STUDIO_ARTWORK, artwork=base64.b64encode(data).decode('ascii'),
+                                        sha256=hashlib.sha256(data).hexdigest())
         if e.master_processor is not None:
             data = validate_master_artwork(e.root / e.master_processor['artwork'])
             row['master_processor'] = dict(state_id=e.master_processor.get('state_id',e.id), asset=Path(e.master_processor['artwork']).name,

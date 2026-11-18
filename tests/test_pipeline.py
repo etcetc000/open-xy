@@ -102,15 +102,16 @@ class Services(unittest.TestCase):
         # sends, a padMix kit's step locks or a synth's Shift row, and no extension a
         # Drumline page or Sample Studio: those services stay off.
         self.assertEqual(steps(machines), [u for u in native.SDK_UNITS if native.UNIT_SERVICES.get(u) not in
-                                          ('control', 'aux', 'players', 'master_filter', 'drum_sends', 'drum_locks',
-                                           'drumline', 'synth_shift', 'sample_studio')])
-        self.assertEqual(active_services(profile, ['drum', 'padMix']), {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks'})
+                                          ('control', 'aux', 'players', 'master_filter', 'mixer', 'drum_sends',
+                                           'drum_locks', 'drumline', 'synth_shift', 'sample_studio')])
+        self.assertEqual(active_services(profile, ['drum', 'padMix']),
+                         {'samples', 'octaves', 'drums', 'mixer', 'drum_sends', 'drum_locks'})
         self.assertEqual(active_services(profile, ['drum', 'hidePages', 'padMix']),
-                         {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks', 'control'})
+                         {'samples', 'octaves', 'drums', 'mixer', 'drum_sends', 'drum_locks', 'control'})
         self.assertEqual(active_services(profile, ['master_filter']), {'master_filter', 'master_bus'})   # the sites it shares with Sample Studio
         # A drumline_page extension uses the drum hooks it extends and its own.
         self.assertEqual(active_services(profile, ['synth', 'drumline_page']),
-                         {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks', 'drumline'})
+                         {'samples', 'octaves', 'drums', 'mixer', 'drum_sends', 'drum_locks', 'drumline'})
         page = replace(probe, drumline_page=[dict(label='FX I', choices=['TRK'] * 8, default=0, role=1, shift=0, bits=3)])
         paged = native.Collection(machines, [page])
         self.assertNotIn('drumline_page', native.service_users(machines))
