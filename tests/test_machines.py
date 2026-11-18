@@ -780,5 +780,38 @@ class OutsideMachines(unittest.TestCase):
                 machines.machine_at(FOLDER / 'probefx')
 
 
+class LongPaths(unittest.TestCase):
+    """Windows 8.3 short names (C:\\Users\\RUNNER~1) are written out before the redirect checks."""
+
+    def windows(self, names):
+        """A stand-in for ctypes on Windows: GetLongPathNameW expands the paths in `names`."""
+        class Buffer:
+            def __init__(self, size):
+                self.value = ''
+
+        def expand(path, buffer, size):
+            full = names.get(path)
+            if full is None:
+                return 0
+            if buffer is None:
+                return len(full) + 1
+            buffer.value = full
+            return len(full)
+        kernel = mock.Mock(GetLongPathNameW=expand)
+        return mock.Mock(windll=mock.Mock(kernel32=kernel), create_unicode_buffer=Buffer)
+
+    def test_short_names_are_written_out_and_other_paths_kept(self):
+        with tempfile.TemporaryDirectory() as directory:
+            short, full = os.path.join(directory, 'RUNNER~1'), os.path.join(directory, 'runneradmin')
+            fake = self.windows({short: full})
+            with mock.patch.object(machines.os, 'name', 'nt'), mock.patch.dict('sys.modules', {'ctypes': fake}):
+                self.assertEqual(machines.long_path(short), Path(full))
+                missing = os.path.join(directory, 'missing')
+                self.assertEqual(machines.long_path(missing), Path(missing))
+
+    def test_elsewhere_it_is_the_absolute_path(self):
+        self.assertEqual(machines.long_path('.'), Path(os.path.abspath('.')))
+
+
 if __name__ == '__main__':
     unittest.main()

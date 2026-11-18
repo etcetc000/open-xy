@@ -503,9 +503,30 @@ def reads_sample_overview(root, header='sample_overview'):
                if path.suffix in ('.cc', '.cpp', '.h', '.hpp') and path.relative_to(root).parts[0] not in ('tests', 'tools'))
 
 
+def long_path(path):
+    """An absolute path with any Windows 8.3 short names written out in full.
+
+    Hosted Windows runners give TEMP as C:\\Users\\RUNNER~1\\..., which
+    resolve() spells C:\\Users\\runneradmin\\..., so the redirect checks that
+    compare a path with its resolution refused every folder made there. Unlike
+    resolve(), GetLongPathNameW follows no link or junction, so those checks
+    still catch a real redirect. Elsewhere this is os.path.abspath.
+    """
+    path = os.path.abspath(path)
+    if os.name == 'nt':
+        import ctypes
+        expand = ctypes.windll.kernel32.GetLongPathNameW
+        size = expand(path, None, 0)  # 0 when the path doesn't exist yet: keep it as given
+        if size:
+            buffer = ctypes.create_unicode_buffer(size)
+            if expand(path, buffer, size):
+                path = buffer.value
+    return Path(path)
+
+
 def machine_at(root, identity=None):
     """The machine in a folder; its definition names it."""
-    root = Path(os.path.abspath(root))
+    root = long_path(root)
     path = root / 'machine.json'
     require(path.is_file() and path.resolve() == path.absolute() and root.resolve() == root,
             'Unknown or redirected machine: ' + str(identity or root))

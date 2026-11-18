@@ -9,7 +9,7 @@ from xml.etree.ElementTree import ParseError
 
 from .formats import require, sha
 from .definitions import ROOT, synth_shift
-from .machines import machine_at
+from .machines import long_path, machine_at
 from .pipeline import NO_WINDOW, add_overwrite_argument, fresh_output
 
 
@@ -123,7 +123,7 @@ def build(compiler, m, out, overwrite=False):
 
 def preview_bundle(directory, *, require_reference=False):
     """Authenticate preview artifacts, including a declared grayscale variant."""
-    directory = Path(directory).absolute()
+    directory = long_path(directory)
     require(directory.resolve() == directory, 'Redirected preview directory')
     files = {}
     for name, limit in [('manifest.json', MANIFEST_LIMIT), ('engine.wasm', 1048576), ('panel.svg', 65536)]:

@@ -13,6 +13,7 @@ from . import stock_content
 from .contributors import validate_source_boundary
 from .definitions import ROOT, label, stock_name, validate_definition
 from .formats import require, sha
+from .machines import long_path
 from .pipeline import add_overwrite_argument, fresh_output
 from . import screen
 
@@ -22,7 +23,7 @@ SUFFIXES = {'.json', '.cpp', '.h', '.hpp', '.inc', '.fragment'}
 
 
 def source_files(directory):
-    directory = Path(os.path.abspath(directory))
+    directory = long_path(directory)
     require(directory.resolve() == directory and directory.is_dir(), 'Missing or redirected machine directory')
     files = {}
     for path in directory.rglob('*'):
