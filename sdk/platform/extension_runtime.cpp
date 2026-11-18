@@ -217,4 +217,12 @@ void extensions_motion() {
     // A request is a lease for one update; an omitted renewal releases it.
     if (!monitor_requested) extension_monitor_input(false);
 }
+
+void extensions_usb_host_ready(const usb::Registry& registry) {
+    if (dispatching || !ready()) return;
+    dispatching = true;
+    for (u32 i = 0; i < entry_count; ++i)
+        if (entries[i].hooks->usb_host_ready) entries[i].hooks->usb_host_ready(registry);
+    dispatching = false;
+}
 }}

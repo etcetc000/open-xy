@@ -1,5 +1,6 @@
 #pragma once
 #include <opxy/types.hpp>
+#include <opxy/usb_host.hpp>
 
 namespace opxy { namespace extensions {
 
@@ -26,8 +27,7 @@ struct LiveNote { u32 track, pitch, velocity; i32 position; u32 collision_radius
 struct NoteOff { u32 track, pitch; };
 struct Tick { u32 delta_q8; bool discontinuity; };
 using Time = __UINT64_TYPE__;
-// Stock's signed motion channels, before LFO smoothing. Axis orientation and
-// physical scale are platform-specific; time is a monotonic microsecond clock.
+// Stock motion channels before LFO smoothing; physical scale is platform-specific.
 struct Motion { i16 x, y, z; Time time; bool valid; };
 struct InputMonitor {
     bool active, owned;
@@ -48,9 +48,8 @@ struct Control {
 };
 
 // Each action needs its permission and callback scope (profiles/extensions.json).
-// Note edits and popups work only for accepted keys the extension claims;
-// monitoring works only during motion. The SDK owns validation/publication.
-// Append new actions at the end.
+// Note edits and popups require accepted claimed keys; monitoring requires motion.
+// The SDK owns validation/publication. Append new actions at the end.
 struct Actions {
     // Add notes to an instrument track's pattern (0-7) beside its existing
     // notes. Returns the inserted prefix length. Needs edit_notes.
@@ -72,6 +71,7 @@ using OnSelectedNoteOff = void (*)(const Context&, const NoteOff&);
 using OnRecordingTick = void (*)(const Context&, const Tick&);
 using OnInputActivity = void (*)();
 using OnQueuedControl = void (*)(const Context&, const Control&, const Actions&);
+using OnUsbHostReady = usb::OnUsbHostReady;
 using OnMotion = void (*)(const Motion&, const InputMonitor&, const Actions&);
 
 // One callback per event, named for what it delivers. Each event lists its
@@ -100,36 +100,46 @@ struct Hooks {
     // A queued control (Record and other queued keys; not keyboard keys
     // 26-49) after stock handled it. Actions act only for their claim owner.
     OnQueuedControl queued_control;
+    // Once, while the stock USB host stack starts up, before any device is
+    // enumerated: add USB host class drivers to the Registry (opxy/usb_host.hpp).
+    // Unlike the others this event is not on the controller path, and its
+    // drivers' probe and remove run on the host stack's task.
+    OnUsbHostReady usb_host_ready;
+
     // Once after each stock controller update, including while stopped.
     OnMotion motion;
 
-    constexpr Hooks() : Hooks(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr) {}
+    constexpr Hooks() : Hooks(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr) {}
     // Every callback in order; prefer the with_ builders below.
     constexpr Hooks(OnContext a, OnRecordableNoteOn b, OnSelectedNoteOff c, OnRecordingTick d,
-                    OnInputActivity e, OnQueuedControl f, OnMotion g = nullptr)
+                    OnInputActivity e, OnQueuedControl f, OnUsbHostReady g = nullptr, OnMotion h = nullptr)
         : context(a), recordable_note_on(b), selected_note_off(c), recording_tick(d),
-          input_activity(e), queued_control(f), motion(g) {}
+          input_activity(e), queued_control(f), usb_host_ready(g), motion(h) {}
 
     constexpr Hooks with_context(OnContext f) const {
-        return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, motion);
+        return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control,
+                     usb_host_ready, motion);
     }
     constexpr Hooks with_recordable_note_on(OnRecordableNoteOn f) const {
-        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control, motion);
+        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control, usb_host_ready, motion);
     }
     constexpr Hooks with_selected_note_off(OnSelectedNoteOff f) const {
-        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control, motion);
+        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control, usb_host_ready, motion);
     }
     constexpr Hooks with_recording_tick(OnRecordingTick f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control, motion);
+        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control, usb_host_ready, motion);
     }
     constexpr Hooks with_input_activity(OnInputActivity f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control, motion);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control, usb_host_ready, motion);
     }
     constexpr Hooks with_queued_control(OnQueuedControl f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f, motion);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f, usb_host_ready, motion);
+    }
+    constexpr Hooks with_usb_host_ready(OnUsbHostReady f) const {
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, f, motion);
     }
     constexpr Hooks with_motion(OnMotion f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, f);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, usb_host_ready, f);
     }
 };
 }}

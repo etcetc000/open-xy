@@ -94,7 +94,17 @@ void control(u32 key, bool accepted) {
     const extensions::Control event = {key, false, accepted, true, 100};
     extensions_queued_control(event);
 }
+void usb_ready(const usb::Registry&) {}
 int main() {
+    // Composing either event must retain the other, including through older builders.
+    const extensions::Hooks combined = extensions::Hooks().with_motion(observe_motion)
+        .with_usb_host_ready(usb_ready).with_context(nullptr).with_recordable_note_on(first_note)
+        .with_selected_note_off(nullptr).with_recording_tick(nullptr).with_input_activity(nullptr)
+        .with_queued_control(observe_control);
+    CHECK(combined.motion == observe_motion && combined.usb_host_ready == usb_ready);
+    const extensions::Hooks reversed = extensions::Hooks().with_usb_host_ready(usb_ready)
+        .with_motion(observe_motion);
+    CHECK(reversed.motion == observe_motion && reversed.usb_host_ready == usb_ready);
     extensions_recordable_note_on(0, 60, 100);
     CHECK(order_count == 2 && order[0] == 1 && order[1] == 2 && observations == 1);
     extensions_recordable_note_on(7, 60, 100); CHECK(order_count == 2);

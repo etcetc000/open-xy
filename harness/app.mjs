@@ -124,13 +124,13 @@ if (shiftControls.length) {
     status(`Page ${shown.some(s => s >= 4) ? 2 : 1}${shiftHeld ? ' · Shift row' : ''}`);
   });
 }
-// A drum kit's model, chosen on the device with Shift and the first encoder.
+// A drum kit's model, chosen on the device with Shift.
 let model = 0;
 const models = previewManifest.definition?.resources?.modelCount ?? 0;
 if (models) {
   const item = document.createElement('div');
   item.className = 'control';
-  item.innerHTML = `<label for="drum-model">Shift + 1 / Model</label><output id="value-drum-model">1</output><input id="drum-model" type="range" min="0" max="${models - 1}" step="1" value="0" aria-label="Model">`;
+  item.innerHTML = `<label for="drum-model">Shift / Model</label><output id="value-drum-model">1</output><input id="drum-model" type="range" min="0" max="${models - 1}" step="1" value="0" aria-label="Model">`;
   $('controls').append(item);
   $('drum-model').addEventListener('input', event => { model = Number(event.target.value); update(); });
 }
