@@ -1731,8 +1731,8 @@
       "maintainer": "kristapskristaps",
       "status": "published",
       "repository": "https://github.com/kristapskristaps/xy-machines",
-      "tag": "vader-v1.1.0",
-      "commit": "16ee2c863de8552ea9769f83ca869e4b5010c1ba",
+      "tag": "vader-v1.2.0",
+      "commit": "71045781d5b70cae3cf936a7ba676cd91a80efb8",
       "path": "machines/vader",
       "keywords": [
         "bass",
@@ -1740,19 +1740,19 @@
       ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
-        "commit": "16ee2c863de8552ea9769f83ca869e4b5010c1ba",
-        "firmware_sha256": "b0a3ba8ed706badd68df9ab2f6ca918106d4984e2e8ce7896a5dc0f4a0c74350",
+        "commit": "71045781d5b70cae3cf936a7ba676cd91a80efb8",
+        "firmware_sha256": "8ccbf01d2421a24d505597acffe5e6666f75aa696408668cb07272cc5c65d795",
         "runs": 1,
-        "block_percent": 3.883421,
-        "peak_percent": 5.531395,
-        "midpoint_percent": 2.963302,
-        "combined_percent": 2.276646,
+        "block_percent": 2.891585,
+        "peak_percent": 10.778973,
+        "midpoint_percent": 2.803082,
+        "combined_percent": 2.221714,
         "worst_setting": {
           "control": 2,
           "label": "Drive",
           "value": 805306367
         },
-        "report": "https://github.com/kristapskristaps/xy-machines/blob/main/docs/profiling/2026-11-07/staging-batch/vader/report.md"
+        "report": "https://github.com/etcetc000/open-xy/pull/539"
       }
     },
     {
