@@ -2332,6 +2332,60 @@
         "block_percent": 4.470893,
         "peak_percent": 6.953536
       }
+    },
+    {
+      "id": "tesla",
+      "kind": "synth",
+      "maintainer": "lowlevelgamedev",
+      "status": "published",
+      "repository": "https://github.com/meemknight/OPXY-Tesla",
+      "tag": "v1.0.0",
+      "commit": "a03e42c57f7e62440c3e76c41120946bade75145",
+      "path": ".",
+      "keywords": [
+        "emulation",
+        "analog",
+        "lofi",
+        "modulation",
+        "noise"
+      ],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "a03e42c57f7e62440c3e76c41120946bade75145",
+        "firmware_sha256": "dbd5d39e8d93668b86ab925ae834b031bcae0443ecd279eab08be4253a02fbb7",
+        "runs": 3,
+        "block_percent": 3.132677,
+        "peak_percent": 3.323415,
+        "midpoint_percent": 2.317845,
+        "combined_percent": 2.384985,
+        "worst_setting": {
+          "control": 4,
+          "label": "Crush",
+          "value": 268435455
+        }
+      }
+    },
+    {
+      "id": "earthshine",
+      "kind": "effect",
+      "maintainer": "codebrulee",
+      "status": "published",
+      "repository": "https://github.com/codebrulee/xyphemera",
+      "tag": "earthshine-v1.0.2",
+      "commit": "5495aede420fbe9fd7551c8436361ad0a29c983e",
+      "path": "earthshine",
+      "keywords": [
+        "reverb",
+        "ambient"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "5495aede420fbe9fd7551c8436361ad0a29c983e",
+        "firmware_sha256": "2c178f2e4ee43598603a17fe3df3a3e05957c5a3ac6c98566954924939e67c07",
+        "runs": 2,
+        "block_percent": 9.376669,
+        "peak_percent": 16.351568
+      }
     }
   ]
 }
