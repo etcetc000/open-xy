@@ -2478,6 +2478,34 @@
           "value": 1610612735
         }
       }
+    },
+    {
+      "id": "notepractice",
+      "kind": "synth",
+      "maintainer": "meemknight",
+      "status": "draft",
+      "repository": "https://github.com/meemknight/OPXY-notePractice",
+      "tag": "v0.1.0",
+      "commit": "23462b1b11ea1ee937a97b4dd46f85781bce9374",
+      "path": ".",
+      "keywords": [
+        "experimental"
+      ],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "23462b1b11ea1ee937a97b4dd46f85781bce9374",
+        "firmware_sha256": "bebca216c11798f0753924678431e0b8f84795359ea198e38bbbce9daafc5937",
+        "runs": 1,
+        "block_percent": 0.868238,
+        "peak_percent": 2.229343,
+        "midpoint_percent": 0.851453,
+        "combined_percent": 0.857557,
+        "worst_setting": {
+          "control": 0,
+          "label": "Tempo",
+          "value": 268435455
+        }
+      }
     }
   ]
 }
