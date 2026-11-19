@@ -19,7 +19,7 @@ void require(bool value, const char* message) {
     if (!value) { std::fprintf(stderr, "%s\n", message); std::exit(1); }
 }
 void* open_file(const char* path, const char* mode) {
-    ++io_calls; require(std::strcmp(path,"user/tilt-mic.cfg")==0,"only own preference path may be accessed");
+    ++io_calls; require(std::strcmp(path,"user/monitor_probe.cfg")==0,"only own preference path may be accessed");
     return file_failure || (*mode=='r' && !file_exists) ? nullptr : saved;
 }
 u32 read_file(void* out,u32 size,u32 count,void* file) {
@@ -39,6 +39,7 @@ void live_set(u32 base,u32 track,u32 index,i32 value) {
 }
 }
 namespace opxy { namespace platform {
+const char* extensions_monitor_owner() { return capable ? "monitor_probe" : nullptr; }
 bool extensions_monitor_available() { return capable; }
 extensions::Motion extension_motion() { return {0,0,32767,now,true}; }
 void extension_notify(const char* text) {

@@ -40,6 +40,7 @@ void extensions_selected_note_off(u32 track, u32 pitch);
 void extensions_recording_tick(u32 delta);
 void extensions_queued_control(const extensions::Control& control);
 void extensions_motion();
+const char* extensions_monitor_owner();
 bool extensions_monitor_available();
 // Once, while the stock USB host stack starts: every extension that takes the event
 // adds its drivers to the registry.

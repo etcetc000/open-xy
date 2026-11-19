@@ -8,7 +8,6 @@ namespace opxy { namespace platform { namespace input_monitor {
 namespace {
 const u32 kMonitorProject = 0x840a0524, kMonitorRecorder = 0x860c072c, kMonitorInputEnabled = 0x08023c48;
 const u32 kGuiParameters = 0x86bd027c;
-const char preference_path[] = "user/tilt-mic.cfg";
 volatile u32 automatic;
 bool owned, blocked, releasing, release_pending;
 u32 project, epoch;
@@ -41,9 +40,23 @@ void release() {
 }
 // Own bounded, versioned preference; invalid/missing data means Off.
 bool preference(bool write, u32& choice) {
+    const char* id = extensions_monitor_owner();
+    if (!id) return false;
+    char path[sizeof("user/") - 1 + 32 + sizeof(".cfg")] = "user/";
+    u32 length = 0;
+    for (; id[length]; ++length) {
+        const char c = id[length];
+        if (length == 32 || !((c >= 'a' && c <= 'z') ||
+            (length && ((c >= '0' && c <= '9') || c == '_')))) return false;
+        path[sizeof("user/") - 1 + length] = c;
+    }
+    if (!length) return false;
+    constexpr char suffix[] = ".cfg";
+    for (u32 i = 0; i < sizeof(suffix); ++i)
+        path[sizeof("user/") - 1 + length + i] = suffix[i];
     u8 bytes[8] = {'O','X','T','M',1,static_cast<u8>(choice),0,0};
     bytes[6] = bytes[5] ^ 0xa5u;
-    void* file = stock<void*(const char*,const char*)>(0x8fed0348)(preference_path, write ? "wb" : "rb");
+    void* file = stock<void*(const char*,const char*)>(0x8fed0348)(path, write ? "wb" : "rb");
     if (!file) return false;
     const u32 count = write
         ? stock<u32(const void*,u32,u32,void*)>(0x8fed0780)(bytes,1,sizeof(bytes),file)
