@@ -47,8 +47,8 @@
       "maintainer": "kristapskristaps",
       "status": "draft",
       "repository": "https://github.com/kristapskristaps/xy-machines",
-      "tag": "autotune-v0.2.0",
-      "commit": "bfb984f4cabcfbfd97631fefc7216008fbbe0610",
+      "tag": "autotune-v0.2.1",
+      "commit": "f75a057f648c2a8de4e02698e63fcfef41f07bb0",
       "path": "extensions/autotune"
     }
   ]
