@@ -67,13 +67,19 @@ const live_input::ExtraControls* sdk_live_input_extra_controls() {
     };
     return extra_installed ? &controls : nullptr;
 }
-bool sdk_input_monitor_menu() { ++tilt_menu_count; return true; }
+bool tilt_menu_available = true;
+u32 aux_menu_count;
+bool sdk_input_monitor_menu() {
+    if (!tilt_menu_available) return false;
+    ++tilt_menu_count;
+    return true;
+}
 bool sdk_input_monitor_turn(u32 encoder, const i32*) {
     if (encoder != 0) return false;
     ++tilt_turn_count;
     return true;
 }
-void sdk_aux_machine_menu() {}
+void sdk_aux_machine_menu() { ++aux_menu_count; }
 u32 sdk_aux_machine_turn(u32, u32, u32) { return 0; }
 void sdk_live_input_reset() { ++reset_count; }
 void sdk_live_input_process(opxy::i32* buffer) {
@@ -139,6 +145,10 @@ int main() {
     CHECK(sdk_live_input_turn(1, &down) && target(gui_word) == 0 && brain(gui_word) == 0 && !bad);
     sdk_aux_shift_m1();
     CHECK(sdk_live_input_page() == 1 && tilt_menu_count == 1);
+    tilt_menu_available = false;
+    sdk_aux_shift_m1();
+    CHECK(aux_menu_count == 1 && tilt_menu_count == 1);
+    tilt_menu_available = true;
     extra_installed = true;
     sdk_aux_shift_m1();
     CHECK(sdk_live_input_page() == 2 && tilt_menu_count == 1);
