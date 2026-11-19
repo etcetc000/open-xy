@@ -51,7 +51,11 @@ opxy::platform::Address opxy::platform::host_stock_address(Address address) {
 const opxy::live_input::Controls* sdk_live_input_controls() {
     static const char* modes[] = {"off", "auto", "chromatic"};
     static const char* speeds[] = {"smooth", "hard"};
-    static const opxy::live_input::Controls controls = {{modes, 3}, {speeds, 2}};
+    static constexpr const char* amounts[] = {"0%", "7%", "13%", "20%", "27%", "33%", "40%", "47%", "53%", "60%", "67%", "73%", "80%", "87%", "93%", "100%"};
+    static const opxy::live_input::Controls controls = {
+        {"tune", "retune", "amount"}, {modes, 3}, {speeds, 2}, {amounts, 16},
+        "m1 > quick", "m1 > vocal fx",
+    };
     return &controls;
 }
 const live_input::ExtraControls* sdk_live_input_extra_controls() {

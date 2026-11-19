@@ -30,7 +30,9 @@ const live_input::Controls* shift_controls() {
     const auto* controls = sdk_live_input_controls();
     if (!controls || !controls->target.labels || controls->target.count < 2 ||
         controls->target.count > live_input::max_target || !controls->retune.labels ||
-        controls->retune.count != 2) return nullptr;
+        !controls->retune.count || controls->retune.count > 2 ||
+        !controls->amount.labels || !controls->amount.count ||
+        controls->amount.count > live_input::max_amount + 1) return nullptr;
     return controls;
 }
 
@@ -69,12 +71,8 @@ bool step(u32& value, u32 count, const i32* event) {
     return true;
 }
 
-const char* amount_caption() {
-    static constexpr const char* values[] = {
-        "0%", "7%", "13%", "20%", "27%", "33%", "40%", "47%",
-        "53%", "60%", "67%", "73%", "80%", "87%", "93%", "100%",
-    };
-    return values[selected_amount];
+u32 current_amount(const live_input::Controls& controls) {
+    return selected_amount < controls.amount.count ? selected_amount : controls.amount.count - 1;
 }
 }
 
@@ -92,7 +90,9 @@ bool sdk_live_input_toggle_page() {
 
 const char* sdk_live_input_page_hint() {
     if (!extra_controls()) return nullptr;
-    return extra_page ? "m1 > quick" : "m1 > vocal fx";
+    const auto* controls = shift_controls();
+    if (!controls) return nullptr;
+    return extra_page ? controls->first_page_hint : controls->second_page_hint;
 }
 
 bool sdk_live_input_turn(opxy::u32 encoder, const opxy::i32* event) {
@@ -108,7 +108,9 @@ bool sdk_live_input_turn(opxy::u32 encoder, const opxy::i32* event) {
     switch (row) {
     case 1: return step(selected_target, controls.target.count, event);
     case 2: return step(selected_retune, controls.retune.count, event);
-    case 3: return step(selected_amount, live_input::max_amount + 1, event);
+    case 3:
+        selected_amount = current_amount(controls);
+        return step(selected_amount, controls.amount.count, event);
     default: return false;
     }
 }
@@ -122,20 +124,19 @@ const char* sdk_live_input_caption(opxy::u32 encoder, bool label) {
     }
     const auto* controls = shift_controls();
     if (!controls) return nullptr;
-    if (label) {
-        static constexpr const char* labels[] = {nullptr, "tune", "retune", "amount"};
-        return labels[encoder];
-    }
+    if (label) return encoder ? controls->labels[encoder - 1] : nullptr;
     switch (encoder) {
     case 1: return controls->target.labels[selected_target];
     case 2: return controls->retune.labels[selected_retune];
-    case 3: return amount_caption();
+    case 3: return controls->amount.labels[current_amount(*controls)];
     default: return nullptr;
     }
 }
 
 opxy::u32 sdk_live_input_option_bits() {
-    return option_bits(selected_target, selected_retune, selected_amount, automatic_scale, extra);
+    const auto* controls = shift_controls();
+    const u32 amount = controls ? current_amount(*controls) : selected_amount;
+    return option_bits(selected_target, selected_retune, amount, automatic_scale, extra);
 }
 
 void sdk_live_input_publish() {
