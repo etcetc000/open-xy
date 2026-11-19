@@ -141,13 +141,12 @@ opxy::u32 sdk_live_input_option_bits() {
 
 void sdk_live_input_publish() {
     if (extra_page && !sdk_live_input_page()) extra_page = false;
-    const bool follows_brain = selected_target == 1 || (selected_target == 0 && extra_controls());
-    automatic_scale = follows_brain ? brain_scale() : 0;
+    static bool configured;
+    configured = configured || sdk_live_input_option_bits() != 0;
+    if (!configured) return;
+    automatic_scale = brain_scale();
     const u32 options = sdk_live_input_option_bits();
     const u32 address = gui_parameters + 0x4080 + (track * words + slot) * 4;
-    static bool configured;
-    configured = configured || options != 0;
-    if (!configured) return;
     const u32 previous = word(address);
     const u32 value = (monitoring(previous) ? previous & ~tuner_mask : tag) | options;
     if (previous != value)

@@ -165,9 +165,10 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
   The SDK requires the internal mic already selected on the external-audio
   track, no sample workflow or project load, enabled input and stock permission
   to monitor. The user must also opt in: on the external-audio Aux track,
-  hold **Shift** on its input page to reveal **tilt mic**. Turn the dark encoder
-  counterclockwise for **off**, clockwise for **auto**. Changes save separately
-  from projects in `user/tilt-mic.cfg`; failed saves retain the previous choice.
+  hold **Shift** on its input page to reveal the monitor owner's control. Turn
+  the dark encoder counterclockwise to disable it or clockwise to enable it.
+  The extension supplies the row and status captions. Changes save separately
+  from projects in `user/<extension-id>.cfg`; failed saves retain the previous choice.
   Off is the default. **Shift + M1** also opens the stock selector; cancelling
   that selector leaves the preference unchanged.
   The Aux input track shows short native live/idle confirmations as automatic
@@ -303,8 +304,8 @@ four row captions and their choices in encoder order. Rows support up to
 and pressing M1 switches between pages. Releasing Shift returns to the
 first page. This configuration uses
 `prepare_input(u32 target, u32 retune, u32 amount, u32 brain, const live_input::ExtraValues& extra)`.
-It also receives the Brain mask when Target is Off, so an extra effect
-can follow Brain with tuning bypassed.
+Once configured, the processor receives the current Brain mask independently of
+the selected choices. The processor decides whether to use it.
 
 The DSP callbacks run on the audio role. Use preallocated state and bounded work.
 The callback runs before the monitored input is mixed into the dry and send

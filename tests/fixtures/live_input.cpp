@@ -142,7 +142,7 @@ int main() {
     sdk_live_input_finish();
     sdk_live_input_publish();
     CHECK(target(gui_word) == 1 && brain(gui_word) == 0xcd6u && writes == write_count + 1);
-    CHECK(sdk_live_input_turn(1, &down) && target(gui_word) == 0 && brain(gui_word) == 0 && !bad);
+    CHECK(sdk_live_input_turn(1, &down) && target(gui_word) == 0 && brain(gui_word) == 0xcd6u && !bad);
     sdk_aux_shift_m1();
     CHECK(sdk_live_input_page() == 1 && tilt_menu_count == 1);
     tilt_menu_available = false;
