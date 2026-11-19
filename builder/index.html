@@ -102,6 +102,7 @@
           <p class="presets-note">Kept in this browser only.</p>
         </div>
       </details></div></div>
+    <p id="selection-memory" class="caption" role="status"></p>
     <div class="workspace">
       <div><div class="browse" role="search" aria-label="Find machines">
         <div class="browse-row"><input id="machine-search" type="search" placeholder="Search by name, author or keyword" aria-label="Search machines" autocomplete="off" spellcheck="false">
@@ -137,7 +138,7 @@
         <section class="selection-summary" aria-label="Your firmware"><h3>Your firmware</h3><dl id="build-selection" class="machine-facts"></dl><p id="extension-memory" class="caption" role="status"></p></section>
       </aside>
     </div>
-    <div class="actions"><button data-step="2" class="secondary">← Machines</button><button id="build" class="primary" disabled>Build firmware <span aria-hidden="true">→</span></button></div>
+    <div class="actions"><button data-step="2" class="secondary">← Machines</button><button id="build" class="primary" aria-describedby="build-reason" disabled>Build firmware <span aria-hidden="true">→</span></button></div><p id="build-reason" class="caption" role="status"></p><button id="build-setup" class="secondary" hidden>Go to OS setup</button>
   </section>
   <dialog id="selected-previews" aria-labelledby="selected-previews-title" aria-describedby="selected-previews-note">
     <div class="selected-previews-heading"><div class="selected-previews-title-group"><h2 id="selected-previews-title">Machine graphics</h2><span id="selected-previews-count"></span></div><button id="close-selected-previews" type="button" class="secondary" autofocus>Done</button></div>

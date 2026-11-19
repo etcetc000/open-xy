@@ -410,6 +410,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
   const pages = steps.map(el => Object.assign(new Element(), {dataset:{page:el.dataset.step}}));
   const titles = ['input-title', 'machines-title', 'extensions-title', 'download-title'];
   const location = {hash:'#preview/settings', pathname:'/', search:''};
+  const savedBrowserState = new Map();
   const globals = {
     document:{getElementById:$, addEventListener() {}, createElement:() => new Element(),
       querySelectorAll:selector => ({'[data-page]':pages, '.steps button':steps, '[data-step]':steps,
@@ -424,7 +425,8 @@ test('Extensions graphics defaults to original designs without firmware extensio
       }},
     window:{addEventListener() {}}, location,
     history:{replaceState() { location.hash = ''; }},
-    localStorage:{setItem() {}},
+    localStorage:{getItem(key) { return savedBrowserState.get(key) ?? null; },
+      setItem(key, value) { savedBrowserState.set(key, value); }},
     matchMedia:() => ({matches:true}), requestAnimationFrame:() => 1, cancelAnimationFrame() {},
   };
   for (const [key, value] of Object.entries(globals)) {
@@ -440,7 +442,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
   const fakeCore = {...Core,
     // Keep this test firmware-free: exercise the real app, asset writer and ZIP
     // with an authored kit; OS verification/linking have their own contract tests.
-    openKit:async data => ({...data, objects:[], extensions:[],
+    openKit:async data => ({...data, objects:[], extensions:data.extensions ?? [],
       machines:data.machines.map(machine => ({controls:[], identity:{}, ...machine}))}),
     chosenByDefault:machine => (currentFixture.selected ?? ['probe']).includes(machine.id),
     decode64:value => value ? Core.decode64(value) : currentFixture.catalog,
@@ -463,6 +465,7 @@ test('Extensions graphics defaults to original designs without firmware extensio
     visuals:{reveal() {}, icon:() => new Element(), bundle:() => new Element(),
       graphicsExamples:() => ({elements:[], setGraphics:mode => previewModes.push(mode)})}, supportsBrowser:() => true});
   const api = {async configure(value) {
+    savedBrowserState.delete('open-xy-selection');
     currentFixture = value;
     await builder.loadCollection(value.kit);
     $('risk-acknowledgement').checked = true;
@@ -769,6 +772,60 @@ test('Extensions graphics defaults to original designs without firmware extensio
   await $('build').onclick();
   assert.deepEqual(manifest().settings, {graphics:'colorful'});
   assert.doesNotMatch($('download-summary').textContent, /Grayscale machine graphics/);
+  // Visiting without editing must leave firmware free to restore its selection after reload.
+  savedBrowserState.delete('open-xy-selection');
+  await builder.loadCollection(currentFixture.kit);
+  assert.ok(wizardOptions.getSelected().length > 0);
+  assert.equal(savedBrowserState.has('open-xy-selection'), false);
+  await builder.loadCollection(currentFixture.kit);
+  recoverResult = {stock:Uint8Array.of(1), selected:[], extensions:[]};
+  assert.equal(await wizardOptions.onFirmware({name:'Recovered empty selection', size:1,
+    arrayBuffer:async () => Uint8Array.of(1).buffer}), true);
+  assert.deepEqual(wizardOptions.getSelected(), []);
+  assert.equal(savedBrowserState.has('open-xy-selection'), false);
+  recoverResult = null;
+  await builder.loadCollection(currentFixture.kit);
+  // Loading verified firmware must preserve the user's edited empty selection.
+  for (const row of $('machines').children) {
+    const checkbox = row.children[0].children[0];
+    if (checkbox.checked) { checkbox.checked = false; checkbox.onchange(); }
+  }
+  assert.deepEqual(wizardOptions.getSelected(), []);
+  assert.deepEqual(JSON.parse(savedBrowserState.get('open-xy-selection')).selected, []);
+  await builder.loadCollection(currentFixture.kit);
+  recoverResult = {stock:Uint8Array.of(1), selected:['probe'], extensions:[]};
+  assert.equal(await wizardOptions.onFirmware({name:'Recovered selection', size:1,
+    arrayBuffer:async () => Uint8Array.of(1).buffer}), true);
+  assert.deepEqual(wizardOptions.getSelected(), []);
+  assert.equal($('build').disabled, true);
+  assert.match($('build-reason').textContent, /Choose at least one machine/);
+  // With no remembered selection, firmware also restores its capability setting.
+  savedBrowserState.delete('open-xy-selection');
+  const settingsKit = {...currentFixture.kit, extensions:[{
+    id:'floor', name:'Release floor', description:'Adjust the idle threshold.', origin:'personal',
+    claims:[], actions:[], linked:false, capabilities:['release_floor'],
+    settings:{release_floor:{label:'Idle threshold', unit:'dB', minimum:-66, maximum:-20, value:-48}}
+  }]};
+  await builder.loadCollection(settingsKit);
+  recoverResult = {stock:Uint8Array.of(1), selected:['probe'], extensions:['floor'], settings:{release_floor:-36}};
+  assert.equal(await wizardOptions.onFirmware({name:'Recovered capability setting', size:1,
+    arrayBuffer:async () => Uint8Array.of(1).buffer}), true);
+  assert.equal(Number($('extension-settings').children[0].children[1].value), -36);
+  assert.equal(savedBrowserState.has('open-xy-selection'), false);
+  const include = $('machines').children[0].children[0].children[0];
+  include.checked = false; include.onchange();
+  await builder.loadCollection(settingsKit);
+  recoverResult.settings = {release_floor:-30};
+  assert.equal(await wizardOptions.onFirmware({name:'Recovered settings with saved selection', size:1,
+    arrayBuffer:async () => Uint8Array.of(1).buffer}), true);
+  assert.deepEqual(wizardOptions.getSelected(), []);
+  assert.equal(Number($('extension-settings').children[0].children[1].value), -30);
+  const threshold = $('extension-settings').children[0].children[1];
+  threshold.value = -42; threshold.oninput(); threshold.onchange();
+  recoverResult.settings = {release_floor:-28};
+  await wizardOptions.onFirmware({name:'Keep edited setting', size:1,
+    arrayBuffer:async () => Uint8Array.of(1).buffer});
+  assert.equal(Number($('extension-settings').children[0].children[1].value), -42);
 });
 
 test('machine graphics settings preserve selected master artwork and reject asset collisions', async () => {
