@@ -30,7 +30,7 @@ LOCK_CALLS = (('u32', 'size', ('void*', 'u32'), 'return 0;'),
 
 
 def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-           control=False, aux=False, locks=False, drumline=False, extensions=False, monitor=False, input_overlay=False):
+           control=False, aux=False, locks=False, drumline=False, extensions=False, monitor=False, aux_menu=False):
     """stock_page: engines that show a stock page (e.g. sample engines on the
     sampler page); they register on the GUI role without an own-page guard.
     sample_screens: those of them that also draw their own screen over it.
@@ -107,14 +107,15 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
         declarations.append('void sdk_aux_startup() __asm__("sdk_aux_startup");')
         screens.append('    sdk_aux_startup();')
     menu_fallbacks = []
-    if not aux:
+    if aux_menu and not aux:
         menu_fallbacks.append('extern "C" void sdk_aux_machine_menu() __asm__("sdk_aux_machine_menu");\nvoid sdk_aux_machine_menu() {}\nextern "C" u32 sdk_aux_machine_turn(u32,u32,u32) __asm__("sdk_aux_machine_turn");\nu32 sdk_aux_machine_turn(u32,u32,u32) { return 0; }')
-    if not extensions:
+    if aux_menu and not extensions:
         menu_fallbacks.append('extern "C" bool sdk_input_monitor_menu() __asm__("sdk_input_monitor_menu");\nbool sdk_input_monitor_menu() { return false; }\nextern "C" bool sdk_input_monitor_turn(u32,const i32*) __asm__("sdk_input_monitor_turn");\nbool sdk_input_monitor_turn(u32,const i32*) { return false; }')
     if monitor:
         declarations.append('void sdk_input_monitor_startup() __asm__("sdk_input_monitor_startup");')
         screens.append('    sdk_input_monitor_startup();')
-    kept += '\n' + '\n'.join(menu_fallbacks)
+    if menu_fallbacks:
+        kept += '\n' + '\n'.join(menu_fallbacks)
     declarations.append('const void* sdk_drumline_get() __asm__("sdk_drumline_get");')
     if drumline:
         declarations.append('const void* sdk_drumline_service() __asm__("sdk_drumline_service");')
@@ -139,9 +140,9 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
 
 
 def generate(directory, prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-             control=False, aux=False, locks=False, drumline=False, extensions=False, monitor=False, input_overlay=False):
+             control=False, aux=False, locks=False, drumline=False, extensions=False, monitor=False, aux_menu=False):
     destination = Path(directory) / 'startup.cpp'
     destination.write_text(render(prefixes, effects, stock_page, sample_screens, effect_screens, player_pages,
                                   control=control, aux=aux, extensions=extensions, monitor=monitor, locks=locks,
-                                  input_overlay=input_overlay, drumline=drumline), encoding='utf-8', newline='\n')
+                                  aux_menu=aux_menu, drumline=drumline), encoding='utf-8', newline='\n')
     return destination

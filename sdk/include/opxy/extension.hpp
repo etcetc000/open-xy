@@ -148,7 +148,7 @@ struct Hooks {
     constexpr Hooks with_usb_host_ready(OnUsbHostReady f) const {
         return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, f, motion, monitor_text);
     }
-    constexpr Hooks with_monitor_text(const InputMonitorText& text) const {
+    constexpr Hooks using_monitor_text(const InputMonitorText& text) const {
         return Hooks(context, recordable_note_on, selected_note_off, recording_tick,
                      input_activity, queued_control, usb_host_ready, motion, &text);
     }

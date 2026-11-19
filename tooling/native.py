@@ -608,7 +608,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                                                 player_pages=[x.prefix for x in by_kind(machines, 'player')],
                                                 control='control' in services, aux='aux' in services,
                                                 locks='drum_locks' in services, extensions='extensions' in services,
-                                                monitor='input_monitor' in services, input_overlay='input_overlay' in services,
+                                                monitor='input_monitor' in services, aux_menu='aux_menu' in services,
                                                 drumline='drumline' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
