@@ -221,6 +221,22 @@ def generate_drum_callbacks(directory, machines):
     return destination
 
 
+# A drum kit's keys and names, as the device's adapter reads them (drum_voice.cpp.in),
+# for the builder's audition and screen header: a key's default model and eight
+# controls (nine bytes), a model's name, a slot's label and the slots it uses.
+DRUM_KEYS = '''static opxy::u8 drum_key[9];
+const opxy::u8* opxy_drum_defaults(opxy::u32 key) {
+    drum_key[0] = 0; drum_key[1] = 0; drum_key[2] = 0; drum_key[3] = 0; drum_key[4] = 0;
+    drum_key[5] = 0; drum_key[6] = 0; drum_key[7] = 0; drum_key[8] = 0;
+    @NAMESPACE@::drum_defaults(key, &drum_key[0], &drum_key[1]);
+    return drum_key;
+}
+const char* opxy_drum_model_name(opxy::u32 model) { return @NAMESPACE@::model_name(model); }
+const char* opxy_drum_label(opxy::u32 model, opxy::u32 slot) { return @NAMESPACE@::parameter_name(model, slot); }
+opxy::u32 opxy_drum_count(opxy::u32 model) { return @NAMESPACE@::parameter_count(model); }
+'''
+
+
 def generate_voice_preview(directory, definition, *, kind='synth'):
     """Browser preview voices for a synth or drum definition (curated or local)."""
     require(kind in ('synth', 'drum'), 'Browser previews audition synths and drums')
@@ -230,6 +246,7 @@ def generate_voice_preview(directory, definition, *, kind='synth'):
     count = definition['resources'].get('modelCount', 0)
     values['DRUM_SELECT'] = (f"{values['NAMESPACE']}::drum_select(*voice, shared, owner(voice), drum_model < {count} ? drum_model : 0);\n    "
                              if kind == 'drum' else '')
+    values['DRUM_KEYS'] = DRUM_KEYS.replace('@NAMESPACE@', values['NAMESPACE']) if kind == 'drum' else ''
     return expand('voice_preview.cpp.in', values, Path(directory) / 'voice_preview.cpp', ROOT / 'sdk/host')
 
 
