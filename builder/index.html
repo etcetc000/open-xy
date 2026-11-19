@@ -41,7 +41,20 @@
     <noscript><p>JavaScript is required to acknowledge this notice and use the builder.</p></noscript>
   </section>
   <div id="builder-workspace" hidden inert>
+  <div class="mode-bar"><button id="expert-mode" class="secondary" disabled>Expert mode</button></div>
   <p id="status" role="status" aria-live="polite">Loading machines…</p>
+  <section data-page="5" hidden aria-labelledby="expert-title">
+    <div class="page-header"><span class="eyebrow">Expert mode</span><h1 id="expert-title" tabindex="-1">Build &amp; copy</h1><p>Use your saved selection or load a config. Choose your OS, then build and copy in one action.</p></div>
+    <dl id="expert-summary" class="machine-facts"></dl>
+    <div class="expert-inputs">
+      <label>OS file<input id="expert-firmware" type="file" accept=".ldr"></label>
+      <label>Config / layout.json<input id="expert-config" type="file" accept=".json"></label>
+    </div>
+    <p id="expert-reason" class="caption" role="status"></p>
+    <p class="caption">XY in dev-menu MTP mode. Quit OpenMTP and Field Kit. Files are read back and verified; writing the boot partition and rebooting remain device actions.</p>
+    <div class="actions"><button id="expert-edit" class="secondary">Edit machines</button><button id="expert-extensions" class="secondary">Edit extensions</button><button id="expert-save" class="secondary">Save config</button></div>
+    <div class="actions"><button id="expert-guided" class="secondary">Guided mode</button><button id="expert-build" class="secondary" disabled>Build ZIP</button><button id="expert-run" class="primary" disabled>Build &amp; copy to XY</button></div>
+  </section>
   <section data-page="1" class="input-page" aria-labelledby="input-title">
     <div class="page-header"><div><span class="eyebrow">Step 1 of 4 · OS</span><h1 id="input-title" class="sr-only" tabindex="-1">Choose OS</h1></div></div>
     <!-- Step 1 screens share the guide's layout: the OP–XY on the left, the step on the right. -->
