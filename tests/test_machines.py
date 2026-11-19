@@ -804,7 +804,9 @@ class LongPaths(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             short, full = os.path.join(directory, 'RUNNER~1'), os.path.join(directory, 'runneradmin')
             fake = self.windows({short: full})
-            with mock.patch.object(machines.os, 'name', 'nt'), mock.patch.dict('sys.modules', {'ctypes': fake}):
+            # Only long_path's own platform switch: patching os.name would make pathlib build
+            # WindowsPath, which Python before 3.13 refuses off Windows.
+            with mock.patch.object(machines, 'WINDOWS', True), mock.patch.dict('sys.modules', {'ctypes': fake}):
                 self.assertEqual(machines.long_path(short), Path(full))
                 missing = os.path.join(directory, 'missing')
                 self.assertEqual(machines.long_path(missing), Path(missing))

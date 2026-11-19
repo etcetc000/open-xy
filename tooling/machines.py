@@ -503,6 +503,9 @@ def reads_sample_overview(root, header='sample_overview'):
                if path.suffix in ('.cc', '.cpp', '.h', '.hpp') and path.relative_to(root).parts[0] not in ('tests', 'tools'))
 
 
+WINDOWS = os.name == 'nt'
+
+
 def long_path(path):
     """An absolute path with any Windows 8.3 short names written out in full.
 
@@ -513,7 +516,7 @@ def long_path(path):
     still catch a real redirect. Elsewhere this is os.path.abspath.
     """
     path = os.path.abspath(path)
-    if os.name == 'nt':
+    if WINDOWS:
         import ctypes
         expand = ctypes.windll.kernel32.GetLongPathNameW
         size = expand(path, None, 0)  # 0 when the path doesn't exist yet: keep it as given
