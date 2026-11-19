@@ -328,7 +328,9 @@ An extension's tests are its `tests/*.cpp`: each is a host program that returns
 on the include path. Drive the callbacks as the runtime does, with a fake
 `Actions` table for the writes (capture's
 [`gesture.cpp`](https://github.com/etcetc000/open-xy-core-machines/tree/main/extensions/capture/tests/gesture.cpp) does). `sdk.py test --extension`
-and `sdk.py catalog test` run them.
+and `sdk.py catalog test` run them. When constructing `Control` or `Actions` in a
+host test, use their constructors. Designated initializers are unavailable
+because these types have constructors.
 
 For SDK changes, run `python sdk.py check`, then the full
 [native release verification](build.md#release-verification). The SDK's own
