@@ -12,6 +12,11 @@ import {outsideCheckout} from '../../vite.config.mjs';
 process.env.OPEN_XY_KIT = '';
 process.env.OPEN_XY_OUT_DIR = '';
 const configFile = fileURLToPath(new URL('../../vite.config.mjs', import.meta.url));
+async function builtCollection(directory) {
+  const bytes = await readFile(join(directory,'kit.json.gz'));
+  assert.ok(bytes.length < 25 * 1024 * 1024, 'catalog asset fits Cloudflare');
+  return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).json();
+}
 test('dev server serves browser sources and rejects private paths and writes', async () => {
   const server = await createServer({configFile,mode:'test',logLevel:'silent',server:{port:0}});
   try {
@@ -56,8 +61,9 @@ test('public UI build works without a collection; release build requires one', a
     assert.match(html,/assets\//);
     const headers = await readFile(join(directory,'_headers'),'utf8');
     assert.match(headers,/Permissions-Policy: midi=\(self\), usb=\(self\)/);
-    assert.match(headers,/\/kit\.json\n  Cache-Control: no-cache/);
+    assert.match(headers,/\/kit\.json\.gz\n  Cache-Control: no-cache/);
     await assert.rejects(readFile(join(directory,'kit.json')),/ENOENT/);
+    await assert.rejects(readFile(join(directory,'kit.json.gz')),/ENOENT/);
     await assert.rejects(build({configFile,mode:'release',logLevel:'silent',build:{outDir:directory}}),/OPEN_XY_KIT/);
   } finally { await rm(directory,{recursive:true,force:true}); }
 });
@@ -70,7 +76,9 @@ test('collection builds require fresh external output, including config override
   const collection = {format:'opxy-browser-kit/1',version:'0.0.2',profile:JSON.parse(profileSource),
     profileSource:profileSource.toString('base64'),objects:[],stockCatalog:'',screenTemplate,
     fixed:{fixture:{engine:34,page:82}}, linked:['fixture'],
-    machines:[{id:'fixture',kind:'synth',identity:{engine:34,page:82},origin:'personal'}]};
+    machines:[{id:'fixture',kind:'synth',identity:{engine:34,page:82},origin:'personal',
+      description:'catalog text '.repeat(2300000)}]};
+  assert.ok(JSON.stringify(collection).length > 25 * 1024 * 1024, 'exercise an oversized collection');
   const source = join(directory,'kit.json');
   const external = join(directory,'site');
   try {
@@ -85,9 +93,10 @@ test('collection builds require fresh external output, including config override
     await assert.rejects(readFile(join(inside,'kit.json')),/ENOENT/);
     await assert.rejects(build({configFile,mode:'release',logLevel:'silent',build:{emptyOutDir:true}}),/must not empty/);
     await build({configFile,mode:'release',logLevel:'silent'});
-    assert.deepEqual(JSON.parse(await readFile(join(external,'kit.json'),'utf8')),collection);
+    assert.deepEqual(await builtCollection(external),collection);
+    await assert.rejects(readFile(join(external,'kit.json')),/ENOENT/);
     await assert.rejects(build({configFile,mode:'release',logLevel:'silent'}),/fresh, empty output/);
-    assert.deepEqual(JSON.parse(await readFile(join(external,'kit.json'),'utf8')),collection);
+    assert.deepEqual(await builtCollection(external),collection);
     // Development remains possible without configuring a build destination.
     process.env.OPEN_XY_OUT_DIR = '';
     const server = await createServer({configFile,mode:'test',logLevel:'silent',server:{port:0}});
@@ -106,7 +115,7 @@ test('collection builds require fresh external output, including config override
       });
     assert.equal(deploy.status,0,deploy.stdout + deploy.stderr);
     assert.match(deploy.stdout,/dry.run/i);
-    assert.deepEqual(JSON.parse(await readFile(join(deployOutput,'kit.json'),'utf8')),collection);
+    assert.deepEqual(await builtCollection(deployOutput),collection);
   } finally {
     process.env.OPEN_XY_KIT = '';
     process.env.OPEN_XY_OUT_DIR = '';
