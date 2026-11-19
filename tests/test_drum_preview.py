@@ -164,6 +164,42 @@ class DrumPreviewTests(unittest.TestCase):
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
                 validate_definition(definition, 'drum')
 
+    def test_a_kit_preview_reports_each_keys_defaults_and_its_models_names(self):
+        # The builder plays a kit's keys as the device sets them up (builder/core.mjs kitKey):
+        # the module calls the kit's own callbacks, which a synth's preview leaves out.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            drum = adapters.generate_voice_preview(root, self.definition('drum'), kind='drum').read_text()
+            namespace = self.definition('drum')['id']
+            for line in ('const opxy::u8* opxy_drum_defaults(opxy::u32 key) {',
+                         f'    {namespace}::drum_defaults(key, &drum_key[0], &drum_key[1]);',
+                         f'const char* opxy_drum_model_name(opxy::u32 model) {{ return {namespace}::model_name(model); }}',
+                         f'const char* opxy_drum_label(opxy::u32 model, opxy::u32 slot) {{ return {namespace}::parameter_name(model, slot); }}',
+                         f'opxy::u32 opxy_drum_count(opxy::u32 model) {{ return {namespace}::parameter_count(model); }}'):
+                self.assertIn(line, drum)
+            # No loop a freestanding build could turn into a memset call.
+            self.assertNotIn('for (', drum[drum.index('opxy_drum_defaults'):])
+            synth = adapters.generate_voice_preview(root, self.definition('synth')).read_text()
+            self.assertNotIn('opxy_drum', synth)
+        for kind in ('synth', 'drum'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                with patch('tooling.preview.subprocess.run', return_value=SimpleNamespace(returncode=0, stderr='')) as run, \
+                        patch('tooling.preview.check_runtime'):
+                    preview.compile_preview('clang++', self.definition(kind), root, root, kind=kind)
+                exported = {arg[len('-Wl,--export='):] for arg in run.call_args.args[0]
+                            if isinstance(arg, str) and arg.startswith('-Wl,--export=')}
+                self.assertEqual(exported & set(preview.DRUM_EXPORTS), set(preview.DRUM_EXPORTS) if kind == 'drum' else set())
+
+    def test_a_kits_builder_entry_names_its_models_groups_and_pad_mix(self):
+        from tooling.browser_kit import kit_preview
+        definition = self.definition('drum')
+        self.assertEqual(kit_preview(definition), dict(models=12, padMix=False))
+        definition['resources'].update(modelCount=33, padMix=1, modelGroups=[
+            dict(label='TRX', count=13), dict(label='EFM', count=8), dict(label='P-I', count=9), dict(label='GND', count=3)])
+        self.assertEqual(kit_preview(definition), dict(models=33, padMix=True, groups=[
+            dict(label='TRX', count=13), dict(label='EFM', count=8), dict(label='P-I', count=9), dict(label='GND', count=3)]))
+
     def test_drum_preview_links_all_sources_with_fixed_memory(self):
         for kind, memory in [('synth', 2097152), ('drum', 2097152)]:
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as folder:
@@ -178,7 +214,8 @@ class DrumPreviewTests(unittest.TestCase):
                     for source in sources:
                         self.assertIn(str(root / source), command)
                     display = self.definition(kind)['resources']['display']
-                    check.assert_called_once_with(root / 'engine.wasm', display.get('paths', 0), display.get('points', 0))
+                    check.assert_called_once_with(root / 'engine.wasm', display.get('paths', 0), display.get('points', 0),
+                                                  *((12,) if kind == 'drum' else ()))
 
 
 if __name__ == '__main__':

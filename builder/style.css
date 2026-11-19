@@ -266,6 +266,13 @@ details input { max-width:100%; }
 .preview-key.black[data-down=true] { background:#666; }
 .preview-key:focus-visible { outline-offset:2px; z-index:2; }
 .audition-volume { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--muted); min-width:0; }
+/* A drum kit: two octaves of keys, the selected key marked, then its machine. */
+.audition-controls.kit { flex-wrap:wrap; row-gap:12px; }
+.preview-key[data-selected=true] { box-shadow:inset 0 -4px 0 #555; }
+.preview-key.black[data-selected=true] { box-shadow:inset 0 -4px 0 #aaa; }
+.audition-model { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--muted); min-width:0; }
+.audition-model select { min-width:0; max-width:160px; min-height:32px; padding:4px 6px; font:inherit; color:var(--ink); background:var(--paper); border:1px solid var(--line); border-radius:6px; }
+.audition-model select:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 .audition-volume input { width:100%; min-width:32px; max-width:100px; accent-color:var(--ink); }
 @container(max-width:440px) {
   .audition-controls { flex-wrap:wrap; align-content:start; row-gap:12px; min-height:92px; }
