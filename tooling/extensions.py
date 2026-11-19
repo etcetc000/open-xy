@@ -419,7 +419,15 @@ def generate_extension(folder, extension):
             values = ', extra' if extension.live_input_extra_controls else ''
             prepare = (f'{namespace}::prepare_input(target, retune, amount, brain{values});'
                        if extension.live_input_controls else '')
-            out.write('#include <opxy/live_input.hpp>\n'
+            out.write('#include <opxy/live_input.hpp>\n')
+            if extension.live_input_controls:
+                out.write(f'static_assert(opxy::live_input::valid_controls({namespace}::input_controls), '
+                          '"Live input controls have invalid choices or captions exceeding 31 bytes");\n')
+            if extension.live_input_extra_controls:
+                out.write(f'static_assert(opxy::live_input::valid_extra_controls({namespace}::input_extra_controls, '
+                          f'{namespace}::input_controls), '
+                          '"Extra live input controls have invalid choices or captions exceeding 31 bytes");\n')
+            out.write(
                       'extern "C" const opxy::live_input::Controls* sdk_live_input_controls() __asm__("sdk_live_input_controls");\n'
                       'extern "C" const opxy::live_input::ExtraControls* sdk_live_input_extra_controls() __asm__("sdk_live_input_extra_controls");\n'
                       'extern "C" void sdk_live_input_prepare(opxy::u32, opxy::u32, opxy::u32, opxy::u32,'
