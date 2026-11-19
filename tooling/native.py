@@ -177,7 +177,7 @@ def check_sources(machines):
                 validate_source_boundary(path.read_text(encoding='utf-8'), m.source(path.relative_to(m.root).as_posix()))
 
 
-def compile_cxx(cxx, assembler, source, obj, includes=()):
+def compile_cxx(cxx, assembler, source, obj, includes=(), defines=()):
     """cc1plus via the driver to assembly, then the pinned assembler.
 
     The driver never chooses an assembler, so object bytes depend only on the
@@ -187,7 +187,7 @@ def compile_cxx(cxx, assembler, source, obj, includes=()):
     obj = Path(obj).resolve()
     assembly = obj.with_suffix('.s')
     generated = Path(source).is_absolute()
-    flags = [*CXX_FLAGS, *('-I' + str((ROOT / path).resolve()) for path in includes), '-fstack-usage']
+    flags = [*CXX_FLAGS, *('-D' + define for define in defines), *('-I' + str((ROOT / path).resolve()) for path in includes), '-fstack-usage']
     subprocess.run([str(cxx), *flags, '-S', Path(source).name if generated else source, '-o', str(assembly)],
                    cwd=Path(source).parent if generated else ROOT, check=True, capture_output=True, text=True,
                    timeout=300, **hidden_process())
@@ -266,7 +266,7 @@ UNIT_SERVICES.update(dict.fromkeys(('live_input_stock', 'live_input_menu', 'live
 UNIT_SERVICES['input_monitor_audio'] = 'input_monitor'
 UNIT_SERVICES['input_monitor_hooks'] = 'input_audio'
 UNIT_SERVICES['input_monitor_ui'] = 'input_overlay'
-UNIT_SERVICES.update(dict.fromkeys(('aux_menu', 'aux_menu_hooks'), 'aux_menu'))
+UNIT_SERVICES.update(dict.fromkeys(('aux_menu', 'aux_menu_hooks'), 'input_overlay'))
 UNIT_SERVICES['drum_hooks'] = 'drums'
 UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
 # Per-key sends hook stock's mixer, so only a build with a padMix kit or a drumline_page
@@ -558,10 +558,25 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         generate_display(folder, machine=m)
         return folder / 'display_binding.cpp'
 
+    services = active_services(profile, service_users(machines))
+    plain_aux = 'aux' in services and 'input_overlay' not in services
+
+    def build_plain_aux(step, obj):
+        obj.parent.mkdir(parents=True, exist_ok=True)
+        if step == 'aux_tracks':
+            compile_cxx(gcc['cxx'], tools['as'], TEMPLATES + 'aux_tracks.cpp', obj,
+                        includes(), defines=('OPXY_STOCK_AUX_MENU',))
+        else:
+            execute([tools['as'], '-mcpu=bf707', '-I', ROOT,
+                     '--defsym', 'OPXY_STOCK_AUX_MENU=1', '-o', obj, ROOT / TEMPLATES / 'aux_hooks.s'])
+
+
     def build_unit(obj, m, step):
         folder = obj.parent
         folder.mkdir(exist_ok=True)
         if m is None:
+            if plain_aux and step in ('aux_tracks', 'aux_hooks'):
+                return build_plain_aux(step, obj)
             if step == 'drum_callbacks':
                 return cxx(str(generate_drum_callbacks(folder, machines)), obj)
             if step == 'benchmark':
@@ -608,7 +623,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                                                 player_pages=[x.prefix for x in by_kind(machines, 'player')],
                                                 control='control' in services, aux='aux' in services,
                                                 locks='drum_locks' in services, extensions='extensions' in services,
-                                                monitor='input_monitor' in services, aux_menu='aux_menu' in services,
+                                                monitor='input_monitor' in services, aux_menu='input_overlay' in services,
                                                 drumline='drumline' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
@@ -633,6 +648,13 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         # Disable string pooling so the browser linker places sections exactly as GNU ld does.
         obj.write_bytes(normalize_object(read(obj)))
         require('R_BFIN_RIMM16' not in execute([tools['objdump'], '-r', obj]), 'Truncated address relocation in ' + name)
+    # Browser kits can drop the overlay from a selection after compilation.
+    # Keep the two original aux objects available with the same link positions.
+    if {'aux', 'input_overlay'} <= services:
+        for step in ('aux_tracks', 'aux_hooks'):
+            obj = directory / 'sdk' / (step + '_plain.o')
+            build_plain_aux(step, obj)
+            obj.write_bytes(normalize_object(read(obj)))
     # Before any link: one that leaves some machines out (linked_machines) can't see their clash.
     one_definition([(owner, read(directory / name)) for name, owner in object_owners(machines, profile).items()],
                    {m.id: m.name for m in machines})

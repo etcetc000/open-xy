@@ -677,6 +677,10 @@ export async function openKit(kit) {
     check(!names.has(o.name) && (o.owner === null || ids.has(o.owner)), 'Duplicate or unowned object');
     check(o.service === undefined || (o.owner === null && Object.hasOwn(kit.profile.services ?? {}, o.service)),
       'Undeclared service: ' + o.service);
+    check(o.requiresService === undefined || (o.service === 'aux' && o.requiresService === 'input_overlay' &&
+      /^sdk\/aux_(tracks|hooks)\.o$/.test(o.name)), 'Invalid overlay aux object');
+    check(o.unlessService === undefined || (o.service === 'aux' && o.unlessService === 'input_overlay' &&
+      /^sdk\/aux_(tracks|hooks)_plain\.o$/.test(o.name)), 'Invalid plain aux object');
     check(o.runtime === undefined || (o.runtime === true && o.owner === null && o.service === undefined &&
       /^sdk\/runtime\/_[A-Za-z0-9_]+\.o$/.test(o.name)), 'Invalid arithmetic runtime object');
     check(o.extension === undefined || (o.owner === null && o.service === undefined && extensionIds.has(o.extension)),
@@ -766,6 +770,7 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
     ...(kit.extensions?.some(e => extensions.has(e.id) && e.drumline_page) ? [{kind: 'drumline_page'}] : []),
     ...(kit.extensions ?? []).filter(e => extensions.has(e.id)).flatMap(e => (e.capabilities ?? []).map(kind => ({kind})))]);
   const objects = kit.objects.filter(o => !o.runtime && (o.extension === undefined || extensions.has(o.extension)) &&
+    (!o.requiresService || services.has(o.requiresService)) && (!o.unlessService || !services.has(o.unlessService)) &&
     (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner)));
   objects.push(...selectRuntime(objects, kit.objects.filter(o => o.runtime), definitions));
   const globals = new Map(Object.entries(definitions)), placements = new Map(), segments = [];

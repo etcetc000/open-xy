@@ -60,12 +60,24 @@
 #include "stock_browser.hpp"
 #include "synth_controls.hpp"
 
+// In a build without the input overlay, the original aux hooks call these
+// handlers directly. With the overlay they are fallbacks for its dispatcher.
+#ifdef OPXY_STOCK_AUX_MENU
+#define sdk_aux_machine_menu sdk_aux_shift_m1
+#define sdk_aux_machine_turn sdk_aux_turn
+#define AUX_MENU_SYMBOL "sdk_aux_shift_m1"
+#define AUX_TURN_SYMBOL "sdk_aux_turn"
+#else
+#define AUX_MENU_SYMBOL "sdk_aux_machine_menu"
+#define AUX_TURN_SYMBOL "sdk_aux_machine_turn"
+#endif
+
 extern "C" {
-void sdk_aux_machine_menu() __asm__("sdk_aux_machine_menu");
+void sdk_aux_machine_menu() __asm__(AUX_MENU_SYMBOL);
 opxy::u32 sdk_aux_shift_track(opxy::u32 controller, opxy::u32 track) __asm__("sdk_aux_shift_track");
 opxy::i32 sdk_aux_page() __asm__("sdk_aux_page");
 opxy::u32 sdk_aux_key(opxy::u32, const opxy::u32*) __asm__("sdk_aux_key");
-opxy::u32 sdk_aux_machine_turn(opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_aux_machine_turn");
+opxy::u32 sdk_aux_machine_turn(opxy::u32, opxy::u32, opxy::u32) __asm__(AUX_TURN_SYMBOL);
 opxy::u32 sdk_effect_turn(opxy::u32, opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_effect_turn");
 const char* sdk_aux_lfo_label(opxy::u32 track, opxy::u32 slot) __asm__("sdk_aux_lfo_label");
 void sdk_cv_output(opxy::u32) __asm__("sdk_cv_output");

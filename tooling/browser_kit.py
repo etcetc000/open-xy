@@ -140,6 +140,9 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
     object_dir.mkdir()
     objects = []
     extension_objects = {'sdk/extension_' + e.id + '.o': e.id for e in native.extensions_of(machines)}
+    active = native.active_services(profile, native.service_users(machines))
+    mixed_aux = {'aux', 'input_overlay'} <= active
+    aux_objects = {'sdk/aux_tracks.o', 'sdk/aux_hooks.o'}
     for name, owner in owners.items():
         data = read(child(package / 'analysis', name))
         destination = child(object_dir, name)
@@ -152,7 +155,15 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
             entry['runtime'] = True
         if name in extension_objects:
             entry['extension'] = extension_objects[name]
+        if mixed_aux and name in aux_objects:
+            entry['requiresService'] = 'input_overlay'
         objects.append(entry)
+        if mixed_aux and name in aux_objects:
+            plain_name = name.removesuffix('.o') + '_plain.o'
+            plain = read(child(package / 'analysis', plain_name))
+            child(object_dir, plain_name).write_bytes(plain)
+            objects.append(dict(name=plain_name, owner=None, service='aux', unlessService='input_overlay',
+                                bytes=base64.b64encode(plain).decode('ascii'), sha256=sha(plain)))
     # Stock addresses only: each selection's machine numbers are the builder's.
     stock = {key: value for key, value in definitions.items() if key in native.DEFINITIONS}
     # The machines the native package links, whose selection reproduces it.

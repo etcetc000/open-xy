@@ -137,7 +137,7 @@ class Extensions(unittest.TestCase):
             probe = extensions.extension_at(folder.declare(live_input=True))
             self.assertTrue(extensions.metadata([probe], {'probe': 'personal'})[0]['live_input'])
             collection = native.Collection([], [probe])
-            self.assertEqual(set(native.object_services(collection).values()), {'extensions', 'live_input', 'input_audio', 'input_overlay', 'aux_menu'})
+            self.assertEqual(set(native.object_services(collection).values()), {'extensions', 'live_input', 'input_audio', 'input_overlay'})
             output = folder.root.parent / 'generated'
             output.mkdir()
             adapter = extensions.generate_extension(output, probe).read_text()
