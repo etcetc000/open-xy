@@ -121,6 +121,7 @@ class Extension:
 
     master_processor: dict = None
     drumline_page: list = None  # the checked parameters (drumline_page_of)
+    sample_studio: bool = False  # an editor for stock's library and a player (opxy/sample_studio.hpp)
     capabilities: tuple = ()  # firmware services it turns on (capabilities())
     linked: bool = True  # False for a settings extension: no code, no runtime
     settings: dict = field(default_factory=dict)  # capability -> chosen value (capability_settings())
@@ -135,6 +136,12 @@ class Extension:
                 if p.is_file() and '.git' not in p.relative_to(self.root).parts}
 
 
+SAMPLE_STUDIO_ARTWORK = 'sample_studio.svg'   # a sample_studio extension's page artwork
+# Its two tables, as extension.cpp declares them: `extern const studio::Editor editor = {...};`
+# (the type qualified from studio:: up, extern optional) and the same for Player and player.
+SAMPLE_STUDIO_EXPORT = r'(?:\bextern\s+)?\bconst\s+(?:::\s*)?(?:opxy\s*::\s*)?studio\s*::\s*{kind}\s+{symbol}\s*(?:=|\{{)'
+
+
 def extension_at(folder):
     """The extension in `folder`, checked against the SDK's registry and source rules."""
     root = Path(folder).resolve()
@@ -143,9 +150,10 @@ def extension_at(folder):
     linked = (root / 'extension.cpp').is_file()
     keys = {'id', 'claims', 'actions', 'name', 'description'}
     require(isinstance(data, dict) and
-            keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor', 'drumline_page', 'capabilities', 'settings'},
+            keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor', 'drumline_page', 'sample_studio', 'capabilities',
+                                    'settings'},
             f'{root}: extension.json fields are id, name, description, claims, actions and optional note, '
-            'master_processor, drumline_page, capabilities and settings')
+            'master_processor, drumline_page, sample_studio, capabilities and settings')
     name = data['id']
     require(isinstance(name, str) and NAME.fullmatch(name) and name not in RESERVED, f'{root}: invalid extension id')
     for key in TEXT_LIMITS:
@@ -171,6 +179,15 @@ def extension_at(folder):
     drumline_page = drumline_page_of(name, data['drumline_page']) if 'drumline_page' in data else None
     require(drumline_page is None or linked and re.search(r'\bdrumline_processor\b', (root / 'extension.cpp').read_text(encoding='utf-8')),
             f'{name}: a drumline_page extension exports opxy::extensions::{name}::drumline_processor from extension.cpp')
+    # Sample Studio (docs/sample-studio.md): the extension's editor and player on the SDK's library and
+    # master-bus sites, with its own artwork; it takes no options yet.
+    sample_studio = 'sample_studio' in data
+    require(not sample_studio or data['sample_studio'] == {}, f'{name}: sample_studio takes no fields: {{}}')
+    require(not sample_studio or linked and all(
+        re.search(SAMPLE_STUDIO_EXPORT.format(kind=kind, symbol=symbol), (root / 'extension.cpp').read_text(encoding='utf-8'))
+        for kind, symbol in (('Editor', 'editor'), ('Player', 'player'))) and (root / SAMPLE_STUDIO_ARTWORK).is_file(),
+            f'{name}: a sample_studio extension exports opxy::extensions::{name}::editor and ::player from '
+            f'extension.cpp and holds its artwork, {SAMPLE_STUDIO_ARTWORK}')
     claims, actions = registry()
     for field, known in (('claims', claims), ('actions', actions)):
         values = data[field]
@@ -204,7 +221,7 @@ def extension_at(folder):
             validate_source_boundary(path.read_text(encoding='utf-8'), f'{name}/{path.relative_to(root).as_posix()}')
     return Extension(name, root, tuple(data['claims']), tuple(data['actions']),
                      {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter, drumline_page,
-                     tuple(declared), linked, dict(settings))
+                     sample_studio, tuple(declared), linked, dict(settings))
 
 
 def drumline_page_of(name, value):
@@ -302,6 +319,10 @@ def check_collection(extensions):
     require(len(assets) == len(set(assets)), 'Master processor assets must be unique')
     pages = [e.id for e in extensions if e.drumline_page is not None]
     require(len(pages) <= 1, f'{DRUMLINE_PAGE_LABEL} has multiple owners: ' + ', '.join(pages))
+    studios = [e.id for e in extensions if e.sample_studio]
+    require(len(studios) <= 1, 'Sample Studio has multiple owners: ' + ', '.join(studios))
+    # Its player hooks the master EQ call and the B3 receiver, the master processor's sites.
+    require(not (studios and processors), 'Sample Studio and a master processor share hook sites; build them apart')
     return extensions
 
 
@@ -384,6 +405,15 @@ def generate_extension(folder, extension):
     if extension.drumline_page is not None:
         with target.open('a', encoding='utf-8') as out:
             out.write(generate_drumline_page(extension))
+    if extension.sample_studio:
+        # The editor and player the SDK's library and master-bus sites call (sample_studio_host.cpp,
+        # sample_studio_audio.cpp); one sample_studio extension per build.
+        with target.open('a', encoding='utf-8') as out:
+            for part, kind in (('editor', 'Editor'), ('player', 'Player')):
+                symbol = 'sdk_sample_studio_' + part
+                out.write('extern "C" const opxy::studio::' + kind + '* ' + symbol + '() __asm__("' + symbol + '");\n'
+                          'extern "C" const opxy::studio::' + kind + '* ' + symbol + '() { return &opxy::extensions::' +
+                          extension.id + '::' + part + '; }\n')
     return target
 
 
@@ -407,6 +437,11 @@ def metadata(extensions, origins):
             # Exclusive, as a claim is: the builder lets one selected extension own it
             # (builder/core.mjs exclusiveUses).
             row['drumline_page'] = True
+        if e.sample_studio:
+            # Exclusive too, and never beside a master processor; the builder installs its artwork.
+            data = (e.root / SAMPLE_STUDIO_ARTWORK).read_bytes()
+            row['sample_studio'] = dict(asset=SAMPLE_STUDIO_ARTWORK, artwork=base64.b64encode(data).decode('ascii'),
+                                        sha256=hashlib.sha256(data).hexdigest())
         if e.master_processor is not None:
             data = validate_master_artwork(e.root / e.master_processor['artwork'])
             row['master_processor'] = dict(state_id=e.master_processor.get('state_id',e.id), asset=Path(e.master_processor['artwork']).name,

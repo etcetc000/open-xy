@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '6bd2a299b7490b01657119315361974ea317c80bcac99c088525b08ff3303181';
+export const PROFILE_SHA256 = '161330ec54909cfbdbdf3ffa23b0c971e12d5424d0da71691df0d726cffe1989';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -528,22 +528,26 @@ export function extensionSelection(kit, selection = (kit.extensions ?? []).map(e
 // it supplies it, and each capability setting it chooses (both would write one site;
 // tooling.extensions.check_collection allows one of each).
 const exclusiveUses = e => [...(e.claims ?? []), ...(e.drumline_page ? ['drumline_page'] : []),
-  ...Object.keys(e.settings ?? {}).map(c => 'setting:' + c)];
+  ...(e.sample_studio ? ['sample_studio'] : []), ...Object.keys(e.settings ?? {}).map(c => 'setting:' + c)];
 
 // A claim (an exclusive control such as Record double-tap) two extensions share, if any.
+// Sample Studio's player takes the master EQ call and the B3 receiver, which master
+// processors use, so the two share 'master_bus' (tooling.extensions.check_collection).
 export function sharedClaim(extensions) {
   const seen = new Set();
   for (const e of extensions) for (const claim of exclusiveUses(e)) {
     if (seen.has(claim)) return claim;
     seen.add(claim);
   }
+  if (extensions.some(e => e.sample_studio) && extensions.some(processorOf)) return 'master_bus';
   return null;
 }
 
 // The registry's label for a claim, as the kit carries it with each extension.
 export const claimLabel = (extensions, claim) =>
   extensions.map(e => claim.startsWith('setting:') ? e.settings?.[claim.slice(8)]?.label : e.claim_labels?.[claim])
-    .find(Boolean) ?? (claim === 'drumline_page' ? 'Drumline page 2' : claim.replace(/^setting:/, '').replaceAll('_', ' '));
+    .find(Boolean) ?? ({drumline_page: 'Drumline page 2', sample_studio: 'Sample Studio', master_bus: 'the master bus'}[claim] ??
+      claim.replace(/^setting:/, '').replaceAll('_', ' '));
 
 // Every extension choice a build can make, in collection order: each subset
 // in which no two extensions share a claim. Recovery and release checks try each.
@@ -675,6 +679,15 @@ export async function openKit(kit) {
       const data=decode64(f.artwork);
       check(data.length>0 && data.length<=65536 && await sha256(data)===f.sha256, 'Master filter artwork differs');
     }
+    // Sample Studio (tooling.extensions): linked code, its page artwork, never a master processor.
+    if (e.sample_studio !== undefined) {
+      const st = e.sample_studio;
+      check(st && typeof st === 'object' && Object.keys(st).sort().join() === 'artwork,asset,sha256' &&
+        st.asset === 'sample_studio.svg' && typeof st.artwork === 'string' && e.linked !== false && !processorOf(e),
+        'Invalid Sample Studio extension');
+      const data = decode64(st.artwork);
+      check(data.length > 0 && data.length <= 1024 ** 2 && await sha256(data) === st.sha256, 'Sample Studio artwork differs');
+    }
     extensionIds.add(e.id);
   }
   check(kit.linked === undefined || (Array.isArray(kit.linked) && kit.linked.length > 0 &&
@@ -769,7 +782,11 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
     ...(kit.extensions?.some(e => extensions.has(e.id) && e.linked !== false) ? [{kind: 'extension'}] : []),
     ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : []),
     ...(kit.extensions?.some(e => extensions.has(e.id) && e.drumline_page) ? [{kind: 'drumline_page'}] : []),
+    ...(kit.extensions?.some(e => extensions.has(e.id) && e.sample_studio) ? [{kind: 'sampleStudio'}] : []),
     ...(kit.extensions ?? []).filter(e => extensions.has(e.id)).flatMap(e => (e.capabilities ?? []).map(kind => ({kind})))]);
+  // Sample Studio reads keys through the samples service (tooling.native.service_users).
+  check(!services.has('sample_studio') || services.has('samples'),
+    'Sample Studio needs a sample engine or Drumline page 2 in the build.');
   const objects = kit.objects.filter(o => !o.runtime && (o.extension === undefined || extensions.has(o.extension)) &&
     (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner)));
   objects.push(...selectRuntime(objects, kit.objects.filter(o => o.runtime), definitions));
@@ -1303,6 +1320,14 @@ export async function buildAssets(kit, selection, catalog, numbers, options = {}
   const files = {'content/op1_factory.json': extended};
   const owners = {};  // every file a machine or extension adds, by who adds it
   for(const id of extensionSelection(kit,extensionIds)) {
+    const studio=kit.extensions.find(e => e.id===id).sample_studio;
+    if(studio) {
+      const path='content/display/'+studio.asset, data=decode64(studio.artwork);
+      check(await sha256(data)===studio.sha256, 'Sample Studio artwork differs');
+      check(files[path]===undefined, 'Display asset collision: '+studio.asset);
+      files[path]=data;
+      owners[path]='Extension '+id;
+    }
     const filter=processorOf(kit.extensions.find(e => e.id===id));
     if(!filter)continue;
     const data=decode64(filter.artwork);

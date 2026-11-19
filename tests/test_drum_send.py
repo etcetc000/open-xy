@@ -1,6 +1,7 @@
 """Per-key sends (resources.padMix): the mixer hooks, the adapter's codes and the build wiring."""
 import copy
 import json
+import re
 import os
 from pathlib import Path
 import subprocess
@@ -20,13 +21,21 @@ from test_sample_services import HOST_CXX
 ROOT = Path(__file__).resolve().parents[1]
 PLATFORM = ROOT / 'sdk/platform/opxy-1.2.1'
 PROFILE = json.loads((ROOT / 'profiles/opxy-1.2.1.json').read_text(encoding='utf-8'))
-# The six reviewed sites, as drum_send_hooks.s describes them.
+# The six reviewed sites: four in the mixer the sends share with Sample Studio (mixer_hooks.s,
+# service mixer) and the two send buses' sources, the sends' alone (drum_send_hooks.s).
 SITES = {'0x8d510bea': ('sdk_drum_send_track', '00e38f5d'),
          '0x8d51c7b2': ('sdk_drum_send_voice_hook', '0adab01148150000'),
          '0x8d510ea8': ('sdk_drum_send_gain_hook', '0ada901100360000'),
          '0x8d511088': ('sdk_drum_send_source_1', '09da901100360000'),
          '0x8d5110ca': ('sdk_drum_send_source_2', '09da901100360000'),
          '0x8d511116': ('sdk_drum_send_own', '30e51200')}
+SITE_SERVICES = {'0x8d510bea': 'mixer', '0x8d51c7b2': 'mixer', '0x8d510ea8': 'mixer', '0x8d511116': 'mixer',
+                 '0x8d511088': 'drum_sends', '0x8d5110ca': 'drum_sends'}
+
+
+def stubs_text():
+    """Both hook files, the mixer's and the sends' own."""
+    return ''.join((PLATFORM / name).read_text(encoding='utf-8') for name in ('mixer_hooks.s', 'drum_send_hooks.s'))
 # Stock's loads of the two send buses (8d511096 for FX I, 8d5110da for FX II),
 # which the own-amount hook writes into.
 BUS_LOADS = {'0x8d511096': '08daca8440a10000', '0x8d5110da': '0bdaca8440a30000'}
@@ -240,24 +249,43 @@ class DrumSend(unittest.TestCase):
 
     def test_a_pad_mix_kit_links_the_mixer_hooks_and_a_plain_kit_does_not(self):
         services = PROFILE['services']
+        # The mixer's four sites are shared with Sample Studio, which silences its track's voices
+        # there; the send buses' sources are the sends' alone.
+        self.assertEqual(services['mixer'], ['padMix', 'drumline_page', 'sampleStudio'])
         self.assertEqual(services['drum_sends'], ['padMix', 'drumline_page'])
         with_sends, without = kit(1), kit()
         self.assertIn('padMix', native.service_users([with_sends]))
         self.assertNotIn('padMix', native.service_users([without]))
-        self.assertIn('drum_sends', active_services(PROFILE, native.service_users([with_sends])))
-        self.assertNotIn('drum_sends', active_services(PROFILE, native.service_users([without])))
+        for service in ('mixer', 'drum_sends'):
+            self.assertIn(service, active_services(PROFILE, native.service_users([with_sends])))
+            self.assertNotIn(service, active_services(PROFILE, native.service_users([without])))
         self.assertEqual(native.UNIT_SERVICES['drum_send'], 'drum_sends')
         self.assertEqual(native.UNIT_SERVICES['drum_send_hooks'], 'drum_sends')
+        self.assertEqual(native.UNIT_SERVICES['mixer'], 'mixer')
+        self.assertEqual(native.UNIT_SERVICES['mixer_hooks'], 'mixer')
+        # A build with the mixer but one of its users resolves the other's entry points to kit_absent.
+        fallbacks = native.service_fallbacks({'mixer'})
+        self.assertEqual(fallbacks['drum_sends'], dict.fromkeys(native.MIXER_SENDS, 'kit_absent'))
+        self.assertEqual(fallbacks['sample_studio'], dict.fromkeys(native.MIXER_STUDIO, 'kit_absent'))
+        self.assertNotIn('drum_sends', native.service_fallbacks({'drum_sends'}))
+        mixer = (PLATFORM / 'mixer.cpp').read_text(encoding='utf-8')
+        for name in native.MIXER_SENDS + native.MIXER_STUDIO:
+            self.assertEqual(len(re.findall(r'\n    ' + name + r'\(', mixer)), 1, name)   # each called once, at its site
+        self.assertNotIn('weak', (PLATFORM / 'drum_send.cpp').read_text(encoding='utf-8'))
 
     def test_the_profile_reviews_six_call_sites_outside_hardware_loops(self):
-        hooks = {p['address']: p for p in PROFILE['patches'] if p.get('service') == 'drum_sends'}
+        hooks = {p['address']: p for p in PROFILE['patches'] if p.get('service') in ('mixer', 'drum_sends')}
         self.assertEqual(set(hooks), set(SITES))
         for address, (symbol, before) in SITES.items():
             patch = hooks[address]
-            self.assertEqual((patch['kind'], patch['symbol'], patch['before'], patch['call']),
-                             ('hook', symbol, before, True))
+            self.assertEqual((patch['kind'], patch['symbol'], patch['before'], patch['call'], patch['service']),
+                             ('hook', symbol, before, True, SITE_SERVICES[address]))
             self.assertEqual(patch['length'], len(before) // 2)
-        stubs = (PLATFORM / 'drum_send_hooks.s').read_text(encoding='utf-8')
+        stubs = stubs_text()
+        for name, service in (('mixer_hooks.s', 'mixer'), ('drum_send_hooks.s', 'drum_sends')):
+            own = (PLATFORM / name).read_text(encoding='utf-8')
+            self.assertEqual(sorted(re.findall(r'\.global (\w+)', own)),
+                             sorted(SITES[a][0] for a, s in SITE_SERVICES.items() if s == service), name)
         for symbol, _before in SITES.values():
             self.assertIn('.global %s' % symbol, stubs)
         # Each stub replays the instruction it replaces: the loop's call, P2's and P1's loads.
@@ -265,9 +293,9 @@ class DrumSend(unittest.TestCase):
         self.assertIn('P2.H = 0x11b0; P2.L = 0x1548;', stubs)
         self.assertIn('P1.H = 0x1190; P1.L = 0x3600;', stubs)
         # The track gain's hook hands C++ the track, then the gain R0 and the step R2
-        # (sdk_drum_send_gain(track, gain, step)), and replays P2's load of the sum.
+        # (sdk_mixer_gain(track, gain, step)), and replays P2's load of the sum.
         body = stubs[stubs.index('sdk_drum_send_gain_hook:\n'):]
-        self.assertIn('    HOOK_SAVE\n    R1 = R0;\n    P0 = [FP];\n    R0 = [P0 + 8];\n    CALL sdk_drum_send_gain;\n'
+        self.assertIn('    HOOK_SAVE\n    R1 = R0;\n    P0 = [FP];\n    R0 = [P0 + 8];\n    CALL sdk_mixer_gain;\n'
                       '    HOOK_RESTORE\n    P2.H = 0x1190; P2.L = 0x3600;\n    RTS;', body[:body.index('.size')])
 
     def test_each_stub_replays_the_immediate_its_site_held(self):
@@ -276,7 +304,7 @@ class DrumSend(unittest.TestCase):
         # instead of trusting a disassembler's numbers: Blackfin+ `reg = imm32` is
         # 0xdaNN (NN the register: 0..7 R0..R7, 8..13 P0..P5), then the high and low halves.
         names = ['R%d' % i for i in range(8)] + ['P%d' % i for i in range(6)]
-        stubs = (PLATFORM / 'drum_send_hooks.s').read_text(encoding='utf-8')
+        stubs = stubs_text()
         source = (PLATFORM / 'drum_send.cpp').read_text(encoding='utf-8')
         loads = {}
         for address, (symbol, before) in SITES.items():
@@ -314,11 +342,14 @@ class DrumSend(unittest.TestCase):
         # The own-amount hook hands the C++ side the engine's frame pointer, which
         # reads FX I's gain [FP-0x8], the dry smoother [FP-0x34] and the main out
         # [SP+0x58] with SP = FP - 0xe4 (test_stock_lays_out_the_dry_as_the_hook_reads_it).
-        stubs = (PLATFORM / 'drum_send_hooks.s').read_text(encoding='utf-8')
+        stubs = stubs_text()
         body = stubs[stubs.index('sdk_drum_send_own:\n'):]
         body = body[:body.index('.size')]
         self.assertIn('    P0 = [FP];\n    R0 = [P0 + 8];\n    R1 = [P0 + -0x68];\n    R2 = P0;\n'
-                      '    CALL sdk_drum_send_own_mix;', body)
+                      '    CALL sdk_mixer_own;', body)
+        self.assertIn('void sdk_mixer_own(u32 track, i32 level, const unsigned char* frame) {\n'
+                      '    sdk_studio_level(track, level);\n    sdk_drum_send_own_mix(track, level, frame);\n}',
+                      (PLATFORM / 'mixer.cpp').read_text(encoding='utf-8'))
         source = (PLATFORM / 'drum_send.cpp').read_text(encoding='utf-8')
         for text in ('kFrameFx1 = -0x8', 'kFrameDrySmoother = -0x34', 'kFrameMainOut = -0xe4 + 0x58',
                      'kRecordBytes = 0xe8, kFx2Knob = 0x5c, kDryMethod = 7', 'kRecords + (14 + s) * kRecordBytes',
