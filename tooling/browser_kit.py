@@ -170,6 +170,12 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
             objects.extend((entry, alternative))
         else:
             objects.append(entry)
+        if name == 'sdk/input_monitor_stock.o':
+            absent_name = 'sdk/input_monitor_absent.o'
+            absent = read(child(package / 'analysis', absent_name))
+            child(object_dir, absent_name).write_bytes(absent)
+            objects.append(dict(name=absent_name, owner=None, service='input_overlay', unlessService='input_monitor',
+                                bytes=base64.b64encode(absent).decode('ascii'), sha256=sha(absent)))
     # Stock addresses only: each selection's machine numbers are the builder's.
     stock = {key: value for key, value in definitions.items() if key in native.DEFINITIONS}
     # The machines the native package links, whose selection reproduces it.

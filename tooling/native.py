@@ -229,7 +229,8 @@ def plan(machines, profile=None):
         units += [(f'{m.id}/native_{unit.name}.o', m, 'native:' + unit.name) for unit in m.native]
     services = active_services(profile or config(), service_users(machines))
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
-              if UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services]
+              if (UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services) and
+              not (step == 'input_monitor_absent' and 'input_monitor' in services)]
     units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in linked_extensions(machines)]
     names = [name for name, _m, _step in units]
     require(len(names) == len(set(names)), 'Duplicate object name')
@@ -244,7 +245,7 @@ SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup'
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
-             'extension_runtime', 'extension_collection', 'extension_stock', 'usb_host', 'input_monitor_stock',
+             'extension_runtime', 'extension_collection', 'extension_stock', 'usb_host', 'input_monitor_stock', 'input_monitor_absent',
              'live_input_stock', 'live_input_menu', 'live_input_hooks',
              'input_monitor_audio', 'input_monitor_hooks', 'input_monitor_ui', 'aux_menu', 'aux_menu_hooks', 'track_control',
              'track_control_table', 'track_control_hooks', 'track_control_project',
@@ -262,7 +263,8 @@ UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callba
 UNIT_SERVICES.update(dict.fromkeys(('players', 'player_hooks', 'player_table'), 'players'))
 UNIT_SERVICES['keyboard_octaves'] = 'octaves'
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock', 'usb_host'), 'extensions'))
-UNIT_SERVICES['input_monitor_stock'] = 'input_overlay'
+UNIT_SERVICES['input_monitor_stock'] = 'input_monitor'
+UNIT_SERVICES['input_monitor_absent'] = 'input_overlay'
 UNIT_SERVICES.update(dict.fromkeys(('live_input_stock', 'live_input_menu', 'live_input_hooks'), 'live_input'))
 UNIT_SERVICES['input_monitor_audio'] = 'input_monitor'
 UNIT_SERVICES['input_monitor_hooks'] = 'input_audio'
@@ -448,14 +450,14 @@ def service_fallbacks(services):
     if 'aux' in services:
         fallbacks['aux'] = dict.fromkeys(('sdk_aux_startup', 'sdk_aux_machine_menu', 'sdk_aux_machine_turn'), 'kit_absent')
     if 'extensions' in services:
-        fallbacks['extensions'] = dict.fromkeys(('sdk_input_monitor_menu', 'sdk_input_monitor_startup', 'sdk_input_monitor_turn'), 'kit_absent')
+        fallbacks['input_monitor'] = {'sdk_input_monitor_startup': 'kit_absent'}
     if 'extensions' in services or 'aux_menu' in services:
         fallbacks['live_input'] = dict.fromkeys(('sdk_live_input_publish', 'sdk_live_input_option_bits',
                                                 'sdk_live_input_rendered', 'sdk_live_input_turn',
                                                 'sdk_live_input_page', 'sdk_live_input_toggle_page',
                                                 'sdk_live_input_caption', 'sdk_live_input_page_hint'), 'kit_absent')
     if 'input_audio' in services:
-        fallbacks['input_monitor'] = {'sdk_input_monitor_audio': 'kit_absent'}
+        fallbacks.setdefault('input_monitor', {})['sdk_input_monitor_audio'] = 'kit_absent'
     if 'input_overlay' in services:
         fallbacks['input_overlay'] = {'sdk_input_monitor_frame': 'kit_absent'}
     if 'drum_locks' in services:
@@ -686,6 +688,10 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             build_unit(obj, None, step, input_features=False)
             obj.write_bytes(normalize_object(read(obj)))
             require('R_BFIN_RIMM16' not in execute([tools['objdump'], '-r', obj]), 'Truncated address relocation in ' + name)
+    if 'input_monitor' in services:
+        obj = directory / 'sdk/input_monitor_absent.o'
+        build_unit(obj, None, 'input_monitor_absent')
+        obj.write_bytes(normalize_object(read(obj)))
     # Before any link: one that leaves some machines out (linked_machines) can't see their clash.
     one_definition([(owner, read(directory / name)) for name, owner in object_owners(machines, profile).items()],
                    {m.id: m.name for m in machines})

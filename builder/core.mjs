@@ -685,7 +685,9 @@ export async function openKit(kit) {
       const validName = o.requiresService
         ? /^sdk\/aux_(tracks|hooks)\.o$/.test(o.name) || (featureObject && o.name === 'sdk/' + featureObject + '.o')
         : /^sdk\/aux_(tracks|hooks)_plain\.o$/.test(o.name) || (featureObject && o.name === 'sdk/plain/' + featureObject + '.o');
-      check(o.owner === null && inputVariant === 'input_overlay' && validName &&
+      const absentMonitor = o.name === 'sdk/input_monitor_absent.o' &&
+        o.service === 'input_overlay' && o.unlessService === 'input_monitor';
+      check(o.owner === null && ((inputVariant === 'input_overlay' && validName) || absentMonitor) &&
         !(o.requiresService !== undefined && o.unlessService !== undefined), 'Invalid input overlay variant');
     }
     check(o.runtime === undefined || (o.runtime === true && o.owner === null && o.service === undefined &&
