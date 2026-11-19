@@ -379,15 +379,21 @@ its own [header text](display.md#frame). Custom send effects also
 use the slower Shift rate for continuous controls, with stock FX captions
 except for `enum` and `division` controls.
 
-A sample engine declares `voiceCapacity`, which must be 256 (stock creates a
-voice for each of its 256 voice indices and binds each to its sample), and the
+A sample engine declares `voiceCapacity`, 27 to 256 (below 256: SDK 1.17): stock's voice manager
+has 27 voice wrappers and passes each one's number, 0..26, as the voice index,
+and the adapter binds a voice to its sample when created, so it keeps one per
+index. Each voice costs the machine's voice size plus the adapter's own state, so
+27 is the smallest image. Below 256, an index at or above the capacity (which
+stock is not known to pass; indirect calls were not traced) gets a shared silent
+object and adds one to `<prefix>_voice_refusals`, an exported per-engine word
+that nothing in the SDK reads: a debugger, a simulator or a build's own code may. It also declares the
 optional [sample services](#sample-engines) it uses. An effect declares no resources (`{}`).
 A synth declares:
 
 | Field | Required value or meaning |
 | --- | --- |
 | `voiceBytes`, `voiceAlignment` | `Voice` size (whole words) and alignment, checked against the compiled type |
-| `voiceCapacity` | Notes that sound at once, 1..256. Stock plays at most 8 notes per track and fades a note it takes, so 8 keeps a machine on one track within its own voices; allow 8 for each track it plays on at once. Values above 27, stock's voice slots, keep 27 voices plus the spare (28). Stock's 256 voice indices share these voices and one spare ([synth voices](abi-1.2.1.md#synth-voices)) |
+| `voiceCapacity` | Notes that sound at once, 1..256. Stock plays at most 8 notes per track and fades a note it takes, so 8 keeps a machine on one track within its own voices; allow 8 for each track it plays on at once. Values above 27, stock's voice slots, keep 27 voices plus the spare (28). Every voice index the adapter answers, 0 to 255, shares these voices and one spare ([synth voices](abi-1.2.1.md#synth-voices)) |
 | `sharedBytes` | `Shared` size, or 0 when `Shared` is empty |
 | `outputPeakQ31` | Positive declared oscillator peak; the preview uses it for audition gain |
 | `stereoOutput` | Optional integer 0/1 (SDK 1.12): write 64 interleaved left/right frames, 128 words |
@@ -1421,7 +1427,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.16 and builds 1.0 to 1.16 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.17 and builds 1.0 to 1.17 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |

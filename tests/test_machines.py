@@ -362,6 +362,23 @@ class OutsideMachines(unittest.TestCase):
         self.numberless(effect, sdk='1.7')
         self.assertEqual(machines.machine_at(effect).definition['resources']['busShift'], 0)
 
+    def test_a_sample_engine_below_256_voices_needs_sdk_1_17(self):
+        sample = self.copy('probesample')
+        path = sample / 'definition.json'
+        definition = json.loads(path.read_text(encoding='utf-8'))
+        definition['resources']['voiceCapacity'] = 32
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(sample, sdk='1.16')
+        with self.assertRaisesRegex(ValueError, 'fewer than 256 voices.*needs "sdk": "1.17"'):
+            machines.machine_at(sample)
+        self.numberless(sample, sdk='1.17', base='drumSampler')
+        self.assertEqual(machines.machine_at(sample).definition['resources']['voiceCapacity'], 32)
+        # 256 is what every sample engine declared before, at any version.
+        definition['resources']['voiceCapacity'] = 256
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(sample, sdk='1.10')
+        self.assertEqual(machines.machine_at(sample).definition['resources']['voiceCapacity'], 256)
+
     def test_sdk_1_5_machines_name_no_numbers(self):
         self.numberless(self.folder)
         m = machines.machine_at(self.folder)
