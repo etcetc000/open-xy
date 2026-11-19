@@ -100,7 +100,133 @@ extern "C" void sdk_sample_cache_free(void* pointer) {
     blocks.erase(found);
     std::free(block);
 }
+// The generation contract the sample adapter relies on: whenever the
+// generation is even and equal to one a lookup saw, find and failed answer as
+// they did then. Checked for watched (object, engine) pairs at every barrier
+// (inside each change) and every progress update, and at chosen points.
+struct Seen {
+    const void* object;
+    unsigned engine, generation;
+    const opxy::SampleAnalysis* found;
+    unsigned failed;
+};
+static std::vector<Seen> watched;
+static unsigned generation_skips;
+// The counter moves on every change of the entries a lookup reads, and only
+// then: at an even value equal to the last one seen, those fields are as they
+// were; at the next even value (one change later) they differ.
+struct EntryFields {
+    const void* owner;
+    unsigned engine, failure;
+    bool ready;
+    bool operator==(const EntryFields& o) const {
+        return owner == o.owner && engine == o.engine && failure == o.failure && ready == o.ready;
+    }
+};
+static EntryFields entry_snapshot[kEntries], entry_closing[kEntries];
+static unsigned snapshot_generation = 1, entry_changes, closing_generation, last_checked = ~0u;
+static void check_entries(unsigned now) {
+    EntryFields current[kEntries];
+    for (unsigned i = 0; i < kEntries; ++i)
+        current[i] = EntryFields{entries[i].owner, entries[i].engine, entries[i].failure, entries[i].ready};
+    if (now & 1) {
+        // A change's opening barrier comes right after the counter turns odd and
+        // before any write; its closing barrier after the last write and right
+        // before the counter turns even. So the first check at an odd value sees
+        // the entries as they were, and the next even value sees them as the
+        // last odd check did.
+        if (now != last_checked && now == snapshot_generation + 1 && !(snapshot_generation & 1))
+            require(std::equal(current, current + kEntries, entry_snapshot),
+                    "an entry changed before the generation turned odd");
+        std::copy(current, current + kEntries, entry_closing);
+        closing_generation = now;
+        last_checked = now;
+        return;
+    }
+    if (closing_generation && now == closing_generation + 1)
+        require(std::equal(current, current + kEntries, entry_closing),
+                "an entry changed after the generation turned even");
+    last_checked = now;
+    const bool same = std::equal(current, current + kEntries, entry_snapshot);
+    if (!(snapshot_generation & 1)) {
+        if (now == snapshot_generation) require(same, "entries changed under an unchanged generation");
+        if (now == snapshot_generation + 2) {
+            require(!same, "the generation moved but no entry changed");
+            ++entry_changes;
+        }
+    }
+    std::copy(current, current + kEntries, entry_snapshot);
+    snapshot_generation = now;
+}
+// The generated adapter's lookup, with and without analysisLookupSkip
+// (lookup_plain.inc and lookup_skip.inc, cut from the generated adapters by
+// the test): pairs of voices that see the same blocks must hold the same
+// analysis and retry count at every block, so a machine renders the same
+// either way.
+struct Slot {
+    const void* sample_object;
+    const opxy::SampleAnalysis* analysis;
+    unsigned char retry;
+    bool cache_failed;
+    opxy::u32 cache_seen;
+    unsigned engine;
+};
+static unsigned voice_engine;
+static unsigned engine_id() { return voice_engine; }
+namespace plain {
+static void block(Slot* slot) {
+    voice_engine = slot->engine;
+#include "lookup_plain.inc"
+}
+}
+namespace skipping {
+static void block(Slot* slot) {
+    voice_engine = slot->engine;
+#include "lookup_skip.inc"
+}
+}
+struct VoicePair { Slot plain, skipping; };
+static std::vector<VoicePair> voices;
+static unsigned voice_blocks, voice_skips;
+static void step_voices() {
+    for (auto& pair : voices)
+        for (unsigned b = 0; b < 8; ++b) {
+            Slot& s = pair.skipping;
+            if (!s.analysis && !s.retry) {
+                const unsigned now = sdk_sample_cache_generation();
+                if (!(now & 1) && now == s.cache_seen) ++voice_skips;
+            }
+            plain::block(&pair.plain);
+            skipping::block(&pair.skipping);
+            ++voice_blocks;
+            require(pair.plain.analysis == pair.skipping.analysis && pair.plain.retry == pair.skipping.retry,
+                    "a voice skipping lookups saw a different analysis or retry");
+        }
+}
+static Slot new_voice(const void* object, unsigned engine) {
+    // As the adapter's factory starts a voice (sample_voice.cpp.in).
+    return Slot{object, nullptr, 0, false, 1, engine};
+}
+static void check_generation() {
+    const unsigned now = sdk_sample_cache_generation();
+    for (auto& seen : watched) {
+        const auto* found = sdk_sample_cache_find(seen.object, seen.engine);
+        const unsigned failure = sdk_sample_cache_failed(seen.object, seen.engine);
+        if (!(now & 1) && now == seen.generation) {
+            ++generation_skips;
+            require(found == seen.found && failure == seen.failed, "cache answer changed under an unchanged generation");
+        }
+        seen = Seen{seen.object, seen.engine, now, found, failure};
+    }
+    check_entries(now);
+    step_voices();
+}
 extern "C" void host_barrier() {
+    if (!observing && !watched.empty()) {
+        observing = true;
+        check_generation();
+        observing = false;
+    }
     if (!observed || observing) return;
     observing = true;
     const auto* published = sdk_sample_cache_find(observed, 35);
@@ -114,6 +240,11 @@ extern "C" void host_barrier() {
 }
 extern "C" void sdk_sample_progress_update(unsigned state, unsigned percent, unsigned) {
     ++overlay_calls;
+    if (!observing && !watched.empty()) {
+        observing = true;
+        check_generation();
+        observing = false;
+    }
     require(state <= 4 && percent <= 100, "invalid GUI snapshot");
 }
 extern "C" unsigned sdk_sample_cache_stock_hash(const char* path) {
@@ -151,6 +282,12 @@ int main() {
     std::vector<opxy::i16> pcm(0xfffff, 0);
     opxy::SampleView small{pcm.data(), 8193, 44100, 1};
     Object first(small), second(small);
+    // Two voices missing on different samples, each under both engines, watched
+    // through every change below; then the counter's wrap.
+    watched = {Seen{&first, 35, 1, nullptr, 0}, Seen{&second, 35, 1, nullptr, 0},
+               Seen{&first, 46, 1, nullptr, 0}, Seen{&second, 46, 1, nullptr, 0}};
+    for (const auto& seen : watched)
+        voices.push_back(VoicePair{new_voice(seen.object, seen.engine), new_voice(seen.object, seen.engine)});
     require(!sdk_sample_cache_find(nullptr, 35), "null cache lookup");
     observed = &first;
     sdk_sample_cache_prepare(&first);
@@ -447,5 +584,57 @@ int main() {
     sdk_sample_cache_reset_keys();
     sdk_sample_gui_tick();
     require(overlay_calls && blocks.empty() && used_bytes(35) == 0, "GUI delivery or final ownership failure");
+    // Publish, fail and release between one miss and the next lookup, across
+    // the counter's wrap: each changes the generation an earlier miss saw.
+    generation = 0xfffffffcu;
+    second_registered = true;
+    check_generation();
+    const unsigned at_miss = sdk_sample_cache_generation();
+    require(!sdk_sample_cache_find(&first, 35) && !(at_miss & 1), "wrap set-up");
+    sdk_sample_cache_prepare(&first);
+    require(sdk_sample_cache_find(&first, 35) && sdk_sample_cache_generation() != at_miss &&
+            !(sdk_sample_cache_generation() & 1), "a publication left the generation unchanged or odd");
+    check_generation();
+    const unsigned at_found = sdk_sample_cache_generation();
+    sdk_sample_cache_release(&first);
+    require(sdk_sample_cache_generation() != at_found, "a release left the generation unchanged");
+    check_generation();
+    allocation_failure = true;
+    const unsigned at_release = sdk_sample_cache_generation();
+    sdk_sample_cache_prepare(&second);  // fails: no allocation
+    require(sdk_sample_cache_generation() != at_release && sdk_sample_cache_failed(&second, 35),
+            "a failure left the generation unchanged");
+    allocation_failure = false;
+    check_generation();
+    sdk_sample_cache_release(&second);
+    check_generation();
+    require(sdk_sample_cache_generation() < 16, "the counter did not wrap");
+    // Nothing changes: lookups may skip, and the answers stay the same.
+    const unsigned skips = generation_skips;
+    check_generation();
+    check_generation();
+    require(generation_skips == skips + 2 * watched.size(), "an unchanged cache moved the generation");
+    second_registered = false;
+    watched.clear();
+    require(blocks.empty(), "generation checks leaked an allocation");
+    // Nothing but a change of entries moves the counter: lookups, the worker's
+    // pass over keys, a repeated preparation and a release of an object with
+    // no entries leave it.
+    sdk_sample_cache_prepare(&first);
+    const unsigned settled = sdk_sample_cache_generation();
+    require(sdk_sample_cache_find(&first, 35) && !(settled & 1), "set-up for the unchanged counter");
+    sdk_sample_cache_prepare(&first);
+    sdk_sample_cache_find(&first, 35);
+    sdk_sample_cache_failed(&first, 46);
+    sdk_sample_cache_prepare_keys();
+    sdk_sample_gui_tick();
+    sdk_sample_cache_release(&second);
+    require(sdk_sample_cache_generation() == settled, "the counter moved without a change of entries");
+    sdk_sample_cache_release(&first);
+    require(sdk_sample_cache_generation() == settled + 2, "one release did not move the counter by one change");
+    voices.clear();
+    require(voice_skips > 0 && entry_changes > 0, "the skip or the change check was never exercised");
+    std::cout << "generation skips: " << generation_skips << ", entry changes: " << entry_changes
+              << ", voice blocks: " << voice_blocks << ", voice lookups skipped: " << voice_skips << "\n";
     std::cout << "cache lifecycle: " << checks << " checks, " << allocations << " allocations, " << frees << " frees\n";
 }

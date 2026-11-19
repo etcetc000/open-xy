@@ -27,6 +27,10 @@ struct Slot {
     const void* sample_object;
     const opxy::SampleAnalysis* analysis;
     unsigned char track, key, retry;
+#if @ANALYSIS_LOOKUP_SKIP@
+    bool cache_failed;      // the last lookup's failure answer
+    opxy::u32 cache_seen;   // the cache generation that lookup saw; odd: none
+#endif
     opxy::u32 tuning;
     opxy::i32 pitch_cents;
     opxy::i32 drum_transpose;
@@ -141,6 +145,10 @@ static int destroy(void* self) {
     slot->key = 128;
     slot->started = false;
     slot->retry = 0;
+#if @ANALYSIS_LOOKUP_SKIP@
+    slot->cache_failed = false;
+    slot->cache_seen = 1;
+#endif
     slot->sample_object = published_sample();
     const opxy::SampleView sample = opxy::platform::stock_sample_view(slot->sample_object);
     const opxy::platform::SamplePreviewRange* source = sdk_sample_slice_preview(engine_id(), track);
@@ -172,8 +180,20 @@ static int render(void* self, opxy::i32* output, const opxy::i32* parameters) {
         if (slot->retry) --slot->retry;
         else {
             // Every 8 blocks while pending; every 256 once preparation has failed.
+#if @ANALYSIS_LOOKUP_SKIP@
+            // An unchanged even generation means the cache still answers as at
+            // this voice's last miss, so the walk over its entries is skipped.
+            const opxy::u32 seen = sdk_sample_cache_generation();
+            if ((seen & 1) || seen != slot->cache_seen) {
+                slot->analysis = sdk_sample_cache_find(slot->sample_object, engine_id());
+                slot->cache_failed = !slot->analysis && sdk_sample_cache_failed(slot->sample_object, engine_id());
+                slot->cache_seen = seen;
+            }
+            slot->retry = slot->cache_failed ? 255 : 7;
+#else
             slot->analysis = sdk_sample_cache_find(slot->sample_object, engine_id());
             slot->retry = !slot->analysis && sdk_sample_cache_failed(slot->sample_object, engine_id()) ? 255 : 7;
+#endif
         }
     }
     if (slot->slice.processed) {

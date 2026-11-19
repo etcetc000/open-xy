@@ -379,6 +379,23 @@ class OutsideMachines(unittest.TestCase):
         self.numberless(sample, sdk='1.10')
         self.assertEqual(machines.machine_at(sample).definition['resources']['voiceCapacity'], 256)
 
+    def test_skipping_unchanged_analysis_lookups_needs_sdk_1_17(self):
+        sample = self.copy('probesample')
+        path = sample / 'definition.json'
+        definition = json.loads(path.read_text(encoding='utf-8'))
+        definition['resources'].update(sampleAnalysis=4096, analysisLookupSkip=1)
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(sample, sdk='1.16', base='drumSampler')
+        with self.assertRaisesRegex(ValueError, 'analysisLookupSkip.*needs "sdk": "1.17"'):
+            machines.machine_at(sample)
+        self.numberless(sample, sdk='1.17', base='drumSampler')
+        self.assertEqual(machines.machine_at(sample).definition['resources']['analysisLookupSkip'], 1)
+        # 0 is the default, at any version.
+        definition['resources']['analysisLookupSkip'] = 0
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(sample, sdk='1.10', base='drumSampler')
+        self.assertEqual(machines.machine_at(sample).definition['resources']['analysisLookupSkip'], 0)
+
     def test_sdk_1_5_machines_name_no_numbers(self):
         self.numberless(self.folder)
         m = machines.machine_at(self.folder)

@@ -466,7 +466,8 @@ def generate_sample_voice(directory, m, benchmark=False):
                   PAD_SETTINGS=resources.get('padSettings', 0), DRUM_CONTROLS=resources.get('drumControls', 0),
                   # The drum page edits outer markers only; an engine with its own screen spans them.
                   OUTER_MARKERS=int(bool(resources.get('drumControls', 0)) or 'display' in resources),
-                  SLICE_TIMING=resources.get('sliceTiming', 0))
+                  SLICE_TIMING=resources.get('sliceTiming', 0),
+                  ANALYSIS_LOOKUP_SKIP=resources.get('analysisLookupSkip', 0))
     # Below stock's 256 a refused index gets a shared inert object, not null
     # (sample_voice_refusal.cpp.in); at 256 nothing is ever refused and the
     # adapter stays as it was.

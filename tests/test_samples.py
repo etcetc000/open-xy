@@ -15,7 +15,8 @@ from machine_fixtures import fixture
 class Generation(unittest.TestCase):
     def test_optional_services_are_explicit_integer_flags(self):
         definition = copy.deepcopy(fixture('probesample').definition)
-        for key in ('sampleAnalysis', 'chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput', 'sliceTiming'):
+        for key in ('sampleAnalysis', 'chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput', 'sliceTiming',
+                    'analysisLookupSkip'):
             for value in (True, -1, 2, '1', None):
                 invalid = copy.deepcopy(definition)
                 invalid['resources'][key] = value
@@ -45,6 +46,14 @@ class Generation(unittest.TestCase):
         definition['resources'] = {'voiceCapacity': 26}
         with self.assertRaisesRegex(ValueError, 'voiceCapacity 27 or more'):
             validate_definition(definition, 'sample')
+        # Skipping unchanged analysis lookups needs an analysis to look up.
+        definition['resources'] = {'voiceCapacity': 256, 'analysisLookupSkip': 1}
+        with self.assertRaisesRegex(ValueError, 'analysisLookupSkip needs sampleAnalysis'):
+            validate_definition(definition, 'sample')
+        definition['resources'] = {'voiceCapacity': 256, 'sampleAnalysis': 4096, 'analysisLookupSkip': 1}
+        validate_definition(definition, 'sample')
+        definition['resources'] = {'voiceCapacity': 256, 'analysisLookupSkip': 0}
+        validate_definition(definition, 'sample')
 
     def test_a_refused_index_gets_an_inert_object_only_below_256(self):
         plain = fixture('probesample')
@@ -64,6 +73,24 @@ class Generation(unittest.TestCase):
         self.assertEqual(small.replace(adapters.sample_refusal('probesample', stereo), '')
                          .replace('if (index >= 32) return refused();', 'if (index >= 256) return nullptr;')
                          .replace('voices[32]', 'voices[256]'), full)
+
+    def test_analysis_lookup_skip_is_compiled_only_when_declared(self):
+        plain = fixture('probesample')
+        def adapter(**flags):
+            resources = dict(plain.definition['resources'], sampleAnalysis=4096, **flags)
+            m = replace(plain, identity=dict(engine=46, page=7), definition=dict(plain.definition, resources=resources))
+            with tempfile.TemporaryDirectory() as directory:
+                return adapters.generate_sample_voice(directory, m).read_text(encoding='utf-8')
+        undeclared, off, on = adapter(), adapter(analysisLookupSkip=0), adapter(analysisLookupSkip=1)
+        self.assertEqual(undeclared, off)
+        # Every part of the skip sits under one switch: off, the compiler sees
+        # the adapter as it was; on, the factory starts a voice with no
+        # generation seen (odd), as the cache fixture's voices do.
+        on_lines, off_lines = on.splitlines(), off.splitlines()
+        self.assertEqual(len(on_lines), len(off_lines))
+        self.assertEqual([(a, b) for a, b in zip(on_lines, off_lines) if a != b], [('#if 1', '#if 0')] * 3)
+        start = on_lines.index('    slot->cache_failed = false;')
+        self.assertEqual(on_lines[start + 1], '    slot->cache_seen = 1;')
 
     def test_analysis_budgets_share_one_collection_limit(self):
         def analyzing(name, budget):

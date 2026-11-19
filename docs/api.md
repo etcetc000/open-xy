@@ -1114,6 +1114,7 @@ means 0. Callbacks are functions in the machine's namespace.
 | `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |
 | `stockShift` | Up to four names, one per encoder; needs an [own screen](#own-screen) and SDK 1.10 | Shift and those encoders edit the stock sampler page's controls ([own screen](#own-screen)) | |
 | `sampleAnalysis` | Budget in bytes, 4096..2 MiB, whole words | Prepared per-sample data | `analysis_words`, `prepare_begin`, `prepare_step`, `prepared` |
+| `analysisLookupSkip` | 0 or 1; needs `sampleAnalysis` and SDK 1.17 | A voice still waiting for its analysis skips the cache lookup while the cache is unchanged since its last miss ([below](#skipping-unchanged-analysis-lookups)) | |
 
 ### Audio block
 
@@ -1235,6 +1236,20 @@ stock file worker until `prepared` publishes the immutable result. Nothing is
 prepared while the sample browser is open, and a sample that does not fit stays
 unanalyzed. Results are released before stock frees the sample. A collection's
 analysis budgets together may not exceed 2 MiB.
+
+#### Skipping unchanged analysis lookups
+
+A voice whose `analysis` is still null looks it up again every 8 blocks (every
+256 once preparation has failed). Each lookup walks the SDK's analysis cache,
+which is cold in the data cache. With `"analysisLookupSkip": 1` in `resources`
+(SDK 1.17; needs `sampleAnalysis`), a voice remembers the cache's change
+counter at its last miss and skips the walk while the counter is unchanged:
+no entry it would read can have changed, so the answer is the one it already
+has. Lookups keep the same cadence, so `analysis` arrives at the same block as
+without the key, and the machine's output is the same. The cache moves its
+counter around every change of its entries (a publication, a failed
+preparation and a release) in every build; only a machine that declares the
+key reads it.
 
 ## Effects
 

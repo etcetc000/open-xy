@@ -11,6 +11,9 @@ void sdk_sample_cache_prepare(const void*) __asm__("sdk_sample_cache_prepare");
 void sdk_sample_cache_release(const void*) __asm__("sdk_sample_cache_release");
 const opxy::SampleAnalysis* sdk_sample_cache_find(const void*, opxy::u32) __asm__("sdk_sample_cache_find");
 opxy::u32 sdk_sample_cache_failed(const void*, opxy::u32) __asm__("sdk_sample_cache_failed");
+// Even and unchanged since a lookup missed: find and failed would answer as
+// they did then (sample_cache.cpp). Odd while the worker changes entries.
+opxy::u32 sdk_sample_cache_generation() __asm__("sdk_sample_cache_generation");
 void sdk_sample_gui_tick() __asm__("sdk_sample_gui_tick");
 // The GUI wrapper supplies null/zero while browsing: stock audition mutates
 // region paths before confirmation. An empty snapshot also removes old intent.

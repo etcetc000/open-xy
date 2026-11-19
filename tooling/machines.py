@@ -59,7 +59,9 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # bits around process (resources.busShift), and lets a note player page eight
 # controls ("press": "page"); and gives a note player a shift row ("shift"),
 # Shift turns and encoder clicks in its Controls, and its step clock's tempo.
-# 1.17 lets a sample engine declare fewer than 256 voices, 27 at least (resources.voiceCapacity).
+# 1.17 lets a sample engine declare fewer than 256 voices, 27 at least
+# (resources.voiceCapacity), and its voices skip unchanged analysis lookups
+# (resources.analysisLookupSkip).
 SDK_VERSION = (1, 17)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
@@ -541,6 +543,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 12), 'Stereo synth output and voice release callbacks (stereoOutput, releaseCallback)')
     if definition['resources'].get('sliceTiming'):
         require_sdk(version, (1, 7), 'A sample slicing clock (sliceTiming)')
+    if definition['resources'].get('analysisLookupSkip'):
+        require_sdk(version, (1, 17), "Skipping a pending voice's unchanged analysis lookups (analysisLookupSkip)")
     if 'bufferBytes' in definition['resources']:
         require_sdk(version, (1, 2), 'An effect buffer (bufferBytes)')
     if definition['resources'].get('transport'):

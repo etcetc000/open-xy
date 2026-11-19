@@ -32,6 +32,14 @@ struct Entry {
     u32 bytes;
 };
 static Entry entries[kEntries];
+// Changes of the entries a lookup reads (owner, engine, ready, failure) are
+// bracketed by two increments: odd while one is in progress, even and new
+// after it. An audio lookup that missed at an even value may skip the walk
+// while the value is unchanged: no entry it reads can have changed since.
+// Only the stock worker writes entries; audio is never preempted by it.
+static volatile u32 generation;
+void entries_changing() { ++generation; barrier(); }
+void entries_changed() { barrier(); ++generation; }
 struct Progress {
     volatile u32 sequence;
     volatile u32 state;
@@ -119,6 +127,7 @@ void status(u32 state, u32 percent, bool next = false) {
 
 void failed(Entry* entry, const void* object, u32 engine, u32 state) {
     if (entry) {
+        entries_changing();
         entry->engine = engine;
         entry->analysis = opxy::SampleAnalysis{};
         entry->ready = false;
@@ -127,6 +136,7 @@ void failed(Entry* entry, const void* object, u32 engine, u32 state) {
         entry->bytes = 0;
         barrier();
         entry->owner = object;
+        entries_changed();
     }
     // Remember unsuccessful preparation until stock evicts the sample. A
     // browser refresh must not repeatedly allocate or announce the same error.
@@ -200,6 +210,7 @@ void prepare_for(const void* object, const SampleMachine& m) {
         failed(free_entry, object, m.engine(), 3);
         return;
     }
+    entries_changing();
     free_entry->engine = m.engine();
     free_entry->analysis = result;
     free_entry->ready = true;
@@ -208,6 +219,7 @@ void prepare_for(const void* object, const SampleMachine& m) {
     free_entry->bytes = bytes;
     barrier();
     free_entry->owner = object;
+    entries_changed();
     status(2, 100);
 }
 }
@@ -315,10 +327,12 @@ extern "C" void sdk_sample_cache_release(const void* object) {
     if (!object) return;
     keys_dirty = true;
     full_reported = false;
-    bool freed = false;
+    bool freed = false, changed = false;
     for (u32 i = 0; i < kEntries; ++i) {
         Entry& entry = entries[i];
         if (entry.owner != object) continue;
+        if (!changed) entries_changing();
+        changed = true;
         entry.owner = nullptr;
         barrier();
         u32* storage = entry.storage;
@@ -335,7 +349,10 @@ extern "C" void sdk_sample_cache_release(const void* object) {
     if (freed)
         for (u32 j = 0; j < kEntries; ++j)
             if (entries[j].owner && entries[j].failure == 4) entries[j].owner = nullptr;
+    if (changed) entries_changed();
 }
+
+extern "C" u32 sdk_sample_cache_generation() { return generation; }
 
 extern "C" const opxy::SampleAnalysis* sdk_sample_cache_find(const void* object, u32 engine) {
     if (!object) return nullptr;

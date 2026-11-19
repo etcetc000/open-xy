@@ -13,6 +13,20 @@ from machine_fixtures import fixture
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def analysis_lookup(skip):
+    """The generated sample adapter's analysis lookup (its `if (... !slot->analysis)` block),
+    for an analysis machine with or without analysisLookupSkip."""
+    from tooling.adapters import generate_sample_voice
+    plain = fixture('probesample')
+    resources = dict(plain.definition['resources'], sampleAnalysis=4096, analysisLookupSkip=int(skip))
+    m = replace(plain, identity=dict(engine=46, page=7), definition=dict(plain.definition, resources=resources))
+    with tempfile.TemporaryDirectory() as directory:
+        lines = generate_sample_voice(directory, m).read_text(encoding='utf-8').splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith('    if (') and line.endswith(' && !slot->analysis) {'))
+    end = lines.index('    }', start)
+    return ''.join(line + chr(10) for line in lines[start:end + 1])
+
+
 def host_compiler():
     """A C++ compiler that builds and runs host programs, or None."""
     compiler = os.environ.get('OPXY_TEST_HOST_CXX', 'g++')
@@ -72,6 +86,9 @@ class SampleServices(unittest.TestCase):
                 if name == 'presets':  # beside the host stock.hpp, so their includes reach it
                     for unit in ('presets.cpp', 'registration.hpp'):
                         shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1' / unit, Path(folder) / unit)
+            if name == 'sample_cache':
+                (Path(folder) / 'lookup_plain.inc').write_text(analysis_lookup(False), encoding='utf-8')
+                (Path(folder) / 'lookup_skip.inc').write_text(analysis_lookup(True), encoding='utf-8')
             if name == 'screen_order':
                 generate_screen_order(folder)
             if name == 'screen_drawing':

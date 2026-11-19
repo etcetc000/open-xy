@@ -80,7 +80,7 @@ SDK_1_7_NODES = 256
 # stock samples; a collection's analysis budgets together take at most this much.
 ANALYSIS_HEAP_LIMIT = 2 * 1024 * 1024
 # A sample engine's optional services: integer 0/1 flags and the analysis budget.
-SAMPLE_FLAGS = ('chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput', 'sliceTiming')
+SAMPLE_FLAGS = ('chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput', 'sliceTiming', 'analysisLookupSkip')
 # display: its own screen; stockShift: what Shift and each encoder edit there.
 SAMPLE_OPTIONS = ('sampleAnalysis', *SAMPLE_FLAGS, 'display', 'stockShift')
 # The stock sampler page's turns a stockShift entry names, as the SDK's codes
@@ -212,6 +212,7 @@ def validate_definition(value, kind):
                 'drumControls edits pad settings: it needs padSettings')
         require(resources.get('drumControls', 0) or not resources.get('sliceTiming', 0),
                 'sliceTiming needs drumControls')
+        require(heap or not resources.get('analysisLookupSkip', 0), 'analysisLookupSkip needs sampleAnalysis')
         if 'display' in resources:
             validate_display(resources['display'])
         if 'stockShift' in resources:
