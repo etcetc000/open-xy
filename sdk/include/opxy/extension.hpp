@@ -27,6 +27,7 @@ struct LiveNote { u32 track, pitch, velocity; i32 position; u32 collision_radius
 struct NoteOff { u32 track, pitch; };
 struct Tick { u32 delta_q8; bool discontinuity; };
 using Time = __UINT64_TYPE__;
+#ifndef OPXY_PLAIN_EXTENSIONS
 // Stock motion channels before LFO smoothing; physical scale is platform-specific.
 struct Motion { i16 x, y, z; Time time; bool valid; };
 struct InputMonitor {
@@ -34,6 +35,7 @@ struct InputMonitor {
     // Auto enabled, internal mic selected, no sample workflow, and stock permits monitoring.
     bool available;
 };
+#endif
 // Key numbers as stock reports them in queued controls.
 namespace keys { const u32 record = 50; }
 struct Control {
@@ -47,9 +49,16 @@ struct Control {
     Time time;
 };
 
+#ifdef OPXY_PLAIN_EXTENSIONS
+// Each action needs its permission (profiles/extensions.json) and works only in
+// a queued_control callback for a key the extension claims, once stock accepted
+// it. The SDK validates the context again and owns undo/publication: one stock
+// undo transaction per callback. Append new actions at the end.
+#else
 // Each action needs its permission and callback scope (profiles/extensions.json).
 // Note edits and popups require accepted claimed keys; monitoring requires motion.
 // The SDK owns validation/publication. Append new actions at the end.
+#endif
 struct Actions {
     // Add notes to an instrument track's pattern (0-7) beside its existing
     // notes. Returns the inserted prefix length. Needs edit_notes.
@@ -59,10 +68,12 @@ struct Actions {
     // Replace an instrument track's pattern notes with these. Refused, changing
     // nothing, while stock is still recording a held note there. Needs edit_notes.
     u32 (*replace_notes)(const Context&, u32 track, const Note*, u32 count);
+#ifndef OPXY_PLAIN_EXTENSIONS
     // Renew a temporary input-monitoring request for this motion callback.
     // false fades out and releases it. Requires monitor_input and user opt-in;
     // never changes project routing. Manual/safety cancellation is immediate.
     bool (*monitor_input)(bool enabled);
+#endif
 };
 
 using OnContext = void (*)(const Context&);
@@ -72,7 +83,9 @@ using OnRecordingTick = void (*)(const Context&, const Tick&);
 using OnInputActivity = void (*)();
 using OnQueuedControl = void (*)(const Context&, const Control&, const Actions&);
 using OnUsbHostReady = usb::OnUsbHostReady;
+#ifndef OPXY_PLAIN_EXTENSIONS
 using OnMotion = void (*)(const Motion&, const InputMonitor&, const Actions&);
+#endif
 
 // One callback per event, named for what it delivers. Each event lists its
 // firmware sites in the profile ("events"); docs/extensions.md says how to
@@ -84,6 +97,7 @@ using OnMotion = void (*)(const Motion&, const InputMonitor&, const Actions&);
 // All callbacks are synchronous on the controller path, in collection order.
 // Arguments are borrowed for the callback. No allocation, blocking or I/O.
 // Observers cannot transform live input or consume stock controls.
+#ifndef OPXY_PLAIN_EXTENSIONS
 struct InputMonitorText {
     const char* title;
     const char* choices[2];
@@ -92,6 +106,7 @@ struct InputMonitorText {
     const char* save_failed;
 };
 
+#endif
 struct Hooks {
     // Selected-track recording context and play state; before every other event.
     OnContext context;
@@ -114,20 +129,49 @@ struct Hooks {
     // drivers' probe and remove run on the host stack's task.
     OnUsbHostReady usb_host_ready;
 
+#ifndef OPXY_PLAIN_EXTENSIONS
     // Once after each stock controller update, including while stopped.
     OnMotion motion;
     const InputMonitorText* monitor_text;
 
+#endif
     constexpr Hooks() : Hooks(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr) {}
     // Every callback in order; prefer the with_ builders below.
     constexpr Hooks(OnContext a, OnRecordableNoteOn b, OnSelectedNoteOff c, OnRecordingTick d,
+#ifdef OPXY_PLAIN_EXTENSIONS
+                    OnInputActivity e, OnQueuedControl f, OnUsbHostReady g)
+        : context(a), recordable_note_on(b), selected_note_off(c), recording_tick(d),
+          input_activity(e), queued_control(f), usb_host_ready(g) {}
+#else
                     OnInputActivity e, OnQueuedControl f, OnUsbHostReady g = nullptr, OnMotion h = nullptr,
                     const InputMonitorText* text = nullptr)
         : context(a), recordable_note_on(b), selected_note_off(c), recording_tick(d),
           input_activity(e), queued_control(f), usb_host_ready(g), motion(h), monitor_text(text) {}
+#endif
 
     constexpr Hooks with_context(OnContext f) const {
         return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control,
+#ifdef OPXY_PLAIN_EXTENSIONS
+                     usb_host_ready);
+    }
+    constexpr Hooks with_recordable_note_on(OnRecordableNoteOn f) const {
+        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control, usb_host_ready);
+    }
+    constexpr Hooks with_selected_note_off(OnSelectedNoteOff f) const {
+        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control, usb_host_ready);
+    }
+    constexpr Hooks with_recording_tick(OnRecordingTick f) const {
+        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control, usb_host_ready);
+    }
+    constexpr Hooks with_input_activity(OnInputActivity f) const {
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control, usb_host_ready);
+    }
+    constexpr Hooks with_queued_control(OnQueuedControl f) const {
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f, usb_host_ready);
+    }
+    constexpr Hooks with_usb_host_ready(OnUsbHostReady f) const {
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, f);
+#else
                      usb_host_ready, motion, monitor_text);
     }
     constexpr Hooks with_recordable_note_on(OnRecordableNoteOn f) const {
@@ -154,6 +198,7 @@ struct Hooks {
     }
     constexpr Hooks with_motion(OnMotion f) const {
         return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, usb_host_ready, f, monitor_text);
+#endif
     }
 };
 }}

@@ -142,7 +142,8 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
     extension_objects = {'sdk/extension_' + e.id + '.o': e.id for e in native.extensions_of(machines)}
     active = native.active_services(profile, native.service_users(machines))
     mixed_aux = {'aux', 'input_overlay'} <= active
-    aux_objects = {'sdk/aux_tracks.o', 'sdk/aux_hooks.o'}
+    aux_objects = {'sdk/aux_tracks.o', 'sdk/aux_hooks.o'} if mixed_aux else set()
+    plain_objects = native.plain_extension_objects(machines) if 'input_overlay' in active else set()
     for name, owner in owners.items():
         data = read(child(package / 'analysis', name))
         destination = child(object_dir, name)
@@ -155,15 +156,20 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
             entry['runtime'] = True
         if name in extension_objects:
             entry['extension'] = extension_objects[name]
-        if mixed_aux and name in aux_objects:
+        if name in aux_objects or name in plain_objects:
             entry['requiresService'] = 'input_overlay'
-        objects.append(entry)
-        if mixed_aux and name in aux_objects:
-            plain_name = name.removesuffix('.o') + '_plain.o'
+            plain_name = (name.removesuffix('.o') + '_plain.o' if name in aux_objects
+                          else 'sdk/plain/' + Path(name).name)
             plain = read(child(package / 'analysis', plain_name))
-            child(object_dir, plain_name).write_bytes(plain)
-            objects.append(dict(name=plain_name, owner=None, service='aux', unlessService='input_overlay',
-                                bytes=base64.b64encode(plain).decode('ascii'), sha256=sha(plain)))
+            plain_file = child(object_dir, plain_name)
+            plain_file.parent.mkdir(parents=True, exist_ok=True)
+            plain_file.write_bytes(plain)
+            alternative = {key: value for key, value in entry.items() if key != 'requiresService'}
+            alternative.update(name=plain_name, unlessService='input_overlay',
+                               bytes=base64.b64encode(plain).decode('ascii'), sha256=sha(plain))
+            objects.extend((entry, alternative))
+        else:
+            objects.append(entry)
     # Stock addresses only: each selection's machine numbers are the builder's.
     stock = {key: value for key, value in definitions.items() if key in native.DEFINITIONS}
     # The machines the native package links, whose selection reproduces it.

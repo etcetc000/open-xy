@@ -335,7 +335,7 @@ def events():
     text = (ROOT / HEADER).read_text(encoding='utf-8')
     body = re.search(r'struct Hooks \{(.*?)\n\};', text, re.S)
     require(body, 'Missing Hooks in ' + HEADER)
-    return re.findall(r'constexpr Hooks with_(\w+)\(', body.group(1))
+    return list(dict.fromkeys(re.findall(r'constexpr Hooks with_(\w+)\(', body.group(1))))
 
 
 def check_profile(profile):
@@ -353,23 +353,26 @@ def check_profile(profile):
     require(fed == known, 'Events without a firmware site: ' + ', '.join(sorted(known - fed)))
 
 
-def generate_collection(folder, extensions):
+def generate_collection(folder, extensions, *, input_features=True):
     """The collection and the registry tables the runtime reads: each claim's
     key, and the claims that grant each action (0: any claim its holder owns)."""
     claims, actions = registry()
+    if not input_features:
+        actions = {name: action for name, action in actions.items() if action.get('event') != 'motion'}
     claim_bit = {name: 1 << i for i, name in enumerate(claims)}
     action_bit = {name: 1 << i for i, name in enumerate(actions)}
     mask = lambda table, names: '0x%xu' % sum(table[n] for n in names)
     table = lambda values: ', '.join(values) or '0'
     lines = ['#include "extension_runtime.hpp"']
-    tick = 'sdk_live_input_gui_tick'
-    publish = 'sdk_live_input_publish'
-    lines.append(f'extern "C" void {tick}() __asm__("{tick}");')
-    if any(e.live_input_controls for e in extensions):
-        lines += [f'extern "C" void {publish}() __asm__("{publish}");',
-                  f'void {tick}() {{ {publish}(); }}']
-    else:
-        lines.append(f'void {tick}() {{}}')
+    if input_features:
+        tick = 'sdk_live_input_gui_tick'
+        publish = 'sdk_live_input_publish'
+        lines.append(f'extern "C" void {tick}() __asm__("{tick}");')
+        if any(e.live_input_controls for e in extensions):
+            lines += [f'extern "C" void {publish}() __asm__("{publish}");',
+                      f'void {tick}() {{ {publish}(); }}']
+        else:
+            lines.append(f'void {tick}() {{}}')
     for e in extensions:
         symbol = 'sdk_extension_' + e.id + '_hooks'
         lines.append('extern "C" const opxy::extensions::Hooks* ' + symbol + '() __asm__("' + symbol + '");')
@@ -380,11 +383,11 @@ def generate_collection(folder, extensions):
               '// ' + ', '.join(actions) if actions else '// no actions',
               'const u32 action_claims[] = {' + table(
                   [mask(claim_bit, [a['requires']] if 'requires' in a else []) for a in actions.values()]) + '};',
-              'const ActionScope action_scopes[] = {' + table(
+              *(['const ActionScope action_scopes[] = {' + table(
                   ['ActionScope::motion' if a.get('event') == 'motion' else 'ActionScope::claimed_control'
-                   for a in actions.values()]) + '};',
-              'const ExtensionRegistry registry_tables = {claim_keys, %d, action_claims, %d, action_scopes};' % (
-                  len(claims), len(actions)),
+                   for a in actions.values()]) + '};'] if input_features else []),
+              'const ExtensionRegistry registry_tables = {claim_keys, %d, action_claims, %d%s};' % (
+                  len(claims), len(actions), ', action_scopes' if input_features else ''),
               '}',
               'const ExtensionRegistry& extension_registry() { return registry_tables; }',
               'const ExtensionEntry* extension_collection(u32& count) {', '    count = 0;']

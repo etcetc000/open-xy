@@ -261,7 +261,8 @@ UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callba
                                'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'sample_overview', 'sample_overview_stock'), 'samples')
 UNIT_SERVICES.update(dict.fromkeys(('players', 'player_hooks', 'player_table'), 'players'))
 UNIT_SERVICES['keyboard_octaves'] = 'octaves'
-UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock', 'usb_host', 'input_monitor_stock'), 'extensions'))
+UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock', 'usb_host'), 'extensions'))
+UNIT_SERVICES['input_monitor_stock'] = 'input_overlay'
 UNIT_SERVICES.update(dict.fromkeys(('live_input_stock', 'live_input_menu', 'live_input_hooks'), 'live_input'))
 UNIT_SERVICES['input_monitor_audio'] = 'input_monitor'
 UNIT_SERVICES['input_monitor_hooks'] = 'input_audio'
@@ -354,6 +355,17 @@ def object_owners(machines, profile=None, runtime_members=()):
     """Object name -> owning machine ID (None for the SDK's shared objects), in link order."""
     return {**{name: (m.id if m else None) for name, m, _step in plan(machines, profile)},
             **{runtime.object_name(name): None for name in runtime_members}}
+
+
+def supports_plain_extension(extension):
+    return not extension.live_input and 'monitor_input' not in extension.actions
+
+
+def plain_extension_objects(machines):
+    shared = {'startup', 'screen_order', 'extension_runtime', 'extension_collection', 'extension_stock'}
+    return {f'sdk/{name}.o' for name in shared} | {
+        f'sdk/extension_{e.id}.o' for e in linked_extensions(machines) if supports_plain_extension(e)
+    }
 
 
 def object_services(machines, profile=None):
@@ -559,7 +571,12 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         return folder / 'display_binding.cpp'
 
     services = active_services(profile, service_users(machines))
-    plain_aux = 'aux' in services and 'input_overlay' not in services
+    input_features = 'input_overlay' in services
+    plain_aux = 'aux' in services and not input_features
+    def extension_cxx(source, obj, extra_includes=(), *, input_features):
+        defines = () if input_features else ('OPXY_PLAIN_EXTENSIONS',)
+        return compile_cxx(gcc['cxx'], tools['as'], source, obj, includes() + list(extra_includes),
+                           defines=defines)
 
     def build_plain_aux(step, obj):
         obj.parent.mkdir(parents=True, exist_ok=True)
@@ -571,9 +588,9 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                      '--defsym', 'OPXY_STOCK_AUX_MENU=1', '-o', obj, ROOT / TEMPLATES / 'aux_hooks.s'])
 
 
-    def build_unit(obj, m, step):
+    def build_unit(obj, m, step, *, input_features=input_features):
         folder = obj.parent
-        folder.mkdir(exist_ok=True)
+        folder.mkdir(parents=True, exist_ok=True)
         if m is None:
             if plain_aux and step in ('aux_tracks', 'aux_hooks'):
                 return build_plain_aux(step, obj)
@@ -584,17 +601,23 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step.startswith('extension:'):
                 chosen = step.removeprefix('extension:')
                 extension = next(e for e in extensions_of(machines) if e.id == chosen)
-                return compile_cxx(gcc['cxx'], tools['as'], str(extensions.generate_extension(folder, extension)),
-                                   obj, includes() + [str(extension.root)])
+                return extension_cxx(str(extensions.generate_extension(folder, extension)), obj,
+                                     (str(extension.root),), input_features=input_features)
             if step == 'master_filter_collection':
                 return cxx(str(extensions.generate_master_collection(folder, extensions_of(machines))), obj)
             if step == 'extension_runtime':
-                return cxx('sdk/platform/extension_runtime.cpp', obj)
+                return extension_cxx('sdk/platform/extension_runtime.cpp', obj, input_features=input_features)
+            if step == 'extension_stock':
+                return extension_cxx(TEMPLATES + 'extension_stock.cpp', obj, input_features=input_features)
             if step == 'extension_collection':
-                return cxx(str(extensions.generate_collection(folder, linked_extensions(machines))), obj)
+                members = linked_extensions(machines)
+                if not input_features:
+                    members = [e for e in members if supports_plain_extension(e)]
+                return extension_cxx(str(extensions.generate_collection(folder, members,
+                                                                       input_features=input_features)), obj,
+                                     input_features=input_features)
             if step == 'screen_order':
-                services = active_services(profile, service_users(machines))
-                return cxx(str(generate_screen_order(folder, input_overlay='input_overlay' in services)), obj)
+                return cxx(str(generate_screen_order(folder, input_overlay=input_features)), obj)
             if step == 'sample_callbacks':
                 return cxx(str(generate_sample_callbacks(folder, machines)), obj)
             if step == 'synth_control_table':
@@ -623,7 +646,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                                                 player_pages=[x.prefix for x in by_kind(machines, 'player')],
                                                 control='control' in services, aux='aux' in services,
                                                 locks='drum_locks' in services, extensions='extensions' in services,
-                                                monitor='input_monitor' in services, aux_menu='input_overlay' in services,
+                                                monitor=input_features and 'input_monitor' in services, aux_menu=input_features,
                                                 drumline='drumline' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
@@ -655,6 +678,14 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             obj = directory / 'sdk' / (step + '_plain.o')
             build_plain_aux(step, obj)
             obj.write_bytes(normalize_object(read(obj)))
+    if input_features:
+        for name, _m, step in plan(machines, profile):
+            if name not in plain_extension_objects(machines):
+                continue
+            obj = directory / 'sdk' / 'plain' / Path(name).name
+            build_unit(obj, None, step, input_features=False)
+            obj.write_bytes(normalize_object(read(obj)))
+            require('R_BFIN_RIMM16' not in execute([tools['objdump'], '-r', obj]), 'Truncated address relocation in ' + name)
     # Before any link: one that leaves some machines out (linked_machines) can't see their clash.
     one_definition([(owner, read(directory / name)) for name, owner in object_owners(machines, profile).items()],
                    {m.id: m.name for m in machines})

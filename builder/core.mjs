@@ -677,10 +677,17 @@ export async function openKit(kit) {
     check(!names.has(o.name) && (o.owner === null || ids.has(o.owner)), 'Duplicate or unowned object');
     check(o.service === undefined || (o.owner === null && Object.hasOwn(kit.profile.services ?? {}, o.service)),
       'Undeclared service: ' + o.service);
-    check(o.requiresService === undefined || (o.service === 'aux' && o.requiresService === 'input_overlay' &&
-      /^sdk\/aux_(tracks|hooks)\.o$/.test(o.name)), 'Invalid overlay aux object');
-    check(o.unlessService === undefined || (o.service === 'aux' && o.unlessService === 'input_overlay' &&
-      /^sdk\/aux_(tracks|hooks)_plain\.o$/.test(o.name)), 'Invalid plain aux object');
+    const inputVariant = o.requiresService ?? o.unlessService;
+    if (inputVariant !== undefined) {
+      const featureObject = o.extension ? 'extension_' + o.extension :
+        /^(startup|screen_order|extension_runtime|extension_collection|extension_stock)$/.test(o.name.split('/').at(-1).slice(0, -2))
+          ? o.name.split('/').at(-1).slice(0, -2) : null;
+      const validName = o.requiresService
+        ? /^sdk\/aux_(tracks|hooks)\.o$/.test(o.name) || (featureObject && o.name === 'sdk/' + featureObject + '.o')
+        : /^sdk\/aux_(tracks|hooks)_plain\.o$/.test(o.name) || (featureObject && o.name === 'sdk/plain/' + featureObject + '.o');
+      check(o.owner === null && inputVariant === 'input_overlay' && validName &&
+        !(o.requiresService !== undefined && o.unlessService !== undefined), 'Invalid input overlay variant');
+    }
     check(o.runtime === undefined || (o.runtime === true && o.owner === null && o.service === undefined &&
       /^sdk\/runtime\/_[A-Za-z0-9_]+\.o$/.test(o.name)), 'Invalid arithmetic runtime object');
     check(o.extension === undefined || (o.owner === null && o.service === undefined && extensionIds.has(o.extension)),
@@ -696,15 +703,20 @@ export async function openKit(kit) {
       check(owned.length === 0, 'A settings extension links no code: ' + id);
       continue;
     }
-    check(owned.length === 1 && owned[0].symbols.some(s => s.section && s.binding === 1 &&
-      s.name === 'sdk_extension_' + id + '_hooks'), 'Missing extension accessor: ' + id);
+    const primary = owned.filter(o => o.unlessService === undefined);
+    const alternatives = owned.filter(o => o.unlessService !== undefined);
+    const hasAccessor = o => o.symbols.some(s => s.section && s.binding === 1 &&
+      s.name === 'sdk_extension_' + id + '_hooks');
+    check(primary.length === 1 && hasAccessor(primary[0]) && alternatives.length <= 1 &&
+      (primary[0].requiresService ? alternatives.length === 1 && hasAccessor(alternatives[0]) :
+        alternatives.length === 0), 'Missing extension accessor: ' + id);
     const extension = extensions.find(e => e.id === id);
     if (extension.live_input) {
-      check(['reset', 'process', 'controls', 'prepare'].every(callback => owned[0].symbols.some(s => s.section && s.binding === 1 &&
+      check(['reset', 'process', 'controls', 'prepare'].every(callback => primary[0].symbols.some(s => s.section && s.binding === 1 &&
         s.name === 'sdk_live_input_' + callback)), 'Missing live input accessors: ' + id);
     }
     if (processorOf(extension)) {
-      const has = suffix => owned[0].symbols.some(s => s.section && s.binding===1 && s.name==='sdk_extension_'+id+'_'+suffix);
+      const has = suffix => primary[0].symbols.some(s => s.section && s.binding===1 && s.name==='sdk_extension_'+id+'_'+suffix);
       check((has('processor') && has('panel')) || has('filter'), 'Missing master processor accessors: '+id);
     }
   }
