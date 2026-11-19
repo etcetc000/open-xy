@@ -1,4 +1,20 @@
 #include <checkpoint.cpp>
+#include <cstdlib>
+
+namespace opxy { namespace benchmark {
+bool deny_allocation;
+u32 allocations, frees;
+void* allocate(u32 bytes) {
+    if (deny_allocation) return nullptr;
+    ++allocations;
+    return std::malloc(bytes);
+}
+void release(void* block) {
+    ++frees;
+    std::free(block);
+}
+}}
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -111,6 +127,10 @@ bool sample_engine(u32 engine) { return owned_sample(engine); }
 }}
 int main() {
     initialize();
+    benchmark::deny_allocation = true;
+    require(cp::command(Command::store) == Result::unavailable && !references() &&
+            !benchmark::allocations && !benchmark::frees, "allocation failure has no side effects");
+    benchmark::deny_allocation = false;
     require(cp::command(Command::restore) == Result::empty, "empty recall");
     require(cp::command(Command::store) == Result::success && references() == 1, "store pins sample");
     for (u32 t = 0; t < 16; ++t) value(t, 0x258) = 500 + t;
@@ -126,6 +146,11 @@ int main() {
     require(cp::recovery->storage.used < cp::saved->storage.used / 8,
             "small edits share most of the checkpoint's pattern data");
     require(cp::command(Command::restore) == Result::success && refreshes == 16, "redundant recall no-op");
+    fail_extra = true;
+    require(cp::command(Command::store) == Result::unavailable && references() == 2 &&
+            value(15, 0x258) == 115 && refreshes == 16,
+            "failed replacement preserves both snapshots and the live scene");
+    fail_extra = false;
     check_complete = false;
     value(15, 0x258) = 900;
     require(cp::command(Command::undo) == Result::success && value(15, 0x258) == 515 && extra_state == 999,
@@ -160,6 +185,8 @@ int main() {
     require(!references() && cp::command(Command::restore) == Result::empty && cp::command(Command::undo) == Result::empty,
             "same-address project replacement clears both states and releases pins");
     require(acquire_calls > release_calls && references() == 0, "failed acquire did not create a reference");
+    require(benchmark::allocations == 1 && benchmark::frees == 1 && !cp::pool,
+            "project replacement returns the on-demand pool");
     value(0, 0x18, 1) = 34;
     require(cp::command(Command::store) == Result::success && references() == 1, "owned sample-engine resources retained");
     ++generation; cp::sync();
@@ -226,5 +253,9 @@ int main() {
     value(15, 0x258) = 600;
     require(cp::command(Command::restore) == Result::success && value(15, 0x258) == 115,
             "replacement remains valid after moving it to the start of the pool");
+    const u32 releases_before_load = benchmark::frees;
+    sdk_checkpoint_discard();
+    require(!references() && !cp::pool && benchmark::frees == releases_before_load + 1 &&
+            cp::command(Command::undo) == Result::empty, "loaded-project callback clears all checkpoint state");
     return 0;
 }

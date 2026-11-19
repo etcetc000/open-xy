@@ -514,7 +514,8 @@ export function extensionSelection(kit, selection = (kit.extensions ?? []).map(e
 // What an extension holds exclusively: its claims, stock Drumline's second page when
 // it supplies it, and each capability setting it chooses (both would write one site;
 // tooling.extensions.check_collection allows one of each).
-const exclusiveUses = e => [...(e.claims ?? []), ...(e.drumline_page ? ['drumline_page'] : []),
+const exclusiveUses = e => [...(e.claims ?? []),
+  ...(e.actions?.includes('checkpoint') ? ['checkpoint'] : []), ...(e.drumline_page ? ['drumline_page'] : []),
   ...Object.keys(e.settings ?? {}).map(c => 'setting:' + c)];
 
 // A claim (an exclusive control such as Record double-tap) two extensions share, if any.

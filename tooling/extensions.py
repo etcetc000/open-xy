@@ -300,6 +300,8 @@ def check_collection(extensions):
             require(('setting', name) not in owners,
                     f'{name} is declared by two extensions: {owners.get(("setting", name))}, {e.id}')
             owners[('setting', name)] = e.id
+    checkpoint_owners = [e.id for e in extensions if 'checkpoint' in e.actions]
+    require(len(checkpoint_owners) <= 1, 'Checkpoint has multiple owners: ' + ', '.join(checkpoint_owners))
     processors = [e for e in extensions if e.master_processor is not None]
     ids = [e.master_processor.get('state_id', e.id) for e in processors]
     require(len(ids) == len(set(ids)), 'Master processor state IDs must be unique')

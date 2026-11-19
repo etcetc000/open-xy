@@ -433,7 +433,7 @@ def service_fallbacks(services):
     if 'drum_locks' in services:
         fallbacks['drum_locks'] = dict.fromkeys(('sdk_step_locks_' + call[1] for call in LOCK_CALLS), 'kit_absent')
     if 'checkpoint' in services:
-        fallbacks['checkpoint'] = {'sdk_checkpoint_backend': 'kit_absent'}
+        fallbacks['checkpoint'] = dict.fromkeys(('sdk_checkpoint_backend', 'sdk_checkpoint_discard'), 'kit_absent')
     if 'checkpoint_control' in services:
         fallbacks['checkpoint_control'] = {'sdk_checkpoint_control_support': 'kit_absent'}
     if {'checkpoint', 'samples'} <= services:
@@ -599,7 +599,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                                                 player_pages=[x.prefix for x in by_kind(machines, 'player')],
                                                 control='control' in services, aux='aux' in services,
                                                 locks='drum_locks' in services,
-                                                drumline='drumline' in services)), obj)
+                                                drumline='drumline' in services, checkpoint='checkpoint' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)

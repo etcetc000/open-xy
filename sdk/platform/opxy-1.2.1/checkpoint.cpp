@@ -3,6 +3,7 @@
 // paths are inline, not PCM pointers. Keep their resident cache entries alive
 // until both the checkpoint and its recovery state release them.
 #include "checkpoint.hpp"
+#include "benchmark.hpp"
 #include "note_container.hpp"
 #include "stock.hpp"
 #include "stock_sample.hpp"
@@ -31,12 +32,12 @@ struct Snapshot {
     CheckpointStorage storage;
     bool valid;
 };
-// The checkpoint occupies the start of the pool. Recovery or a replacement
-// store grows after it, using only the remaining space.
-u32 pool[kPoolWords];
-Snapshot snapshots[2];
+// Staging uses only the space after both committed snapshots.
+u32* pool;
+Snapshot snapshots[3];
 Snapshot* saved = &snapshots[0];
 Snapshot* recovery = &snapshots[1];
+Snapshot* staging = &snapshots[2];
 
 u32 extent(const Snapshot& s) { return s.storage.used + (s.extra_bytes + 3) / 4; }
 u8* extra(const Snapshot& s) { return reinterpret_cast<u8*>(s.storage.words + s.storage.used); }
@@ -120,9 +121,9 @@ bool available() {
     return word(kProject) && !word(kProject + 4) &&
         !byte(kRecorder) && !byte(kRecorder + 1) && !byte(kPlaying + 2) && !byte(kPlaying + 3);
 }
-bool capture(Snapshot& s, const Snapshot* affected = nullptr) {
+bool capture(Snapshot& s, u32 start, const Snapshot* affected = nullptr) {
     release(s);
-    const u32 start = saved->valid ? extent(*saved) : 0;
+    if (start >= kPoolWords) return false;
     const u32 space = kPoolWords - start;
     s.project = word(kProject);
     s.generation = word(kGeneration);
@@ -247,22 +248,47 @@ void apply(const Snapshot& s, const Snapshot* baseline = nullptr) {
 }
 }
 
+void free_unused_pool() {
+    if (pool && !saved->valid && !recovery->valid) {
+        benchmark::release(pool);
+        pool = nullptr;
+    }
+}
+
+void discard() {
+    for (auto& snapshot : snapshots) release(snapshot);
+    free_unused_pool();
+}
+
 void sync() {
     for (auto& s : snapshots)
         if (s.valid && (s.project != word(kProject) || s.generation != word(kGeneration))) release(s);
+    free_unused_pool();
 }
+
+static u32 staging_start() {
+    return (saved->valid ? extent(*saved) : 0) + (recovery->valid ? extent(*recovery) : 0);
+}
+
+static void move_snapshot(Snapshot& snapshot, u32* destination) {
+    const u32 words = extent(snapshot);
+    for (u32 i = 0; i < words; ++i) destination[i] = snapshot.storage.words[i];
+    snapshot.storage.words = destination;
+}
+
 extensions::CheckpointResult command(extensions::CheckpointCommand cmd) {
     sync();
     if (!available()) return CheckpointResult::busy;
     if (cmd == CheckpointCommand::store) {
-        if (!capture(*recovery)) return CheckpointResult::unavailable;
-        if (recovery->storage.words != pool) {
-            const u32 words = extent(*recovery);
-            for (u32 i = 0; i < words; ++i) pool[i] = recovery->storage.words[i];
-            recovery->storage.words = pool;
+        if (!pool) pool = static_cast<u32*>(benchmark::allocate(kPoolWords * sizeof(u32)));
+        if (!pool || !capture(*staging, staging_start())) {
+            free_unused_pool();
+            return CheckpointResult::unavailable;
         }
-        Snapshot* old = saved; saved = recovery; recovery = old;
+        release(*saved);
         release(*recovery);
+        move_snapshot(*staging, pool);
+        Snapshot* old = saved; saved = staging; staging = old;
         return CheckpointResult::success;
     }
     const bool undo = cmd == CheckpointCommand::undo;
@@ -278,7 +304,10 @@ extensions::CheckpointResult command(extensions::CheckpointCommand cmd) {
     // Preserve a useful recovery state when repeatedly recalling an unchanged
     // checkpoint. Capture uses the spare buffer and never alters the baseline.
     if (matches_live(*saved)) return CheckpointResult::success;
-    if (!capture(*recovery, saved)) return CheckpointResult::unavailable;
+    if (!capture(*staging, staging_start(), saved)) return CheckpointResult::unavailable;
+    release(*recovery);
+    move_snapshot(*staging, pool + extent(*saved));
+    Snapshot* old = recovery; recovery = staging; staging = old;
     apply(*saved);
     return CheckpointResult::success;
 }
@@ -289,3 +318,6 @@ extern "C" const opxy::platform::CheckpointBackend* sdk_checkpoint_backend() {
         opxy::platform::checkpoint::sync, opxy::platform::checkpoint::command};
     return &backend;
 }
+
+extern "C" void sdk_checkpoint_discard() __asm__("sdk_checkpoint_discard");
+void sdk_checkpoint_discard() { opxy::platform::checkpoint::discard(); }

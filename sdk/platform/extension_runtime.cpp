@@ -37,6 +37,7 @@ bool ready() {
              known.claim_chords[c] >> 56 || (known.claim_chords[c] & (((1ull << 24) - 1) << 26)) ||
              (known.claim_chords[c] & (1ull << known.claim_keys[c]))))) return false;
     u32 claimed = 0;
+    bool checkpoint_owner = false;
     for (u32 i = 0; i < count; ++i) {
         const ExtensionEntry& entry = list[i];
         if (!entry.id || !*entry.id || !entry.hooks || (entry.claims & claimed) ||
@@ -46,6 +47,10 @@ bool ready() {
             if (!(entry.actions & (1u << a))) continue;
             const u32 needs = known.action_claims[a] ? known.action_claims[a] : bits(known.claim_count);
             if (!(entry.claims & needs)) return false;
+        }
+        if (entry.actions & action_checkpoint) {
+            if (checkpoint_owner) return false;
+            checkpoint_owner = true;
         }
         claimed |= entry.claims;
         for (u32 j = 0; j < i; ++j)

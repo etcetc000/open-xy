@@ -222,7 +222,11 @@ increments, so a reused project buffer cannot revive a checkpoint.
 
 `checkpoint.cpp` captures up to 32 active/source records; recovery includes their
 union with the current scene's records, at most 64. The checkpoint lives at the
-start of a shared pool and staging uses the remaining space. Recovery can encode
+start of a bounded heap pool allocated on first store. Staging uses the space
+after both committed snapshots. A successful project deserialize clears the
+snapshots in the existing project-loaded callback before stock publishes the
+new project. Generation checks also clear state when stock resets the project.
+Recovery can encode
 an XOR difference against a matching checkpoint record. Undo reads both saved
 streams to reconstruct the record independently of subsequent live edits.
 Inline sample paths start at pattern +0x396c, 24 rows of

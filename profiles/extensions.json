@@ -7,7 +7,7 @@
   "actions": {
     "edit_notes": {"requires": "record_double_tap"},
     "notify": {},
-    "checkpoint": {"requires": "metronome_checkpoint"}
+    "checkpoint": {}
   },
   "capabilities": {
     "long_samples": {},

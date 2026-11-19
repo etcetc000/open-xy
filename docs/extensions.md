@@ -135,7 +135,8 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
     once. Replacing is refused, changing nothing, while stock is still
     recording a held note there.
   - `notify` unlocks `Actions::notify`: one short popup per callback.
-  - `checkpoint` (requires `metronome_checkpoint`) unlocks `Actions::checkpoint`:
+  - `checkpoint` allows one extension to call `Actions::checkpoint` from an
+    accepted queued control event that it claims. The claim defines the shortcut:
     `CheckpointCommand::store`, `restore` or `undo`. It stores one temporary
     scene checkpoint, recalls it or recovers the state before the last recall.
     The action returns a `CheckpointResult`; a refusal changes no live pattern.
@@ -170,11 +171,14 @@ pre-recall state once, without redo. A redundant recall preserves that recovery.
 Recording/held recording notes refuse the action. Stock paste can release voices;
 device timing must be tested on the exact image.
 
-Checkpoint users link a 640 KiB pool shared by the checkpoint and the staged
-snapshot. Recovery stores differences from the checkpoint where they are smaller
+Checkpoint allocates a bounded 640 KiB pool on the first store. It releases
+the pool when both snapshots are discarded. A successful file load discards
+the old snapshots before the loaded project is published. Recovery stores
+differences from the checkpoint where they are smaller
 than a full compressed pattern. Each snapshot can use up to 384 KiB for patterns
 and 64 KiB for SDK saved data, subject to the free space in the pool. A replacement
-store also has to fit alongside the previous checkpoint until it succeeds. SDK
+capture also has to fit alongside both committed snapshots until it succeeds.
+Failure preserves both the previous checkpoint and its undo state. SDK
 saved data uses its actual serialized size, and only builds with control support
 reserve the 8 KiB serialization scratch buffer. Capacity exhaustion refuses the
 operation before live edits. Sample files must already be resident when captured.
