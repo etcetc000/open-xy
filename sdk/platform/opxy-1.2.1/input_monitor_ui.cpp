@@ -1,5 +1,6 @@
 // Reuse stock's send popup and its animation on Aux 5 M1.
 #include "input_monitor.hpp"
+#include "../extension_runtime.hpp"
 #include "input_monitor_popup.hpp"
 extern "C" {
 opxy::u32 sdk_live_input_page() __asm__("sdk_live_input_page");
@@ -69,7 +70,10 @@ void sdk_input_monitor_frame(u32 painted, u32 selected) {
         matrix[7] = center * 1024 + input_monitor_popup::motion_q10(popup.motion[i]);
         stock<void(void*,const i32*)>(0x8d5f06a6)(popup.rows[i], matrix);
     }
-    if (tilt) caption(0, "tilt mic", sdk_input_monitor_choice() ? "auto" : "off");
+    if (tilt) {
+        const auto* text = opxy::platform::extensions_monitor_text();
+        if (text) caption(0, text->title, text->choices[sdk_input_monitor_choice() != 0]);
+    }
     if (tune) {
         const char* hint = sdk_live_input_page_hint();
         for (u32 row = extra ? 0 : 1; row < 4; ++row)

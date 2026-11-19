@@ -134,3 +134,12 @@ int main() {
     browser_failure=true;require(!sdk_input_monitor_menu(),"rejected browser open must be reported");
     return 0;
 }
+
+namespace opxy { namespace platform {
+const extensions::InputMonitorText* extensions_monitor_text() {
+    static constexpr extensions::InputMonitorText text = {
+        "tilt mic", {"off", "auto"}, "tilt mic idle", "tilt mic live", "tilt mic save failed",
+    };
+    return &text;
+}
+}}

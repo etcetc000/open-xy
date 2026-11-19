@@ -123,14 +123,24 @@ bool monitor_input(bool enabled) {
 const extensions::Actions actions = {insert_notes, notify, replace_notes, monitor_input};
 }
 
-const char* extensions_monitor_owner() {
+static const ExtensionEntry* monitor_owner() {
     if (!ready()) return nullptr;
     for (u32 i = 0; i < entry_count; ++i)
-        if (entries[i].actions & action_monitor_input) return entries[i].id;
+        if (entries[i].actions & action_monitor_input) return &entries[i];
     return nullptr;
 }
 
-bool extensions_monitor_available() { return extensions_monitor_owner() != nullptr; }
+const char* extensions_monitor_owner() {
+    const auto* owner = monitor_owner();
+    return owner ? owner->id : nullptr;
+}
+
+const extensions::InputMonitorText* extensions_monitor_text() {
+    const auto* owner = monitor_owner();
+    return owner ? owner->hooks->monitor_text : nullptr;
+}
+
+bool extensions_monitor_available() { return monitor_owner() != nullptr; }
 
 void extensions_sync() {
     if (dispatching || !ready()) return;

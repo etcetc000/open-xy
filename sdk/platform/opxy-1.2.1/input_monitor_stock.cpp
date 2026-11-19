@@ -34,7 +34,8 @@ void release() {
         // before we release the envelope token. Releasing the token first would
         // briefly bypass the completed fade while audio still sees monitoring on.
         release_pending = true;
-        if (automatic) status("tilt mic idle");
+        const auto* text = extensions_monitor_text();
+        if (automatic && text && text->idle) status(text->idle);
     }
     owned = releasing = false;
 }
@@ -70,7 +71,12 @@ bool preference(bool write, u32& choice) {
 }
 void selected(void*, u32 choice) {
     if (choice > 1 || choice == automatic) return;
-    if (!preference(true, choice)) { extension_notify("tilt mic save failed"); return; }
+    if (!preference(true, choice)) {
+        const auto* text = extensions_monitor_text();
+        if (text && text->save_failed)
+            extension_notify(text->save_failed);
+        return;
+    }
     automatic = choice;
     // The next controller update releases our lease and disarms the gesture.
 }
@@ -86,8 +92,9 @@ void sdk_input_monitor_startup() {
 }
 bool sdk_input_monitor_menu() {
     if (!extensions_monitor_available()) return false;
-    const char* labels[2] = {"off", "auto"};
-    if (!input_monitor::selector.open("tilt mic", labels, input_monitor::automatic,
+    const auto* text = extensions_monitor_text();
+    if (!text || !text->title || !text->choices[0] || !text->choices[1]) return false;
+    if (!input_monitor::selector.open(text->title, text->choices, input_monitor::automatic,
                                     {nullptr, input_monitor::selected, nullptr, nullptr})) return false;
     return true;
 }
@@ -143,7 +150,8 @@ bool extension_monitor_input(bool enabled) {
     publish(marker(true));
     stock<void(u32)>(0x8d4db4a4)(1);
     owned = true;
-    status("tilt mic live");
+    const auto* text = extensions_monitor_text();
+    if (text && text->active) status(text->active);
     return true;
 }
 }}

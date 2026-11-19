@@ -102,3 +102,12 @@ int main() {
     require(!motion_q10(0x7fc00000u) && !motion_q10(1),"invalid or subpixel motion is bounded");
     return 0;
 }
+
+namespace opxy { namespace platform {
+const extensions::InputMonitorText* extensions_monitor_text() {
+    static constexpr extensions::InputMonitorText text = {
+        "tilt mic", {"off", "auto"}, "tilt mic idle", "tilt mic live", "tilt mic save failed",
+    };
+    return &text;
+}
+}}

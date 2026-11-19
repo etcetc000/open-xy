@@ -84,6 +84,14 @@ using OnMotion = void (*)(const Motion&, const InputMonitor&, const Actions&);
 // All callbacks are synchronous on the controller path, in collection order.
 // Arguments are borrowed for the callback. No allocation, blocking or I/O.
 // Observers cannot transform live input or consume stock controls.
+struct InputMonitorText {
+    const char* title;
+    const char* choices[2];
+    const char* idle;
+    const char* active;
+    const char* save_failed;
+};
+
 struct Hooks {
     // Selected-track recording context and play state; before every other event.
     OnContext context;
@@ -108,38 +116,44 @@ struct Hooks {
 
     // Once after each stock controller update, including while stopped.
     OnMotion motion;
+    const InputMonitorText* monitor_text;
 
     constexpr Hooks() : Hooks(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr) {}
     // Every callback in order; prefer the with_ builders below.
     constexpr Hooks(OnContext a, OnRecordableNoteOn b, OnSelectedNoteOff c, OnRecordingTick d,
-                    OnInputActivity e, OnQueuedControl f, OnUsbHostReady g = nullptr, OnMotion h = nullptr)
+                    OnInputActivity e, OnQueuedControl f, OnUsbHostReady g = nullptr, OnMotion h = nullptr,
+                    const InputMonitorText* text = nullptr)
         : context(a), recordable_note_on(b), selected_note_off(c), recording_tick(d),
-          input_activity(e), queued_control(f), usb_host_ready(g), motion(h) {}
+          input_activity(e), queued_control(f), usb_host_ready(g), motion(h), monitor_text(text) {}
 
     constexpr Hooks with_context(OnContext f) const {
         return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control,
-                     usb_host_ready, motion);
+                     usb_host_ready, motion, monitor_text);
     }
     constexpr Hooks with_recordable_note_on(OnRecordableNoteOn f) const {
-        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control, usb_host_ready, motion);
+        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control, usb_host_ready, motion, monitor_text);
     }
     constexpr Hooks with_selected_note_off(OnSelectedNoteOff f) const {
-        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control, usb_host_ready, motion);
+        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control, usb_host_ready, motion, monitor_text);
     }
     constexpr Hooks with_recording_tick(OnRecordingTick f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control, usb_host_ready, motion);
+        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control, usb_host_ready, motion, monitor_text);
     }
     constexpr Hooks with_input_activity(OnInputActivity f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control, usb_host_ready, motion);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control, usb_host_ready, motion, monitor_text);
     }
     constexpr Hooks with_queued_control(OnQueuedControl f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f, usb_host_ready, motion);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f, usb_host_ready, motion, monitor_text);
     }
     constexpr Hooks with_usb_host_ready(OnUsbHostReady f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, f, motion);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, f, motion, monitor_text);
+    }
+    constexpr Hooks with_monitor_text(const InputMonitorText& text) const {
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick,
+                     input_activity, queued_control, usb_host_ready, motion, &text);
     }
     constexpr Hooks with_motion(OnMotion f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, usb_host_ready, f);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, usb_host_ready, f, monitor_text);
     }
 };
 }}
