@@ -118,7 +118,7 @@ A fetched folder that changed is refused; delete it to fetch again. Pass the
 collection to any build command:
 
 ```sh
-python sdk.py compile --catalog --collection local/catalog/collection.json --out <folder>
+python sdk.py compile --collection local/catalog/collection.json --out <folder>
 ```
 
 ## Submit a machine
