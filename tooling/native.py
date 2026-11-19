@@ -578,7 +578,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step == 'extension_collection':
                 return cxx(str(extensions.generate_collection(folder, linked_extensions(machines))), obj)
             if step == 'screen_order':
-                return cxx(str(generate_screen_order(folder)), obj)
+                services = active_services(profile, service_users(machines))
+                return cxx(str(generate_screen_order(folder, input_overlay='input_overlay' in services)), obj)
             if step == 'sample_callbacks':
                 return cxx(str(generate_sample_callbacks(folder, machines)), obj)
             if step == 'synth_control_table':
