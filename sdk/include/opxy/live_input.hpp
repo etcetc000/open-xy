@@ -3,56 +3,47 @@
 
 namespace opxy { namespace live_input {
 
-// The last three encoders on the first Shift page use these choice tables.
-// Target starts at zero, choice one follows the Brain mask, and amount
-// starts at its last choice. Captions must use printable text.
-struct Choices { const char* const* labels; u32 count; };
+// Rows 0–2 are encoders 2–4 on page one. Rows 3–6 are encoders
+// 1–4 on page two. An empty row has no label or choices.
+constexpr u32 first_rows = 3, second_rows = 4, row_count = first_rows + second_rows;
+constexpr u32 choice_bits = 18, max_choices = 32;
+struct Row { const char* label; const char* const* labels; u32 count, initial; };
 struct Controls {
-    const char* labels[3];
-    Choices target, retune, amount;
+    Row rows[row_count];
     const char* first_page_hint;
     const char* second_page_hint;
 };
-constexpr u32 max_target = 32, max_amount = 15;
-
-// Optional second Shift page. Each encoder starts at choice zero.
-constexpr u32 extra_rows = 4;
-constexpr u32 extra_capacity[extra_rows] = {8, 8, 2, 2};
-struct ExtraControls {
-    const char* labels[extra_rows];
-    Choices choices[extra_rows];
+struct Parameters {
+    u32 choices[row_count]; // indices in Controls row order
+    u32 brain; // current pitch-class mask, or zero when unavailable
 };
-// A stock popup row has 31 bytes for label, value, spacing and optional hint.
+
+constexpr u32 width(u32 count) {
+    return count <= 1 ? 0 : 1 + width((count + 1) / 2);
+}
 constexpr u32 caption_bytes(const char* caption, u32 size = 0) {
     return !caption || size == 32 || !caption[size] ? size : caption_bytes(caption, size + 1);
 }
-
-constexpr bool choice_captions_fit(const Choices& choices, u32 prefix, u32 i = 0) {
-    return i == choices.count || (choices.labels[i] && prefix + caption_bytes(choices.labels[i]) <= 31 &&
-                                  choice_captions_fit(choices, prefix, i + 1));
+constexpr bool choices_fit(const Row& row, u32 prefix, u32 i = 0) {
+    return i == row.count || (row.labels[i] && prefix + caption_bytes(row.labels[i]) <= 31 &&
+                              choices_fit(row, prefix, i + 1));
 }
-
-constexpr bool captions_fit(const char* label, const Choices& choices, const char* hint = nullptr) {
-    return label && choices.labels &&
-        choice_captions_fit(choices, caption_bytes(label) + 3 + (hint ? 3 + caption_bytes(hint) : 0));
+constexpr bool row_valid(const Row& row, const char* hint) {
+    return !row.count ? !row.label && !row.labels && !row.initial :
+        row.label && row.labels && row.count <= max_choices && row.initial < row.count &&
+        choices_fit(row, caption_bytes(row.label) + 3 + (hint ? 3 + caption_bytes(hint) : 0));
 }
-
+constexpr bool has_rows(const Controls& controls, u32 from, u32 end) {
+    return from < end && (controls.rows[from].count || has_rows(controls, from + 1, end));
+}
+constexpr bool rows_valid(const Controls& controls, u32 i, u32 remaining) {
+    return i == row_count || (row_valid(controls.rows[i], i == first_rows - 1 ? controls.second_page_hint :
+        i == row_count - 1 ? controls.first_page_hint : nullptr) &&
+        width(controls.rows[i].count) <= remaining &&
+        rows_valid(controls, i + 1, remaining - width(controls.rows[i].count)));
+}
 constexpr bool valid_controls(const Controls& controls) {
-    return controls.target.count >= 2 && controls.target.count <= max_target &&
-        controls.retune.count && controls.retune.count <= 2 &&
-        controls.amount.count && controls.amount.count <= max_amount + 1 &&
-        captions_fit(controls.labels[0], controls.target) &&
-        captions_fit(controls.labels[1], controls.retune) &&
-        captions_fit(controls.labels[2], controls.amount, controls.second_page_hint);
+    return has_rows(controls, 0, first_rows) && rows_valid(controls, 0, choice_bits);
 }
-
-constexpr bool valid_extra_controls(const ExtraControls& extra, const Controls& controls, u32 row = 0) {
-    return row == extra_rows || (extra.choices[row].count && extra.choices[row].count <= extra_capacity[row] &&
-        captions_fit(extra.labels[row], extra.choices[row],
-                     row + 1 == extra_rows ? controls.first_page_hint : nullptr) &&
-        valid_extra_controls(extra, controls, row + 1));
-}
-
-struct ExtraValues { u32 values[extra_rows]; };
 
 }}

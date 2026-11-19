@@ -13,7 +13,7 @@ u32 manual_scale[3] = {0, 0, 0}, resolved_scale[3] = {2, 0, 1};
 u32 gui_word, audio_word, writes, reset_count, process_count, audio_values[4];
 bool extra_installed;
 u32 tilt_menu_count, tilt_turn_count;
-live_input::ExtraValues audio_extra;
+live_input::Parameters audio_parameters;
 i32 input_block[128];
 bool bad;
 u32 held() { return shift; }
@@ -52,20 +52,21 @@ const opxy::live_input::Controls* sdk_live_input_controls() {
     static const char* modes[] = {"off", "auto", "chromatic"};
     static const char* speeds[] = {"smooth", "hard"};
     static constexpr const char* amounts[] = {"0%", "7%", "13%", "20%", "27%", "33%", "40%", "47%", "53%", "60%", "67%", "73%", "80%", "87%", "93%", "100%"};
-    static const opxy::live_input::Controls controls = {
-        {"tune", "retune", "amount"}, {modes, 3}, {speeds, 2}, {amounts, 16},
-        "m1 > quick", "m1 > vocal fx",
-    };
-    return &controls;
-}
-const live_input::ExtraControls* sdk_live_input_extra_controls() {
     static const char* choices[] = {"off", "on"};
     static const char* harmonies[] = {"off", "one", "two", "three", "four", "five", "six", "seven"};
-    static const live_input::ExtraControls controls = {
-        {"harmony", "blend", "compress", "de-ess"},
-        {{harmonies, 8}, {choices, 2}, {choices, 2}, {choices, 2}},
+    static const live_input::Controls first = {
+        {{"tune", modes, 3, 0}, {"retune", speeds, 2, 0}, {"amount", amounts, 16, 15}},
+        nullptr, nullptr,
     };
-    return extra_installed ? &controls : nullptr;
+    static const live_input::Controls both = {
+        {
+            {"tune", modes, 3, 0}, {"retune", speeds, 2, 0}, {"amount", amounts, 16, 15},
+            {"harmony", harmonies, 8, 0}, {"blend", choices, 2, 0},
+            {"compress", choices, 2, 0}, {"de-ess", choices, 2, 0},
+        },
+        "m1 > quick", "m1 > vocal fx",
+    };
+    return extra_installed ? &both : &first;
 }
 bool tilt_menu_available = true;
 u32 aux_menu_count;
@@ -86,12 +87,10 @@ void sdk_live_input_process(opxy::i32* buffer) {
     bad |= buffer != input_block;
     ++process_count;
 }
-void sdk_live_input_prepare(u32 mode, u32 speed, u32 amount, u32 brain, const live_input::ExtraValues& extra) {
-    audio_values[0] = mode;
-    audio_values[1] = speed;
-    audio_values[2] = amount;
-    audio_values[3] = brain;
-    audio_extra = extra;
+void sdk_live_input_prepare(const live_input::Parameters& values) {
+    for (u32 i = 0; i < 3; ++i) audio_values[i] = values.choices[i];
+    audio_values[3] = values.brain;
+    audio_parameters = values;
 }
 
 int main() {
@@ -116,7 +115,7 @@ int main() {
     gui_word = input_monitor::mark | 3u | sdk_live_input_option_bits();
     const u32 write_count = writes;
     sdk_live_input_publish();
-    CHECK(writes == write_count && (gui_word & ~tuner_mask) == (input_monitor::mark | 3u));
+    CHECK(writes == write_count && (gui_word & ~option_mask) == (input_monitor::mark | 3u));
     audio_word = gui_word;
 
     sdk_live_input_rendered(0);
@@ -141,8 +140,8 @@ int main() {
     CHECK(reset_count == 4 && process_count == 5);
     sdk_live_input_finish();
     sdk_live_input_publish();
-    CHECK(target(gui_word) == 1 && brain(gui_word) == 0xcd6u && writes == write_count + 1);
-    CHECK(sdk_live_input_turn(1, &down) && target(gui_word) == 0 && brain(gui_word) == 0xcd6u && !bad);
+    CHECK(parameters(*sdk_live_input_controls(), gui_word).choices[0] == 1 && brain(gui_word) == 0xcd6u && writes == write_count + 1);
+    CHECK(sdk_live_input_turn(1, &down) && parameters(*sdk_live_input_controls(), gui_word).choices[0] == 0 && brain(gui_word) == 0xcd6u && !bad);
     sdk_aux_shift_m1();
     CHECK(sdk_live_input_page() == 1 && tilt_menu_count == 1);
     tilt_menu_available = false;
@@ -157,18 +156,21 @@ int main() {
     for (u32 row = 1; row < 4; ++row) CHECK(sdk_live_input_turn(row, &up));
     CHECK(!std::strcmp(sdk_live_input_caption(0, true), "harmony") &&
           !std::strcmp(sdk_live_input_caption(0, false), "seven"));
-    CHECK(target(gui_word) == 0 && brain(gui_word) == 0xcd6u);
-    CHECK((gui_word & ~tuner_mask) == tag);
+    CHECK(parameters(*sdk_live_input_controls(), gui_word).choices[0] == 0 && brain(gui_word) == 0xcd6u);
+    CHECK((gui_word & ~option_mask) == tag);
     audio_word = input_monitor::mark | 3u | sdk_live_input_option_bits();
     sdk_live_input_rendered(0);
-    CHECK(audio_extra.values[0] == 7);
-    for (u32 row = 1; row < 4; ++row) CHECK(audio_extra.values[row] == 1);
+    CHECK(audio_parameters.choices[3] == 7);
+    for (u32 row = 1; row < 4; ++row) CHECK(audio_parameters.choices[row + 3] == 1);
     CHECK(audio_values[0] == 0 && audio_values[3] == 0xcd6u);
     shift = 0;
     sdk_live_input_publish();
     shift = 1;
     CHECK(sdk_live_input_page() == 1 && sdk_aux_turn(0, 0, 0) && tilt_turn_count == 1);
-    const live_input::ExtraValues max_values = {{7, 7, 1, 1}};
-    const u32 packed = option_bits(31, 1, 0, 24, max_values);
-    CHECK(packed == tuner_mask - (7u << 16) && brain(packed) == 0xd9au);
+    const u32 choices[] = {2, 1, 0, 7, 1, 1, 1};
+    const auto& controls = *sdk_live_input_controls();
+    const u32 packed = option_bits(controls, choices, 24);
+    const auto roundtrip = parameters(controls, packed);
+    for (u32 row = 0; row < live_input::row_count; ++row) CHECK(roundtrip.choices[row] == choices[row]);
+    CHECK((packed & ~option_mask) == 0 && roundtrip.brain == 0xd9au);
 }

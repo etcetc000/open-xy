@@ -128,7 +128,6 @@ class Extension:
     settings: dict = field(default_factory=dict)  # capability -> chosen value (capability_settings())
     live_input: bool = False
     live_input_controls: bool = False
-    live_input_extra_controls: bool = False
 
     @property
     def master_filter(self):
@@ -153,12 +152,9 @@ def extension_at(folder):
             'master_processor, drumline_page, capabilities, settings and live_input')
     name = data['id']
     input_spec = data.get('live_input')
-    input_controls = isinstance(input_spec, dict) and input_spec.get('controls') is True and (
-        set(input_spec) == {'controls'} or
-        set(input_spec) == {'controls', 'extra_controls'} and input_spec['extra_controls'] is True)
-    extra_controls = input_controls and 'extra_controls' in input_spec
+    input_controls = isinstance(input_spec, dict) and input_spec == {'controls': True} and input_spec['controls'] is True
     require('live_input' not in data or input_spec is True or input_controls,
-            'live_input must be true or declare controls: true with optional extra_controls: true')
+            'live_input must be true or declare controls: true')
     require(isinstance(name, str) and NAME.fullmatch(name) and name not in RESERVED, f'{root}: invalid extension id')
     for key in TEXT_LIMITS:
         require(key not in data or (isinstance(data[key], str) and 0 < len(data[key]) <= TEXT_LIMITS[key]),
@@ -223,7 +219,7 @@ def extension_at(folder):
     return Extension(name, root, tuple(data['claims']), tuple(data['actions']),
                      {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter, drumline_page,
                      tuple(declared), linked, dict(settings),
-                     input_spec is True or input_controls, input_controls, extra_controls)
+                     input_spec is True or input_controls, input_controls)
 
 
 def drumline_page_of(name, value):
@@ -418,28 +414,15 @@ def generate_extension(folder, extension):
                 out.write(f'extern "C" void {entry}({args}) __asm__("{entry}");\n'
                           f'void {entry}({args}) {{ {namespace}::{callback}_input({values}); }}\n')
             controls = f'&{namespace}::input_controls' if extension.live_input_controls else 'nullptr'
-            extra = f'&{namespace}::input_extra_controls' if extension.live_input_extra_controls else 'nullptr'
-            values = ', extra' if extension.live_input_extra_controls else ''
-            prepare = (f'{namespace}::prepare_input(target, retune, amount, brain{values});'
-                       if extension.live_input_controls else '')
+            prepare = f'{namespace}::prepare_input(parameters);' if extension.live_input_controls else ''
             out.write('#include <opxy/live_input.hpp>\n')
             if extension.live_input_controls:
                 out.write(f'static_assert(opxy::live_input::valid_controls({namespace}::input_controls), '
-                          '"Live input controls have invalid choices or captions exceeding 31 bytes");\n')
-            if extension.live_input_extra_controls:
-                out.write(f'static_assert(opxy::live_input::valid_extra_controls({namespace}::input_extra_controls, '
-                          f'{namespace}::input_controls), '
-                          '"Extra live input controls have invalid choices or captions exceeding 31 bytes");\n')
-            out.write(
-                      'extern "C" const opxy::live_input::Controls* sdk_live_input_controls() __asm__("sdk_live_input_controls");\n'
-                      'extern "C" const opxy::live_input::ExtraControls* sdk_live_input_extra_controls() __asm__("sdk_live_input_extra_controls");\n'
-                      'extern "C" void sdk_live_input_prepare(opxy::u32, opxy::u32, opxy::u32, opxy::u32,'
-                      ' const opxy::live_input::ExtraValues&) __asm__("sdk_live_input_prepare");\n'
+                          '"Live input controls exceed the choice or caption limits");\n')
+            out.write('extern "C" const opxy::live_input::Controls* sdk_live_input_controls() __asm__("sdk_live_input_controls");\n'
+                      'extern "C" void sdk_live_input_prepare(const opxy::live_input::Parameters&) __asm__("sdk_live_input_prepare");\n'
                       f'const opxy::live_input::Controls* sdk_live_input_controls() {{ return {controls}; }}\n'
-                      f'const opxy::live_input::ExtraControls* sdk_live_input_extra_controls() {{ return {extra}; }}\n'
-                      'void sdk_live_input_prepare(opxy::u32 target, opxy::u32 retune, opxy::u32 amount, opxy::u32 brain,'
-                      ' const opxy::live_input::ExtraValues& extra)'
-                      f' {{ {prepare} }}\n')
+                      f'void sdk_live_input_prepare(const opxy::live_input::Parameters& parameters) {{ {prepare} }}\n')
     if extension.master_processor is not None:
         legacy = 'master_filter' in document(extension.root/'extension.json')
         symbol = 'sdk_extension_' + extension.id + '_processor'

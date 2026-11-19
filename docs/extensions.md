@@ -286,26 +286,25 @@ functions in `opxy::extensions::<id>`:
   stereo Q31 frames at 44.1 kHz in place. Even indices are left. The buffer is
   borrowed for the callback.
 
-To expose the tuning controls, declare `"live_input": {"controls": true}`,
-include `<opxy/live_input.hpp>`, and export an immutable
-`live_input::Controls input_controls` in the same namespace. Hold Shift on
-Aux 5 M1 to edit Target, Retune and Amount on encoders 2–4. Target row 0 is
-Off and row 1 follows Brain. Retune starts at its first choice and Amount at
-100%. The choices last for the current session. Before each processed block the
-SDK calls `void prepare_input(u32 target, u32 retune, u32 amount, u32 brain)`.
-Amount ranges from 0 to 15, and `brain` contains the 12 allowed pitch classes,
-from C in bit 0, or zero if Brain has no scale.
+To expose controls, declare `"live_input": {"controls": true}`, include
+`<opxy/live_input.hpp>`, and export `extern constexpr live_input::Controls
+input_controls`. On Aux 5 M1, hold Shift to reach the first three rows on
+encoders 2–4. The first encoder remains available to the monitor extension.
+The last four rows are optional and use encoders 1–4 on a second page.
+Shift + M1 switches pages when the second has a row, and releasing Shift
+returns to the first page.
 
-To add a second Shift page, declare
-`"live_input": {"controls": true, "extra_controls": true}` and export an
-immutable `live_input::ExtraControls input_extra_controls`. Supply the
-four row captions and their choices in encoder order. Rows support up to
-8, 8, 2 and 2 choices respectively, and start at index zero. Holding Shift
-and pressing M1 switches between pages. Releasing Shift returns to the
-first page. This configuration uses
-`prepare_input(u32 target, u32 retune, u32 amount, u32 brain, const live_input::ExtraValues& extra)`.
-Once configured, the processor receives the current Brain mask independently of
-the selected choices. The processor decides whether to use it.
+Each row declares its caption, choice captions, number of choices, and initial
+index. Empty rows have no caption or choices. At least one row is required on
+the first page. There are at most 32 choices per row and at most 18 total bits
+of choice information (each row uses the smallest number of bits that fits
+its declared count). The SDK checks defaults, storage, and the 31-byte
+combined caption limit at build time. Choices last for the current session.
+
+Supply `void prepare_input(const live_input::Parameters& parameters)`. It
+receives the chosen indices in declaration order and the current Brain
+pitch-class mask when available, with C in bit 0. The SDK does not interpret
+choice indices; the extension decides what the controls and Brain mask mean.
 
 The DSP callbacks run on the audio role. Use preallocated state and bounded work.
 The callback runs before the monitored input is mixed into the dry and send

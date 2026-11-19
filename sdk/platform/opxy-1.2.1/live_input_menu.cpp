@@ -4,7 +4,6 @@
 
 extern "C" {
 const opxy::live_input::Controls* sdk_live_input_controls() __asm__("sdk_live_input_controls");
-const opxy::live_input::ExtraControls* sdk_live_input_extra_controls() __asm__("sdk_live_input_extra_controls");
 opxy::u32 sdk_live_input_page() __asm__("sdk_live_input_page");
 bool sdk_live_input_toggle_page() __asm__("sdk_live_input_toggle_page");
 bool sdk_live_input_turn(opxy::u32, const opxy::i32*) __asm__("sdk_live_input_turn");
@@ -21,30 +20,26 @@ using namespace live_input_transport;
 
 constexpr u32 gui_parameters = 0x86bd027c;
 constexpr u32 selected_page = 0x0801eae4;
-u32 selected_target, selected_retune, selected_amount = live_input::max_amount;
+u32 selected[live_input::row_count];
 u32 automatic_scale;
-live_input::ExtraValues extra;
-bool extra_page;
+bool initialized, extra_page;
 
 const live_input::Controls* shift_controls() {
     const auto* controls = sdk_live_input_controls();
-    if (!controls || !controls->target.labels || controls->target.count < 2 ||
-        controls->target.count > live_input::max_target || !controls->retune.labels ||
-        !controls->retune.count || controls->retune.count > 2 ||
-        !controls->amount.labels || !controls->amount.count ||
-        controls->amount.count > live_input::max_amount + 1) return nullptr;
+    if (controls && !initialized) {
+        for (u32 row = 0; row < live_input::row_count; ++row) selected[row] = controls->rows[row].initial;
+        initialized = true;
+    }
     return controls;
 }
 
-const live_input::ExtraControls* extra_controls() {
-    const auto* controls = sdk_live_input_extra_controls();
-    if (!controls) return nullptr;
-    for (u32 row = 0; row < live_input::extra_rows; ++row) {
-        const auto& choices = controls->choices[row];
-        if (!controls->labels[row] || !choices.labels || !choices.count ||
-            choices.count > live_input::extra_capacity[row]) return nullptr;
-    }
-    return controls;
+bool has_extra(const live_input::Controls& controls) {
+    return live_input::has_rows(controls, live_input::first_rows, live_input::row_count);
+}
+
+u32 row_for(u32 encoder) {
+    return extra_page ? live_input::first_rows + encoder :
+        encoder ? encoder - 1 : live_input::row_count;
 }
 
 u32 brain_scale() {
@@ -71,9 +66,6 @@ bool step(u32& value, u32 count, const i32* event) {
     return true;
 }
 
-u32 current_amount(const live_input::Controls& controls) {
-    return selected_amount < controls.amount.count ? selected_amount : controls.amount.count - 1;
-}
 }
 
 opxy::u32 sdk_live_input_page() {
@@ -83,60 +75,37 @@ opxy::u32 sdk_live_input_page() {
 }
 
 bool sdk_live_input_toggle_page() {
-    if (!sdk_live_input_page() || !extra_controls()) return false;
+    if (!sdk_live_input_page() || !has_extra(*shift_controls())) return false;
     extra_page = !extra_page;
     return true;
 }
 
 const char* sdk_live_input_page_hint() {
-    if (!extra_controls()) return nullptr;
     const auto* controls = shift_controls();
-    if (!controls) return nullptr;
+    if (!controls || !has_extra(*controls)) return nullptr;
     return extra_page ? controls->first_page_hint : controls->second_page_hint;
 }
 
 bool sdk_live_input_turn(opxy::u32 encoder, const opxy::i32* event) {
-    if (encoder >= 8) return false;
-    const u32 page = sdk_live_input_page();
-    if (!page) return false;
-    const u32 row = encoder % 4;
-    if (page == 2) {
-        const auto* controls = extra_controls();
-        return controls && step(extra.values[row], controls->choices[row].count, event);
-    }
+    if (encoder >= 8 || !sdk_live_input_page()) return false;
+    const u32 row = row_for(encoder % 4);
     const auto& controls = *shift_controls();
-    switch (row) {
-    case 1: return step(selected_target, controls.target.count, event);
-    case 2: return step(selected_retune, controls.retune.count, event);
-    case 3:
-        selected_amount = current_amount(controls);
-        return step(selected_amount, controls.amount.count, event);
-    default: return false;
-    }
+    if (row >= live_input::row_count || !controls.rows[row].count) return false;
+    return step(selected[row], controls.rows[row].count, event);
 }
 
 const char* sdk_live_input_caption(opxy::u32 encoder, bool label) {
-    if (encoder >= live_input::extra_rows) return nullptr;
-    if (extra_page) {
-        const auto* controls = extra_controls();
-        if (!controls) return nullptr;
-        return label ? controls->labels[encoder] : controls->choices[encoder].labels[extra.values[encoder]];
-    }
+    if (encoder >= live_input::second_rows) return nullptr;
+    const u32 row = row_for(encoder);
     const auto* controls = shift_controls();
-    if (!controls) return nullptr;
-    if (label) return encoder ? controls->labels[encoder - 1] : nullptr;
-    switch (encoder) {
-    case 1: return controls->target.labels[selected_target];
-    case 2: return controls->retune.labels[selected_retune];
-    case 3: return controls->amount.labels[current_amount(*controls)];
-    default: return nullptr;
-    }
+    if (!controls || row >= live_input::row_count || !controls->rows[row].count) return nullptr;
+    const auto& spec = controls->rows[row];
+    return label ? spec.label : spec.labels[selected[row]];
 }
 
 opxy::u32 sdk_live_input_option_bits() {
     const auto* controls = shift_controls();
-    const u32 amount = controls ? current_amount(*controls) : selected_amount;
-    return option_bits(selected_target, selected_retune, amount, automatic_scale, extra);
+    return controls ? option_bits(*controls, selected, automatic_scale) : 0;
 }
 
 void sdk_live_input_publish() {
@@ -148,7 +117,7 @@ void sdk_live_input_publish() {
     const u32 options = sdk_live_input_option_bits();
     const u32 address = gui_parameters + 0x4080 + (track * words + slot) * 4;
     const u32 previous = word(address);
-    const u32 value = (monitoring(previous) ? previous & ~tuner_mask : tag) | options;
+    const u32 value = (monitoring(previous) ? previous & ~option_mask : tag) | options;
     if (previous != value)
         stock<void(u32, u32, u32, i32)>(0x8d5acea8)(gui_parameters, track, slot, static_cast<i32>(value));
 }
