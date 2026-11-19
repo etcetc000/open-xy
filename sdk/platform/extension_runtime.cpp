@@ -59,7 +59,7 @@ bool ready() {
             if (!(entry.actions & (1u << a))) continue;
 #ifndef OPXY_PLAIN_EXTENSIONS
             if (scope(known, a) == ActionScope::motion) {
-                if (!entry.hooks->motion || known.action_claims[a]) return false;
+                if (!entry.motion_hooks || !entry.motion_hooks->motion || known.action_claims[a]) return false;
                 continue;
             }
             if (scope(known, a) != ActionScope::claimed_control) return false;
@@ -153,7 +153,8 @@ bool monitor_input(bool enabled) {
     monitor_requested = true;
     return extension_monitor_input(enabled);
 }
-const extensions::Actions actions = {insert_notes, notify, replace_notes, monitor_input};
+const extensions::Actions actions = {insert_notes, notify, replace_notes};
+const extensions::MotionActions motion_actions = {monitor_input};
 }
 
 static const ExtensionEntry* monitor_owner() {
@@ -170,7 +171,7 @@ const char* extensions_monitor_owner() {
 
 const extensions::InputMonitorText* extensions_monitor_text() {
     const auto* owner = monitor_owner();
-    return owner ? owner->hooks->monitor_text : nullptr;
+    return owner && owner->motion_hooks ? owner->motion_hooks->monitor_text : nullptr;
 }
 
 bool extensions_monitor_available() { return monitor_owner() != nullptr; }
@@ -252,7 +253,7 @@ void extensions_motion() {
     if (dispatching || !ready()) return;
     extensions_sync();
     bool subscribed = false;
-    for (u32 i = 0; i < entry_count; ++i) subscribed |= entries[i].hooks->motion != nullptr;
+    for (u32 i = 0; i < entry_count; ++i) subscribed |= entries[i].motion_hooks && entries[i].motion_hooks->motion;
     if (!subscribed) return;
     const extensions::Motion motion = extension_motion();
     const extensions::InputMonitor monitor = extension_input_monitor();
@@ -263,7 +264,8 @@ void extensions_motion() {
         for (u32 a = 0; a < registry->action_count; ++a)
             if (scope(*registry, a) == ActionScope::motion) granted |= entries[i].actions & (1u << a);
         transaction = {granted, false, false, ActionScope::motion};
-        if (entries[i].hooks->motion) entries[i].hooks->motion(motion, monitor, actions);
+        if (entries[i].motion_hooks && entries[i].motion_hooks->motion)
+            entries[i].motion_hooks->motion(motion, monitor, motion_actions);
         transaction = {0, false, false, ActionScope::claimed_control};
     }
     dispatching = false;

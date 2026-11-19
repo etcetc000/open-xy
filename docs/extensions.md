@@ -127,6 +127,27 @@ device answers; a copy of the `Device` that `probe` received stays usable with t
 task, until `remove` runs for it. How the stack works is in
 [the firmware contract](abi-1.2.1.md#usb-host-drivers).
 
+
+### Subscribe to motion
+
+Set `"motion": true` in `extension.json` and export a separate
+`extern constexpr MotionHooks motion_hooks = {observe, nullptr};` in
+`opxy::extensions::<id>`. Keep the ordinary `hooks` export, even if it has no
+other subscriptions. The SDK calls the motion observer after each stock
+controller update, including while stopped.
+
+```cpp
+void observe(const Motion& sample, const InputMonitor& monitor,
+             const MotionActions& actions);
+```
+
+The sample contains three signed channels, a monotonic timestamp in
+microseconds, and a validity flag. Motion alone selects no audio processor or
+monitor hooks. A motion observer can ignore the monitor status and actions.
+An extension that declares the exclusive `monitor_input` action can supply
+its monitor text as the second member of `MotionHooks`. The motion action table
+has no note-edit or popup actions.
+
 ## Claims and actions
 
 [`profiles/extensions.json`](../profiles/extensions.json) holds the registry: the
@@ -159,7 +180,7 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
   extension must subscribe to `motion`. Motion callbacks cannot edit notes or
   post popups, including when the same extension also owns a key claim.
 
-  `Actions::monitor_input(true)` requests temporary internal-mic monitoring;
+  `MotionActions::monitor_input(true)` requests temporary internal-mic monitoring;
   `false` starts a 200 ms fade-out and releases it after the fade. Renew the
   request in each motion callback: omitting a renewal starts the same release. A second call in one callback is refused.
   The SDK requires the internal mic already selected on the external-audio

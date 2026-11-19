@@ -182,6 +182,11 @@
     "input_monitor": [
       "inputMonitor"
     ],
+    "motion_runtime": [
+      "motion",
+      "inputMonitor",
+      "live_input"
+    ],
     "input_overlay": [
       "inputMonitor",
       "live_input"

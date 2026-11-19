@@ -143,7 +143,7 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
     active = native.active_services(profile, native.service_users(machines))
     mixed_aux = {'aux', 'input_overlay'} <= active
     aux_objects = {'sdk/aux_tracks.o', 'sdk/aux_hooks.o'} if mixed_aux else set()
-    plain_objects = native.plain_extension_objects(machines) if 'input_overlay' in active else set()
+    plain_objects = native.plain_extension_variants(active)
     for name, owner in owners.items():
         data = read(child(package / 'analysis', name))
         destination = child(object_dir, name)
@@ -157,7 +157,8 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
         if name in extension_objects:
             entry['extension'] = extension_objects[name]
         if name in aux_objects or name in plain_objects:
-            entry['requiresService'] = 'input_overlay'
+            service = 'input_overlay' if name in aux_objects else plain_objects[name]
+            entry['requiresService'] = service
             plain_name = (name.removesuffix('.o') + '_plain.o' if name in aux_objects
                           else 'sdk/plain/' + Path(name).name)
             plain = read(child(package / 'analysis', plain_name))
@@ -165,7 +166,7 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
             plain_file.parent.mkdir(parents=True, exist_ok=True)
             plain_file.write_bytes(plain)
             alternative = {key: value for key, value in entry.items() if key != 'requiresService'}
-            alternative.update(name=plain_name, unlessService='input_overlay',
+            alternative.update(name=plain_name, unlessService=service,
                                bytes=base64.b64encode(plain).decode('ascii'), sha256=sha(plain))
             objects.extend((entry, alternative))
         else:
@@ -174,7 +175,7 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
             absent_name = 'sdk/input_monitor_absent.o'
             absent = read(child(package / 'analysis', absent_name))
             child(object_dir, absent_name).write_bytes(absent)
-            objects.append(dict(name=absent_name, owner=None, service='input_overlay', unlessService='input_monitor',
+            objects.append(dict(name=absent_name, owner=None, service='motion_runtime', unlessService='input_monitor',
                                 bytes=base64.b64encode(absent).decode('ascii'), sha256=sha(absent)))
     # Stock addresses only: each selection's machine numbers are the builder's.
     stock = {key: value for key, value in definitions.items() if key in native.DEFINITIONS}

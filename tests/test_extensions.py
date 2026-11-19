@@ -85,10 +85,10 @@ class Extensions(unittest.TestCase):
 
     def test_motion_actions_need_their_callback_and_have_one_owner(self):
         with Folder() as folder:
-            root = folder.declare(claims=[], actions=['monitor_input'])
+            root = folder.declare(claims=[], actions=['monitor_input'], motion=True)
             self.assertEqual(extensions.extension_at(root).claims, ())
-            (root / 'extension.cpp').write_text('extern constexpr Hooks hooks = Hooks();\n')
-            with self.assertRaisesRegex(ValueError, 'motion callback'):
+            root = folder.declare(claims=[], actions=['monitor_input'], motion=False)
+            with self.assertRaisesRegex(ValueError, 'motion must be true'):
                 extensions.extension_at(root)
         first = extensions.Extension('one', PROBE, (), ('monitor_input',), {})
         second = extensions.Extension('two', PROBE, (), ('monitor_input',), {})
@@ -137,7 +137,7 @@ class Extensions(unittest.TestCase):
             probe = extensions.extension_at(folder.declare(live_input=True))
             self.assertTrue(extensions.metadata([probe], {'probe': 'personal'})[0]['live_input'])
             collection = native.Collection([], [probe])
-            self.assertEqual(set(native.object_services(collection).values()), {'extensions', 'live_input', 'input_audio', 'input_overlay'})
+            self.assertEqual(set(native.object_services(collection).values()), {'extensions', 'live_input', 'input_audio', 'input_overlay', 'motion_runtime'})
             output = folder.root.parent / 'generated'
             output.mkdir()
             adapter = extensions.generate_extension(output, probe).read_text()
@@ -172,6 +172,14 @@ class Extensions(unittest.TestCase):
         # A subset of the machines keeps the collection's extensions.
         self.assertEqual(native.subset(machines, []).extensions, (probe,))
 
+    def test_motion_observer_needs_no_input_or_monitor_service(self):
+        with Folder() as folder:
+            observer = extensions.extension_at(folder.declare(claims=[], actions=[], motion=True))
+            build = native.Collection([], [observer])
+            self.assertEqual(set(native.object_services(build).values()), {'extensions', 'motion_runtime'})
+            self.assertNotIn('input_monitor_stock', {step for _, _, step in native.plan(build)})
+            self.assertTrue(extensions.metadata([observer], {observer.id: 'personal'})[0]['motion'])
+
     def test_monitor_owner_selects_audio_and_shared_menu_without_aux_takeover(self):
         from tooling.extensions import Extension
         from machine_fixtures import fixture
@@ -179,7 +187,7 @@ class Extensions(unittest.TestCase):
         monitor = Extension('monitor', PROBE, (), ('monitor_input',), {})
         machines = native.Collection([fixture('probesynth')], [monitor])
         services = native.active_services(config(), native.service_users(machines))
-        self.assertEqual(services, {'extensions', 'input_monitor', 'input_audio', 'input_overlay', 'aux_menu'})
+        self.assertEqual(services, {'extensions', 'input_monitor', 'input_audio', 'input_overlay', 'aux_menu', 'motion_runtime'})
         steps = {step for _, _, step in native.plan(machines)}
         self.assertIn('input_monitor_audio', steps)
         self.assertIn('input_monitor_ui', steps)

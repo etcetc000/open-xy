@@ -8,7 +8,7 @@ bool playing = true;
 u32 writes, notices, observations, order[16], order_count, result, mode, written_track;
 u32 monitor_calls, motion_callbacks;
 bool monitor_result, monitor_request = true, renew = true;
-extensions::Actions saved_motion;
+extensions::MotionActions saved_motion;
 extensions::Actions saved;
 extensions::Context saved_context;
 const RecordedNote good = {-12, 60, 60, 100};
@@ -19,16 +19,13 @@ void first_note(const extensions::Context&, const extensions::LiveNote& note) {
     extensions_recordable_note_on(0, 60, 100);
 }
 void second_note(const extensions::Context&, const extensions::LiveNote&) { order[order_count++] = 2; }
-void observe_motion(const extensions::Motion&, const extensions::InputMonitor&, const extensions::Actions& actions) {
+void observe_motion(const extensions::Motion&, const extensions::InputMonitor&, const extensions::MotionActions& actions) {
     if (actions.monitor_input(true)) __builtin_trap();
 }
-void write_motion(const extensions::Motion& motion, const extensions::InputMonitor&, const extensions::Actions& actions) {
+void write_motion(const extensions::Motion& motion, const extensions::InputMonitor&, const extensions::MotionActions& actions) {
     ++motion_callbacks;
     if (motion.x != 100 || motion.time != 500) __builtin_trap();
     saved_motion = actions;
-    const u32 before = writes;
-    if (actions.insert_notes(saved_context, 0, &good, 1) || writes != before) __builtin_trap();
-    actions.notify("motion cannot notify");
     if (renew) {
         monitor_result = actions.monitor_input(monitor_request);
         if (actions.monitor_input(true)) __builtin_trap();
@@ -36,7 +33,6 @@ void write_motion(const extensions::Motion& motion, const extensions::InputMonit
     extensions_motion();  // Reentry must not dispatch again.
 }
 void observe_control(const extensions::Context& context, const extensions::Control&, const extensions::Actions& actions) {
-    if (actions.monitor_input(true)) __builtin_trap();
     result = actions.insert_notes(context, 0, &good, 1);
     actions.notify("unauthorized");
 }
@@ -58,18 +54,20 @@ void edit_control(const extensions::Context& context, const extensions::Control&
     if (mode == 7) result += actions.replace_notes(context, track, &good, 1);  // one write per callback
 }
 const extensions::Hooks first = extensions::Hooks().with_recordable_note_on(first_note)
-                                                   .with_queued_control(observe_control).with_motion(observe_motion);
+                                                   .with_queued_control(observe_control);
 const extensions::Hooks second = extensions::Hooks().with_recordable_note_on(second_note)
                                                     .with_queued_control(edit_control);
 // Two claims on different keys. edit_notes needs the first (or any claim once
 // set to 0); notify needs any claim its holder owns.
-const extensions::Hooks motion_hooks = extensions::Hooks().with_motion(write_motion);
+const extensions::Hooks motion_owner_hooks;
+const extensions::MotionHooks reader_motion = {observe_motion, nullptr};
+const extensions::MotionHooks writer_motion = {write_motion, nullptr};
 u32 claim_keys[] = {50, 51}, action_claims[] = {1u, 0, 0};
 const ActionScope action_scopes[] = {ActionScope::claimed_control, ActionScope::claimed_control, ActionScope::motion};
 const ExtensionRegistry tables = {claim_keys, 2, action_claims, 3, action_scopes};
-ExtensionEntry collection[] = {{"observer", 0, 0, &first},
+ExtensionEntry collection[] = {{"observer", 0, 0, &first, &reader_motion},
                                {"writer", 1u, action_edit_notes | action_notify, &second},
-                               {"motion_writer", 0, action_monitor_input, &motion_hooks}};
+                               {"motion_writer", 0, action_monitor_input, &motion_owner_hooks, &writer_motion}};
 }
 namespace opxy { namespace platform {
 const ExtensionEntry* extension_collection(u32& count) { count = 3; return collection; }
@@ -96,15 +94,10 @@ void control(u32 key, bool accepted) {
 }
 void usb_ready(const usb::Registry&) {}
 int main() {
-    // Composing either event must retain the other, including through older builders.
-    const extensions::Hooks combined = extensions::Hooks().with_motion(observe_motion)
-        .with_usb_host_ready(usb_ready).with_context(nullptr).with_recordable_note_on(first_note)
-        .with_selected_note_off(nullptr).with_recording_tick(nullptr).with_input_activity(nullptr)
-        .with_queued_control(observe_control);
-    CHECK(combined.motion == observe_motion && combined.usb_host_ready == usb_ready);
-    const extensions::Hooks reversed = extensions::Hooks().with_usb_host_ready(usb_ready)
-        .with_motion(observe_motion);
-    CHECK(reversed.motion == observe_motion && reversed.usb_host_ready == usb_ready);
+    const auto combined = extensions::Hooks().with_usb_host_ready(usb_ready).with_context(nullptr)
+        .with_recordable_note_on(first_note).with_selected_note_off(nullptr).with_recording_tick(nullptr)
+        .with_input_activity(nullptr).with_queued_control(observe_control);
+    CHECK(combined.usb_host_ready == usb_ready && reader_motion.motion == observe_motion);
     extensions_recordable_note_on(0, 60, 100);
     CHECK(order_count == 2 && order[0] == 1 && order[1] == 2 && observations == 1);
     extensions_recordable_note_on(7, 60, 100); CHECK(order_count == 2);

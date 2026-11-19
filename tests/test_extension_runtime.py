@@ -117,6 +117,7 @@ class Runtime(unittest.TestCase):
         self.run_fixture('extension_selection', prepare)
 
     def test_stock_adapter_events_keys_and_writes_with_the_probe_subscribed(self):
+        from dataclasses import replace
         from tooling.extensions import extension_at, generate_collection, generate_extension
         def prepare(folder):
             map_stock(folder)
@@ -125,7 +126,7 @@ class Runtime(unittest.TestCase):
                 '#include "../extension_runtime.hpp"', '#include <extension_runtime.hpp>'))
             (folder / 'extension_stock.cpp').write_text((PLATFORM / 'extension_stock.cpp').read_text().replace(
                 '#include "../extension_runtime.hpp"', '#include <extension_runtime.hpp>'))
-            probe = extension_at(PROBE)
+            probe = replace(extension_at(PROBE), motion=True)
             generate_collection(folder, [probe])
             generate_extension(folder, probe)
         self.run_fixture('extension_stock', prepare)

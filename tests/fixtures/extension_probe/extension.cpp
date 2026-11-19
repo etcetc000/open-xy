@@ -24,7 +24,7 @@ void recordable_note_on(const Context&, const LiveNote& n) { ++seen.notes_on; se
 void selected_note_off(const Context&, const NoteOff& n) { ++seen.notes_off; seen.off = n; }
 void recording_tick(const Context&, const Tick& t) { ++seen.ticks; seen.tick = t; }
 void input_activity() { ++seen.activity; }
-void motion(const Motion& m, const InputMonitor& input, const Actions&) {
+void motion(const Motion& m, const InputMonitor& input, const MotionActions&) {
     ++seen.motions; seen.motion = m; seen.monitor = input;
 }
 void queued_control(const Context& c, const Control& k, const Actions& actions) {
@@ -42,6 +42,6 @@ extern constexpr Hooks hooks = Hooks()
     .with_selected_note_off(selected_note_off)
     .with_recording_tick(recording_tick)
     .with_input_activity(input_activity)
-    .with_queued_control(queued_control)
-    .with_motion(motion);
+    .with_queued_control(queued_control);
+extern constexpr MotionHooks motion_hooks = {motion, nullptr};
 }}}

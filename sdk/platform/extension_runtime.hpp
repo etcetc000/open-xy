@@ -17,6 +17,13 @@ struct ExtensionEntry {
     const char* id;
     u32 claims, actions;  // Bits in registry order.
     const extensions::Hooks* hooks;
+#ifndef OPXY_PLAIN_EXTENSIONS
+    const extensions::MotionHooks* motion_hooks;
+    constexpr ExtensionEntry(const char* id = nullptr, u32 claims = 0, u32 actions = 0,
+                             const extensions::Hooks* hooks = nullptr,
+                             const extensions::MotionHooks* motion_hooks = nullptr)
+        : id(id), claims(claims), actions(actions), hooks(hooks), motion_hooks(motion_hooks) {}
+#endif
 };
 struct ExtensionRegistry {
     const u32* claim_keys;

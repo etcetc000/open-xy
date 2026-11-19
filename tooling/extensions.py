@@ -128,6 +128,7 @@ class Extension:
     settings: dict = field(default_factory=dict)  # capability -> chosen value (capability_settings())
     live_input: bool = False
     live_input_controls: bool = False
+    motion: bool = False
 
     @property
     def master_filter(self):
@@ -147,14 +148,16 @@ def extension_at(folder):
     linked = (root / 'extension.cpp').is_file()
     keys = {'id', 'claims', 'actions', 'name', 'description'}
     require(isinstance(data, dict) and
-            keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor', 'drumline_page', 'capabilities', 'settings', 'live_input'},
+            keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor', 'drumline_page', 'capabilities', 'settings', 'live_input', 'motion'},
             f'{root}: extension.json fields are id, name, description, claims, actions and optional note, '
-            'master_processor, drumline_page, capabilities, settings and live_input')
+            'master_processor, drumline_page, capabilities, settings, live_input and motion')
     name = data['id']
     input_spec = data.get('live_input')
     input_controls = isinstance(input_spec, dict) and input_spec == {'controls': True} and input_spec['controls'] is True
     require('live_input' not in data or input_spec is True or input_controls,
             'live_input must be true or declare controls: true')
+    motion = data.get('motion') is True
+    require('motion' not in data or motion and linked, 'motion must be true and requires extension.cpp')
     require(isinstance(name, str) and NAME.fullmatch(name) and name not in RESERVED, f'{root}: invalid extension id')
     for key in TEXT_LIMITS:
         require(key not in data or (isinstance(data[key], str) and 0 < len(data[key]) <= TEXT_LIMITS[key]),
@@ -193,8 +196,8 @@ def extension_at(folder):
     for action in data['actions']:
         event = actions[action].get('event')
         if event:
-            require('with_' + event + '(' in (root / 'extension.cpp').read_text(),
-                    f'{name}: {action} needs a {event} callback')
+            require(motion if event == 'motion' else 'with_' + event + '(' in (root / 'extension.cpp').read_text(),
+                    f'{name}: {action} needs a {event} subscription')
     declared = data.get('capabilities', [])
     known = capabilities()
     require(isinstance(declared, list) and len(set(declared)) == len(declared) and
@@ -219,7 +222,7 @@ def extension_at(folder):
     return Extension(name, root, tuple(data['claims']), tuple(data['actions']),
                      {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter, drumline_page,
                      tuple(declared), linked, dict(settings),
-                     input_spec is True or input_controls, input_controls)
+                     input_spec is True or input_controls, input_controls, motion)
 
 
 def drumline_page_of(name, value):
@@ -331,7 +334,7 @@ def events():
     text = (ROOT / HEADER).read_text(encoding='utf-8')
     body = re.search(r'struct Hooks \{(.*?)\n\};', text, re.S)
     require(body, 'Missing Hooks in ' + HEADER)
-    return list(dict.fromkeys(re.findall(r'constexpr Hooks with_(\w+)\(', body.group(1))))
+    return re.findall(r'constexpr Hooks with_(\w+)\(', body.group(1)) + ['motion']
 
 
 def check_profile(profile):
@@ -372,6 +375,11 @@ def generate_collection(folder, extensions, *, input_features=True):
     for e in extensions:
         symbol = 'sdk_extension_' + e.id + '_hooks'
         lines.append('extern "C" const opxy::extensions::Hooks* ' + symbol + '() __asm__("' + symbol + '");')
+    if input_features:
+        for e in extensions:
+            if e.motion:
+                symbol = 'sdk_extension_' + e.id + '_motion'
+                lines.append(f'extern "C" const opxy::extensions::MotionHooks* {symbol}() __asm__("{symbol}");')
     lines += ['namespace opxy { namespace platform {', 'namespace {',
               'ExtensionEntry collection_entries[' + str(max(1, len(extensions))) + '];',
               '// ' + ', '.join(claims) if claims else '// no claims',
@@ -388,9 +396,10 @@ def generate_collection(folder, extensions, *, input_features=True):
               'const ExtensionRegistry& extension_registry() { return registry_tables; }',
               'const ExtensionEntry* extension_collection(u32& count) {', '    count = 0;']
     for e in extensions:
+        motion = f', sdk_extension_{e.id}_motion()' if e.motion and input_features else ''
         lines += ['    if (const auto* hooks = sdk_extension_' + e.id + '_hooks())',
-                  '        collection_entries[count++] = {"%s", %s, %s, hooks};' % (
-                      e.id, mask(claim_bit, e.claims), mask(action_bit, e.actions))]
+                  '        collection_entries[count++] = {"%s", %s, %s, hooks%s};' % (
+                      e.id, mask(claim_bit, e.claims), mask(action_bit, e.actions), motion)]
     lines += ['    return collection_entries;', '}', '}}', '']
     target = folder / 'extension_collection.cpp'
     target.write_text('\n'.join(lines), encoding='utf-8')
@@ -406,6 +415,13 @@ def generate_extension(folder, extension):
                       'extern "C" const opxy::extensions::Hooks* ' + symbol + '() __asm__("' + symbol + '");\n'
                       'extern "C" const opxy::extensions::Hooks* ' + symbol + '() {\n'
                       '    return &opxy::extensions::' + extension.id + '::hooks;\n}\n', encoding='utf-8')
+    if extension.motion:
+        namespace = 'opxy::extensions::' + extension.id
+        symbol = 'sdk_extension_' + extension.id + '_motion'
+        with target.open('a', encoding='utf-8') as out:
+            out.write(f'static_assert({namespace}::motion_hooks.motion != nullptr, "Motion subscription requires a callback");\n'
+                      f'extern "C" const opxy::extensions::MotionHooks* {symbol}() __asm__("{symbol}");\n'
+                      f'const opxy::extensions::MotionHooks* {symbol}() {{ return &{namespace}::motion_hooks; }}\n')
     if extension.live_input:
         namespace = 'opxy::extensions::' + extension.id
         with target.open('a', encoding='utf-8') as out:
@@ -457,6 +473,8 @@ def metadata(extensions, origins):
             row['linked'] = False
         if e.live_input:
             row['live_input'] = True
+        if e.motion:
+            row['motion'] = True
         if e.drumline_page is not None:
             # Exclusive, as a claim is: the builder lets one selected extension own it
             # (builder/core.mjs exclusiveUses).

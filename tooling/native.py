@@ -264,7 +264,7 @@ UNIT_SERVICES.update(dict.fromkeys(('players', 'player_hooks', 'player_table'), 
 UNIT_SERVICES['keyboard_octaves'] = 'octaves'
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock', 'usb_host'), 'extensions'))
 UNIT_SERVICES['input_monitor_stock'] = 'input_monitor'
-UNIT_SERVICES['input_monitor_absent'] = 'input_overlay'
+UNIT_SERVICES['input_monitor_absent'] = 'motion_runtime'
 UNIT_SERVICES.update(dict.fromkeys(('live_input_stock', 'live_input_menu', 'live_input_hooks'), 'live_input'))
 UNIT_SERVICES['input_monitor_audio'] = 'input_monitor'
 UNIT_SERVICES['input_monitor_hooks'] = 'input_audio'
@@ -308,6 +308,7 @@ def service_users(machines):
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
             ['padMix' for m in machines if pad_mix(m)] +
+            (['motion'] if any(e.motion for e in extensions_of(machines)) else []) +
             (['inputMonitor'] if any('monitor_input' in e.actions for e in extensions_of(machines)) else []) +
             (['live_input'] if any(e.live_input for e in extensions_of(machines)) else []) +
             ['synthShift' for m in machines if m.kind == 'synth' and synth_shift(m.definition)] +
@@ -360,14 +361,17 @@ def object_owners(machines, profile=None, runtime_members=()):
 
 
 def supports_plain_extension(extension):
-    return not extension.live_input and 'monitor_input' not in extension.actions
+    return not extension.live_input and not extension.motion and 'monitor_input' not in extension.actions
 
 
-def plain_extension_objects(machines):
-    shared = {'startup', 'screen_order', 'extension_runtime', 'extension_collection', 'extension_stock'}
-    return {f'sdk/{name}.o' for name in shared} | {
-        f'sdk/extension_{e.id}.o' for e in linked_extensions(machines) if supports_plain_extension(e)
-    }
+def plain_extension_variants(services):
+    variants = {}
+    if 'input_overlay' in services:
+        variants.update({f'sdk/{name}.o': 'input_overlay' for name in ('startup', 'screen_order')})
+    if 'motion_runtime' in services:
+        variants.update({f'sdk/{name}.o': 'motion_runtime' for name in
+                         ('extension_runtime', 'extension_collection', 'extension_stock')})
+    return variants
 
 
 def object_services(machines, profile=None):
@@ -573,8 +577,9 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         return folder / 'display_binding.cpp'
 
     services = active_services(profile, service_users(machines))
-    input_features = 'input_overlay' in services
-    plain_aux = 'aux' in services and not input_features
+    input_features = 'motion_runtime' in services
+    overlay = 'input_overlay' in services
+    plain_aux = 'aux' in services and not overlay
     def extension_cxx(source, obj, extra_includes=(), *, input_features):
         defines = () if input_features else ('OPXY_PLAIN_EXTENSIONS',)
         return compile_cxx(gcc['cxx'], tools['as'], source, obj, includes() + list(extra_includes),
@@ -619,7 +624,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                                                                        input_features=input_features)), obj,
                                      input_features=input_features)
             if step == 'screen_order':
-                return cxx(str(generate_screen_order(folder, input_overlay=input_features)), obj)
+                return cxx(str(generate_screen_order(folder, input_overlay=input_features and overlay)), obj)
             if step == 'sample_callbacks':
                 return cxx(str(generate_sample_callbacks(folder, machines)), obj)
             if step == 'synth_control_table':
@@ -648,7 +653,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                                                 player_pages=[x.prefix for x in by_kind(machines, 'player')],
                                                 control='control' in services, aux='aux' in services,
                                                 locks='drum_locks' in services, extensions='extensions' in services,
-                                                monitor=input_features and 'input_monitor' in services, aux_menu=input_features,
+                                                monitor=input_features and 'input_monitor' in services, aux_menu=input_features and overlay,
                                                 drumline='drumline' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
@@ -681,8 +686,9 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             build_plain_aux(step, obj)
             obj.write_bytes(normalize_object(read(obj)))
     if input_features:
+        variants = plain_extension_variants(services)
         for name, _m, step in plan(machines, profile):
-            if name not in plain_extension_objects(machines):
+            if name not in variants:
                 continue
             obj = directory / 'sdk' / 'plain' / Path(name).name
             build_unit(obj, None, step, input_features=False)

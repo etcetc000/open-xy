@@ -124,7 +124,7 @@ sample values than full-scale Q31. The bundle at
 `8d50fff4` writes the last right sample and loads a stock mix flag. The
 hook replays the store, reads the live track parameter block through R2 and
 calls the processor for source indices 0 (mic), 1 (headset) and 2 (line). The same hook runs
-the Tilt Mic envelope after processing, then replays the flag load. The source index uses the same five-way
+the input-monitor envelope after processing, then replays the flag load. The source index uses the same five-way
 quantizer as `8d50fdf4`. Dry and FX mixing follow.
 
 Both stock early-outs and the normal path reach `8d51011e`. The exit hook
@@ -137,12 +137,13 @@ The existing Aux encoder hook at `8c08fa14` routes Shift turns on M1 to
 the shared overlay. The GUI publishes the controls together in the external
 audio track's unused live word 57 through `8d5acea8`. The controller update
 refreshes the word after stock clears it. The upper three bits tag the word,
-bits 21–28 carry the optional second page, bits 16–20 carry the Brain
-scale index, bits 6–15 carry tuning, and the low six carry the Tilt Mic
-epoch and gate. The audio role decodes the scale into its pitch classes and retains
+bits 24–28 carry stock's Brain scale index, bits 6–23 carry the processor's
+declared choice indices, and the low six carry the monitor epoch and gate.
+The SDK sizes each choice field from its declared count and encodes the
+initial selection as zero. The audio role decodes the scale into its pitch classes and retains
 the last tagged word across an interruption.
 
-When Target follows Brain, the GUI reads the same Brain state as its M1 page
+For the Brain context, the GUI reads the same Brain state as its M1 page
 (`8d5442c8`–`8d544476`). The manual scale triple starts at `84eb5584+0x74`.
 When stock uses the resolved scale, its getter `8d58b324` selects a triple
 from `860bf520` at offset 0x0c, 0x40 or 0x74 depending on bytes 0 and 8.
@@ -342,7 +343,7 @@ registers nor saved routing/gain/level controls change.
 
 The `aux_menu` service shares the existing Aux encoder hook at `8c08fa14`
 with aux machine routing. On external-audio track 12, tab 0, holding Shift
-reveals a `tilt mic` overlay; the dark encoder (index 0 or shifted index 4)
+reveals the monitor owner’s control; the dark encoder (index 0 or shifted index 4)
 selects Off counterclockwise and Auto clockwise. When a live input processor
 supplies controls, the other three encoders edit them in the same overlay.
 The existing compositor traversal draws a private instance of stock's send
@@ -358,7 +359,7 @@ The stock frame reads routing values into this private presenter; no routing
 setter is called. Releasing Shift hides it, and reopening restarts the native
 animation. No additional artwork is installed.
 Shift + M1 also opens the stock Off/Auto selector through the shared menu hook.
-GUI startup reads bounded, versioned `user/tilt-mic.cfg`; an actual mode change
+GUI startup reads bounded, versioned `user/<extension-id>.cfg`; an actual mode change
 writes it, and failed saves retain the previous mode. Motion callbacks perform
 no file I/O; the GUI presenter uses the stock SVG loader. These controls and the audio hook are selected
 only for a collection with a `monitor_input` action owner.

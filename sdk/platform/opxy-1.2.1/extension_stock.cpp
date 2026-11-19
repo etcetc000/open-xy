@@ -55,7 +55,7 @@ extensions::Motion extension_motion() {
     const volatile i16* axes = at<const volatile i16>(kMotion);
     motion.x = axes[0]; motion.y = axes[1]; motion.z = axes[2];
     stock<void(extensions::Time*)>(0x8d5be3a0)(&motion.time);
-    motion.valid = (motion.x || motion.y || motion.z) && byte(kInputEnabled);
+    motion.valid = motion.x || motion.y || motion.z;
     return motion;
 }
 
