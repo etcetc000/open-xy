@@ -2547,20 +2547,20 @@
       "maintainer": "codebrulee",
       "status": "published",
       "repository": "https://github.com/codebrulee/xyphemera",
-      "tag": "earthshine-v1.0.2",
-      "commit": "5495aede420fbe9fd7551c8436361ad0a29c983e",
+      "tag": "earthshine-v1.0.3",
+      "commit": "f61e02ee213bbda3723c3a9648c02f037bbf81b9",
       "path": "earthshine",
       "keywords": [
         "reverb",
         "ambient"
       ],
       "cpu": {
-        "benchmark": "opxy-effect-callback-v1",
-        "commit": "5495aede420fbe9fd7551c8436361ad0a29c983e",
-        "firmware_sha256": "2c178f2e4ee43598603a17fe3df3a3e05957c5a3ac6c98566954924939e67c07",
-        "runs": 2,
-        "block_percent": 9.376669,
-        "peak_percent": 16.351568
+        "benchmark": "opxy-effect-callback-v2",
+        "commit": "f61e02ee213bbda3723c3a9648c02f037bbf81b9",
+        "firmware_sha256": "0e2872f642d12cab77e373c1851f8ee5dca69f988f224a6a64fa325cb607b122",
+        "runs": 1,
+        "block_percent": 9.227131,
+        "peak_percent": 14.489967
       }
     },
     {
