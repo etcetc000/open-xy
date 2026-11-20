@@ -2644,6 +2644,19 @@
         "block_percent": 4.470893,
         "peak_percent": 6.953536
       }
+    },
+    {
+      "id": "euclid_arp",
+      "kind": "player",
+      "maintainer": "yfukami",
+      "status": "published",
+      "repository": "https://github.com/yfukami/op-xy-euclidean-arp",
+      "tag": "v1.0.0",
+      "commit": "11c73c296c3db24de50420a6c804554607484f81",
+      "path": "machines/euclidean_arp",
+      "keywords": [
+        "experimental"
+      ]
     }
   ]
 }
