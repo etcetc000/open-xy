@@ -133,7 +133,8 @@ Keep both `block_percent` (average) and `peak_percent` (worst observed block)
 at or below the **recommended 3.5% each**. A higher result is
 still accepted, but `profile report`, the collector's readout and `catalog check`
 warn for each metric above the recommendation. The report identifies the
-workloads: make those paths lighter where you can. This is guidance, not a hard
+workloads: make those paths lighter where you can
+([what a voice's block costs](api.md#what-a-voices-block-costs-on-the-device)). This is guidance, not a hard
 admission limit. Inspect both metrics; a low mean can
 conceal an expensive block.
 Both timing fields use `100 * encoded_value / 65535`. A peak encoded as 65535
