@@ -25,6 +25,10 @@ struct Context { RecordingContext recording; bool playing; };
 struct Note { i32 position; u32 length; u8 pitch, velocity; };
 struct LiveNote { u32 track, pitch, velocity; i32 position; u32 collision_radius; };
 struct NoteOff { u32 track, pitch; };
+// A live input before stock handles it. Pitch is the integer note identifier
+// passed to stock; the event does not carry pitch-wheel controller values.
+// Releases carry velocity 0. This is not a sequencer or voice-start event.
+struct InputActivity { u32 track, pitch, velocity; bool pressed; };
 struct Tick { u32 delta_q8; bool discontinuity; };
 using Time = __UINT64_TYPE__;
 // Key numbers as stock reports them in queued controls.
@@ -60,6 +64,7 @@ using OnRecordableNoteOn = void (*)(const Context&, const LiveNote&);
 using OnSelectedNoteOff = void (*)(const Context&, const NoteOff&);
 using OnRecordingTick = void (*)(const Context&, const Tick&);
 using OnInputActivity = void (*)();
+using OnInputActivityDetails = void (*)(const InputActivity&);
 using OnQueuedControl = void (*)(const Context&, const Control&, const Actions&);
 using OnUsbHostReady = usb::OnUsbHostReady;
 
@@ -86,6 +91,9 @@ struct Hooks {
     OnRecordingTick recording_tick;
     // Any live note input, accepted or not, on any track.
     OnInputActivity input_activity;
+    // Optional detailed view of the same input_activity event. Retaining the
+    // no-argument callback keeps existing extensions source-compatible.
+    OnInputActivityDetails input_activity_details;
     // A queued control (Record and other queued keys; not keyboard keys
     // 26-49) after stock handled it. Actions act only for their claim owner.
     OnQueuedControl queued_control;
@@ -98,31 +106,34 @@ struct Hooks {
     constexpr Hooks() : Hooks(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr) {}
     // Every callback in order; prefer the with_ builders below.
     constexpr Hooks(OnContext a, OnRecordableNoteOn b, OnSelectedNoteOff c, OnRecordingTick d,
-                    OnInputActivity e, OnQueuedControl f, OnUsbHostReady g)
+                    OnInputActivity e, OnQueuedControl f, OnUsbHostReady g,
+                    OnInputActivityDetails h = nullptr)
         : context(a), recordable_note_on(b), selected_note_off(c), recording_tick(d),
-          input_activity(e), queued_control(f), usb_host_ready(g) {}
+          input_activity(e), input_activity_details(h), queued_control(f), usb_host_ready(g) {}
 
     constexpr Hooks with_context(OnContext f) const {
-        return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control,
-                     usb_host_ready);
+        return Hooks(f, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, usb_host_ready, input_activity_details);
     }
     constexpr Hooks with_recordable_note_on(OnRecordableNoteOn f) const {
-        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control, usb_host_ready);
+        return Hooks(context, f, selected_note_off, recording_tick, input_activity, queued_control, usb_host_ready, input_activity_details);
     }
     constexpr Hooks with_selected_note_off(OnSelectedNoteOff f) const {
-        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control, usb_host_ready);
+        return Hooks(context, recordable_note_on, f, recording_tick, input_activity, queued_control, usb_host_ready, input_activity_details);
     }
     constexpr Hooks with_recording_tick(OnRecordingTick f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control, usb_host_ready);
+        return Hooks(context, recordable_note_on, selected_note_off, f, input_activity, queued_control, usb_host_ready, input_activity_details);
     }
     constexpr Hooks with_input_activity(OnInputActivity f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control, usb_host_ready);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, f, queued_control, usb_host_ready, input_activity_details);
+    }
+    constexpr Hooks with_input_activity(OnInputActivityDetails f) const {
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, usb_host_ready, f);
     }
     constexpr Hooks with_queued_control(OnQueuedControl f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f, usb_host_ready);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, f, usb_host_ready, input_activity_details);
     }
     constexpr Hooks with_usb_host_ready(OnUsbHostReady f) const {
-        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, f);
+        return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, f, input_activity_details);
     }
 };
 }}

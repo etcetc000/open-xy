@@ -59,7 +59,7 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # bits around process (resources.busShift), and lets a note player page eight
 # controls ("press": "page"); and gives a note player a shift row ("shift"),
 # Shift turns and encoder clicks in its Controls, and its step clock's tempo.
-SDK_VERSION = (1, 16)
+SDK_VERSION = (1, 17)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -623,6 +623,8 @@ def machine_at(root, identity=None):
                 'Pad settings and drum controls need the drum sampler base ("base": "drumSampler")')
     if 'trackControl' in definition['resources']:
         require_sdk(version, (1, 9), 'Track control (trackControl)')
+        if definition['resources']['trackControl'].get('inputNotes'):
+            require_sdk(version, (1, 17), 'Track control live input (inputNotes)')
         require((root / 'control.cpp').is_file(), 'A synth with track control supplies control.cpp')
     defaults = value.get('presetDefaults', {})
     require(isinstance(defaults, dict) and set(defaults) <= {'amp', 'volume'}, 'Invalid preset defaults')

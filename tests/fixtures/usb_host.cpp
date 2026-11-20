@@ -126,7 +126,12 @@ void on_ready(const usb::Registry& registry) {
     add_results[4] = registry.add(driver_b);
     add_results[5] = registry.add(driver_a);  // the table holds two
 }
-const extensions::Hooks hooks = extensions::Hooks().with_usb_host_ready(on_ready);
+void on_detail(const extensions::InputActivity&) {}
+void on_activity() {}
+const extensions::Hooks hooks = extensions::Hooks().with_usb_host_ready(on_ready)
+    .with_input_activity(on_detail).with_input_activity(on_activity);
+const extensions::Hooks hooks_reverse = extensions::Hooks().with_input_activity(on_detail)
+    .with_input_activity(on_activity).with_usb_host_ready(on_ready);
 u32 claim_keys[] = {0}, action_claims[] = {0};
 const ExtensionRegistry tables = {claim_keys, 0, action_claims, 0};
 ExtensionEntry collection[] = {{"usbtest", 0, 0, &hooks}};
@@ -177,6 +182,9 @@ u32 request_word(u32 offset) { u32 value; std::memcpy(&value, request_image + of
 }
 
 int main() {
+    CHECK(hooks.usb_host_ready == on_ready && hooks.input_activity_details == on_detail &&
+          hooks.input_activity == on_activity && hooks_reverse.usb_host_ready == on_ready &&
+          hooks_reverse.input_activity_details == on_detail && hooks_reverse.input_activity == on_activity);
     // An RTL8153 on a high-speed link: its second configuration is being tried.
     device_image[0x00] = 3;
     device_image[0x04] = 0x85;  // the stack keeps the address in the low seven bits

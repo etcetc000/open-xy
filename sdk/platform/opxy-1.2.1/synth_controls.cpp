@@ -28,6 +28,7 @@ opxy::u32 (*sdk_aux_engine)(opxy::u32) = nullptr;
 bool (*sdk_aux_owns_page)(opxy::u32) = nullptr;
 bool (*sdk_control_turn)(opxy::u32, opxy::u32, const opxy::i32*) = nullptr;
 void (*sdk_player_press)(opxy::u32) = nullptr;
+void (*sdk_control_activity)(opxy::u32, opxy::u32, opxy::u32, bool) = nullptr;
 
 namespace {
 using opxy::u32;

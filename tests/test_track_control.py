@@ -30,10 +30,15 @@ class TrackControl(unittest.TestCase):
         for shared in (True, False):
             validate_definition(with_control(synth, {'stateBytes': 8, 'stateAlignment': 4, **aux,
                                                      'sharedLfo': shared}), 'synth')
+            validate_definition(with_control(synth, {'stateBytes': 8, 'stateAlignment': 4, **aux,
+                                                     'inputNotes': shared}), 'synth')
         for shared in (1, 'true', None, []):
             with self.subTest(shared=shared), self.assertRaises(ValueError):
                 validate_definition(with_control(synth, {'stateBytes': 8, 'stateAlignment': 4, **aux,
                                                          'sharedLfo': shared}), 'synth')
+            with self.subTest(inputNotes=shared), self.assertRaises(ValueError):
+                validate_definition(with_control(synth, {'stateBytes': 8, 'stateAlignment': 4, **aux,
+                                                         'inputNotes': shared}), 'synth')
         validate_definition(with_control(synth, {'stateBytes': 8, 'stateAlignment': 4, **aux,
                                                  'savedBytes': 8192}), 'synth')
         for control in ({'stateBytes': 6, 'stateAlignment': 4, **aux}, {'stateBytes': 0, 'stateAlignment': 4, **aux},
@@ -63,8 +68,19 @@ class TrackControl(unittest.TestCase):
         self.assertNotIn('sdk/track_control_table.o', native.object_owners(machines))
         with tempfile.TemporaryDirectory(prefix='track-control-') as folder:
             table = generate_track_controls(folder, machines).read_text(encoding='utf-8')
-        self.assertIn('{nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, false, 0, nullptr, {}, false}', table)
+        self.assertIn('{nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, false, 0, nullptr, {}, false, false}', table)
         self.assertNotIn('probesynth', table)
+
+    def test_live_input_is_opt_in_and_links_the_existing_extension_hooks(self):
+        synth = copy.deepcopy(fixture('probesynth'))
+        synth.definition['resources']['trackControl'] = {'stateBytes': 8, 'stateAlignment': 4,
+                                                         'unique': True, 'aux': [12]}
+        self.assertNotIn('extensions', native.active_services(config(), native.service_users([synth])))
+        synth.definition['resources']['trackControl']['inputNotes'] = True
+        self.assertIn('extensions', native.active_services(config(), native.service_users([synth])))
+        self.assertIn('extension_stock', {step for _name, _m, step in native.plan([synth])})
+        with tempfile.TemporaryDirectory(prefix='track-control-') as folder:
+            self.assertIn(', false, true}', generate_track_controls(folder, [synth]).read_text(encoding='utf-8'))
 
     def test_an_unselected_machine_falls_back_for_its_track_control_callbacks(self):
         synth = copy.deepcopy(fixture('probesynth'))

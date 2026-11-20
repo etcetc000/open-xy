@@ -286,6 +286,13 @@ class OutsideMachines(unittest.TestCase):
             machines.machine_at(self.folder)
         self.numberless(self.folder, sdk='1.9')
         self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
+        definition['resources']['trackControl']['inputNotes'] = True
+        (self.folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(self.folder, sdk='1.16')
+        with self.assertRaisesRegex(ValueError, 'Track control live input'):
+            machines.machine_at(self.folder)
+        self.numberless(self.folder, sdk='1.17')
+        self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
 
     def test_a_drum_kits_pad_mix_needs_the_sdk_that_adds_it(self):
         path = self.folder / 'definition.json'

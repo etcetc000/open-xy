@@ -310,7 +310,7 @@ def events():
     text = (ROOT / HEADER).read_text(encoding='utf-8')
     body = re.search(r'struct Hooks \{(.*?)\n\};', text, re.S)
     require(body, 'Missing Hooks in ' + HEADER)
-    return re.findall(r'constexpr Hooks with_(\w+)\(', body.group(1))
+    return list(dict.fromkeys(re.findall(r'constexpr Hooks with_(\w+)\(', body.group(1))))
 
 
 def check_profile(profile):

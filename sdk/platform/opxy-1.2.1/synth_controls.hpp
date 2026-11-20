@@ -139,6 +139,8 @@ extern bool (*sdk_control_turn)(opxy::u32 track, opxy::u32 slot, const opxy::i32
 // page registers (players.cpp), null in builds without a player. It switches a
 // paged player's page or counts another player's click.
 extern void (*sdk_player_press)(opxy::u32 encoder) __asm__("sdk_player_press");
+// Optional live-input consumer, installed by the track-control GUI service.
+extern void (*sdk_control_activity)(opxy::u32, opxy::u32, opxy::u32, bool) __asm__("sdk_control_activity");
 // The send page's title for position `index` of the effect on the selected send
 // track: the name of the slot it shows, which a press may have moved to an alternate.
 const char* sdk_fx_title(opxy::u32 effect, opxy::u32 index) __asm__("sdk_fx_title");
