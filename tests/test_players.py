@@ -97,14 +97,14 @@ class PlayerContracts(unittest.TestCase):
         self.assertIn('titles[8] = {"p0", "p1", "p2", "p3", "p4", "p5", "", ""};', text)
         # Its page also binds the two-row header's eight bars and sixteen texts.
         self.assertIn('static const bool paged = true;', text)
-        self.assertIn('Page::ids[305] = {', text)
+        self.assertIn('Page::ids[313] = {', text)
         self.assertLess(text.index('"probeplayer_played_127"'), text.index('"probeplayer_header_node_0"'))
         self.assertIn('"probeplayer_header_text_15"', text)
         with tempfile.TemporaryDirectory() as directory:
             text = adapters.generate_player_object(directory, self.machine).read_text(encoding='utf-8')
         self.assertIn('{0, 0, 0, 0, 1, 1, 1, 1}, false, false};', text)
         self.assertIn('static const bool paged = false;', text)
-        self.assertIn('Page::ids[281] = {', text)
+        self.assertIn('Page::ids[289] = {', text)
         self.assertNotIn('_header_', text)
 
     def test_press_click_keeps_encoder_4_a_click_of_a_one_page_player(self):
@@ -287,7 +287,6 @@ template<class F> F* stock(u32 a) { return reinterpret_cast<F*>(const_cast<void*
 struct Record {}; struct Screen {};
 inline int sdk_register_screen(const Record*,const Screen*) { return fake_register; }
 inline u32 audio_bpm_x10() { return 1200; }
-inline bool shift_held() { return false; }
 namespace registry { struct StockString { char text[16]; u32 length,capacity; }; }
 }}
 ''', encoding='utf-8')

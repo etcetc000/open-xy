@@ -117,11 +117,15 @@ inline u32 choice(i32 value, u32 choices) {
 // A player with its own page draws it from State on the GUI side, once per
 // frame, while the sequencer may be changing State:
 //   void display(const State& state, const Controls& controls, Display& display);
-// lit shows the artwork's dot k (<name>_dot_<k>, 0..23) when bit k is set;
+// lit shows the artwork's dot k (<name>_dot_<k>) when bit k is set: dots 0..23
+// are required, 24..31 optional, for indicators beyond the keys. dx[k] draws a
+// lit dot that many pixels right of its authored place (clamped to -480..480),
+// such as a pointer along a scale; 0 keeps it in place.
 // text replaces the artwork's <name>_text line; values are the encoder
 // values under the definition's labels, of which the header shows the current
 // page's four. Strings are terminated.
-const u32 display_dots = 24;
+const u32 display_dots = 32;
+const u32 display_required_dots = 24;
 struct Display {
     u32 lit;
     char text[32];
@@ -130,5 +134,6 @@ struct Display {
     // including strum timing, voicing and spread. Four words cover MIDI 0..127.
     u32 played[4];
     u32 lowest_key;
+    i16 dx[display_dots];
 };
 }}
