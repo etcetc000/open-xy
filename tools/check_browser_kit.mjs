@@ -3,6 +3,7 @@ import {readFileSync, writeFileSync, mkdirSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import assert from 'node:assert/strict';
+import {referenceLink, capacityInputs, requireCapacityRejection} from './browser_link_reference.mjs';
 import {openKit, linkKit, readLayout, sha256, checkedSelections, extensionChoices, selectionBit, memoryKit, offersExpandedMemory, moduleBytes} from '../builder/core.mjs';
 
 const [kitFile, objectDir, ld, objcopy, packageLayout] = process.argv.slice(2);
@@ -18,6 +19,7 @@ const layout = resolve('linker/opxy-1.2.1.ld');
 // script is the reviewed one with only the module region moved and grown.
 const memoryLine = p => `MEMORY { MODULE (rwx) : ORIGIN = 0x${p.module_base.toString(16)}, LENGTH = 0x${(p.reserved_bytes - p.table_bytes).toString(16)} }`;
 const layouts = [{suffix: '', kit, script: layout, results: [], file: 'selections.json'}];
+const rejections = [];
 if (offersExpandedMemory(kit.profile)) {
   const reviewed = readFileSync(layout, 'utf8'), expanded = memoryKit(kit, true);
   assert.equal(reviewed.split(memoryLine(kit.profile)).length, 2, 'Linker module region differs from the profile');
@@ -27,11 +29,26 @@ if (offersExpandedMemory(kit.profile)) {
 }
 // Links one selection in the browser and with GNU ld and requires identical modules.
 async function parity(memory, mask, selected, extensions, numbering, name) {
-  const linked = linkKit(memory.kit, selected, numbering, extensions), prefix = resolve(destination, name);
-  const definitions = [...Object.entries(linked.definitions), ...linked.aliases.entries()]
-    .map(([key, value]) => `--defsym=${key}=0x${value.toString(16)}`);
-  execFileSync(ld, ['-T', memory.script, '-e', 'extensions_synth_exit', '-o', prefix + '.elf', ...definitions,
-    ...linked.objects.map(o => resolve(objectDir, o.name))], {stdio: 'pipe', windowsHide: true});
+  const prefix = resolve(destination, name);
+  let linked;
+  try { linked = linkKit(memory.kit, selected, numbering, extensions); }
+  catch (error) {
+    // Only a standard-memory overflow is an expected negative case. The same
+    // selection must still link in the reviewed larger layout and match GNU there.
+    if (error.capacity !== true || memory.suffix || layouts.length !== 2) throw error;
+    const expanded = linkKit(layouts[1].kit, selected, numbering, extensions);
+    const inputs = capacityInputs(expanded, layouts[1].kit.profile, kit.profile);
+    const excess = expanded.sizes.allocated - moduleBytes(kit.profile);
+    let rejection;
+    try { referenceLink(ld, memory.script, prefix, inputs, objectDir); }
+    catch (failure) { rejection = failure; }
+    assert.ok(rejection, 'GNU accepted a selection the browser rejected');
+    requireCapacityRejection(rejection, excess);
+    rejections.push({name, selected, extensions, layout:numbering, excess});
+    console.log('GNU capacity rejection:', selected.join(' + '), 'extensions:', extensions.join(','), excess, 'bytes over');
+    return;
+  }
+  referenceLink(ld, memory.script, prefix, linked, objectDir);
   execFileSync(objcopy, ['-O', 'binary', prefix + '.elf', prefix + '.bin'], {stdio: 'pipe', windowsHide: true});
   const actual = readFileSync(prefix + '.bin');
   assert.deepEqual(Buffer.from(linked.module), actual, 'GNU linker mismatch: ' + selected.join(', '));
@@ -51,8 +68,7 @@ for (const mask of checkedSelections(kit.machines, kit.linked)) {
   for (const memory of layouts) await parity(memory, mask, selected, extensions, numbering,
     `${digest}-${choice}` + (numbering ? '-native' : '') + memory.suffix);
 }
-// The checked selections all fit standard memory. The reason to choose the larger
-// one is a selection that does not: the whole collection, with the largest valid
+// Also check the whole collection, with the largest valid
 // extension choice, is checked at it whenever it needs more than standard memory
 // and fits the larger.
 if (layouts.length > 1) {
@@ -75,3 +91,4 @@ if (layouts.length > 1) {
   }
 }
 for (const memory of layouts) writeFileSync(resolve(destination, memory.file), JSON.stringify(memory.results, null, 2));
+writeFileSync(resolve(destination, 'capacity-rejections.json'), JSON.stringify(rejections, null, 2));

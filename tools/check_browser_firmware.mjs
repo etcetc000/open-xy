@@ -2,13 +2,26 @@
 import {existsSync, readFileSync, writeFileSync, mkdirSync} from 'node:fs';
 import {resolve} from 'node:path';
 import assert from 'node:assert/strict';
-import {openKit, linkKit, patchFirmware, recoverFirmware, readLdr, buildAssets, zipFiles, checkedSelections, imageSettings, memoryKit, offersExpandedMemory, sha256, RECOVERABLE_MACHINES} from '../builder/core.mjs';
+import {openKit, linkKit, patchFirmware, recoverFirmware, readLdr, buildAssets, zipFiles, checkedSelections, imageSettings, memoryKit, moduleBytes, offersExpandedMemory, sha256, RECOVERABLE_MACHINES} from '../builder/core.mjs';
 const [directory, stockFile, content] = process.argv.slice(2);
 const kit = await openKit(JSON.parse(readFileSync(resolve(directory, 'kit.json'))));
 const stock = new Uint8Array(readFileSync(stockFile));
 const catalog = new Uint8Array(readFileSync(resolve(content, 'op1_factory.json')));
 assert.deepEqual(await recoverFirmware(kit, stock), {stock, selected:null});
 const selections = JSON.parse(readFileSync(resolve(directory, 'reference/selections.json')));
+const rejected = JSON.parse(readFileSync(resolve(directory, 'reference/capacity-rejections.json')));
+if (rejected.length) {
+  assert.ok(offersExpandedMemory(kit.profile), 'Capacity rejections require a checked larger layout');
+  const expanded = JSON.parse(readFileSync(resolve(directory, 'reference/selections-expanded.json')));
+  for (const result of rejected) {
+    assert.throws(() => linkKit(kit, result.selected, result.layout, result.extensions), error => error.capacity === true);
+    assert.ok(!selections.some(r => r.name === result.name), 'Rejected selection produced standard firmware');
+    const larger = expanded.filter(r => r.name === result.name + '-expanded');
+    assert.equal(larger.length, 1, 'Capacity rejection lacks expanded GNU parity');
+    for (const key of ['selected', 'extensions', 'layout']) assert.deepEqual(larger[0][key], result[key]);
+    assert.equal(larger[0].sizes.allocated - moduleBytes(kit.profile), result.excess);
+  }
+}
 // A selection numbered with a layout (the native package's own) is recovered with it.
 for (const {name, selected, extensions, layout} of selections) {
   const linked = linkKit(kit, selected, layout, extensions), target = resolve(directory, 'reference', name);

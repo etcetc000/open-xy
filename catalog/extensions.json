@@ -40,6 +40,12 @@
       "tag": "v1.0.0",
       "commit": "797fd0ec6a04e6d0acf75ac8623e049597a9ce11",
       "path": "drumline_page"
+    },
+    {
+      "id": "pulsarsnap",
+      "kind": "extension",
+      "maintainer": "rastalukee",
+      "status": "reserved"
     }
   ]
 }

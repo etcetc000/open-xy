@@ -71,7 +71,7 @@ def expanded_profile(profile):
 
 def selection_services(kit, result):
     """The services a selection links (builder/core.mjs activeServices): its machines' kinds
-    and declared features, its extensions, and a master processor among them."""
+    and declared features, its extensions, and their processor or Drumline page."""
     selected = [m for m in kit['machines'] if m['id'] in result['selected']]
     chosen = [e for e in kit.get('extensions', []) if e['id'] in result['extensions']]
     # Settings extensions link no runtime; every chosen extension adds its capabilities.
@@ -80,11 +80,9 @@ def selection_services(kit, result):
                            (['extension'] if any(e.get('linked', True) for e in chosen) else []) +
                            [c for e in chosen for c in e.get('capabilities', [])] +
                            # kit.json names it master_processor; older kits, master_filter (core.mjs processorOf).
-                           (['master_filter'] if any((e.get('master_processor') or e.get('master_filter')) and
-                                                     e['id'] in result['extensions']
-                                                     for e in kit.get('extensions', [])) else []) +
-                           (['drumline_page'] if any(e.get('drumline_page') and e['id'] in result['extensions']
-                                                     for e in kit.get('extensions', [])) else []))
+                           (['master_filter'] if any(e.get('master_processor') or e.get('master_filter')
+                                                     for e in chosen) else []) +
+                           (['drumline_page'] if any(e.get('drumline_page') for e in chosen) else []))
 
 
 def selection_settings(kit, result):
@@ -174,15 +172,15 @@ def check_expanded(directory, kit, stock, boot_label):
         module, symbols = check_module(prefix, result, reviewed, boot_label)
         check_numbers(kit, result, symbols)  # every 4 MiB build, the whole collection included
         services = selection_services(kit, result)
+        values = selection_settings(kit, result)
         for profiling, suffix in ((True, '.ldr'), (False, '.profiling-off.ldr')):
-            require(assembled(stock, module, symbols, reviewed, services, profiling, selection_settings(kit, result)) == prefix.with_suffix(suffix).read_bytes(),
-                    'Python/browser firmware differs (experimental memory): ' + suffix)
+            require(assembled(stock, module, symbols, reviewed, services, profiling, values) == prefix.with_suffix(suffix).read_bytes(),
+                    'Python/browser firmware differs (experimental memory): ' + result['name'] + suffix)
     return len(selections)
 
 
-def main():
-    directory, stock_file, content = map(lambda p: Path(p).resolve(), sys.argv[1:])
-    subprocess.run(['node', str(ROOT / 'tools/check_browser_firmware.mjs'), str(directory), str(stock_file), str(content)], check=True)
+def verify_generated(directory, stock_file, content):
+    """Independently compare the generated browser artifacts against GNU and Python."""
     kit = json.loads((directory / 'kit.json').read_text(encoding='utf-8'))
     # Definitions of the machines the kit was built from, wherever they live.
     collection = configuration(package_collection(directory / 'source'))[1]
@@ -227,7 +225,7 @@ def main():
         for profiling in (True, False):
             expected = assembled(stock, module, symbols, kit['profile'], services, profiling, values)
             suffix = '.ldr' if profiling else '.profiling-off.ldr'
-            require(expected == prefix.with_suffix(suffix).read_bytes(), 'Python/browser firmware differs: ' + suffix)
+            require(expected == prefix.with_suffix(suffix).read_bytes(), 'Python/browser firmware differs: ' + result['name'] + suffix)
             modes[profiling] = expected
         # The modes differ only inside the reviewed profiling hook windows.
         restored = bytearray(modes[False])
@@ -304,6 +302,12 @@ def main():
     expanded = check_expanded(directory, kit, stock, boot_label)
     print('Independent GNU/Python verification passed for the checked selections (module, symbols, BSS, LDR, assets, ZIP)'
           + (f', and {expanded} at the experimental 4 MiB layout (module, symbols, BSS, LDR).' if expanded else '.'))
+
+
+def main():
+    directory, stock_file, content = map(lambda p: Path(p).resolve(), sys.argv[1:])
+    subprocess.run(['node', str(ROOT / 'tools/check_browser_firmware.mjs'), str(directory), str(stock_file), str(content)], check=True)
+    verify_generated(directory, stock_file, content)
 
 
 if __name__ == '__main__':

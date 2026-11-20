@@ -50,7 +50,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Aux tracks | 13 | Lets a track control machine take over aux track 12 (CV): its chooser on Shift + M1 (the effect list on the sends), its presets on Shift + track key, its page on M1, its parameter names on the LFO's destinations, its own LFO whichever track is selected, and CV and gate kept silent; four MTP allowlist edits show the user's aux presets |
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
-| Extension events | 7 | Observes live input, stock transport and queued controls for extensions, and lets a Record double-tap owner edit notes through stock editing and undo; linked only when an extension is selected |
+| Extension events | 8 | Observes live input, stock transport and queued controls for extensions, lets a Record double-tap owner edit notes through stock editing and undo, and lets an extension add [USB host drivers](#usb-host-drivers) while the host stack starts; linked only when an extension is selected |
 | Module | 1 record | One loader block holding the linked module |
 
 The sample rows (sample dispatch, analysis, drum-page services and recorder)
@@ -185,6 +185,79 @@ and release verification check the target ABI and reconstruction. Hardware
 observations must be tied to the tested image; host doubles do not establish
 device timing or acceptance.
 
+## USB host drivers
+
+The stock host stack is the commercial smx USB stack (smxUSBH, with smxUSBD for the
+device side) on FreeRTOS. This section is a reading of the OS 1.2.1 image, checked on a
+device with a USB-C Ethernet adapter (Realtek RTL8153): enumeration at high speed, claiming
+an interface, control transfers, `SET_INTERFACE`, and bulk IN and OUT transfers. Stock
+addresses are for that release only.
+
+The extension hook for `usb_host_ready` replaces two
+adjacent stock calls at `0x8c073c34` in the host stack's init (`0x8c073c00`): `0x8c071a50`,
+the last class-driver initialiser, and `0x8c070350`, which starts the host. The hook
+(`sdk_extensions_usb_host_init`) repeats both in order, with the extension's drivers
+added between them, and returns the second call's result, which the following code tests.
+Both stock calls take no arguments. Four 4-byte relative calls would not reach the module
+from `0x8c07`, so the profile entry is eight bytes: an absolute call.
+
+**Class drivers.** Each is a 28-byte record the stack links onto a circular list headed at
+RAM `0x080113d4`: `+0` and `+4` the list links, `+8` the name, `+0xc` probe, `+0x10`
+remove, `+0x14` the match table, `+0x18` a mutex that the registration creates.
+`0x8c0734a4(record)` adds it (0, or -1 when it cannot). The stock drivers are the hub
+(interface class 9), audio/MIDI (interface class 1, subclasses 1 and 3), an Apple role
+switch (vendor `0x05ac`) and the USB-IF test device (vendor `0x1a0a`): there is no stock
+CDC, HID or mass-storage host driver.
+
+**Matching.** A match table is an array of 12-byte entries ended by an all-zero entry:
+`+0` a 16-bit flags word (bit 0 interface class, 1 interface subclass, 2 interface
+protocol, 3 device class, 4 device subclass, 5 device protocol, 6 vendor ID, 7 product ID),
+`+2` vendor ID, `+4` product ID, `+6..+8` device class, subclass, protocol, `+9..+11` interface
+class, subclass, protocol. `0x8c0731e8(device, interface)` walks the list: device-level flags
+are compared with the device structure's copy of the device descriptor (class, subclass,
+protocol at `+0x60..+0x62`, vendor `+0x64`, product `+0x66`), interface-level flags by
+`0x8c073132`. On a match it first calls `SetConfiguration` (`0x8c0728bc`) with the current
+configuration's value, then `probe(device, interface, matched)`. A non-zero return claims the
+interface; the stack records the driver and the return value, which it hands back as the
+second argument of `remove(device, context)` when the device is removed (`0x8c073976`).
+
+**Enumeration.** `0x8c072ed4` reads the device descriptor, assigns the address, reads the
+device descriptor again and then every configuration descriptor into 60-byte records (raw
+9-byte configuration descriptor first, a pointer to the interface records at `+0xc`),
+pointed to by device `+0x70`, with `bNumConfigurations` at `+0x6d`. The record being tried is
+at device `+0x74` and the current configuration value at `+0x78` (-1 for none). It tries each
+configuration in order, calling the binder `0x8c073aa0`, which matches each interface, and
+stops at the first for which a driver claims one. `SetConfiguration` refuses, with -23, a
+configuration whose `bMaxPower` is above 50 (100 mA at high speed) while the flag byte at
+`0x84007874` and the device's `+2` byte are 0.
+
+**Transfers.** `0x8c07389c(device, pipe, bRequest, bmRequestType, wValue, wIndex, data,
+wLength, timeout_ms)` sends a control request and waits for it, returning the bytes
+transferred or a negative status. The default pipe word is the device address in bits 8 to
+14, bit 26 for a low-speed device and, for an IN request, **bit 7**: without it the
+controller's interrupt handlers fail every IN request at once with -13. `SetInterface`
+(`0x8c0729b8(device, interface, alternate)`) issues the request and records the alternate
+setting. A request object comes from `0x8c0736e4(iso_packet_count)` (80 bytes plus 16 per
+isochronous packet, zeroed, with a semaphore at `+0x44`) and is submitted with `0x8c0737e4`.
+Its fields: the pipe word at `+0x08`, a value the audio driver sets to 8 on its bulk requests
+at `+0x0c` (its meaning is not known), the status at `+0x10` (-20 while pending, negative on
+error), the length at `+0x14`, the actual length at `+0x18`, -1 at `+0x1c`, the data buffer at
+`+0x2c`, a context pointer at `+0x34`, the completion callback at `+0x40` and the device at
+`+0x48`. A bulk or interrupt endpoint's pipe word adds the endpoint number in bits 15 to 18,
+bit 7 for IN, and **the transfer type in bits 30 and 31** (the endpoint's `bmAttributes` type:
+2 bulk, 3 interrupt). The control function waits with `0x8c03e6f4(semaphore, ms)` (0 on
+timeout) on a completion, `0x8c07347c`, that gives the semaphore; on a timeout it cancels the
+request with `0x8c073840`, and it frees the object with `0x8c07375c`. The SDK's bulk and
+interrupt service builds a request the same way, with that completion. A bulk IN buffer should be
+32-byte aligned (the stack's allocator aligns its own) and its length a multiple of the
+endpoint's packet size.
+
+The glue (`usb_host.cpp`) copies a device's fields into an `opxy::usb::Device` before each
+callback, offers the control, `SET_INTERFACE` and transfer services above, and sends
+`Services::log` to the device's own log through the stock logger `0x8c042efc(level, file,
+line, format, ...)` (level 3, as most of the stock's own calls), where it appears tagged
+`usb_host_ext`.
+
 ## Extension events
 
 The [extension runtime](extensions.md) shares these hooks among the statically
@@ -195,10 +268,11 @@ named for the stock calls they replace; they are adapter entry points, not
 extension APIs. Capture ([open-xy-core-machines](https://github.com/etcetc000/open-xy-core-machines/tree/main/extensions/capture)) is the first
 subscriber: it owns the bounded current-track ghost pattern and the Record gesture.
 
-The seven hooks replace the controller-update call at `0x8c0baaf0`, queued key
+The eight hooks replace the controller-update call at `0x8c0baaf0`, queued key
 dispatch at `0x8c0b6184`, normalized live onset/release at `0x8d594376` and
 `0x8d59420a`, accepted-note bookkeeping at `0x8d595844`, recorder tick at
-`0x8d59819c`, and Stop cleanup at `0x8d597db8`.
+`0x8d59819c`, Stop cleanup at `0x8d597db8`, and the host stack's start at
+`0x8c073c34` ([USB host drivers](#usb-host-drivers)).
 The controller-update call follows the GUI tick call in the same main loop;
 they are separate sites. The Stop hook observes a stop/restart pair within one controller update. The key
 span also replaces the following queue-address load; its wrapper returns that
