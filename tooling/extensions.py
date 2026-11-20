@@ -419,7 +419,8 @@ def generate_extension(folder, extension):
         namespace = 'opxy::extensions::' + extension.id
         symbol = 'sdk_extension_' + extension.id + '_motion'
         with target.open('a', encoding='utf-8') as out:
-            out.write(f'static_assert({namespace}::motion_hooks.motion != nullptr, "Motion subscription requires a callback");\n'
+            out.write('namespace { constexpr bool has_motion(const opxy::extensions::MotionHooks& hooks) { return hooks.motion != nullptr; } }\n'
+                      f'static_assert(has_motion({namespace}::motion_hooks), "Motion subscription requires a callback");\n'
                       f'extern "C" const opxy::extensions::MotionHooks* {symbol}() __asm__("{symbol}");\n'
                       f'const opxy::extensions::MotionHooks* {symbol}() {{ return &{namespace}::motion_hooks; }}\n')
     if extension.live_input:
