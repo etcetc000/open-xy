@@ -44,6 +44,7 @@ version is rejected. The output differs from stock in exactly these places:
 | LFO destinations | 15 | Selects and modulates all declared engine parameters on owned instrument machines with five to eight parameters, using their assigned encoder icons |
 | Display note releases | 2 | Observes both stock note-off map updates while preserving their original calls |
 | Project companions | 7 | Writes a [companion](projects.md) after every project save, maps a project's machine numbers through its companion on every load, gives track control machines what they kept after every load (and nothing after a new project), and shows companions beside projects over MTP |
+| Punch-in FX | 12 | Turns page 2 on and off with shift on the punch-in track, raises its effects' intensity while an encoder is held and turned there, takes its keys before stock's live note-on as a second bank, latched per key, and runs that key's effect in stock's per-track, per-note and step passes on every instrument track; plays the notes effects add; shows their flip-dot animations. Stock's punch-in keys are untouched |
 | Diagnostic benchmark | 1 | Extends explicit command 0xc8 with the selected machines; no normal-playback callbacks added |
 | Per-voice profiling | 10 optional | Bypasses diagnostic timing in both stock voice renderers when built with profiling off |
 | Track control | 6 | Runs a synth's track control once per GUI tick, after stock's own call at that site, notes encoder edits, lets it play notes and take its own encoder turns, shows its overlays as parameter values, and keeps overlays off a parameter a step's lock holds (three lock writes) |
@@ -1008,6 +1009,172 @@ preset of a machine a later build left out, is then not listed; its file stays
 on the device. Until stock's engine name map exists, every name counts as
 installed. User presets stay listed: stock deletes a user folder that lists no
 presets, so hiding them could delete them.
+
+## Punch-in FX
+
+Punch-in effects are sequencer logic on the GUI side, not audio objects. Each
+pass, stock collects the notes held or recorded on the punch-in track
+(auxiliary track 2, and shift + key on an instrument track) into a mask at
+offset 0xc of the sequencer object (`8d58c6c0`): ten 12-bit words, one per
+instrument track, then all drum tracks and all melodic tracks. Bit k is the
+k-th key from F. A track counts as a drum track when its engine is 3 or 4.
+Stock then runs one effect pass per instrument track (`8d58ca10`) and one at
+note start, each asking whether a bit is held for that track or its group.
+Effects either write per-track parameter overrides (`8d58c5b8`), which stock
+releases when the key is no longer held, or change notes and timing. An
+override sets the track's live word (`project + 0x4080 + track × 0xe8 + index
+× 4`, through `8d5acea8`, which rejects a negative value) and sends it to the
+audio side, whose mixer record holds the same 58 words. Stock's own effects
+override words 8..11, 13 and 16 and the track's pan (38) and level (39). The
+mixer (`0x84eab39c + 0xe8 × track`) reads the FX I and FX II send knobs from
+words 22 and 23 (`8d510d6a`, `8d510e06`), Q31 knob positions; there is no
+third send bus.
+
+SDK effects form a second bank, **page 2 of the punch-in track**: a shift press
+while the punch-in track is selected turns it on or off (the flip-dot screen
+shows PAGE 2 while it is on and none of its keys is held), and its keys then
+play the effect on that key (0..11 from F in the low octave, 12..23 in the high
+octave, each its own effect) on every instrument track. Turning page 2 off
+releases its keys still held. Stock's effects keep every key: the keys on page
+1, and shift + key on an instrument track. A page-2 press never reaches stock,
+so it plays no stock effect, adds no held note and is not recorded (live only).
+
+From disassembly (high confidence unless noted): the keyboard handler
+`8c092188` sends a live note for the selected track (`840a0534`) to note-on
+`8d594278` (sequencer, track, pitch, velocity, event) at `8c0921ca`, and the
+release wrapper `8c090dbc` sends it to note-off `8d5941ac` (sequencer, track,
+pitch, event) at `8c090dda`; key presses (buttons 26..49, `8c092304`) and
+releases (`8c092eb8`) derive the pitch the same way from the button, and
+incoming MIDI for the selected track (`8d58e4a4`) uses both functions too.
+Both note functions call the remap `8d5940c6` (sequencer, u8* track, u8*
+pitch, punched). With shift's flag set (sequencer + 0x3080, written only by
+the shift button's handler `8c092ac8` from the current view's answer), it
+turns a note on track 0..7 into a punch-in note on track 9; on track 9, the
+punch-in track, it maps the key to 101..124 (drum octave, then melodic) with
+or without shift. The punch-in track's view does not accept shift, so that
+flag stays clear there (confirmed on the device). Page 2 hooks the button
+itself instead: the top-level button dispatcher stores shift's (button 55)
+held state through `8d51f198` (the press's call at `8c0b5b66`, the release's at
+`8c0b5bea`) before any view sees it, and `8d51f184` returns it. The selected
+track is the byte at `840a0534`.
+
+Track filters (M3) reach the audio side as message 0xa5 (track, type, on):
+the GUI sender `8d4dc6dc` (track, type 0..18, on) asserts the type, keeps
+each track's last value at `840396d4` + 4 * track (the type, or the type
+minus 100 while off) and queues the message only when that value changes.
+The audio dispatcher (`8d5b1260`, switch on the message's byte 2 minus 0x98,
+table `840ab380`) sends it to the setter `8d50ebd2`, which writes the type
+word (`84042700` + 4 * track) and the on byte (`11b01dc8` + track) the voice
+renderer reads; 0xa4 (track, on) is its on/off case. Punch-in effects switch
+a track's filter through this sender with `Overrides::filter` and give back
+the cached value on release; the project is never written (from disassembly,
+high confidence; switching mid-note to be confirmed on the device).
+
+The intensity knob of page 2 uses the key layer's encoder paths (medium
+confidence; from disassembly). Its button-event handler `8c0b5d58` (event words:
+code, down) marks an encoder press (codes 10..13) as a pending click at
+`08023c4c` + index and calls `8d5b8100` (event), hooked at `8c0b5d98`; on
+release it plays the click if still pending and calls `8d5b8030` (event),
+hooked at `8c0b5db2`. A turn reaches `8c0b5c0c` (index 0..3, turn record),
+hooked after its prologue at `8c0b5c14` (the complete eight-byte `P1 = 08023c48`
+load, replayed on fallback): the record's first word is the change in Q31 (1 % a
+detent, 2 or 3 % when turned fast), and stock's turn clears the pending click.
+While page 2 is on and the punch-in track selected, the SDK takes every turn
+and stock never sees it: an unheld encoder's turn moves the knob and leaves it
+there, a held one's moves it while held (clearing the pending click itself);
+a click resets it. Stock gives shift + key on
+the punch-in track no meaning of its own.
+
+Stock's passes, and the SDK's hooks on each
+([`punch.cpp`](../sdk/platform/opxy-1.2.1/punch.cpp),
+[`punch_bank.hpp`](../sdk/platform/opxy-1.2.1/punch_bank.hpp)):
+
+- **Live note-on** (`8d594278`, called at `8c0921ca`): on track 9 with shift's
+  flag set, the SDK runs stock's remap on copies to find the key position;
+  when an effect plays that key it latches the keyboard pitch and returns 0
+  without calling stock. Anything else, including F# and G# and a full latch
+  table, goes to stock unchanged. The call site is shared by the handler's
+  other branch (`8d5b7e34` nonzero, not identified), whose own step handling
+  runs before it; medium confidence that it does nothing for a key on track 9.
+- **Live note-off** (`8d5941ac`, called at `8c090dda`): the release of a
+  latched pitch ends that key's effect and returns 0, whatever shift and the
+  selected track are by then; other releases go to stock. An effect with a
+  `release` quantum stays latched until the 96-PPQN position reaches the next
+  multiple of it (or goes back), checked before each pass.
+- **Mask** (`8d58c6c0`, called at `8d58e0f2`): stock's builder runs
+  unchanged; afterwards the SDK plays the notes effects queued.
+- **Per-track pass** (`8d58ca10`, called each tick for tracks 0-7 at
+  `8d58cea4` and at note start at `8d58cfe6`): writes parameter overrides
+  through `8d58c5b8`; stock releases any override not set again on the next
+  tick. Its third argument is stock's modulation (`8d58c9e4`): twice the
+  punch-in track's pitch bend plus 64 times one tilt axis. The bend is the
+  punch-in track's signed 14-bit entry in the 16-bit table at `08037c90`
+  (`8d4db70c(9)`), so its term spans ±16382. The tilt term negates the second
+  motion channel at `08037ba2`, which stock stores as the controller's raw axis
+  times −64, saturated to 16 bits, so it spans ±32767. Stock's own effects
+  ignore a value within ±3000 and reach their full effect 8191 to 12500
+  beyond it. The held second-bank effects' `tick` runs after it on the same
+  overrides, on every track 0-7.
+- **Per-note pass** (`8d58cf58`, called from the note loop at `8d595be6`): runs
+  after step components on the event the sequencer plays, whose byte 0xd is
+  the pitch (255: no note) and byte 0xf the velocity; its fifth argument marks
+  a generated copy. The effects' `note` runs after it.
+- **Step remap** (`8d58c84c`, called by the track player at `11a0ab40`):
+  rewrites the step a track plays. The effects' `step` runs after it.
+- **Flip-dot animation** (`8d554ae0`, called by the punch-in screen's dot
+  display at `8d554bd2`): picks the latest note held on the punch-in track, maps
+  it to one of 24 key positions (the drum octave's twelve keys from F, then the
+  melodic octave's) and returns that position's animation from the table at
+  `8406c4c8`, or an idle one. A record is a frame-pointer array, a zero word and
+  a frame count; each frame is 40 x 18 dots, one bit each, row by row, 90
+  bytes. The display shows one frame per refresh and loops. While a
+  second-bank key is held, the SDK returns the latest one's animation, if it
+  has one, in place of stock's choice (medium confidence that the display asks
+  while no stock key is held).
+
+- **Notes effects play** (`punch::play`): queued by the SDK and played at the
+  start of the sequencer tick they fall due in, from the mask hook, through
+  stock's note player `8d595738` as stock's repeat and fill keys call it:
+  (sequencer `860c6adc`, track, pitch, 64-bit length at 480 per step, velocity,
+  0, 0, 64-bit event time from `8d59357c`, flags 4, 0). The note runs through
+  step components and the per-note pass, where effects see it as generated.
+- **Master overrides** (`punch::master`): global values for the MIX page 1–3
+  parameters, sent to the audio side through the GUI's own senders, which
+  queue one message (type, id byte, value word) on the GUI→audio bridge
+  through `11a00ec0` (queue `841460b4`): page 1 EQ `8d4dc84c` (0xb3), page 2
+  `8d4dc890` (0xc6) and page 3 `8d4dc808` (0xa2), each `(id, value)`. The page
+  handler `8c09358c` passes the encoder index masked to 0..3 as the id, so ids
+  run left to right; the user-visible knobs of page 2 are gain, clip, tone and
+  mix (as reported from the device), of page 3 two unlabelled ones, the
+  compressor (read by `8d50efd8`) and the master level. Their project words
+  are at `+0x68`, `+0x78` and `+0x88` + 4·id in the active project
+  (`8d584210`). From disassembly: the senders run on the GUI main loop
+  (`8c0babcc`), which also calls the controller update (`8c0baacc`) that
+  drives the sequencer; stock's own sequencer update sends 0xc3 messages
+  through the same queue (`8d58c474`), and stock publishes the twelve master
+  words from it (`8d5989c0`). The push takes no lock; it relies on its callers
+  sharing that loop, as the sequencer hooks do. The SDK collects values set
+  since the last complete run of per-track passes over tracks 0–7 and then
+  sends each new one, each one a knob edit or publication replaced, and each
+  changed one at most once per 96-PPQN tick; for one no longer set it sends
+  the project's value. Project memory is never written. The sequencer may
+  build the mask several times per update but runs the per-update pass once,
+  so the runs of passes, not the mask, mark the boundary.
+
+Effects follow [`opxy/punch.hpp`](../sdk/include/opxy/punch.hpp), whose
+`punch::intensity` turns stock's modulation into an intensity (20 % at rest
+and within ±3000, up to 100 % 12000 beyond, either way) and `by_intensity`
+into a value; variations take their own keys, never the bend. Page 2's
+encoder raises the same intensity (a full turn is full). The examples in
+[`punch_example.cpp`](../sdk/platform/opxy-1.2.1/punch_example.cpp) fill, in
+the low octave, volume (F), lowpass (F#) and hipass (G#) on drum tracks (both
+together: a bandpass), a snare roll (G), a sidechain pump on melodic tracks
+(A), a kill that releases on the next bar (A#), an accent (B), ratchet (C), a
+master squash through the MIX page 3 compressor (C#), echo (D) and master clip
+(D#) and gain (E) through MIX page 2; and in the high octave volume, lowpass
+and hipass on melodic tracks (F, F#, G#), a gate (G), a master filter sweep
+(A), an octave up (A#), a wah (B) and FX I and FX II send boosts (C, C#); D, D#
+and E stay stock's. The intensity sets how much each does.
 
 ## Send effects
 
