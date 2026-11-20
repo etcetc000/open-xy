@@ -128,6 +128,62 @@ host does fast and the Blackfin does not:
   hand-written [native routine](#native-routines), once the C++ is as lean as
   it gets.
 
+### What a voice's block costs on the device
+
+A machine's code and data live in external memory behind the core's caches,
+and the work stock does between blocks pushes them out. So in a
+[one-voice measurement](profiling.md) a block starts cold, and it pays for every
+line of code and data it touches as well as for its instructions. Measured on
+OS 1.2.1, against the 580,352-cycle block budget:
+
+| Cost | About |
+| --- | --- |
+| Stock's own per-voice work and the adapter (a synth whose render writes silence) | 1.2% |
+| A load that hits the cache, in any memory a machine owns: tables, voice, stack, output | 1 cycle |
+| A 32-byte line of code or data not in the cache | 30 cycles: 1% of the budget is about 190 lines, or 6 KB |
+
+A stock synth measures 1.6% to 2.7%, so its own work costs 0.4% to 1.5% above
+that floor, and stock engines are built for it: each runs one parameter routine
+of about 40 to 120 instructions a block, then sample loops of 3 to 5
+instructions a sample (a mix, an integrator) or about 20 (a computed waveform).
+Dissolve's sample code and tables sit in on-chip memory, which machine code
+cannot use. A render that runs 10 KB of compiled code once a block spends about
+0.7% fetching it, before any arithmetic: make the path every block takes small.
+
+- **Count the bytes a block runs, not only its instructions.** Put rare paths
+  (a note's start, a recompute after a knob moves) in functions of their own,
+  outside the path every block runs. Reach each piece of per-block work through
+  a call (a small table of functions works) rather than inlining it all into
+  one large render. Keep the fields every block reads together at the start of
+  the voice, and drop per-block passes that guarantee nothing, such as a
+  clamp the gains already keep the output under.
+- **Work a value out when its inputs change**, not every block: body or filter
+  tables, gain weights, coefficients. Keep the result in the voice beside the
+  knob values it came from, and compare those first.
+- **Spread the rest across blocks.** Give each piece of control work a slot
+  and run one slot a block over a period of 8 or 16 blocks: the gains, the
+  body, a step of a search, the pitches. Ramp each gain across the period to the
+  value its slot worked out, and glide each coefficient. A block then runs the
+  sample loops and one small slot, so a knob moving every block (a p-lock
+  slide, an LFO) costs about what a held one does. A move reaches the sound up
+  to one period later: 8 blocks are 12 ms, 16 blocks 23 ms.
+- **Start a note over silent blocks** when its setup is heavy. A note started
+  at once does every slot's work in its first block, which becomes the voice's
+  worst block; set it up over its first blocks and let it sound from the next
+  (four blocks are 5.8 ms).
+- **A sine from a recurrence** costs two multiplies a sample and reads no
+  table: the magic circle `x -= e * y; y += e * x` with `e = 2 sin(pi f / fs)`
+  holds `x² + y² - e x y` constant. Its `y` peaks at `sqrt(K / c)`, with
+  `c = 1 - e²/4`, so it swells by up to `1 / cos(pi f / fs)` as the pitch rises,
+  and each step of `e` moves `K` a little. Pull `K` back towards `A² c` every
+  block (one correction a block, from the circle's own state) to hold the peak
+  at `A`. Keep a silent or muted partial's gain ramp moving, or it restarts at
+  a stale level.
+- **Re-measure on the device.** The host estimate keeps everything in its
+  caches: a loop rewritten in fewer instructions can save nothing on the
+  device when its cost was the lines it touched, and the gain from touching
+  fewer lines doesn't show on the host.
+
 Measure and publish the required [hardware CPU readout](profiling.md) before
 submitting a catalog entry: add both average cost (`block_percent`) and worst
 observed block (`peak_percent`) from the generated report. A low average can
