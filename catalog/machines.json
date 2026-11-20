@@ -358,7 +358,7 @@
     {
       "id": "vibe",
       "kind": "effect",
-      "maintainer": "meemknight",
+      "maintainer": "lowlevelgamedev",
       "status": "published",
       "repository": "https://github.com/meemknight/vibe",
       "tag": "v1.0.0",
@@ -628,8 +628,8 @@
       "maintainer": "MartinfraDD",
       "status": "published",
       "repository": "https://github.com/MartinfraDD/scales",
-      "tag": "v1.0.0",
-      "commit": "ddba02717fb76d1245518fa6aa72d51e6201fc4e",
+      "tag": "v1.1.0",
+      "commit": "47986121f401f7c95722626f5eae591918002d92",
       "path": ".",
       "keywords": [
         "chord"
@@ -1825,6 +1825,38 @@
       }
     },
     {
+      "id": "tesla",
+      "kind": "synth",
+      "maintainer": "lowlevelgamedev",
+      "status": "published",
+      "repository": "https://github.com/meemknight/OPXY-Tesla",
+      "tag": "v1.0.0",
+      "commit": "a03e42c57f7e62440c3e76c41120946bade75145",
+      "path": ".",
+      "keywords": [
+        "emulation",
+        "analog",
+        "lofi",
+        "modulation",
+        "noise"
+      ],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "a03e42c57f7e62440c3e76c41120946bade75145",
+        "firmware_sha256": "dbd5d39e8d93668b86ab925ae834b031bcae0443ecd279eab08be4253a02fbb7",
+        "runs": 3,
+        "block_percent": 3.132677,
+        "peak_percent": 3.323415,
+        "midpoint_percent": 2.317845,
+        "combined_percent": 2.384985,
+        "worst_setting": {
+          "control": 4,
+          "label": "Crush",
+          "value": 268435455
+        }
+      }
+    },
+    {
       "id": "halo",
       "kind": "effect",
       "maintainer": "kristapskristaps",
@@ -1885,8 +1917,8 @@
       "maintainer": "kristapskristaps",
       "status": "published",
       "repository": "https://github.com/kristapskristaps/xy-machines",
-      "tag": "vader-v1.1.0",
-      "commit": "16ee2c863de8552ea9769f83ca869e4b5010c1ba",
+      "tag": "vader-v1.2.0",
+      "commit": "71045781d5b70cae3cf936a7ba676cd91a80efb8",
       "path": "machines/vader",
       "keywords": [
         "bass",
@@ -1894,19 +1926,19 @@
       ],
       "cpu": {
         "benchmark": "opxy-synth-c8-sweep-v1",
-        "commit": "16ee2c863de8552ea9769f83ca869e4b5010c1ba",
-        "firmware_sha256": "b0a3ba8ed706badd68df9ab2f6ca918106d4984e2e8ce7896a5dc0f4a0c74350",
+        "commit": "71045781d5b70cae3cf936a7ba676cd91a80efb8",
+        "firmware_sha256": "8ccbf01d2421a24d505597acffe5e6666f75aa696408668cb07272cc5c65d795",
         "runs": 1,
-        "block_percent": 3.883421,
-        "peak_percent": 5.531395,
-        "midpoint_percent": 2.963302,
-        "combined_percent": 2.276646,
+        "block_percent": 2.891585,
+        "peak_percent": 10.778973,
+        "midpoint_percent": 2.803082,
+        "combined_percent": 2.221714,
         "worst_setting": {
           "control": 2,
           "label": "Drive",
           "value": 805306367
         },
-        "report": "https://github.com/kristapskristaps/xy-machines/blob/main/docs/profiling/2026-11-07/staging-batch/vader/report.md"
+        "report": "https://github.com/etcetc000/open-xy/pull/539"
       }
     },
     {
@@ -2477,6 +2509,140 @@
           "label": "Fold",
           "value": 1610612735
         }
+      }
+    },
+    {
+      "id": "neuroform",
+      "kind": "synth",
+      "maintainer": "V714",
+      "status": "published",
+      "repository": "https://github.com/V714/opxy-synths",
+      "tag": "neuroform-v1.0.0",
+      "commit": "1011581b7023d88d65a6a4f0bfbd8754847e1510",
+      "path": "neuroform",
+      "keywords": [
+        "bass",
+        "fm",
+        "analog"
+      ],
+      "cpu": {
+        "benchmark": "opxy-synth-c8-sweep-v1",
+        "commit": "1011581b7023d88d65a6a4f0bfbd8754847e1510",
+        "firmware_sha256": "91cd895fd049a38e1b81017433d849fb750d1b53501b36771b58439796890258",
+        "runs": 1,
+        "block_percent": 2.772564,
+        "peak_percent": 2.879377,
+        "midpoint_percent": 2.755779,
+        "combined_percent": 2.281224,
+        "worst_setting": {
+          "control": 3,
+          "label": "overload",
+          "value": 1610612735
+        }
+      }
+    },
+    {
+      "id": "earthshine",
+      "kind": "effect",
+      "maintainer": "codebrulee",
+      "status": "published",
+      "repository": "https://github.com/codebrulee/xyphemera",
+      "tag": "earthshine-v1.0.3",
+      "commit": "f61e02ee213bbda3723c3a9648c02f037bbf81b9",
+      "path": "earthshine",
+      "keywords": [
+        "reverb",
+        "ambient"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v2",
+        "commit": "f61e02ee213bbda3723c3a9648c02f037bbf81b9",
+        "firmware_sha256": "0e2872f642d12cab77e373c1851f8ee5dca69f988f224a6a64fa325cb607b122",
+        "runs": 1,
+        "block_percent": 9.227131,
+        "peak_percent": 14.489967
+      }
+    },
+    {
+      "id": "rebound",
+      "kind": "effect",
+      "maintainer": "kristapskristaps",
+      "status": "published",
+      "repository": "https://github.com/kristapskristaps/xy-machines",
+      "tag": "rebound-v1.1.0",
+      "commit": "16ee2c863de8552ea9769f83ca869e4b5010c1ba",
+      "path": "machines/rebound",
+      "keywords": [
+        "delay"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "16ee2c863de8552ea9769f83ca869e4b5010c1ba",
+        "firmware_sha256": "8ccbf01d2421a24d505597acffe5e6666f75aa696408668cb07272cc5c65d795",
+        "runs": 1,
+        "block_percent": 2.357519,
+        "peak_percent": 4.664683,
+        "report": "https://github.com/etcetc000/open-xy/pull/541"
+      }
+    },
+    {
+      "id": "seedsynth",
+      "kind": "synth",
+      "maintainer": "galfaroth",
+      "status": "reserved"
+    },
+    {
+      "id": "pulsar",
+      "kind": "player",
+      "maintainer": "rastalukee",
+      "status": "reserved"
+    },
+    {
+      "id": "comet",
+      "kind": "effect",
+      "maintainer": "akadanieljoshua",
+      "status": "published",
+      "repository": "https://github.com/akadanieljoshua/comet",
+      "tag": "v1.0.0",
+      "commit": "67071ffe7ff7bf4aaca7973f33bcccf952b33a26",
+      "path": ".",
+      "keywords": [
+        "delay",
+        "reverb",
+        "ambient",
+        "physical"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "67071ffe7ff7bf4aaca7973f33bcccf952b33a26",
+        "firmware_sha256": "7372a79a53d8d7f2a29fe670943cb11943ee8a70ce3b4958add9f523dfe3ffa1",
+        "runs": 1,
+        "block_percent": 3.323415,
+        "peak_percent": 5.004959
+      }
+    },
+    {
+      "id": "oread",
+      "kind": "effect",
+      "maintainer": "michinger",
+      "status": "draft",
+      "repository": "https://github.com/michinger/open-xy-oread",
+      "tag": "v1.0.0",
+      "commit": "5acc1c21a885412381fd0d236c4d0eec4fc1cde9",
+      "path": ".",
+      "keywords": [
+        "delay",
+        "reverb",
+        "emulation",
+        "lofi"
+      ],
+      "cpu": {
+        "benchmark": "opxy-effect-callback-v1",
+        "commit": "5acc1c21a885412381fd0d236c4d0eec4fc1cde9",
+        "firmware_sha256": "cf27b8324097727adb4a623f497c059c27e970981e0d5ee27ba0037351d5e953",
+        "runs": 1,
+        "block_percent": 4.470893,
+        "peak_percent": 6.953536
       }
     }
   ]
