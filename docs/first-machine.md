@@ -58,7 +58,7 @@ ready. Omit the flag to create just a machine folder in an existing repository.
 The workflow checks the root-level machine against SDK `staging`; pin a compatible
 SDK commit when releasing. Read the
 [core machines](https://github.com/etcetc000/open-xy-core-machines) as the worked
-examples: Macro Osc for two-page synths, Karplus and 2op FM for four-control
+examples: Macro Osc for two-page controls (its code, not its look), Karplus and 2op FM for four-control
 synths, Ring Mod and Ping Pong for effects, and
 Timestretch for sample engines. Sample engines use the public sample API;
 `new` currently supplies synth and effect starters.
@@ -138,7 +138,8 @@ when building, with no separate JavaScript definition generator. Parameter
 order determines the C++ control indices. See the [engine API](api.md) for
 buffer ownership and the [display API](display.md#two-page-header) for the shared
 header. Keep parameter captions in real units and artwork below the header at
-y=38. The [UX conventions](ux.md) and Macro Osc are the layout reference.
+y=38. The [UX conventions](ux.md) are the layout reference, and
+[synth screens](synth-screens.md) the reference for what the screen draws.
 
 Keep callbacks bounded: no allocation, blocking, logging, I/O, OS headers or
 platform conditionals. The SDK supplies the adapters and memory. A custom
