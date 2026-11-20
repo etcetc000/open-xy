@@ -227,12 +227,13 @@ class DrumHookUnits(unittest.TestCase):
         from tooling import browser_kit, native
         from tooling.pipeline import config
         from machine_fixtures import fixture
-        synth = fixture('probesynth')
-        kits = {name: replace(synth, kind='drum', id=name, sdk=sdk)
+        # A real drawn kit: the browser kit builds a drawn kit's preview from its drum definition.
+        base = fixture('probekit16')
+        kits = {name: replace(base, id=name, sdk=sdk)
                 for name, sdk in (('kit110', (1, 10)), ('kit116', (1, 16)), ('kit117', (1, 17)), ('kit118', (1, 18)))}
         # Each kit listed on its own, under the fixture's id, whose artwork names its nodes.
         with tempfile.TemporaryDirectory(prefix='played-pad-kit-') as folder:
-            entries = {name: browser_kit.machine_entry(replace(m, id=synth.id), config(), {}, Path(folder), 'clang++')
+            entries = {name: browser_kit.machine_entry(replace(m, id=base.id), config(), {}, Path(folder) / name, 'clang++')
                        for name, m in kits.items()}
         for name, entry in entries.items():
             with self.subTest(kit=name):
