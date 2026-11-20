@@ -1,4 +1,5 @@
-"""The firmware's word-wise memset and memcpy match byte loops."""
+"""The host and browser-preview build's memset and memcpy (memory.cpp's C half) match
+byte loops. The device's assembly half: tests/test_runtime_helpers.py."""
 import os
 from pathlib import Path
 import subprocess
