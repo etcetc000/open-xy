@@ -95,6 +95,7 @@ only for the callback. The SDK does not sandbox native code.
 | `recording_tick` | The selected track's scaled Q8 recording time, while playing and recordable; a discontinuity asks the subscriber to discard timing | Recorder tick |
 | `input_activity` | Any live note input, accepted or not, on any track; for cancelling gestures. A detailed subscriber receives track, integer note number, velocity and press/release, including while stopped | Live onset and release |
 | `queued_control` | A queued key (Record and the other queued controls; not keyboard keys 26–49) after stock handled it, with a microsecond time. `accepted`: stock took it as input (for Record, stock registered the press or release); `unmodified`: no other key or Shift held. Key numbers are in `keys` | Key queue |
+| `usb_host_ready` | Once, while the stock USB host stack starts and before any device is enumerated: add USB host class drivers to the `Registry` ([USB host drivers](#usb-host-drivers)). Not on the controller path | Host stack start |
 
 Project and pattern IDs are opaque equality tokens. Lengths use pattern ticks;
 scale 1 has 480 ticks per step. Stock's pickup gives negative positions near
@@ -108,6 +109,28 @@ passed into the stock live-input path; release velocity is zero. It does not
 read a pitch-wheel value or report the sounding frequency, and does not promise
 that an earlier stock input stage has not transformed the note. It observes
 input even when stock later rejects it. It cannot suppress or reroute the note.
+
+## USB host drivers
+
+Experimental, OS 1.2.1 only. The stock host stack matches each enumerated device against a
+list of class drivers; an extension that takes `usb_host_ready` adds drivers to that list
+([`opxy/usb_host.hpp`](../sdk/include/opxy/usb_host.hpp)). A `Driver` has a name, a table of
+`Match` entries (the fields the stack compares: device or interface class, subclass and
+protocol, vendor and product ID), a `probe` and an optional `remove`. At most two drivers
+are added per build.
+
+The stack tries a device's configurations in order and keeps the first for which a probe
+returns non-zero, so a driver for a standard class (say CDC-ECM, which an RTL8153
+adapter offers as its configuration 2) needs no code to select it. A probe that returns 0
+declines, and the stack goes on as it would without the driver.
+
+`probe` and `remove` run on the host stack's task, not the GUI's: no allocation or file
+I/O. `Services::log` writes to the device's own log (the `logs/` file it starts at each boot,
+visible over MTP), tagged `usb_host_ext`. `Services::control` (a control transfer on the
+default pipe), `set_interface` and `transfer` (one bulk or interrupt transfer) block until the
+device answers; a copy of the `Device` that `probe` received stays usable with them, from any
+task, until `remove` runs for it. How the stack works is in
+[the firmware contract](abi-1.2.1.md#usb-host-drivers).
 
 ## Claims and actions
 

@@ -57,7 +57,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # kept in the instrument track's words 36 and 37, and opxy/synth_shift.hpp for its display.
 # 1.16 gives an effect a bus shift: its send's audio raised by a fixed number of
 # bits around process (resources.busShift), and lets a note player page eight
-# controls ("press": "page").
+# controls ("press": "page"); and gives a note player a shift row ("shift"),
+# Shift turns and encoder clicks in its Controls, and its step clock's tempo.
 SDK_VERSION = (1, 17)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
@@ -169,13 +170,15 @@ def _relative(machine_root, value):
 
 
 def graphics_path(record):
-    """The optional grayscale source, explicitly opted into by SDK 1.5 synths."""
+    """The optional grayscale source, explicitly opted into by SDK 1.5 synths
+    and by SDK 1.7 effects that draw their own page."""
     if 'graphics' not in record:
         return None
-    require_sdk(sdk_version(record.get('sdk')), (1, 5), 'Developer grayscale artwork')
+    kind = record.get('kind')
+    require_sdk(sdk_version(record.get('sdk')), (1, 7) if kind == 'effect' else (1, 5), 'Developer grayscale artwork')
     graphics = record['graphics']
-    require(record.get('kind') == 'synth' and isinstance(graphics, dict) and set(graphics) == {'grayscale'},
-            'graphics requires a synth and exactly one grayscale artwork path')
+    require(kind in ('synth', 'effect') and isinstance(graphics, dict) and set(graphics) == {'grayscale'},
+            'graphics requires a synth or an effect with its own page, and exactly one grayscale artwork path')
     path = graphics['grayscale']
     require(relative_path(path) and path.endswith('.svg.fragment') and path != 'panel.svg.fragment',
             'graphics.grayscale names a separate local .svg.fragment file')
@@ -559,6 +562,10 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 7), 'An effect whose press switches the page ("press": "page")')
     if kind == 'player' and paged(definition):
         require_sdk(version, (1, 16), 'A note player whose press switches the page ("press": "page")')
+    if kind == 'player' and definition.get('press') == 'click':
+        require_sdk(version, (1, 16), 'A note player whose presses are only its clicks ("press": "click")')
+    if shift_parameters(definition) and kind == 'player':
+        require_sdk(version, (1, 16), 'A player\'s shift row ("shift")')
     if shift_parameters(definition):
         require_sdk(version, (1, 7), 'An effect\'s shift row ("shift")')
     if synth_shift(definition):
@@ -571,6 +578,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 8), 'More than %d display nodes' % SDK_1_7_NODES)
     require(definition['id'] == identity, 'Machine directory and definition identity disagree')
     grayscale = graphics_path(value)
+    require(not grayscale or kind == 'synth' or 'display' in definition['resources'],
+            'An effect\'s grayscale artwork needs its own page (resources.display)')
     # After the feature checks, which name the SDK version each feature needs.
     requested = requested_numbers(config()['identities'], kind, value, version,
                                   'drawing' if 'display' in definition['resources'] else 'stock')

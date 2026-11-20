@@ -274,16 +274,21 @@ def validate_definition(value, kind):
         require(sorted(p['control'] for p in parameters[4:]) == [0, 1, 2, 3],
                 'A drum kit has one alternate per encoder')
     # Two pages share positions with no alternate; no duplicate saved parameters.
-    require('press' in value or not any(p.get('absent') and 'control' in p for p in parameters),
+    require(paged(value) or not any(p.get('absent') and 'control' in p for p in parameters),
             'Only a paged synth puts an absent slot on a position')
-    if 'press' in value:
+    # A note player of four parameters whose presses are only its own clicks (SDK 1.16):
+    # encoder 4's press no longer runs stock's toggle of the fourth control.
+    if value.get('press') == 'click':
+        require(kind == 'player' and len(parameters) <= SYNTH_POSITIONS,
+                '"press": "click" is for a note player of up to four parameters')
+    elif 'press' in value:
         alternates = [p for p in control_positions(value)[SYNTH_POSITIONS:] if p is not None]
         require(kind in ('synth', 'effect', 'player') and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
                 alternates and len(set(alternates)) == len(alternates),
                 '"press": "page" needs five to eight synth, effect or player parameters and at most one alternate per position; '
-                "a drum kit's press always pages its row")
+                'a drum kit declares no "press": its paging is built in')
     # A player's encoders have no alternates of their own: a press shows its second four.
-    require(kind != 'player' or len(parameters) <= SYNTH_POSITIONS or 'press' in value,
+    require(kind != 'player' or len(parameters) <= SYNTH_POSITIONS or paged(value),
             'A note player with more than four parameters pages them: "press": "page"')
     if 'shift' in value:
         validate_shift(value['shift'], kind, set(names), value)
@@ -307,16 +312,24 @@ def validate_shift(shift, kind, names, definition=None):
         return validate_synth_shift(shift, names, definition)
     # An effect's shift row: one to four enum controls that Shift and the send
     # page's encoders choose, packed into one send-track word (synth_controls.cpp).
-    require(kind == 'effect' and isinstance(shift, list) and 1 <= len(shift) <= SYNTH_POSITIONS,
-            'An effect\'s shift row holds one to four controls')
+    # A player's (SDK 1.16): one to four enums of 2..255 choices, each kept in its
+    # own word beside the player's State (players.cpp), so no packing limit. As in
+    # a synth's Shift row, entry i sits under page i / 4, encoder i % 4, so a paged
+    # player's ("press": "page") holds up to eight.
+    most = 2 * SYNTH_POSITIONS if kind == 'player' and paged(definition or {}) else SYNTH_POSITIONS
+    require(kind in ('effect', 'player') and isinstance(shift, list) and 1 <= len(shift) <= most,
+            'An effect\'s or player\'s shift row holds one to four controls, a paged player\'s one to eight')
     count = 1
     for parameter in shift:
         validate_parameter(parameter)
         require(parameter['mapping']['kind'] == 'enum', 'A shift-row control is an enum')
+        require(kind != 'player' or len(parameter['mapping']['labels']) <= 255,
+                'A player\'s shift-row control has at most 255 choices')
         require(parameter['id'] not in names, 'Duplicate parameter identity')
         names.add(parameter['id'])
         count *= len(parameter['mapping']['labels'])
-    require(count <= SHIFT_STATES, 'A shift row holds at most %d combinations of its choices' % SHIFT_STATES)
+    require(kind == 'player' or count <= SHIFT_STATES,
+            'A shift row holds at most %d combinations of its choices' % SHIFT_STATES)
 
 
 def validate_synth_shift(shift, names, definition):

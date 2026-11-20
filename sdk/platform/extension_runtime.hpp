@@ -33,6 +33,12 @@ void extensions_recordable_note_on(u32 track, u32 pitch, u32 velocity);
 void extensions_selected_note_off(u32 track, u32 pitch);
 void extensions_recording_tick(u32 delta);
 void extensions_queued_control(const extensions::Control& control);
+// Once, while the stock USB host stack starts: every extension that takes the event
+// adds its drivers to the registry.
+void extensions_usb_host_ready(const usb::Registry& registry);
+// The 1.2.1 adapter's USB host glue (opxy-1.2.1/usb_host.cpp): the stack's startup hook
+// calls usb_host_start each time the host starts.
+void usb_host_start();
 
 // An instrument track's pattern, as notes are written to it.
 struct TrackPattern { u32 pattern, length, scale; bool editable; };

@@ -13,7 +13,8 @@ struct DrumMachine {
     const char* (*model_name)(u32 model);
     u32 (*count)(u32 model);
     // Optional named groups of consecutive models (resources.modelGroups):
-    // Shift and the first encoder choose a group, the second a model in it.
+    // Shift and the first encoder choose a group, the second a model in it
+    // (without padMix; with it they only title the models).
     u32 group_count;
     const u8* group_sizes;
     const char* const* group_names;

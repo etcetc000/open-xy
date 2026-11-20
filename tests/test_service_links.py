@@ -1,7 +1,7 @@
 """Native links without a service: a collection links whichever services its machines use.
 
 The step-lock handles (lock_handles.cpp) are the drum_locks service's, linked only with a
-padMix kit; units every build links reach them through startup.cpp, which forwards to
+padMix kit, a Shift-row synth or a drumline_page extension; units every build links reach them through startup.cpp, which forwards to
 them or answers 0. These link a synth alone, a kit without padMix and a padMix kit with
 the pinned Blackfin tools, and check that a browser selection without a service finds a
 fallback for every symbol a shared object imports from it.

@@ -2000,6 +2000,19 @@
       ]
     },
     {
+      "kind": "hook",
+      "address": "0x8c073c34",
+      "file_offset": "0xaae70",
+      "length": 8,
+      "before": "ffe30eefffe38ce3",
+      "symbol": "sdk_extensions_usb_host_init",
+      "call": true,
+      "service": "extensions",
+      "events": [
+        "usb_host_ready"
+      ]
+    },
+    {
       "kind": "startup",
       "name": "Boot-screen version label",
       "address": "0x8c0b85dc",
