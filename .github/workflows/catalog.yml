@@ -19,7 +19,9 @@ concurrency:
   cancel-in-progress: true
 jobs:
   machines:
-    runs-on: ubuntu-latest
+    # A fixed image: the host compiles use -Wall -Werror, and a new image's compiler can
+    # turn yesterday's clean machine test into an error. Move it on purpose, in its own change.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4

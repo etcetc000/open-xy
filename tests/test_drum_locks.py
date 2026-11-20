@@ -73,8 +73,10 @@ class DrumLocks(unittest.TestCase):
             result = run([str(binary)], timeout=60)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_the_profile_hooks_the_builder_and_its_publisher_for_padmix_kits_only(self):
-        self.assertEqual(PROFILE['services']['drum_locks'], ['padMix'])
+    def test_the_profile_hooks_the_builder_and_its_publisher_for_padmix_kits_shift_rows_and_drumline_pages(self):
+        # A synth's Shift row (SDK 1.13) and a Drumline page lock through the same handles
+        # (test_synth_shift, test_drumline).
+        self.assertEqual(PROFILE['services']['drum_locks'], ['padMix', 'drumline_page', 'synthShift'])
         # The service's third hook, the step hook, is the handles' (test_lock_handles).
         hooks = {p['address']: p for p in PROFILE['patches']
                  if p.get('service') == 'drum_locks' and p['symbol'] != 'sdk_lock_step'}

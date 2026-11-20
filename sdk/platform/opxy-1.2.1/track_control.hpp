@@ -68,6 +68,10 @@ void sdk_param_step_set(opxy::u32 project, opxy::u32 track, opxy::u32 index, opx
     __asm__("sdk_param_step_set");
 void sdk_param_edit_set(opxy::u32 project, opxy::u32 track, opxy::u32 index, opxy::i32 value)
     __asm__("sdk_param_edit_set");
+// A turn event (stock's step first) of `track`'s encoder at parameter `slot`:
+// true when the track's machine takes its own turns, which then edit nothing.
+bool sdk_control_turn_offer(opxy::u32 track, opxy::u32 slot, const opxy::i32* event)
+    __asm__("sdk_control_turn_offer");
 // The value stock's displayed-value getter shows before its LFO amount, through
 // the jump hook sdk_param_shown_hook (track_control_hooks.s).
 opxy::i32 sdk_lfo_held_amount(opxy::u32 track, opxy::u32 index, opxy::i32 stock_amount) __asm__("sdk_lfo_held_amount");

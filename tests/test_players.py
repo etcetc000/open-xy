@@ -55,7 +55,7 @@ class PlayerContracts(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         (self.root / 'machine.json').write_text(json.dumps(dict(schema=1, sdk='1.8', kind='player',
                                                                description='Player contract fixture.')))
         definition = dict(schema=1, id='probeplayer', name='Player', resources={}, presets={},
@@ -72,6 +72,85 @@ class PlayerContracts(unittest.TestCase):
         path.write_text(json.dumps(value), encoding='utf-8')
         with self.assertRaisesRegex(ValueError, 'Note players needs.*1.8'):
             machine_at(self.root)
+
+    def test_press_pages_a_player_with_more_than_four_parameters(self):
+        path = self.root / 'definition.json'
+        definition = json.loads(path.read_text(encoding='utf-8'))
+        definition['parameters'] += [
+            dict(id='p4', label='P4', default=0, mapping=dict(kind='enum', labels=['a', 'b', 'c']), display='enum'),
+            dict(id='p5', label='P5', default=0, mapping=dict(kind='linear', minimum=0, maximum=1), display='percent')]
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'more than four parameters pages them'):
+            machine_at(self.root)
+        definition['press'] = 'page'
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'press switches the page.*1.16'):
+            machine_at(self.root)
+        machine = json.loads((self.root / 'machine.json').read_text(encoding='utf-8'))
+        machine['sdk'] = '1.16'
+        (self.root / 'machine.json').write_text(json.dumps(machine), encoding='utf-8')
+        paged = assign_numbers([machine_at(self.root)])[0][0]
+        with tempfile.TemporaryDirectory() as directory:
+            text = adapters.generate_player_object(directory, paged).read_text(encoding='utf-8')
+        # The second page's missing slots are absent: one choice, an empty title.
+        self.assertIn('{0, 0, 0, 0, 3, 0, 1, 1}, true, false};', text)
+        self.assertIn('titles[8] = {"p0", "p1", "p2", "p3", "p4", "p5", "", ""};', text)
+        # Its page also binds the two-row header's eight bars and sixteen texts.
+        self.assertIn('static const bool paged = true;', text)
+        self.assertIn('Page::ids[305] = {', text)
+        self.assertLess(text.index('"probeplayer_played_127"'), text.index('"probeplayer_header_node_0"'))
+        self.assertIn('"probeplayer_header_text_15"', text)
+        with tempfile.TemporaryDirectory() as directory:
+            text = adapters.generate_player_object(directory, self.machine).read_text(encoding='utf-8')
+        self.assertIn('{0, 0, 0, 0, 1, 1, 1, 1}, false, false};', text)
+        self.assertIn('static const bool paged = false;', text)
+        self.assertIn('Page::ids[281] = {', text)
+        self.assertNotIn('_header_', text)
+
+    def test_press_click_keeps_encoder_4_a_click_of_a_one_page_player(self):
+        # "press": "click": a player of up to four parameters whose presses are only
+        # its own clicks, so encoder 4's click skips stock's toggle of parameter 3
+        # (players.cpp, tests/fixtures/player_shift.cpp).
+        path = self.root / 'definition.json'
+        definition = json.loads(path.read_text(encoding='utf-8'))
+        definition['press'] = 'click'
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, r'presses are only its clicks.*1.16'):
+            machine_at(self.root)
+        machine = json.loads((self.root / 'machine.json').read_text(encoding='utf-8'))
+        machine['sdk'] = '1.16'
+        (self.root / 'machine.json').write_text(json.dumps(machine), encoding='utf-8')
+        clicking = assign_numbers([machine_at(self.root)])[0][0]
+        with tempfile.TemporaryDirectory() as directory:
+            text = adapters.generate_player_object(directory, clicking).read_text(encoding='utf-8')
+        self.assertIn('{0, 0, 0, 0, 1, 1, 1, 1}, false, true};', text)
+        self.assertIn('static const bool paged = false;', text)
+        # Not with a second page (other kinds: test_definitions), and no other press value.
+        definition['parameters'].append(dict(id='p4', label='P4', default=0,
+                                             mapping=dict(kind='linear', minimum=0, maximum=1), display='percent'))
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, r'"press": "click" is for a note player of up to four parameters'):
+            machine_at(self.root)
+        from tooling.definitions import validate_definition
+        with self.assertRaisesRegex(ValueError, r'"press": "page" needs'):
+            validate_definition(dict(definition, press='turn'), 'player')
+
+    def test_paged_player_artwork_gains_the_two_row_header(self):
+        nodes = ''.join(f'<circle id="probeplayer_dot_{i}" transform="matrix(1 0 0 1 20 80)" '
+                        'r="4" fill="#000000" stroke="#000000" stroke-width="1"/>' for i in range(24))
+        nodes += ('<text id="probeplayer_text" transform="matrix(1 0 0 1 240 215)" '
+                  'fill="#FFFFFF" font-family="UniversNextPro-Light" font-size="22">chords</text>')
+        fragment = '<g id="probeplayer_panel">' + nodes + '</g>'
+        (self.root / 'panel.svg.fragment').write_text(fragment, encoding='utf-8')
+        self.assertEqual(native.page_artwork(self.machine), fragment.encode('utf-8'))
+        paged = replace(self.machine, definition=dict(self.machine.definition, press='page'))
+        artwork = native.page_artwork(paged).decode('utf-8')
+        # First in the root group: one root still, and the player's own nodes paint over it.
+        self.assertTrue(artwork.startswith('<g id="probeplayer_panel">\n<!-- SDK two-page header'))
+        self.assertTrue(artwork.endswith('</text>' + nodes + '</g>'))
+        for name in native.player_header_ids('probeplayer_header'):
+            self.assertEqual(artwork.count(f'id="{name}"'), 1)
+        self.assertIn(artwork.encode('utf-8'), native.screen.compose(artwork.encode('utf-8')))
 
     def test_layout_keeps_player_types_and_shares_page_pool(self):
         m = self.machine
@@ -201,11 +280,14 @@ inline void refresh_keyboard_octaves() {}
         (self.root / 'registration.hpp').write_text('''#pragma once
 #include "players.hpp"
 const void* stock_address(opxy::u32);
+extern int fake_register;
 namespace opxy { namespace platform {
 using Address=__UINTPTR_TYPE__;
 template<class F> F* stock(u32 a) { return reinterpret_cast<F*>(const_cast<void*>(stock_address(a))); }
 struct Record {}; struct Screen {};
-inline int sdk_register_screen(const Record*,const Screen*) { return 1; }
+inline int sdk_register_screen(const Record*,const Screen*) { return fake_register; }
+inline u32 audio_bpm_x10() { return 1200; }
+inline bool shift_held() { return false; }
 namespace registry { struct StockString { char text[16]; u32 length,capacity; }; }
 }}
 ''', encoding='utf-8')
@@ -257,7 +339,7 @@ template<class F> F* stock(u32 address) { return reinterpret_cast<F*>(const_cast
         subprocess.run([str(binary)], check=True, capture_output=True, timeout=30, **flags)
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
-    def test_real_renderer_keeps_header_and_fits_output_notes(self):
+    def test_real_renderer_draws_either_header_and_fits_output_notes(self):
         shutil.copy(PLATFORM / 'screen_player.hpp', self.root)
         shutil.copy(ROOT / 'tests/fixtures/screen_player_host.hpp', self.root / 'screen.hpp')
         binary = self.root / ('screen.exe' if os.name == 'nt' else 'screen')
@@ -268,6 +350,175 @@ template<class F> F* stock(u32 address) { return reinterpret_cast<F*>(const_cast
                        check=True, capture_output=True, timeout=120, **flags)
         subprocess.run([str(binary)], check=True, capture_output=True, timeout=30, **flags)
 
+
+# A player's shift row (SDK 1.16).
+PROBE_SHIFT = [dict(id='size', label='Size', default=0.5, display='enum',
+                    mapping=dict(kind='enum', labels=['S', 'M', 'L']))]
+
+
+class PlayerShiftRow(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / 'probeplayer'
+        self.root.mkdir()
+
+    def machine(self, sdk='1.16', shift=None, parameters=4):
+        (self.root / 'machine.json').write_text(json.dumps(dict(schema=1, sdk=sdk, kind='player',
+                                                               description='Player page fixture.')))
+        definition = dict(schema=1, id='probeplayer', name='Player', presets={},
+                          resources={},
+                          parameters=[dict(id='p'+str(i), label='P'+str(i), default=0,
+                                           mapping=dict(kind='linear', minimum=0, maximum=1), display='percent')
+                                      for i in range(parameters)])
+        if parameters > 4:
+            definition['press'] = 'page'
+        if shift is not None:
+            definition['shift'] = shift
+        (self.root / 'definition.json').write_text(json.dumps(definition))
+        return assign_numbers([machine_at(self.root)])[0][0]
+
+    def test_versions_and_limits(self):
+        with self.assertRaisesRegex(ValueError, "player's shift row.*1.16"):
+            self.machine(sdk='1.15', shift=PROBE_SHIFT)
+        wide = [dict(PROBE_SHIFT[0], mapping=dict(kind='enum', labels=[str(i) for i in range(256)]))]
+        with self.assertRaisesRegex(ValueError, 'at most 255 choices'):
+            self.machine(shift=wide)
+        with self.assertRaisesRegex(ValueError, 'one to four'):
+            self.machine(shift=[dict(PROBE_SHIFT[0], id='s%d' % i) for i in range(5)])
+        # Four controls of 255 choices each take no packing limit.
+        self.machine(shift=[dict(PROBE_SHIFT[0], id='s%d' % i,
+                                 mapping=dict(kind='enum', labels=[str(n) for n in range(255)]))
+                            for i in range(4)])
+        # As on a synth, a paged player's row has an entry under each page's encoders: up to eight.
+        self.machine(parameters=6, shift=[dict(PROBE_SHIFT[0], id='s%d' % i) for i in range(8)])
+        with self.assertRaisesRegex(ValueError, 'one to eight'):
+            self.machine(parameters=6, shift=[dict(PROBE_SHIFT[0], id='s%d' % i) for i in range(9)])
+
+    def test_a_paged_players_row_is_generated_in_entry_order(self):
+        m = self.machine(parameters=5, shift=[dict(PROBE_SHIFT[0], id='s%d' % i, default=0) for i in range(6)])
+        with tempfile.TemporaryDirectory() as folder:
+            generated = adapters.generate_player_object(folder, m).read_text(encoding='utf-8')
+        centre = 0x7fffffff // 3 // 2
+        self.assertIn('static const opxy::platform::PlayerShift player_shift = {6, {3, 3, 3, 3, 3, 3, 0, 0}, '
+                      '{%s, 0, 0}};' % ', '.join([str(centre)] * 6), generated)
+        self.assertIn('{0, 0, 0, 0, 0, 1, 1, 1}, true, false, &player_shift};', generated)
+
+    def test_exactly_one_click_function_the_hook_calls(self):
+        # The encoder 4 click hook calls sdk_player_click from assembly and reads R0
+        # as "skip stock's toggle". Exactly one C++ function may own that name, and it
+        # must return a u32 and take nothing; the press dispatch is another name.
+        declarations = []
+        for path in sorted((ROOT / 'sdk').rglob('*')):
+            if path.is_file() and path.suffix in ('.cpp', '.hpp', '.in', '.h'):
+                for line in path.read_text(encoding='utf-8').splitlines():
+                    if '"sdk_player_click"' in line:
+                        declarations.append((path.name, line.strip()))
+        self.assertEqual(declarations,
+                         [('players.cpp', 'opxy::u32 sdk_player_click() __asm__("sdk_player_click");')])
+        source = (PLATFORM / 'players.cpp').read_text(encoding='utf-8')
+        self.assertEqual(re.findall(r'^\S.*\bsdk_player_click\(.*\)\s*\{', source, re.M),
+                         ['u32 sdk_player_click() {'])
+        hook = (PLATFORM / 'player_hooks.s').read_text(encoding='utf-8')
+        self.assertRegex(hook, r'CALL sdk_player_click;\s*\n\s*CC = R0 == 0;')
+        # One press dispatch: the press handler calls the players service once, on the
+        # player controller only, with the encoder.
+        press = (PLATFORM / 'synth_controls.cpp').read_text(encoding='utf-8')
+        self.assertEqual(re.findall(r'.*\bsdk_player_press\(.*', press),
+                         ['        sdk_player_press(encoder);'])
+        self.assertIn('} else if (controller == kPlayerController && sdk_player_press) {\n'
+                      '        sdk_player_press(encoder);', press)
+
+    def test_player_without_shift_generates_as_before(self):
+        # The source is the template's expansion with the SDK 1.16 placeholders left out.
+        m = self.machine(sdk='1.8')
+        template = (PLATFORM / 'player_object.cpp.in').read_text(encoding='utf-8')
+        before = template.replace('@SHIFT_TABLE@', '').replace('@SHIFT@', '')
+        with tempfile.TemporaryDirectory() as folder:
+            generated = adapters.generate_player_object(folder, m).read_text(encoding='utf-8')
+        values = dict(PREFIX=m.prefix, NAMESPACE='probeplayer', NAME=m.native_name,
+                      STEPS='0, 0, 0, 0, 1, 1, 1, 1', PAGED='false', CLICKS='false',
+                      PAGE=f'{m.prefix}_page_id', PAGE_READY=f'{m.prefix}_screen_ready')
+        for key, value in values.items():
+            before = before.replace('@' + key + '@', value)
+        self.assertEqual(generated[:generated.index('extern const char probeplayer_page_id[]')],
+                         before[:before.index('@PAGE_DECLARATIONS@')])
+        tail = before[before.index('@PAGE_DECLARATIONS@') + len('@PAGE_DECLARATIONS@'):before.index('@PAGE_UNIT@')]
+        self.assertIn(tail, generated)
+        self.assertIn('opxy::screen::PlayerPage<Page>', generated)
+        self.assertNotIn('player_shift', generated)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_clock_ticks_keeps_another_resolution_on_steps(self):
+        # clock_ticks: after n steps a clock of t ticks per quarter has ticked
+        # ceil(n * t / 240) times, so it never drifts, and never more than
+        # ceil(t / 240) times on one step; a 96-tick clock ticks on steps 0, 2, 5, 7, 10.
+        (self.root / 'clock.cpp').write_text(r'''
+#include <opxy/player.hpp>
+using opxy::u32;
+int main() {
+    const u32 rates[] = {24, 96, 240, 480, 1000, 1920};
+    for (u32 t : rates) {
+        opxy::u16 phase = 0; u32 total = 0;
+        const u32 most = (t + opxy::player::steps_per_quarter - 1) / opxy::player::steps_per_quarter;
+        for (u32 n = 1; n <= 1000; ++n) {
+            const u32 ticks = opxy::player::clock_ticks(phase, t);
+            if (ticks > most) return 1;
+            total += ticks;
+            if (total != (n * t + opxy::player::steps_per_quarter - 1) / opxy::player::steps_per_quarter) return 2;
+        }
+    }
+    opxy::u16 phase = 0; u32 seen = 0;
+    for (u32 step = 0; step < 11; ++step)
+        if (opxy::player::clock_ticks(phase, 96)) seen |= 1u << step;
+    return seen == ((1u << 0) | (1u << 2) | (1u << 5) | (1u << 7) | (1u << 10)) ? 0 : 3;
+}
+''', encoding='utf-8')
+        binary = self.root / ('clock.exe' if os.name == 'nt' else 'clock')
+        flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I'+str(ROOT/'sdk/include'),
+                        str(self.root / 'clock.cpp'), '-o', str(binary)], check=True, capture_output=True, timeout=120, **flags)
+        self.assertEqual(subprocess.run([str(binary)], timeout=30, **flags).returncode, 0)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_shift_layer_turns_flag_and_clicks(self):
+        (self.root / 'players_under_test.cpp').write_bytes((PLATFORM / 'players.cpp').read_bytes())
+        (self.root / 'keyboard_octaves.hpp').write_text('''#pragma once
+#include <opxy/types.hpp>
+extern opxy::u32 fake_track;
+extern volatile opxy::i32 sdk_track_octaves[8];
+namespace opxy { namespace platform {
+const u32 kLowestKey=53, kTracks=8;
+inline u32 selected_track() { return fake_track; }
+inline void refresh_keyboard_octaves() {}
+}}
+''', encoding='utf-8')
+        (self.root / 'registration.hpp').write_text('''#pragma once
+#include "players.hpp"
+const void* stock_address(opxy::u32);
+extern bool fake_shift;
+extern opxy::u32 fake_bpm;
+extern int fake_register;
+namespace opxy { namespace platform {
+using Address=__UINTPTR_TYPE__;
+template<class F> F* stock(u32 a) { return reinterpret_cast<F*>(const_cast<void*>(stock_address(a))); }
+struct Record {}; struct Screen {};
+inline int sdk_register_screen(const Record*,const Screen*) { return fake_register; }
+inline u32 audio_bpm_x10() { return fake_bpm; }
+inline bool shift_held() { return fake_shift; }
+namespace registry { struct StockString { char text[16]; u32 length,capacity; }; }
+}}
+''', encoding='utf-8')
+        binary = self.root / ('shift.exe' if os.name == 'nt' else 'shift')
+        flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror',
+                        '-I'+str(self.root), '-I'+str(ROOT/'sdk/include'), '-I'+str(PLATFORM),
+                        str(ROOT/'tests/fixtures/player_shift.cpp'), '-o', str(binary)],
+                       check=True, capture_output=True, timeout=120, **flags)
+        result = subprocess.run([str(binary)], capture_output=True, timeout=30, **flags)
+        if result.returncode == 77:
+            self.skipTest(result.stdout.decode(errors='replace').strip())
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
 
 @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Stock OS not supplied')
 class StockPlayer(unittest.TestCase):
@@ -294,6 +545,46 @@ class StockPlayer(unittest.TestCase):
         # Handled enums skip stock's mode-transition helper and return through
         # the original frame: SP+=12, restore registers, UNLINK, RTS.
         self.assertEqual(read_at(0x8c084d46, 10), bytes.fromhex('666ca50501e800001000'))
+
+    def test_click_hook_replaces_the_hold_mode_query_of_an_encoder_4_click(self):
+        from tooling.formats import sha
+        from tooling.firmware import absolute_target, decode_branch
+        data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(data), config()['stock_sha256'])
+        blocks = ldr(data)
+
+        def read_at(address, size):
+            offset = mapped_offset(blocks, address, size)
+            return data[offset:offset + size]
+
+        patch = next(p for p in config()['patches'] if p.get('symbol') == 'extensions_player_click')
+        self.assertTrue(patch['call'])
+        self.assertEqual(patch['length'], 8)
+        site = int(patch['address'], 16)
+        self.assertEqual(site, 0x8c084e14)
+        # The call before it leaves the track's player in R0 for the query.
+        self.assertEqual(decode_branch(site - 4, read_at(site - 4, 4)), (0x8c084bc8, True))
+        self.assertEqual(absolute_target(read_at(site, 8)), 0x8d57d478)
+        # A paged player returns through the handler's own exit: R0 = 0,
+        # restore R7, UNLINK, RTS.
+        self.assertEqual(read_at(0x8c084e44, 14), bytes.fromhex('04cc0040f7a0000001e800001000'))
+
+    def test_selecting_a_type_stores_eight_catalog_defaults(self):
+        from tooling.formats import sha
+        from tooling.firmware import absolute_target
+        data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(data), config()['stock_sha256'])
+        blocks = ldr(data)
+
+        def read_at(address, size):
+            offset = mapped_offset(blocks, address, size)
+            return data[offset:offset + size]
+
+        # The player controller's selection loop: R4 = 8 bounds it, and each
+        # pass calls the parameter setter with (track, index, default << 16).
+        self.assertEqual(read_at(0x8c0af366, 2), bytes.fromhex('4460'))
+        self.assertEqual(absolute_target(read_at(0x8c0af380, 8)), 0x8d586474)
+        self.assertEqual(read_at(0x8c0af388, 4), bytes.fromhex('a508ef1f'))
 
     def test_effective_keyboard_octave_scales_the_stored_value(self):
         from tooling.formats import sha

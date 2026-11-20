@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 
 from .formats import require
+from . import stock_content
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -92,7 +93,11 @@ STOCK_SHIFT = {'': 0, 'start': 1, 'loopStart': 2, 'loopEnd': 3, 'end': 4,
 # An effect's optional delay memory (SDK 1.2): stock's per-send scratch, at most
 # 512 KiB; and transport 1 for the tempo in process (SDK 1.2).
 # An effect's display (SDK 1.7): it draws its own page on the sends, as a synth does.
-EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display')
+# busShift N (SDK 1.16): its adapter raises the send's audio by N bits, saturating,
+# before process and lowers the result by N, rounded, after it (send_bus.hpp).
+EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display', 'busShift')
+# The largest busShift: 12 bits (72 dB) lifts a bus 2^-12 under Q31 full scale to it.
+EFFECT_BUS_SHIFT = 12
 # A drum kit's models in named groups (SDK 1.8), which Shift and the first encoder choose
 # (with padMix, which takes Shift's first row, they only title the models);
 # chokeSameKey 1 for a note to cut the voices still sounding its track's same key;
@@ -116,14 +121,20 @@ DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum
 # Every kind's parameters occupy the stock eight-word parameter vector in order.
 # A synth's first four fill the four-control page; up to four more are alternates
 # (see control_positions). Sample engines and effects use one to eight; an
-# effect's after the first four are alternates on the send page.
-CONTROLS = {'synth': (4, 8), 'drum': (8, 8), 'sample': (1, 8), 'effect': (1, 8), 'master': (1, 8), 'player': (4, 4)}
+# effect's after the first four are alternates on the send page. A note player's
+# after the first four are its second page (SDK 1.16).
+CONTROLS = {'synth': (4, 8), 'drum': (8, 8), 'sample': (1, 8), 'effect': (1, 8), 'master': (1, 8), 'player': (4, 8)}
 # Stock voice indices: a voice object for each, 0..255.
 STOCK_VOICES = 256
 SYNTH_POSITIONS = 4
 # An effect's shift row (SDK 1.7) packs its choices into one Q31 word; this many
 # combinations keep each one's bucket over a thousand codes wide.
 SHIFT_STATES = 1 << 20
+# A synth's Shift row (SDK 1.13): up to eight controls, entry i under the engine
+# page's page i // 4 at position i % 4, packed four to a track word in 7-bit
+# fields (sdk/platform/opxy-1.2.1/synth_shift.hpp). A continuous entry steps
+# 0..100; an enum has at most 128 choices.
+SYNTH_SHIFT_ENTRIES, SHIFT_AMOUNT_TOP, SHIFT_CHOICES = 8, 100, 128
 
 
 def control_positions(definition):
@@ -161,15 +172,23 @@ def validate_definition(value, kind):
     keys(value, ('schema', 'id', 'name', 'parameters', 'presets', 'resources', *optional), 'definition')
     require(type(value['schema']) is int and value['schema'] == 1, 'Unknown definition schema')
     if kind == 'master': identifier(value['id'])
-    else: stock_name(value['id'])
+    else:
+        stock_name(value['id'])
+        # A machine's ID names files the build installs beside stock's own content. An
+        # extension's master processor installs nothing under its ID; its artwork file is
+        # checked where the build installs it (tooling.native.prepare_assets).
+        stock_content.check_identity(value['id'])
     label(value['name'])
     resources = value['resources']
     options = {'sample': SAMPLE_OPTIONS, 'effect': EFFECT_OPTIONS, 'drum': DRUM_OPTIONS,
-               'synth': ('trackControl',)}.get(kind, ())
+               'synth': ('trackControl', 'stereoOutput', 'releaseCallback')}.get(kind, ())
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
     require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'stockShift', 'padControls')),
             'Numeric resource requirements must be integers')
+    if kind == 'synth':
+        for flag in ('stereoOutput', 'releaseCallback'):
+            require(resources.get(flag, 0) in (0, 1), flag + ' must be 0 or 1')
     if 'voiceCapacity' in resources:
         require(1 <= resources['voiceCapacity'] <= 256, 'Voice capacity must be 1..256')
     # Stock creates a voice object for every index 0..255 and never checks for a
@@ -199,6 +218,7 @@ def validate_definition(value, kind):
                 % EFFECT_BUFFER_LIMIT)
     if kind == 'effect':
         require(resources.get('transport', 0) in (0, 1), 'transport must be 0 or 1')
+        require(0 <= resources.get('busShift', 0) <= EFFECT_BUS_SHIFT, 'busShift is 0..%d bits' % EFFECT_BUS_SHIFT)
         if 'display' in resources:
             validate_display(resources['display'])
     if kind in ('synth', 'drum'):
@@ -245,8 +265,8 @@ def validate_definition(value, kind):
     names = set()
     for i, parameter in enumerate(parameters):
         alternate = kind in ('synth', 'drum', 'effect', 'master') and i >= SYNTH_POSITIONS
-        require(kind == 'synth' or not (isinstance(parameter, dict) and 'absent' in parameter),
-                'Only a synth leaves a slot absent')
+        require(kind in ('synth', 'player') or not (isinstance(parameter, dict) and 'absent' in parameter),
+                'Only a synth or a note player leaves a slot absent')
         validate_parameter(parameter, alternate, required=kind in ('synth', 'drum'))
         require(parameter['id'] not in names, 'Duplicate parameter identity')
         names.add(parameter['id'])
@@ -254,16 +274,24 @@ def validate_definition(value, kind):
         require(sorted(p['control'] for p in parameters[4:]) == [0, 1, 2, 3],
                 'A drum kit has one alternate per encoder')
     # Two pages share positions with no alternate; no duplicate saved parameters.
-    require('press' in value or not any(p.get('absent') and 'control' in p for p in parameters),
+    require(paged(value) or not any(p.get('absent') and 'control' in p for p in parameters),
             'Only a paged synth puts an absent slot on a position')
-    if 'press' in value:
+    # A note player of four parameters whose presses are only its own clicks (SDK 1.16):
+    # encoder 4's press no longer runs stock's toggle of the fourth control.
+    if value.get('press') == 'click':
+        require(kind == 'player' and len(parameters) <= SYNTH_POSITIONS,
+                '"press": "click" is for a note player of up to four parameters')
+    elif 'press' in value:
         alternates = [p for p in control_positions(value)[SYNTH_POSITIONS:] if p is not None]
-        require(kind in ('synth', 'effect') and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
+        require(kind in ('synth', 'effect', 'player') and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
                 alternates and len(set(alternates)) == len(alternates),
-                '"press": "page" needs five to eight synth or effect parameters and at most one alternate per position; '
-                "a drum kit's press always pages its row")
+                '"press": "page" needs five to eight synth, effect or player parameters and at most one alternate per position; '
+                'a drum kit declares no "press": its paging is built in')
+    # A player's encoders have no alternates of their own: a press shows its second four.
+    require(kind != 'player' or len(parameters) <= SYNTH_POSITIONS or paged(value),
+            'A note player with more than four parameters pages them: "press": "page"')
     if 'shift' in value:
-        validate_shift(value['shift'], kind, set(names))
+        validate_shift(value['shift'], kind, set(names), value)
     # Stock instrument pages a synth or drum kit hides: M2 (envelope) and M3 (filter).
     if 'hidePages' in value:
         pages = value['hidePages']
@@ -271,25 +299,121 @@ def validate_definition(value, kind):
                 all(p in HIDDEN_PAGES for p in pages), '"hidePages" lists "envelope" and/or "filter" for a synth or drum kit')
     require(isinstance(value['presets'], dict) and len(value['presets']) <= 64, 'Invalid presets')
     present = {p['id'] for p in parameters if not p.get('absent')}
+    # A synth's Shift row entries are optional in a preset (their defaults otherwise).
+    row = {p['id'] for p in synth_shift(value) if not p.get('absent')} if kind == 'synth' else set()
     for name, preset in value['presets'].items():
-        label(name); keys(preset, present, 'preset')
+        label(name); keys(preset, present | (row & set(preset) if isinstance(preset, dict) else set()), 'preset')
         for default in preset.values(): number(default, 0, 1, 'preset value')
     return value
 
 
-def validate_shift(shift, kind, names):
+def validate_shift(shift, kind, names, definition=None):
+    if kind == 'synth':
+        return validate_synth_shift(shift, names, definition)
     # An effect's shift row: one to four enum controls that Shift and the send
     # page's encoders choose, packed into one send-track word (synth_controls.cpp).
-    require(kind == 'effect' and isinstance(shift, list) and 1 <= len(shift) <= SYNTH_POSITIONS,
-            'An effect\'s shift row holds one to four controls')
+    # A player's (SDK 1.16): one to four enums of 2..255 choices, each kept in its
+    # own word beside the player's State (players.cpp), so no packing limit. As in
+    # a synth's Shift row, entry i sits under page i / 4, encoder i % 4, so a paged
+    # player's ("press": "page") holds up to eight.
+    most = 2 * SYNTH_POSITIONS if kind == 'player' and paged(definition or {}) else SYNTH_POSITIONS
+    require(kind in ('effect', 'player') and isinstance(shift, list) and 1 <= len(shift) <= most,
+            'An effect\'s or player\'s shift row holds one to four controls, a paged player\'s one to eight')
     count = 1
     for parameter in shift:
         validate_parameter(parameter)
         require(parameter['mapping']['kind'] == 'enum', 'A shift-row control is an enum')
+        require(kind != 'player' or len(parameter['mapping']['labels']) <= 255,
+                'A player\'s shift-row control has at most 255 choices')
         require(parameter['id'] not in names, 'Duplicate parameter identity')
         names.add(parameter['id'])
         count *= len(parameter['mapping']['labels'])
-    require(count <= SHIFT_STATES, 'A shift row holds at most %d combinations of its choices' % SHIFT_STATES)
+    require(kind == 'player' or count <= SHIFT_STATES,
+            'A shift row holds at most %d combinations of its choices' % SHIFT_STATES)
+
+
+def validate_synth_shift(shift, names, definition):
+    # A synth's Shift row (SDK 1.13): one to eight controls, each under the page and
+    # position its index names (i // 4, i % 4), which Shift and that encoder turn.
+    require(isinstance(shift, list) and 1 <= len(shift) <= SYNTH_SHIFT_ENTRIES,
+            "A synth's Shift row holds one to eight controls")
+    for parameter in shift:
+        # An absent entry keeps later ones under their positions; it names no position itself.
+        require(not (isinstance(parameter, dict) and 'control' in parameter),
+                "A Shift row control's position is its place in the row: entry i sits under page i // 4, encoder i % 4")
+        validate_parameter(parameter)
+        mapping = parameter['mapping']
+        require(mapping['kind'] != 'enum' or len(mapping['labels']) <= SHIFT_CHOICES,
+                'A Shift row enum has at most %d choices' % SHIFT_CHOICES)
+        require(parameter['display'] != 'division', 'A Shift row control is an amount or an enum, not a division')
+        require(parameter['id'] not in names, 'Duplicate parameter identity')
+        names.add(parameter['id'])
+    require(any(not p.get('absent') for p in shift), "A synth's Shift row holds at least one control")
+    parameters = definition['parameters']
+    # Its pages are the engine page's: one of four controls, or a paged synth's two.
+    require(paged(definition) or len(parameters) == SYNTH_POSITIONS,
+            'A Shift row sits under the engine page: a synth with four controls, or "press": "page"')
+    require(len(shift) <= SYNTH_POSITIONS or paged(definition),
+            'Shift row entries 5..8 sit under the second page: they need "press": "page"')
+    # Words 36 and 37 of the instrument track hold it; an aux track's words are untraced.
+    require('trackControl' not in definition['resources'],
+            'A Shift row is for instrument tracks: a track control machine cannot have one')
+
+
+def shift_choices(parameter):
+    """A Shift row entry's SynthShift::choices: its choice count, 0 for an amount, 1 when absent."""
+    if parameter.get('absent'):
+        return 1
+    return len(parameter['mapping']['labels']) if parameter['mapping']['kind'] == 'enum' else 0
+
+
+def shift_field(parameter, value):
+    """The 7-bit field a Shift row entry stores for a normalized value: an amount's
+    0..100, or the choice an enum's value selects, as control_choice reads it."""
+    choices = shift_choices(parameter)
+    if choices == 1:
+        return 0
+    if choices:
+        return min(choices - 1, ((math.floor(value * 0x7fffffff + 0.5) >> 16) * choices) >> 15)
+    return min(SHIFT_AMOUNT_TOP, math.floor(value * SHIFT_AMOUNT_TOP + 0.5))
+
+
+def shift_q31(parameter, field):
+    """The Q31 word a Shift row entry's field plays (synth_shift.hpp q31)."""
+    choices = shift_choices(parameter)
+    if choices == 1:
+        return 0
+    if choices:
+        bucket = 0x7fffffff // choices
+        return min(field, choices - 1) * bucket + bucket // 2
+    field = min(field, SHIFT_AMOUNT_TOP)
+    return 0x7fffffff if field == SHIFT_AMOUNT_TOP else field * 21474836 + (field * 47 + 50) // 100
+
+
+def shift_words(definition, values=None):
+    """A synth's parameters 8..15 as render receives them: each Shift row entry's
+    word at its default (or at `values[id]`, normalized), 0 beyond the row."""
+    shift = synth_shift(definition)
+    words = [shift_q31(p, shift_field(p, (values or {}).get(p['id'], p['default']))) for p in shift]
+    return words + [0] * (SYNTH_SHIFT_ENTRIES - len(words)) if shift else []
+
+
+def shift_preset_params(definition, values=None):
+    """The four `params` of the region that keeps a synth's Shift row in a preset: the
+    eight 7-bit fields of the row at its defaults (or at `values[id]`, normalized), first
+    entry lowest, 15 bits a word, as stock's preset writer exports a Drumline key's four
+    parameter words (sdk/platform/opxy-1.2.1/drum_storage.hpp drum_pack, model 0). The
+    region names `"model": "fm slap"`; see docs/api.md#a-synths-shift-row."""
+    shift = synth_shift(definition)
+    fields = [shift_field(p, (values or {}).get(p['id'], p['default'])) for p in shift]
+    fields += [0] * (SYNTH_SHIFT_ENTRIES - len(fields))
+    bits = sum(field << (7 * i) for i, field in enumerate(fields))
+    return [bits >> (15 * w) & 0x7fff for w in range(4)]
+
+
+def synth_shift(definition):
+    """A synth's Shift row (SDK 1.13), or none. An effect's shift row is shift_parameters."""
+    return definition.get('shift', []) if 'voiceBytes' in definition['resources'] else []
 
 
 def validate_stock_shift(resources):
@@ -315,8 +439,8 @@ def stock_shift_codes(definition):
 
 
 def shift_parameters(definition):
-    """An effect's shift-row controls (SDK 1.7), or none."""
-    return definition.get('shift', [])
+    """An effect's shift-row controls (SDK 1.7), or none; a synth's Shift row is synth_shift."""
+    return [] if 'voiceBytes' in definition['resources'] else definition.get('shift', [])
 
 
 def validate_synth_resources(resources):

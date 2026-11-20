@@ -32,9 +32,11 @@ class DrumFilter(unittest.TestCase):
         render = adapter.index('@NAMESPACE@::render(slot->voice')
         self.assertLess(render, adapter.index('drum_filter_run('))
         self.assertLess(adapter.index('drum_filter_run('), adapter.index('output[i] = opxy::q31::multiply(output[i], amplitude[i])'))
-        # The profiling workload runs the ladder on every voice.
+        # The profiling workload plays the kit with M3 off, then a filter run with the
+        # ladder on every voice.
         workload = (PLATFORM / 'benchmark_drum.cpp.in').read_text(encoding='utf-8')
-        self.assertIn('platform::kDrumFilterLadder, 0x40000000', workload)
+        self.assertIn('filtered ? platform::kDrumFilterLadder : platform::kDrumFilterNone', workload)
+        self.assertIn('filtered ? 0x40000000 : 0', workload)
         # No profile patch belongs to the filter: it needs no stock hook.
         self.assertFalse([p for p in PROFILE['patches'] if 'filter' in p.get('symbol', '') and 'drum' in p.get('symbol', '')])
 

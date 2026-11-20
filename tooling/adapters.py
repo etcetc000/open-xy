@@ -14,8 +14,9 @@ import math
 from pathlib import Path
 
 from .benchmark import append_callback
-from .definitions import (ROOT, SYNTH_POSITIONS, control_positions, hidden_pages, paged, shift_parameters,
-                          stock_shift_codes, validate_definition)
+from .definitions import (ROOT, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
+                          shift_choices, shift_field, shift_parameters, stock_shift_codes, synth_shift,
+                          validate_definition)
 
 # An effect's shift-row controls follow its eight parameter words (slots 8..11).
 SHIFT_SLOT = 8
@@ -48,7 +49,8 @@ def voice_values(definition):
     resources = definition['resources']
     return dict(NAMESPACE=definition['id'], VOICE_BYTES=resources['voiceBytes'],
                 VOICE_ALIGNMENT=resources['voiceAlignment'], SHARED_BYTES=resources['sharedBytes'],
-                PEAK=resources['outputPeakQ31'])
+                PEAK=resources['outputPeakQ31'], CHANNELS=2 if resources.get('stereoOutput') else 1,
+                RELEASE_CALLBACK=f"{definition['id']}::release(*voice, shared, owner(voice));" if resources.get('releaseCallback') else '')
 
 
 def generate_voice(directory, m, sweep=False):
@@ -65,10 +67,42 @@ def generate_voice(directory, m, sweep=False):
                     '        const opxy::i32* controls = swept ? swept : parameters;\n')
     else:
         declarations, controls = '', '        const opxy::i32* controls = parameters;\n'
+    shift_row = ''
+    if synth_shift(m.definition):
+        # Parameters 8..15: the Shift row, from words 36 and 37 of the track record stock
+        # renders the voice with, which `parameters` points at (synth_shift.hpp).
+        shift_row = SHIFT_ROW.format(**shift_row_tables(m.definition))
+        controls = (controls.replace('const opxy::i32* controls', 'const opxy::i32* stock_controls', 1) +
+                    '        opxy::i32 controls[2 * opxy::parameter_slots];\n'
+                    '        for (unsigned i = 0; i < opxy::parameter_slots; ++i) controls[i] = stock_controls[i];\n'
+                    '        static opxy::i32 shift_kept[kVoices][2];\n'
+                    '        shift_words(parameters, controls + opxy::parameter_slots, shift_kept[slot - voices]);\n')
     values = dict(voice_values(m.definition), SWEEP_DECLARATIONS=declarations, SWEEP_CONTROLS=controls,
+                  SHIFT_ROW=shift_row,
                   PREFIX=m.prefix, NAME=m.native_name, LABELS=stock_labels(m),
                   CAPACITY=m.definition['resources']['voiceCapacity'])
     values.pop('PEAK')
+    values.pop('RELEASE_CALLBACK')
+    release = m.definition['resources'].get('releaseCallback', 0)
+    values.update(RELEASE_METHOD=f'{m.prefix}_release' if release else 'noop',
+                  RELEASE_FUNCTION=f'''int {m.prefix}_release(void* self) {{
+    Handle* handle = static_cast<Handle*>(self);
+    if (Slot* slot = held(handle))
+        {m.definition['id']}::release(slot->voice, shared, slot->owner);
+    else if (pending(handle) || handle->wants) handle->released = 1;
+    return 0;
+}}
+''' if release else '')
+    values.update(RELEASE_STATE=', released' if release else '',
+                  RELEASE_CLEAR='    handle->released = 0;' if release else '',
+                  RELEASE_PENDING=f"    if (handle->released) {m.definition['id']}::release(slot.voice, shared, id);" if release else '')
+    # Expand to the original mono text when omitted, preserving its native code.
+    values.update(OUTPUT_FRAMES='opxy::block_frames' if values['CHANNELS'] == 1 else '2 * opxy::block_frames',
+                  STEREO_METHOD='zero' if values['CHANNELS'] == 1 else 'stereo',
+                  STEREO_FUNCTION='' if values['CHANNELS'] == 1 else 'static int stereo() { return 1; }\n')
+    values['FADE_OUTPUT'] = ('            for (opxy::i32 i = 0; i < frames; ++i) output[i] = opxy::q31::multiply(output[i], step * (frames - 1 - i));' if values['CHANNELS'] == 1 else
+        '            for (opxy::i32 i = 0; i < frames; ++i) for (opxy::i32 channel = 0; channel < 2; ++channel)\n'
+        '                output[2 * i + channel] = opxy::q31::multiply(output[2 * i + channel], step * (frames - 1 - i));')
     if m.kind == 'drum':
         values['MODEL_COUNT'] = m.definition['resources']['modelCount']
         values['CHOKE'] = 'true' if m.definition['resources'].get('chokeSameKey', 0) else 'false'
@@ -80,6 +114,48 @@ def generate_voice(directory, m, sweep=False):
         values['TRANSPORT'] = 'true' if drum_transport(m) else 'false'
     path = expand('drum_voice.cpp.in' if m.kind == 'drum' else 'voice.cpp.in', values, Path(directory) / 'voice.cpp')
     return append_callback(path, m) if m.kind == 'drum' else path
+
+
+# A synth's Shift row in its voice adapter (SDK 1.13): each entry's default field, its
+# highest one and, for an enum, its bucket, so render's words cost no division.
+SHIFT_ROW = '''#include "synth_shift.hpp"
+// The Shift row (SDK 1.13): each entry's default field, highest field (0 when
+// absent) and, for an enum, its bucket (0x7fffffff / choices; 0 for an amount).
+static const opxy::u8 kShiftDefaults[8] = {{{defaults}}};
+static const opxy::u8 kShiftTops[8] = {{{tops}}};
+static const opxy::u32 kShiftBuckets[8] = {{{buckets}}};
+// The row's eight words as render receives them, from the track record's words 36 and
+// 37. A word without the mark that isn't 0 is a step-lock handle stock's lock pass has
+// just written there, which the SDK replaces with the step's row before the note
+// starts (synth_controls.cpp sdk_synth_shift_play): the voice keeps playing the last
+// row it read until then.
+static void shift_words(const opxy::i32* record, opxy::i32* out, opxy::i32* kept) {{
+    namespace row = opxy::platform::synth_shift;
+    opxy::i32 words[2];
+    for (opxy::u32 w = 0; w < 2; ++w) {{
+        words[w] = record[row::kFirstWord + w];
+        if (words[w] & row::kMark) kept[w] = words[w];
+        else if (words[w]) words[w] = kept[w];
+    }}
+    for (opxy::u32 i = 0; i < row::kEntries; ++i) {{
+        opxy::u32 field = row::field(words[i / row::kPerWord], i, kShiftDefaults);
+        if (field > kShiftTops[i]) field = kShiftTops[i];
+        out[i] = kShiftBuckets[i] ? row::choice(field, kShiftBuckets[i]) : kShiftTops[i] ? row::amount(field) : 0;
+    }}
+}}
+'''
+
+
+def shift_row_tables(definition):
+    """A synth's Shift row as the runtime's SynthShift and the voice adapter's tables hold it."""
+    shift = synth_shift(definition)
+    pad = lambda values, fill: values + [fill] * (SYNTH_SHIFT_ENTRIES - len(values))
+    choices = pad([shift_choices(p) for p in shift], 1)
+    defaults = pad([shift_field(p, p['default']) for p in shift], 0)
+    tops = [n - 1 if n >= 2 else 0 if n == 1 else 100 for n in choices]
+    buckets = [0x7fffffff // n if n >= 2 else 0 for n in choices]
+    return dict(count=len(shift), choices=', '.join(map(str, choices)), defaults=', '.join(map(str, defaults)),
+                tops=', '.join(map(str, tops)), buckets=', '.join(f'{b}u' for b in buckets))
 
 
 def drum_transport(m):
@@ -111,7 +187,8 @@ def generate_drum_callbacks(directory, machines):
                          f'void {p}_drum_defaults(opxy::u32, opxy::u8*, opxy::u8*) __asm__("{p}_drum_defaults");',
                          f'const char* {p}_drum_label(opxy::u32, opxy::u32) __asm__("{p}_drum_label");',
                          f'const char* {p}_drum_model_name(opxy::u32) __asm__("{p}_drum_model_name");',
-                         f'opxy::u32 {p}_drum_count(opxy::u32) __asm__("{p}_drum_count");']
+                         f'opxy::u32 {p}_drum_count(opxy::u32) __asm__("{p}_drum_count");',
+                         f'void {p}_drum_scramble_range(opxy::u32, opxy::u32, opxy::u8*, opxy::u8*) __asm__("{p}_drum_scramble_range");']
         groups = m.definition['resources'].get('modelGroups', [])
         pads = m.definition['resources'].get('padControls', [])
         if pads:
@@ -127,7 +204,8 @@ def generate_drum_callbacks(directory, machines):
                     f'{p + "_group_sizes" if groups else "nullptr"}, {p + "_group_names" if groups else "nullptr"}, '
                     f'{1 if m.definition["resources"].get("padMix", 0) else 0}, {len(pads)}, '
                     f'{p + "_pad_bits" if pads else "nullptr"}, {sum(1 << i for i, f in enumerate(pads) if f.get("signed"))}, '
-                    f'{p + "_pad_labels" if pads else "nullptr"}, {p + "_drum_pad_text" if pads else "nullptr"}}},')
+                    f'{p + "_pad_labels" if pads else "nullptr"}, {p + "_drum_pad_text" if pads else "nullptr"}, '
+                    f'{p}_drum_scramble_range}},')
         if sends_per_key(m):
             # The mixer's send hooks (drum_send.cpp) know a kit's voices by its method table.
             declarations += [f'extern const void* const {p}_vtable[];',
@@ -143,13 +221,32 @@ def generate_drum_callbacks(directory, machines):
     return destination
 
 
+# A drum kit's keys and names, as the device's adapter reads them (drum_voice.cpp.in),
+# for the builder's audition and screen header: a key's default model and eight
+# controls (nine bytes), a model's name, a slot's label and the slots it uses.
+DRUM_KEYS = '''static opxy::u8 drum_key[9];
+const opxy::u8* opxy_drum_defaults(opxy::u32 key) {
+    drum_key[0] = 0; drum_key[1] = 0; drum_key[2] = 0; drum_key[3] = 0; drum_key[4] = 0;
+    drum_key[5] = 0; drum_key[6] = 0; drum_key[7] = 0; drum_key[8] = 0;
+    @NAMESPACE@::drum_defaults(key, &drum_key[0], &drum_key[1]);
+    return drum_key;
+}
+const char* opxy_drum_model_name(opxy::u32 model) { return @NAMESPACE@::model_name(model); }
+const char* opxy_drum_label(opxy::u32 model, opxy::u32 slot) { return @NAMESPACE@::parameter_name(model, slot); }
+opxy::u32 opxy_drum_count(opxy::u32 model) { return @NAMESPACE@::parameter_count(model); }
+'''
+
+
 def generate_voice_preview(directory, definition, *, kind='synth'):
     """Browser preview voices for a synth or drum definition (curated or local)."""
     require(kind in ('synth', 'drum'), 'Browser previews audition synths and drums')
     values = voice_values(validate_definition(definition, kind))
+    # A synth with a Shift row renders sixteen words: its eight controls, then the row.
+    values['PARAMETER_COUNT'] = '2 * opxy::parameter_slots' if synth_shift(definition) else 'opxy::parameter_slots'
     count = definition['resources'].get('modelCount', 0)
     values['DRUM_SELECT'] = (f"{values['NAMESPACE']}::drum_select(*voice, shared, owner(voice), drum_model < {count} ? drum_model : 0);\n    "
                              if kind == 'drum' else '')
+    values['DRUM_KEYS'] = DRUM_KEYS.replace('@NAMESPACE@', values['NAMESPACE']) if kind == 'drum' else ''
     return expand('voice_preview.cpp.in', values, Path(directory) / 'voice_preview.cpp', ROOT / 'sdk/host')
 
 
@@ -321,6 +418,7 @@ namespace {{
 struct Machine {{
     static const char* const ids[{len(ids)}];
     static const bool sample = {'true' if getattr(m, 'kind', 'synth') == 'sample' else 'false'};   // reads its sample's overview
+    static const bool percent_sends = {'true' if getattr(m, 'sdk', (1, 0)) >= (1, 15) else 'false'};   // pad[2..3] as percent + 1 (SDK 1.15)
 }};
 const char* const Machine::ids[{len(ids)}] = {{
 {table}}};
@@ -444,7 +542,7 @@ def generate_synth_controls(directory, machines):
         body = [f'static bool {m.prefix}_format(opxy::u32 slot, opxy::i32 value, char* text) {{', '    switch (slot) {']
         # An effect's shift-row controls caption as slots 8..11.
         captioned = list(enumerate(m.definition['parameters']))
-        captioned += [(SHIFT_SLOT + i, p) for i, p in enumerate(shift_parameters(m.definition))]
+        captioned += [(SHIFT_SLOT + i, p) for i, p in enumerate(shift_parameters(m.definition) or synth_shift(m.definition))]
         for i, p in captioned:
             mapping = p['mapping']
             if p.get('absent'):
@@ -475,7 +573,8 @@ def generate_synth_controls(directory, machines):
                              '        return true;'])
         body.extend(['    default: return false;', '    }', '}'])
         formatters.append('\n'.join(body))
-        # A drum kit's press always pages its whole row.
+        # A drum kit's press pages its whole row, on a key that has a second row
+        # (synth_controls.cpp second_row).
         page = m.kind == 'drum' or own_screen and count > 4 or paged(m.definition)
         # An effect's shift row: its choice counts and titles; other rows leave the fields zero.
         extra = ''
@@ -485,6 +584,14 @@ def generate_synth_controls(directory, machines):
             declarations.append(f'static const char* const {m.prefix}_shift_titles[] = {{{titles}}};')
             choices = [len(p['mapping']['labels']) for p in shift] + [1] * (SYNTH_POSITIONS - len(shift))
             extra = f", {len(shift)}, {{{', '.join(map(str, choices))}}}, {m.prefix}_shift_titles"
+        elif synth_shift(m.definition):
+            # A synth's Shift row (SDK 1.13, synth_controls.hpp SynthShift).
+            tables = shift_row_tables(m.definition)
+            titles = ', '.join(json.dumps('' if p.get('absent') else p['label'].lower()) for p in synth_shift(m.definition))
+            declarations.append(f'static const char* const {m.prefix}_shift_titles[] = {{{titles}}};')
+            declarations.append(f'static const opxy::platform::SynthShift {m.prefix}_shift_row = '
+                                f"{{{tables['count']}, {{{tables['choices']}}}, {{{tables['defaults']}}}, {m.prefix}_shift_titles}};")
+            extra = f', 0, {{1, 1, 1, 1}}, nullptr, {{0, 0, 0, 0}}, &{m.prefix}_shift_row'
         elif own_screen and 'stockShift' in m.definition['resources']:
             # Shift gives these encoders to the stock sampler page (drum_controls_stock.cpp).
             codes = ', '.join(map(str, stock_shift_codes(m.definition)))
@@ -659,12 +766,26 @@ def generate_fx_object(directory, m, benchmark=False):
     # The buffer's scratch call, the transport and the shift row use stock addresses.
     if bytes_ is not None or resources.get('transport') or shift:
         values['OBJECT'] = '#include "stock.hpp"\n' + ('#include "shift_row.hpp"\n' if shift else '') + values['OBJECT']
+    values.update(effect_bus_values(m))
+    if resources.get('busShift'):
+        values['OBJECT'] = '#include "send_bus.hpp"\n' + values['OBJECT']
     path = expand('fx_object.cpp.in', dict(values, PREFIX=m.prefix, NAMESPACE=m.definition['id'],
                                            NAME=m.native_name, LABELS=stock_labels(m),
                                            DRY_LEVEL=f'parameters[{m.dry_parameter}]' if m.dry_parameter is not None
                                            else f'{m.dry_level:#x}' if m.dry_level is not None else '0x7fffffff'),
                   Path(directory) / f'fx_object_{m.prefix}.cpp')
     return append_callback(path, m) if benchmark else path
+
+
+def effect_bus_values(m):
+    """An effect's bus shift (resources.busShift, send_bus.hpp): the block raised by
+    N bits, saturating, ahead of the shift row, and the result lowered by N, rounded,
+    after process. Empty, leaving the object's source as it was, without one."""
+    n = m.definition['resources'].get('busShift', 0)
+    if not n:
+        return dict(BUS_RAISE='', BUS_LOWER='')
+    return dict(BUS_RAISE=f'    opxy::platform::send_bus::raise<{n}>(left, right);\n',
+                BUS_LOWER=f'\n    opxy::platform::send_bus::lower<{n}>(left, right);')
 
 
 def stock_labels(m):
@@ -741,18 +862,26 @@ def catalog_entry(m):
 
 def generate_player_object(directory, m):
     """A player's stock object methods around its press and release, and its own page when it has one."""
-    from .native import player_page_ids
+    from .native import player_header_ids, player_page_ids
     values = dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'], NAME=m.native_name,
-                  PAGE='nullptr', PAGE_READY='nullptr', PAGE_DECLARATIONS='', PAGE_UNIT='')
-    steps = [enum_steps(p) for p in m.definition['parameters']]
-    values['STEPS'] = ', '.join(map(str, steps + [0] * (4 - len(steps))))
+                  PAGE='nullptr', PAGE_READY='nullptr', PAGE_DECLARATIONS='', PAGE_UNIT='',
+                  PAGED='true' if paged(m.definition) else 'false',
+                  CLICKS='true' if m.definition.get('press') == 'click' else 'false')
+    # One choice marks an absent slot: its encoder turns nothing (players.cpp).
+    # So do the second page's slots a player leaves out.
+    steps = [1 if p.get('absent') else enum_steps(p) for p in m.definition['parameters']]
+    values['STEPS'] = ', '.join(map(str, steps + [1] * (8 - len(steps))))
+    values.update(player_shift_values(m))
     if m.display == 'player':
         p = m.prefix
         page = (TEMPLATES / 'player_page.cpp.in').read_text(encoding='utf-8')
         titles = [json.dumps(parameter['label'].lower()) for parameter in m.definition['parameters']]
-        titles += ['""'] * (4 - len(titles))
-        for key, value in dict(IDS='\n'.join(f'    "{name}",' for name in player_page_ids(p)),
-                               TITLES=', '.join(titles), PAGE_LIMIT=RELOCATED['PAGE_LIMIT'], PREFIX=p,
+        titles += ['""'] * (8 - len(titles))
+        # A paged player's page also drives the two-row header in its artwork (native.page_artwork).
+        ids = player_page_ids(p) + (player_header_ids(p + '_header') if paged(m.definition) else [])
+        for key, value in dict(IDS='\n'.join(f'    "{name}",' for name in ids), ID_COUNT=str(len(ids)),
+                               PAGED=values['PAGED'], TITLES=', '.join(titles),
+                               PAGE_LIMIT=RELOCATED['PAGE_LIMIT'], PREFIX=p,
                                NAMESPACE=m.definition['id'], NAME=m.native_name).items():
             page = page.replace('@' + key + '@', value)
         values.update(PAGE=f'{p}_page_id', PAGE_READY=f'{p}_screen_ready', PAGE_UNIT=page,
@@ -760,6 +889,27 @@ def generate_player_object(directory, m):
                                                     f'int {p}_screen_register() __asm__("{p}_screen_register");',
                                                     f'int {p}_screen_ready() __asm__("{p}_screen_ready");']))
     return expand('player_object.cpp.in', values, Path(directory) / f'player_object_{m.prefix}.cpp')
+
+
+def player_shift_values(m):
+    """A player's shift row (SDK 1.16) as its Player's table, or nothing, which leaves the
+    generated source of a player without one as it was."""
+    shift = shift_parameters(m.definition)
+    if not shift:
+        return dict(SHIFT_TABLE='', SHIFT='')
+    choices, defaults = [], []
+    for parameter in shift:
+        count = len(parameter['mapping']['labels'])
+        # The stored default (catalog_defaults' Q15) and its choice, as the SDK steps an enum.
+        bucket = min((math.floor(parameter['default'] * 32767 + 0.5) * count) >> 15, count - 1)
+        width = 0x7fffffff // count
+        choices.append(count)
+        defaults.append(bucket * width + width // 2)
+    choices += [0] * (8 - len(shift))
+    defaults += [0] * (8 - len(shift))
+    table = (f'static const opxy::platform::PlayerShift player_shift = {{{len(shift)}, '
+             f'{{{", ".join(map(str, choices))}}}, {{{", ".join(map(str, defaults))}}}}};\n')
+    return dict(SHIFT_TABLE=table, SHIFT=', &player_shift')
 
 
 def generate_player_table(directory, machines):
@@ -794,6 +944,8 @@ def default_preset(m):
     preset['engine']['params'] = list(entry['default_params'])
     # Match a device-saved minimum amp release: the stored endpoint is 32767.
     preset['envelope']['amp'].update(amp)
+    if 'volume' in m.preset_defaults:
+        preset['engine']['volume'] = m.preset_defaults['volume']
     preset['type'] = entry['type']
     return preset
 

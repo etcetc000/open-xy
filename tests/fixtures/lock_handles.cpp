@@ -205,6 +205,8 @@ Address opxy::platform::host_stock_address(Address address) {
 const u32 kStockMachine = 77;
 bool opxy::platform::step_locks::handle_client(u32 track) { return track < 8; }
 bool opxy::platform::step_locks::pattern_client(u32 engine) { return engine != kStockMachine; }
+// A kit client takes its locks at note start; nothing plays from live words here.
+void opxy::platform::step_locks::step_applied(u32, u32, u32) {}
 
 namespace {
 const u32 kKick = 53, kSnare = 54;

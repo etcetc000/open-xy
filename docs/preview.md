@@ -1,7 +1,7 @@
 # Local preview and patch protocol
 
-Browser previews audition synths: their controls, alternates included, their
-sound and their own screen.
+Browser previews audition synths and drum kits: their controls, alternates
+included, their sound and their own screen.
 Sample engines and effects use stock pages and stock sample or send processing,
 so they have no browser preview; they are checked by the native build.
 
@@ -25,6 +25,9 @@ The first play action enables audio automatically. Escape/Stop all and loss
 of window focus release notes. Drag knobs up or down to adjust their values;
 hold Shift for finer movement. The sliders beneath them edit the same values.
 Focused knobs also accept arrow keys, Page Up/Down and Home/End.
+A synth with a [Shift row](api.md#a-synths-shift-row) adds **Shift**, which
+holds the row in the screen's header, and **Press**, which switches pages as an
+encoder press does, the row following with Shift on.
 Volume controls preview playback separately from engine parameters.
 **Mute** / **Unmute** silences or restores output without changing Volume or
 stopping playback. Muting before the first key or phrase keeps that playback silent.
@@ -54,6 +57,33 @@ preallocated voices, a 5 ms attack and 120 ms release audition gate. Controls
 apply at the next kernel block; retrigger discards pending samples immediately.
 The preview does not emulate stock envelopes, filters, LFOs or effects, and
 cannot measure Blackfin CPU use. No firmware or device connection is required.
+
+## Drum kits
+
+A kit with its own screen previews like a synth, with the device's keys. Its
+module also reports what the device's adapter reads from the kit
+([API](api.md#synthesis-drum-kits)): each key's model and eight controls from
+`drum_defaults`, each model's name and the labels and count of its controls.
+The SDK workbench chooses the model with **Shift + 1 / Model**. On the builder's
+machine page:
+
+- The keyboard is the kit's 24 keys, F3 to E5 (canonical 53..76). Each starts as
+  the kit sets it up; pressing one selects it, as on the device, and plays it.
+- **Machine** chooses the selected key's model, named as the kit names it, with
+  its group; the key keeps its controls, as on the device.
+- The sliders edit the selected key's controls in the device's steps, 0..127,
+  labelled as the model labels them. A slot the model doesn't use is blank and
+  doesn't move. Each key keeps its own values while the page is open.
+- The screen gets the selected key's `model`, Shift's `choices` for it (its
+  group and place, or its model; no choke group), and the `pan`, `level` and
+  `pad` fields of a key the kit has not set up: centred, 0 dB, neutral. The stock
+  header shows the model's labels and the controls' 0..127 values, where the
+  screen doesn't draw its own.
+- A hit plays out until the next one: the preview plays one key at a time, and
+  a key's release doesn't end it. It doesn't model choke groups, `finished`,
+  pan, level, pad fields, scramble, step locks or the transport.
+
+The selected-machines dialog renders the kit's first key, 53, as the kit sets it up.
 
 ## Patch format
 
@@ -90,7 +120,11 @@ The SDK-owned AudioWorklet transport accepts `{type: 'parameters', value}`
 C++ callbacks; they do not implement this transport themselves.
 
 Preview modules expose ABI version 1, compiled state/buffer sizes, static voice
-addresses and lifecycle/render exports. The runner rejects imports, invalid
+addresses and lifecycle/render exports, and `opxy_preview_model`, the model a
+kit's renders play (other modules ignore it). A kit's module also exports `opxy_drum_defaults(key)`
+(the address of nine bytes: the key's model, then its eight controls),
+`opxy_drum_model_name(model)`, `opxy_drum_label(model, slot)` and
+`opxy_drum_count(model)`; the contract check reads every key and model through them. The runner rejects imports, invalid
 layout and a sample-rate mismatch. The manifest binds the WASM, artwork and
 source hashes and carries the definition and `machine.json` description that
 the workbench page shows. These are host interfaces, not a device upload protocol.

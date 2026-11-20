@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {PreviewEngine} from '../sdk/browser/engine.mjs';
+
+const enabled=Number(process.argv[3]);
+const engine=new PreviewEngine(new WebAssembly.Module(readFileSync(process.argv[2])),44100,Array(8).fill(0));
+const state=v=>new Uint32Array(engine.api.memory.buffer,v.state,4);
+engine.noteOff(60); // No active gate.
+engine.noteOn(60);
+const v=engine.voices.find(v=>v.active);
+engine.render(new Float32Array(512));
+engine.noteOff(60); engine.noteOff(60);
+assert.equal(state(v)[2],enabled,'one callback per gate closure');
+assert.equal(v.releasing,true);
+assert.equal(v.active,true,'release retains the audition tail');
+engine.noteOn(60);
+assert.equal(state(v)[1],2,'same-note retrigger calls start');
+assert.equal(state(v)[2],enabled,'retrigger does not synthesize release');
+engine.noteOff(60);
+assert.equal(state(v)[2],2*enabled);
+engine.render(new Float32Array(8192));
+assert.equal(v.active,false);
+assert.equal(state(v)[3],1,'tail completion destroys');
+engine.noteOn(60);
+for(let note=61;note<=68;++note) engine.noteOn(note);
+assert.equal(v.note,68,'oldest audition voice is stolen');
+assert.equal(state(v)[2],0,'steal initializes the new owner without release');
+engine.noteOff(60);
+assert.equal(state(v)[2],0,'stale note-off cannot release the replacement');
+engine.noteOff(68); assert.equal(state(v)[2],enabled);
+engine.panic(); assert.equal(state(v)[3],1);
+assert.ok(engine.voices.every(v=>!v.active));
+console.log('PASS release callback, tail, retrigger, steal, stale note-off and old ABI');

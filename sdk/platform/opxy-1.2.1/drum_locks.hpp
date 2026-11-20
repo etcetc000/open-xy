@@ -26,8 +26,9 @@ const i32 kDrumPanTermNeutral = 0x40000000;
 // A step's locks, as a backend reads them. Each field's 0 is "not locked".
 // - offset[kHitPan]: a pan offset, folded into the payload's word 5;
 //   offset[kHitLevel]: dB; offset[kHitPad1/2]: the pad controls' units.
-// - offset[kHitSend1/2]: an override of the key's send: 1 + its send code
-//   (1 TRK, 2..8 the amounts 0..100, drum_send.hpp).
+// - offset[kHitSend1/2]: an override of the key's send (drum_send_lock_index):
+//   kDrumSendLockBase + its index (TRK or 0..100, drum_send.hpp), or, as SDK
+//   1.10..1.14 locked it, 1 + an old 3-bit code (1 TRK, 2..8 the seven steps).
 struct DrumHitLocks {
     i32 offset[kHitFields];
     bool any() const {
@@ -38,6 +39,18 @@ struct DrumHitLocks {
 inline void drum_hit_clear(DrumHitLocks& locks) {
     for (u32 i = 0; i < kHitFields; ++i) locks.offset[i] = 0;
 }
+// A send lock's index, or false when the value is none of either form.
+const i32 kDrumSendLockBase = 128;
+inline bool drum_send_lock_index(i32 lock, u32& index) {
+    if (lock >= 1 && lock <= static_cast<i32>(kDrumSendCodes)) {
+        index = drum_send_index_of_code(static_cast<u32>(lock - 1));
+        return true;
+    }
+    if (lock < kDrumSendLockBase || lock >= kDrumSendLockBase + static_cast<i32>(kDrumSendIndices)) return false;
+    index = static_cast<u32>(lock - kDrumSendLockBase);
+    return true;
+}
+inline i32 drum_send_lock_of(u32 index) { return kDrumSendLockBase + static_cast<i32>(index & kDrumSendIndexMask); }
 
 // The field a Shift choice locks on a padMix kit, or kDrumNoLock: the model
 // and the choke group are the key's alone.
@@ -54,14 +67,15 @@ inline u32 drum_lock(const DrumMachine& machine, u32 choice) {
 }
 
 // A field's lowest and highest locked value: pan +-100, level +-30 dB, a pad
-// control its span (at most 127) either way, a send TRK (1) to 100 (8); both
-// 0 for a field the kit does not have.
+// control its span (at most 127) either way, a send's from an old code's 1 to the
+// last index (drum_send_lock_index says which between are sends); both 0 for a
+// field the kit does not have.
 inline void drum_lock_range(const DrumMachine& machine, u32 field, i32& low, i32& high) {
     low = high = 0;
     if (!machine.pad_mix || field >= kHitFields) return;
     if (field == kHitPan) { low = -kDrumLockPan; high = kDrumLockPan; return; }
     if (field == kHitLevel) { low = -kDrumLockLevel; high = kDrumLockLevel; return; }
-    if (field >= kHitSend1) { low = 1; high = static_cast<i32>(kDrumSendCodes); return; }
+    if (field >= kHitSend1) { low = 1; high = kDrumSendLockBase + static_cast<i32>(kDrumSendIndices) - 1; return; }
     const u32 pad = field - kHitPad1;
     if (pad >= machine.pad_count || !machine.pad_bits) return;
     const bool sign = (machine.pad_signs >> pad & 1u) != 0;
@@ -74,25 +88,33 @@ inline i32 drum_lock_clamp(i32 value, i32 low, i32 high) { return value < low ? 
 // moves (sdk_drum_edit): stock's turn event is three words, [0] the continuous
 // motion stock adds to a Q31 word (8d5ad254), [1] the signed detents and [2] the
 // speed (8d5ad2e8). PAN moves (speed + 1) units a detent, as stock's pan editor
-// (8d4d60b0); every other field one. Never word [0]: taken as units, any turn
+// (8d4d60b0), and a send (speed + 1) percent, at most 25 (drum_send_steps); every
+// other field one. Never word [0]: taken as units, any turn
 // clamped a lock to one end of its range or the other.
 inline i32 drum_lock_detents(const i32* event, u32 field) {
     if (!event) return 0;
     i32 delta = event[1];
     if (delta > 127) delta = 127;
     if (delta < -127) delta = -127;
+    if (field >= kHitSend1 && field < kHitFields) return drum_send_steps(delta, event[2]);
     if (field != kHitPan) return delta;
     i32 step = event[2] + 1;
     if (step < 1) step = 1;
     if (step > 200) step = 200;
     return delta * step;
 }
-// A turn of `delta` detents on a field's lock: a send starts from what the key
-// plays (`start`, 1 + its code), any other field from no offset.
+// A turn of `delta` (drum_lock_detents) on a field's lock: a send starts from what
+// the key plays (`start`, its lock form, drum_send_lock_of), its old code from the
+// percent it shows, and becomes an amount or TRK; any other field from no offset.
 inline i32 drum_lock_turn(const DrumMachine& machine, u32 field, i32 lock, i32 start, i32 delta) {
     i32 low, high;
     drum_lock_range(machine, field, low, high);
     if (low == high) return lock;
+    if (field >= kHitSend1) {
+        u32 index;
+        if (!drum_send_lock_index(lock ? lock : start, index)) index = 0;
+        return drum_send_lock_of(drum_send_turn(index, delta));
+    }
     const i32 from = lock ? lock : field >= kHitSend1 ? start : 0;
     return drum_lock_clamp(from + delta, low, high);
 }
@@ -104,8 +126,8 @@ inline i32 drum_marked_word(u8 byte) {
     return static_cast<i32>((6 * kDrumModelMark + (drum_mark(byte) >> 4)) * 0x01f07c1fu + 0x00f83e0fu);
 }
 // A note's pad payload with a step's locks: a pan offset into word 5, level
-// into word 7 through stock's dB-to-gain (`gain`), the pad controls and send
-// overrides into word 6, each clamped to its field; pan and level are the
+// into word 7 through stock's dB-to-gain (`gain`), the pad controls into word 6,
+// each clamped to its field (the sends: drum_lock_sends); pan and level are the
 // key's as it plays them (`level` 0 dB on a key the kit has not set up). Word
 // 6 and 7 reach the adapter only for a key set up (drum_lock_setup). False
 // when no lock moves anything.
@@ -131,13 +153,16 @@ inline bool drum_lock_fold(const DrumMachine& machine, const DrumHitLocks& locks
         payload[kDrumPadPayload] = drum_field_set(payload[kDrumPadPayload], low, bits, next);
         moved = true;
     }
-    for (u32 send = 0; send < kDrumSends; ++send) {
-        const i32 lock = locks.offset[kHitSend1 + send];
-        if (lock < 1 || lock > static_cast<i32>(kDrumSendCodes)) continue;
-        payload[kDrumPadPayload] = drum_send_store(payload[kDrumPadPayload], send, static_cast<u32>(lock - 1));
-        moved = true;
-    }
     return moved;
+}
+// A hit's send pair: the key's (`pair`), each send a step locks in its place. The
+// caller carries it in the payload (drum_send_carry).
+inline u32 drum_lock_sends(const DrumHitLocks& locks, u32 pair) {
+    for (u32 send = 0; send < kDrumSends; ++send) {
+        u32 index;
+        if (drum_send_lock_index(locks.offset[kHitSend1 + send], index)) pair = drum_send_with(pair, send, index);
+    }
+    return pair;
 }
 // Whether a step's locks need a key set up: the level and word 6's fields reach
 // the adapter only for one (drum_storage.hpp). PAN is stock's, on every key.

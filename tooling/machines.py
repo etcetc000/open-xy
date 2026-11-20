@@ -15,7 +15,8 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, paged, shift_parameters, stock_name, validate_definition
+from .definitions import (ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, paged, shift_parameters,
+                          stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
 from .pipeline import config
@@ -48,7 +49,17 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # level, small controls and sends, which lock per hit (resources.padMix and
 # resources.padControls); runs every kit's voices through stock's track filter (M3);
 # and calls a kit's drum_transport with the tempo before every render.
-SDK_VERSION = (1, 10)
+# 1.11 lets a track control play notes on instrument tracks, take its own encoder turns
+# and pass sixteen words to its display.
+# 1.12 adds stereo synths (resources.stereoOutput: 64 interleaved left/right frames)
+# and a synth's voice release callback (resources.releaseCallback).
+# 1.13 gives a synth a Shift row: up to eight more controls under its pages ("shift"),
+# kept in the instrument track's words 36 and 37, and opxy/synth_shift.hpp for its display.
+# 1.16 gives an effect a bus shift: its send's audio raised by a fixed number of
+# bits around process (resources.busShift), and lets a note player page eight
+# controls ("press": "page"); and gives a note player a shift row ("shift"),
+# Shift turns and encoder clicks in its Controls, and its step clock's tempo.
+SDK_VERSION = (1, 16)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -159,13 +170,15 @@ def _relative(machine_root, value):
 
 
 def graphics_path(record):
-    """The optional grayscale source, explicitly opted into by SDK 1.5 synths."""
+    """The optional grayscale source, explicitly opted into by SDK 1.5 synths
+    and by SDK 1.7 effects that draw their own page."""
     if 'graphics' not in record:
         return None
-    require_sdk(sdk_version(record.get('sdk')), (1, 5), 'Developer grayscale artwork')
+    kind = record.get('kind')
+    require_sdk(sdk_version(record.get('sdk')), (1, 7) if kind == 'effect' else (1, 5), 'Developer grayscale artwork')
     graphics = record['graphics']
-    require(record.get('kind') == 'synth' and isinstance(graphics, dict) and set(graphics) == {'grayscale'},
-            'graphics requires a synth and exactly one grayscale artwork path')
+    require(kind in ('synth', 'effect') and isinstance(graphics, dict) and set(graphics) == {'grayscale'},
+            'graphics requires a synth or an effect with its own page, and exactly one grayscale artwork path')
     path = graphics['grayscale']
     require(relative_path(path) and path.endswith('.svg.fragment') and path != 'panel.svg.fragment',
             'graphics.grayscale names a separate local .svg.fragment file')
@@ -257,9 +270,11 @@ def check_region(region, identity, samples):
     return region
 
 
-def check_preset(value, identity, samples=None):
+def check_preset(value, identity, samples=None, shift=False):
     """A preset as the device saves it (version 4), for this machine, pointing at no samples
-    or, for a sample engine shipping its own (SDK 1.10), at one of them."""
+    or, for a sample engine shipping its own (SDK 1.10), at one of them. A synth with a
+    Shift row (SDK 1.13) saves it as Drumline saves its keys, in sample-less regions
+    (docs/abi-1.2.1.md#a-synths-shift-row), which it may keep."""
     engine = value.get('engine') if isinstance(value, dict) else None
     params = engine.get('params') if isinstance(engine, dict) else None
     found = value.get('regions') if isinstance(value, dict) else None
@@ -271,6 +286,9 @@ def check_preset(value, identity, samples=None):
         require(len(found) <= 1, f'A preset of {identity} has at most 1 sample region')
         for region in found:
             check_region(region, identity, samples)
+    elif shift:
+        require(len(found) <= 24 and all(isinstance(r, dict) and not r.get('sample') for r in found),
+                f'A preset of {identity} keeps its Shift row in at most 24 regions, none pointing at a sample')
     else:
         require(found == [], f'A preset of {identity} has no sample regions: only a sample engine '
                 'shipping its own samples ("samples") points at them')
@@ -281,7 +299,7 @@ def reject_constant(name):
     raise ValueError(f'{name} is not JSON')
 
 
-def read_presets(root, folder, identity, samples=None):
+def read_presets(root, folder, identity, samples=None, shift=False):
     """Each <name>.json in the machine's presets folder, by name."""
     path = root / _relative(root, folder)
     require(path.is_dir(), 'presets names a folder: ' + folder)
@@ -299,7 +317,7 @@ def read_presets(root, folder, identity, samples=None):
             value = json.loads(data.decode('utf-8'), parse_constant=reject_constant)
         except ValueError as error:
             raise ValueError(f'{file.name}: invalid JSON: {error}') from error
-        presets[file.stem] = check_preset(value, identity, samples)
+        presets[file.stem] = check_preset(value, identity, samples, shift)
     return presets
 
 
@@ -479,9 +497,10 @@ def read_native(root, identity):
     return tuple(units)
 
 
-def reads_sample_overview(root):
-    """Whether a machine's own C++, its tests and tools aside, includes the overview header."""
-    include = re.compile(r'^\s*#\s*include\s*[<"]opxy/sample_overview\.hpp[>"]', re.M)
+def reads_sample_overview(root, header='sample_overview'):
+    """Whether a machine's own C++, its tests and tools aside, includes the overview header
+    (or another SDK header named by `header`)."""
+    include = re.compile(r'^\s*#\s*include\s*[<"]opxy/' + header + r'\.hpp[>"]', re.M)
     return any(include.search(path.read_text(encoding='utf-8', errors='replace')) for path in tree(root)
                if path.suffix in ('.cc', '.cpp', '.h', '.hpp') and path.relative_to(root).parts[0] not in ('tests', 'tools'))
 
@@ -516,12 +535,17 @@ def machine_at(root, identity=None):
     if kind == 'drum' and any(definition['resources'].get(k) for k in ('padMix', 'padControls')):
         # One gate for a kit's per-key mixer: pan, level, pad controls and sends.
         require_sdk(version, (1, 10), "A drum kit's per-key mixer (padMix, padControls)")
+    # Only a set flag needs 1.12: an explicit 0 is the mono, callback-free default.
+    if kind == 'synth' and any(definition['resources'].get(k) for k in ('stereoOutput', 'releaseCallback')):
+        require_sdk(version, (1, 12), 'Stereo synth output and voice release callbacks (stereoOutput, releaseCallback)')
     if definition['resources'].get('sliceTiming'):
         require_sdk(version, (1, 7), 'A sample slicing clock (sliceTiming)')
     if 'bufferBytes' in definition['resources']:
         require_sdk(version, (1, 2), 'An effect buffer (bufferBytes)')
     if definition['resources'].get('transport'):
         require_sdk(version, (1, 2), "An effect's tempo (transport)")
+    if definition['resources'].get('busShift'):
+        require_sdk(version, (1, 16), "An effect's bus shift (busShift)")
     if any(p['display'] == 'division' for p in definition['parameters']):
         require_sdk(version, (1, 2), 'A division control')
     if kind == 'sample' and 'display' in definition['resources']:
@@ -536,8 +560,16 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 9), 'Hidden stock pages ("hidePages")')
     if kind == 'effect' and paged(definition):
         require_sdk(version, (1, 7), 'An effect whose press switches the page ("press": "page")')
+    if kind == 'player' and paged(definition):
+        require_sdk(version, (1, 16), 'A note player whose press switches the page ("press": "page")')
+    if kind == 'player' and definition.get('press') == 'click':
+        require_sdk(version, (1, 16), 'A note player whose presses are only its clicks ("press": "click")')
+    if shift_parameters(definition) and kind == 'player':
+        require_sdk(version, (1, 16), 'A player\'s shift row ("shift")')
     if shift_parameters(definition):
         require_sdk(version, (1, 7), 'An effect\'s shift row ("shift")')
+    if synth_shift(definition):
+        require_sdk(version, (1, 13), 'A synth\'s Shift row ("shift")')
     if kind == 'synth' and definition['resources']['display']['texts'] > SDK_1_2_TEXTS:
         require_sdk(version, (1, 3), 'More than %d display text slots' % SDK_1_2_TEXTS)
     if 'display' in definition['resources'] and definition['resources']['display']['texts'] > SDK_1_6_TEXTS:
@@ -546,6 +578,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 8), 'More than %d display nodes' % SDK_1_7_NODES)
     require(definition['id'] == identity, 'Machine directory and definition identity disagree')
     grayscale = graphics_path(value)
+    require(not grayscale or kind == 'synth' or 'display' in definition['resources'],
+            'An effect\'s grayscale artwork needs its own page (resources.display)')
     # After the feature checks, which name the SDK version each feature needs.
     requested = requested_numbers(config()['identities'], kind, value, version,
                                   'drawing' if 'display' in definition['resources'] else 'stock')
@@ -575,6 +609,9 @@ def machine_at(root, identity=None):
     if reads_sample_overview(root):
         require_sdk(version, (1, 8), 'A sample overview (opxy/sample_overview.hpp)')
         require(kind == 'sample' and display == 'drawing', "Only a sample engine's own screen reads a sample overview")
+    if reads_sample_overview(root, 'synth_shift'):
+        require_sdk(version, (1, 13), "A synth's Shift row on its display (opxy/synth_shift.hpp)")
+        require(synth_shift(definition), 'Only a synth with a Shift row ("shift") reads opxy/synth_shift.hpp')
     native = read_native(root, identity)
     # The native plan compiles extra translation units only into synths.
     if kind not in ('synth', 'drum'):
@@ -588,7 +625,9 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 9), 'Track control (trackControl)')
         require((root / 'control.cpp').is_file(), 'A synth with track control supplies control.cpp')
     defaults = value.get('presetDefaults', {})
-    require(isinstance(defaults, dict) and set(defaults) <= {'amp'}, 'Invalid preset defaults')
+    require(isinstance(defaults, dict) and set(defaults) <= {'amp', 'volume'}, 'Invalid preset defaults')
+    require('volume' not in defaults or (type(defaults['volume']) is int and 0 <= defaults['volume'] <= 32767),
+            'Invalid preset volume default')
     amp = defaults.get('amp', {})
     require(isinstance(amp, dict) and set(amp) <= {'attack', 'decay', 'release', 'sustain'} and
             all(type(v) is int and 0 <= v <= 32767 for v in amp.values()), 'Invalid preset amp defaults')
@@ -604,7 +643,7 @@ def machine_at(root, identity=None):
     if 'presets' in value:
         require_sdk(version, (1, 3), "A machine's own presets")
         require(kind in ('synth', 'drum', 'sample') and isinstance(value['presets'], str), 'presets names an instrument preset folder')
-        presets = read_presets(root, value['presets'], identity, samples)
+        presets = read_presets(root, value['presets'], identity, samples, shift=bool(synth_shift(definition)))
     if samples:
         # Every sample is there for a preset: one no preset loads only takes up the player's storage.
         loaded = {region['sample'] for preset in (presets or {}).values() for region in preset['regions']}

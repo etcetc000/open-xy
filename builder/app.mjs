@@ -17,7 +17,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   document.querySelectorAll('[data-device-art]').forEach(el => el.append(visuals.device()));
   // Preview links can show the guide immediately; using the builder still needs acknowledgement.
   let acknowledged = false;
-  let builderPreview = false, loadCollection;
+  let builderPreview = false, loadCollection, expertMode = false, building = false;
+  try { expertMode = localStorage.getItem('open-xy-expert') === 'true'; } catch {}
   const browserAllowed = supportsBrowser();
   $('browser-blocked').hidden = browserAllowed;
   $('risk-acknowledgement').checked = false;
@@ -73,11 +74,24 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   // No hint while an OS is being checked: it sets the option itself.
   const roomHint = (message, then, ...selection) => (/[.!?]$/.test(message) ? message : message + '.') +
     (!checkingOs && fitsLarger(...selection) ? ` Turn on “Use ${expandedSize()} for machines” (experimental) ${then}.` : '');
-  let kit, stock, catalog, selected = [], selectedExtensions = [], inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
+  let kit, stock, catalog, selected = [], selectedExtensions = [], extensionSettings = {}, inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
   // The machine numbers of this person's firmware (core.mjs assignNumbers): from their
   // last build here, or a layout.json they load. Kept in this browser as a convenience;
   // the layout.json in every download is the record.
+  const editedExtensionSettings = new Set();
   const NUMBERS_KEY = 'open-xy-machine-numbers';
+  const SELECTION_KEY = 'open-xy-selection';
+  let selectionError = '', selectionRemembered = false;
+  function rememberSelection() {
+    selectionRemembered = true;
+    try {
+      localStorage.setItem(SELECTION_KEY, JSON.stringify({format:'opxy-selection/1', profile:kit.profile.id,
+        selected, extensions:selectedExtensions}));
+      $('selection-memory').textContent = 'Selections are saved automatically in this browser.';
+    } catch {
+      $('selection-memory').textContent = 'Browser storage is unavailable. Selections will not survive a refresh.';
+    }
+  }
   let numbers = null;
   function rememberNumbers(value) {
     numbers = value;
@@ -115,8 +129,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   document.addEventListener('keydown', event => { if (event.key === 'Escape') stopAudio(); });
   const status = (message = '', error = false) => { $('status').textContent = message; $('status').dataset.error = String(error); };
   const fail = error => status(error.message || String(error), true);
-  function invalidate() {
-    wizard.invalidate();
+  function invalidate(stopWizard = true) {
+    if (stopWizard) wizard.invalidate();
     revision++; layout = built = null;
     if (downloadUrl) { URL.revokeObjectURL(downloadUrl); downloadUrl = null; }
     $('download').removeAttribute('href');
@@ -126,7 +140,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   function navigate(step) {
     stopAudio();
     if ($('selected-previews').open) $('selected-previews').close();
-    if (builderPreview && ![2, 3].includes(step)) {
+    if (builderPreview && ![2, 3, 5].includes(step)) {
       builderPreview = false;
       history.replaceState(null, '', location.pathname + location.search);
       ready();
@@ -146,12 +160,31 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     document.querySelector('.steps [data-step="2"]').disabled = !(kit && (stock || builderPreview));
     $('choose-extensions').disabled = !(kit && selected.length && (stock || builderPreview));
     document.querySelector('.steps [data-step="3"]').disabled = $('choose-extensions').disabled;
-    $('build').disabled = builderPreview || !(stock && linked);
+    const reason = builderPreview ? 'You are in audition preview. Open the builder and load your OS to build firmware.'
+      : !stock ? 'Load your OS in Step 1 before building. Your selections will be kept.'
+      : !selected.length ? 'Choose at least one machine.'
+      : !linked ? 'This selection cannot be built. ' + (selectionError || 'Review the memory usage and choose fewer machines.') : '';
+    $('build').disabled = !!reason || building;
+    $('expert-mode').disabled = builderPreview || !acknowledged || !kit;
+    $('expert-build').disabled = !!reason || building;
+    $('expert-run').disabled = !!reason || building || !wizard.supportsQuickInstall();
+    $('expert-save').disabled = !kit || builderPreview;
+    $('expert-reason').textContent = reason || (!wizard.supportsQuickInstall() ? 'USB copying needs a desktop browser with WebUSB. You can still build a ZIP.' : 'Ready to build and copy.');
+    if (kit) facts($('expert-summary'), {
+      OS: stock ? 'Verified OS 1.2.1 loaded' : 'Choose os.ldr',
+      Machines: selectedMachines().map(m => m.name).join(' + ') || 'None',
+      Memory: linked ? kib(linked.sizes.allocated) + ' / ' + kib(core.moduleBytes(chosenKit().profile))
+        : selectionError ? 'Selection cannot be built; limit ' + kib(core.moduleBytes(chosenKit().profile)) : 'Choose machines',
+      Extensions: (kit.extensions ?? []).filter(e => selectedExtensions.includes(e.id)).map(e => e.name).join(', ') || 'None',
+    });
+    $('build-reason').textContent = reason;
+    $('build-setup').hidden = !(builderPreview || !stock);
     $('preview-selected').disabled = !(kit && selected.length);
   }
 
   const wizard = wizardApi.createWizard({ getKit: () => kit, getSelected: () => selected, hasDownload: () => !!downloadUrl, getFiles: () => built,
     onFirmware: (file, isCurrent) => acceptFirmware(file, isCurrent),
+    onQuickExit() { navigate(5); },
     onPreviewExit() {
       history.replaceState(null, '', location.pathname + location.search);
       if (acknowledged) navigate(1); else showEntryGate();
@@ -168,7 +201,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('builder-workspace').inert = true;
   }
   function openPreviewLink() {
-    const match = /^#preview\/(machines|extensions|settings)(?:\/([a-z0-9_-]+))?$/.exec(location.hash);
+    const match = /^#preview\/(machines|extensions|settings|expert)(?:\/([a-z0-9_-]+))?$/.exec(location.hash);
     const leavingMachines = builderPreview && !match;
     builderPreview = !!match;
     if (builderPreview || wizard.previewLink(location.hash)) {
@@ -180,7 +213,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       if (builderPreview) {
         loadCollection?.();
         $('phase-nav').hidden = false;
-        navigate(match[1] === 'machines' ? 2 : 3);
+        navigate(match[1] === 'expert' ? 5 : match[1] === 'machines' ? 2 : 3);
         if (kit) {
           if (match[1] !== 'machines') inspectExtension(kit.extensions?.find(e => e.id === match[2])?.id ?? kit.extensions?.[0]?.id);
           else inspect(kit.machines.find(m => m.id === match[2])?.id ?? kit.machines[0].id);
@@ -212,7 +245,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       $('phase-nav').hidden = false;
       $('builder-workspace').hidden = false;
       $('builder-workspace').inert = false;
-      navigate(1);
+      navigate(expertMode ? 5 : 1);
       resolve();
     };
   });
@@ -278,11 +311,18 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const memoryChange = recovered.memory ? setExpandedMemory(recovered.memory === 'expanded') : '';
       const memoryNote = memoryChange && ' · ' + memoryChange;
       if (recovered.selected) {
-        osApplied++;  // a layout read meanwhile would undo it (a memory change is caught by itself)
-        selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
-        renderMachines(); renderExtensions();
-        $('firmware-result').textContent = '✓ open-xy OS with ' +
-          selectionNames().join(' + ') + memoryNote;
+        if (!selectionRemembered) {
+          osApplied++;  // a layout read meanwhile would undo it (a memory change is caught by itself)
+          selected = recovered.selected; selectedExtensions = recovered.extensions ?? [];
+          renderMachines();
+        }
+        for (const [capability, value] of Object.entries(recovered.settings ?? {})) {
+          if (!editedExtensionSettings.has(capability)) extensionSettings[capability] = value;
+        }
+        renderExtensions();
+        $('firmware-result').textContent = (selectionRemembered
+          ? '✓ open-xy OS verified · your saved choices are kept'
+          : '✓ open-xy OS with ' + selectionNames().join(' + ')) + memoryNote;
       } else {
         $('firmware-result').textContent = (recovered.earlier
           ? '✓ OP–XY OS 1.2.1 recovered from an earlier open-xy OS · choose your machines and extensions again'
@@ -378,7 +418,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('audition-controls').replaceChildren();
     stopAudio = () => {};
     if (m.preview) {
-      $('art-caption').textContent = 'Audition the sound and screen. The OP–XY’s own envelopes and effects aren’t included.';
+      $('art-caption').textContent = m.preview.kit
+        ? 'Play the kit’s keys: each plays its own machine, one hit at a time, and shows it on the screen. The OP–XY’s own effects aren’t included.'
+        : 'Audition the sound and screen. The OP–XY’s own envelopes and effects aren’t included.';
     } else {
       $('art-preview').append(node('span', 'No browser preview for this machine yet.', 'art-placeholder'));
       $('art-caption').textContent = '';
@@ -408,19 +450,34 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         canvas.append(header, renderer.root); $('art-preview').replaceChildren(canvas);
         // Eight parameter words; each control position shows the parameter last edited there.
         const parameters = Object.assign(Array(8).fill(0), m.preview.defaults), shown = [0, 1, 2, 3];
+        // A synth's Shift row (SDK 1.13): render's words 8..15, played at their defaults.
+        const shiftWords = m.preview.shift ?? [];
+        const voiceWords = () => [...parameters, ...shiftWords];
+        // A drum kit (SDK kits): each key keeps its own model and controls, set up as the kit's
+        // drum_defaults sets them; pressing a key selects it, as on the device. Controls are 0..127.
+        const kit = m.preview.kit, keys = new Map();
+        let selected = null, names = null;
+        const selectKey = key => {
+          if (!keys.has(key)) keys.set(key, core.kitKey(display.api, kit, key));
+          selected = keys.get(key); names = core.kitModel(display.api, kit, selected.model);
+          parameters.splice(0, 8, ...selected.controls.map(core.kitWord));
+        };
+        if (kit) selectKey(53);
         let serial = 0, previous = 0, handle, cancelled = false;
         const noteActivity = new retained.NoteActivity();
         // A small keyboard from middle C: a key plays its note while held. The preview plays
         // one note at a time, the newest held key; letting it go returns to the one before.
-        const names = ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'], held = [];
+        // A kit's keyboard is its 24 keys, F3 to E5; each hit plays out until the next.
+        const noteNames = ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'], held = [];
         const keyboard = node('div', undefined, 'preview-keys');
         keyboard.id = 'preview-keys'; keyboard.setAttribute('role', 'group'); keyboard.setAttribute('aria-label', 'Preview keyboard');
-        for (let note = 60; note <= 77; note++) {
-          const black = [1, 3, 6, 8, 10].includes(note % 12), name = names[note % 12] + (Math.floor(note / 12) - 1);
+        for (const note of kit ? core.KIT_KEYS : Array.from({length:18}, (_, i) => 60 + i)) {
+          const black = [1, 3, 6, 8, 10].includes(note % 12), name = noteNames[note % 12] + (Math.floor(note / 12) - 1);
           const key = node('button', note % 12 === 0 ? name : undefined, 'preview-key' + (black ? ' black' : ''));
           key.type = 'button'; key.setAttribute('aria-label', name);
           const press = () => {
             if (key.dataset.down === 'true') return;
+            if (kit && selected.key !== note) chooseKey(note);
             key.dataset.down = 'true'; held.push(note); noteActivity.noteOn(note); trigger(); audio.play(note);
           };
           const lift = () => {
@@ -429,8 +486,11 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
             const sounding = held.at(-1) === note;
             held.splice(held.indexOf(note), 1);
             noteActivity.noteOff(note); frame(0);
+            // A kit's hit plays out, as a kit's voices on the device ignore the key's release.
+            if (kit) return;
             if (sounding && held.length) audio.play(held.at(-1)); else audio.release(note);
           };
+          if (kit) { key.dataset.note = String(note); key.dataset.selected = String(note === selected.key); }
           key.onpointerdown = e => { e.preventDefault(); key.setPointerCapture(e.pointerId); key.focus(); press(); };
           key.onpointerup = key.onpointercancel = key.onlostpointercapture = lift;
           key.onkeydown = e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); if (!e.repeat) press(); } };
@@ -441,39 +501,83 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         const volume = node('label', 'Volume', 'audition-volume'), level = node('input');
         level.type = 'range'; level.min = '0'; level.max = '100'; level.value = '50'; level.setAttribute('aria-label', 'Preview volume');
         volume.append(level);
-        const audio = new audition(compiled, parameters, (playing, error) => {
+        const audio = new audition(compiled, voiceWords(), (playing, error) => {
           if (!cancelled) frame(0);
           if (error && ticket === previewRevision) $('art-caption').textContent = 'Audio unavailable: ' + error;
         });
+        // A kit's selected key's model, chosen on the device with Shift and the first encoder.
+        const model = node('label', undefined, 'audition-model'), modelSelect = node('select');
+        if (kit) {
+          audio.setModel(selected.model);
+          model.append(node('span', 'Machine'), modelSelect);
+          modelSelect.setAttribute('aria-label', 'Selected key’s machine');
+          for (let i = 0; i < kit.models; i++) {
+            const label = core.kitGroup(kit, i).label;
+            const option = node('option', (label ? label + ' ' : '') + core.kitModel(display.api, kit, i).name);
+            option.value = String(i); modelSelect.append(option);
+          }
+          modelSelect.value = String(selected.model);
+          // A new model keeps the key's controls, as on the device.
+          modelSelect.onchange = () => {
+            selected.model = Number(modelSelect.value); names = core.kitModel(display.api, kit, selected.model);
+            audio.setModel(selected.model); syncControls(); frame(0);
+          };
+        }
         stopAudio = () => {
           held.length = 0;
           for (const key of keyboard.children) key.dataset.down = 'false';
           noteActivity.panic(); frame(0); audio.stop();
         };
         level.oninput = () => audio.setVolume(Number(level.value) / 100);
-        $('audition-controls').append(keyboard, volume);
+        $('audition-controls').classList.toggle('kit', Boolean(kit));
+        $('audition-controls').append(keyboard, ...(kit ? [model] : []), volume);
         const reduced = matchMedia('(prefers-reduced-motion: reduce)');
         function frame(dt = 34) {
           const input = shownControls(parameters, shown);
           // The preview is one track: a changing track would tell the machine to start over.
-          renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity));
-          // The machine's header text, or the stock percentage of the shown parameter.
-          header.innerHTML = retained.headerSvg(shown.map(slot => m.controls[slot].toLowerCase()),
-            shown.map((slot, i) => renderer.header[i] || String(Math.round(parameters[slot] / 0x7fffffff * 100))));
+          const row = shiftWords.length ? [0, 0, [0, 0, 0, 0], null, {pan:0, level:0}, 0,
+            {held:0, line:shown.some(slot => slot >= 4) ? 1 : 0, values:shiftWords}] : [];
+          // A kit's selected key: its model, Shift's choices for it, and its pan, level and pad fields.
+          const drum = kit ? [selected.model, 0, core.kitChoices(kit, selected.model, selected.choke), null, core.kitMix(kit),
+            shown.some(slot => slot >= 4) ? 1 : 0] : [];
+          renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity, ...row, ...drum));
+          // The machine's header text, or the stock header: a synth's percentage of the shown
+          // parameter, a kit's model's label and 0..127 value.
+          const [titles, values] = kit ? core.kitHeader(names, selected.controls, shown)
+            : [shown.map(slot => m.controls[slot].toLowerCase()), shown.map(slot => String(Math.round(parameters[slot] / 0x7fffffff * 100)))];
+          header.innerHTML = retained.headerSvg(titles, values.map((value, i) => renderer.header[i] || value));
         }
         const controls = m.controls.map((name, i) => {
           const label = node('label', undefined, 'preview-control'), input = node('input');
           label.title = name;
           label.append(node('span', name));
-          input.type = 'range'; input.min = '0'; input.max = '1000'; input.step = '1';
+          input.type = 'range'; input.min = '0'; input.max = kit ? '127' : '1000'; input.step = '1';
           input.value = String(parameters[i] / 0x7fffffff * 1000); input.setAttribute('aria-label', name + ' preview');
           input.oninput = () => {
-            parameters[i] = Math.round(Number(input.value) / 1000 * 0x7fffffff);
+            if (kit) selected.controls[i] = Number(input.value);
+            parameters[i] = kit ? core.kitWord(selected.controls[i]) : Math.round(Number(input.value) / 1000 * 0x7fffffff);
             shown.splice(0, 4, ...editedShown(shown, m.positions, i, m.pages));
-            frame(0); audio.setParameters(parameters);
+            frame(0); audio.setParameters(voiceWords());
           };
           label.append(input); return label;
         });
+        // A kit's sliders follow the selected key: its model's labels and its values. An unused
+        // slot is blank and ignores turns, as on the device.
+        function syncControls() {
+          controls.forEach((label, i) => {
+            const name = names.labels[i] || m.controls[i], input = label.children[1];
+            label.title = name; label.children[0].textContent = names.used[i] ? name : '–';
+            input.setAttribute('aria-label', name + ' preview');
+            input.value = String(selected.controls[i]); input.disabled = !names.used[i];
+          });
+        }
+        function chooseKey(note) {
+          selectKey(note);
+          for (const key of keyboard.children) key.dataset.selected = String(Number(key.dataset.note) === note);
+          modelSelect.value = String(selected.model); audio.setModel(selected.model);
+          syncControls(); audio.setParameters(voiceWords());
+        }
+        if (kit) syncControls();
         $('controls').replaceChildren(...controls);
         const trigger = () => { serial = serial + 1 >>> 0; frame(0); };
         canvas.setAttribute('role', 'button'); canvas.setAttribute('tabindex', '0'); canvas.setAttribute('aria-label', 'Trigger ' + m.name + ' display preview');
@@ -614,6 +718,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       button.onclick = () => inspect(m.id);
       input.onchange = () => {
         selected = input.checked ? [...selected, m.id] : selected.filter(id => id !== m.id);
+        rememberSelection();
         row.classList.toggle('selected', input.checked); invalidate(); recalculate();
       };
       const glyph = node('span', undefined, 'machine-icon');
@@ -667,8 +772,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         message.id = 'conflict-' + extension.id; input.setAttribute('aria-describedby', message.id); button.append(message);
       }
       input.onchange = () => {
-        selectedExtensions = core.extensionSelection(kit, input.checked ? [...selectedExtensions, extension.id]
-          : selectedExtensions.filter(id => id !== extension.id));
+        const next = input.checked ? [...selectedExtensions, extension.id] : selectedExtensions.filter(id => id !== extension.id);
+        selectedExtensions = input.checked ? core.extensionSelection(kit, next) : next;
+        rememberSelection();
         invalidate(); renderExtensions(); recalculate();
         document.querySelector('#extensions input[aria-label="Include ' + CSS.escape(extension.name) + '"]')?.focus();
       };
@@ -686,9 +792,25 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('extension-description').textContent = extension.description;
     $('extension-note').textContent = extension.note ?? '';
     $('extension-note').hidden = !extension.note;
+    // Capability settings: one slider each, written into the OS when it is built.
+    $('extension-settings').replaceChildren();
+    for (const [capability, setting] of Object.entries(extension.settings ?? {})) {
+      const label = node('label', undefined, 'extension-setting'), input = node('input'), value = node('output');
+      const show = () => { value.textContent = input.value + ' ' + setting.unit; };
+      input.type = 'range'; input.min = setting.minimum; input.max = setting.maximum; input.step = 1;
+      input.value = extensionSettings[capability] ?? setting.value;
+      input.disabled = !selectedExtensions.includes(extension.id);
+      input.oninput = () => { editedExtensionSettings.add(capability); extensionSettings[capability] = Number(input.value); show(); };
+      input.onchange = () => { invalidate(); recalculate(); };
+      show();
+      label.append(node('span', setting.label), input, value);
+      $('extension-settings').append(label);
+    }
+    $('extension-settings').hidden = !extension.settings;
     document.querySelectorAll('#extensions button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === id)));
   }
   function recalculate() {
+    selectionError = '';
     updateOverrideCount();
     linked = null; $('selection-count').textContent = selected.length + ' selected';
     $('extension-memory').textContent = '';
@@ -718,18 +840,22 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       // A selection that does not fit standard memory points to the larger option this site offers.
       if (error.capacity === true && !expandedMemory())
         error.message = roomHint(error.message, 'to make room', selected, numbers, selectedExtensions);
+      selectionError = error.message;
       $('room-value').textContent = 'Selection cannot be built'; $('extension-memory').textContent = error.message; fail(error);
     }
     ready();
   }
-  async function build() {
-    if (builderPreview || !acknowledged) return;
+  async function build(showOutput = true) {
+    if (builderPreview || !acknowledged || building || !stock || !linked) return false;
+    invalidate(false); building = true; ready();
     const ticket = revision; $('build').disabled = true; status('Linking and checking your build…');
     try {
       const selection = [...selected], settings = graphicsConfiguration.settings(selectedMachines()), extensions = core.extensionSelection(kit, selectedExtensions);
       const expanded = expandedMemory(), memory = kitFor(expanded), result = core.linkKit(memory, selection, numbers, extensions);
       const files = await core.buildAssets(memory, selection, catalog, result.numbers, settings, result.extensions);
-      files['os.ldr'] = await core.patchFirmware(memory, result, stock, {profiling: false});
+      const capabilitySettings = Object.fromEntries(Object.entries(extensionSettings).filter(([c]) =>
+        (kit.extensions ?? []).some(e => result.extensions.includes(e.id) && e.settings?.[c])));
+      files['os.ldr'] = await core.patchFirmware(memory, result, stock, {profiling: false, settings: capabilitySettings});
       const hashes = {};
       for (const [name, bytes] of Object.entries(files)) hashes[name] = await core.sha256(bytes);
       // Every number this firmware has given out, for the next build (core.readLayout).
@@ -738,9 +864,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const encode = value => new TextEncoder().encode(JSON.stringify(value, null, 2) + '\n');
       files['layout.json'] = encode(nextLayout);
       files['build.json'] = encode({format: 'opxy-kit-build/1', version: kit.version, source_sha256: kit.profile.stock_sha256,
-        settings, sizes: result.sizes, ...(expanded ? {reserved_bytes: memory.profile.reserved_bytes} : {}), files: hashes, hardware_qualified: false, cpu_measured: false});
+        settings, capability_settings: capabilitySettings, sizes: result.sizes, ...(expanded ? {reserved_bytes: memory.profile.reserved_bytes} : {}), files: hashes, hardware_qualified: false, cpu_measured: false});
       const zip = core.zipFiles(files);
-      if (ticket !== revision) return;
+      if (ticket !== revision) return false;
       layout = nextLayout; built = files; rememberNumbers(result.numbers); downloadUrl = URL.createObjectURL(new Blob([zip], {type: 'application/zip'}));
       $('download').href = $('flow-download').href = downloadUrl;
       const modes = new Set(kit.machines.filter(machine => selection.includes(machine.id) && machine.artwork).map(machine => core.graphicsForMachine(machine, settings)));
@@ -751,11 +877,13 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       $('bundle-art').replaceChildren(visuals.bundle(Object.keys(files)));
       $('output-hash').textContent = 'OS (os.ldr) SHA-256: ' + hashes['os.ldr'];
       document.querySelector('.steps [data-step="4"]').disabled = false;
-      status(); navigate(4);
-    } catch (error) { if (ticket === revision) fail(error); } finally { ready(); }
+      status(); if (showOutput) navigate(4);
+      return true;
+    } catch (error) { if (ticket === revision) fail(error); return false; } finally { building = false; ready(); }
   }
   document.querySelectorAll('[data-step]').forEach(b => b.onclick = () => navigate(Number(b.dataset.step)));
   $('choose').onclick = () => { navigate(2); recalculate(); };
+  $('build-setup').onclick = () => navigate(1);
   const graphicsInput = $('grayscale-graphics');
   graphicsInput.checked = false;
   graphicsInput.onchange = () => {
@@ -763,7 +891,36 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     else updateOverrideCount();
   };
   $('choose-extensions').onclick = () => { navigate(3); recalculate(); };
-  $('build').onclick = build;
+  $('build').onclick = () => build();
+  $('expert-mode').onclick = () => {
+    if (!acknowledged || builderPreview || !kit) return;
+    expertMode = true;
+    try { localStorage.setItem('open-xy-expert', 'true'); } catch {}
+    navigate(5); ready();
+  };
+  $('expert-guided').onclick = () => {
+    expertMode = false;
+    try { localStorage.setItem('open-xy-expert', 'false'); } catch {}
+    navigate(1);
+  };
+  $('expert-edit').onclick = () => navigate(2);
+  $('expert-extensions').onclick = () => navigate(3);
+  $('expert-firmware').onchange = e => acceptFirmware(e.target.files[0]);
+  $('expert-config').onchange = e => $('restore').onchange(e);
+  $('expert-build').onclick = () => build();
+  $('expert-save').onclick = () => {
+    if (!kit || builderPreview || !acknowledged) return;
+    const config = {format:'opxy-layout/1', profile:kit.profile.id, selected, extensions:selectedExtensions,
+      ...(expandedMemory() ? {memory:'expanded', reserved_bytes:chosenKit().profile.reserved_bytes} : {}),
+      machines:linked?.numbers ?? numbers ?? {}};
+    const url = URL.createObjectURL(new Blob([JSON.stringify(config, null, 2)], {type:'application/json'}));
+    const a = node('a'); a.href = url; a.download = 'layout.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  $('expert-run').onclick = () => {
+    if (!acknowledged || builderPreview || !stock || !linked || building) return;
+    navigate(4);
+    wizard.quickInstall(() => build(false));
+  };
   // Sets the memory choice (only offered memory can be chosen) and describes a
   // change for the caller's message, or returns '' when it stays the same.
   function setExpandedMemory(value) {
@@ -839,6 +996,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   function choosePreset(preset) {
     const {selected: chosen, missing} = core.applyPreset(kit, preset);
     selected = chosen;
+    rememberSelection();
     invalidate(); renderMachines(); recalculate();
     $('machine-presets').open = false;
     status('Preset “' + preset.name + '”: ' + chosen.length + (chosen.length === 1 ? ' machine' : ' machines') + ' selected.' +
@@ -903,7 +1061,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const memoryChange = setExpandedMemory(wanted);
       selectedExtensions = extensions;
       rememberNumbers(loaded.machines);
-      if (loaded.selected) selected = [...loaded.selected];
+      if (loaded.selected) { selected = [...loaded.selected]; rememberSelection(); }
       invalidate(); renderMachines(); renderExtensions(); recalculate();
       // A selection that cannot be built (a numbers-only layout is not linked first) says
       // why after the layout's own message.
@@ -931,6 +1089,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     const next = await core.openKit(data);
     const hadOs = stock != null || checkingOs;
     invalidate(); stock = null; kit = next;
+    selectionRemembered = false; selectedExtensions = []; extensionSettings = {}; editedExtensionSettings.clear();
+    $('selection-memory').textContent = '';
     // A loaded or still-checking OS was for the previous collection: it is loaded again.
     if (hadOs) {
       ticket++; endOsCheck();
@@ -949,6 +1109,13 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const remembered = JSON.parse(localStorage.getItem(NUMBERS_KEY) ?? 'null');
       if (remembered) numbers = core.readLayout(kit, {format: 'opxy-layout/1', ...remembered}).machines;
     } catch { numbers = null; }
+    try {
+      const saved = JSON.parse(localStorage.getItem(SELECTION_KEY) ?? 'null');
+      if (saved) {
+        const restored = core.readSelection(kit, saved);
+        selected = restored.selected; selectedExtensions = restored.extensions; selectionRemembered = true;
+      }
+    } catch { /* Malformed convenience saves leave the collection defaults. */ }
     catalog = core.decode64(kit.stockCatalog);
     $('notices').textContent = kit.notices;
     $('notices').closest('details').hidden = false;

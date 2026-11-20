@@ -127,7 +127,8 @@
   "services": {
     "samples": [
       "sample",
-      "drum"
+      "drum",
+      "drumline_page"
     ],
     "control": [
       "trackControl",
@@ -143,7 +144,9 @@
       "master_filter"
     ],
     "drums": [
-      "drum"
+      "drum",
+      "drumline_page",
+      "synthShift"
     ],
     "players": [
       "player"
@@ -151,13 +154,29 @@
     "octaves": [
       "sample",
       "player",
-      "drum"
+      "drum",
+      "drumline_page"
+    ],
+    "long_samples": [
+      "long_samples"
+    ],
+    "release_floor": [
+      "release_floor"
     ],
     "drum_sends": [
-      "padMix"
+      "padMix",
+      "drumline_page"
     ],
     "drum_locks": [
-      "padMix"
+      "padMix",
+      "drumline_page",
+      "synthShift"
+    ],
+    "drumline": [
+      "drumline_page"
+    ],
+    "synth_shift": [
+      "synthShift"
     ]
   },
   "patches": [
@@ -178,6 +197,116 @@
       "length": 8,
       "before": "01da400100000000",
       "after": "01da200100000000"
+    },
+    {
+      "kind": "limit",
+      "name": "Sample length 882000 -> 1048575 frames (2^20 - 1): project/preset region parser",
+      "service": "long_samples",
+      "address": "0x8d4fc00e",
+      "file_offset": "0x13326a",
+      "length": 8,
+      "before": "01da0d0050750000",
+      "after": "01da0f00ffff0000"
+    },
+    {
+      "kind": "limit",
+      "name": "Sample length 882000 -> 1048575 frames (2^20 - 1): region setter",
+      "service": "long_samples",
+      "address": "0x8d50711a",
+      "file_offset": "0x13e376",
+      "length": 8,
+      "before": "00da0d0050750000",
+      "after": "00da0f00ffff0000"
+    },
+    {
+      "kind": "limit",
+      "name": "Sample length 882000 -> 1048575 frames (2^20 - 1): sample loader clamp",
+      "service": "long_samples",
+      "address": "0x8d508418",
+      "file_offset": "0x13f674",
+      "length": 8,
+      "before": "05da0d0050750000",
+      "after": "05da0f00ffff0000"
+    },
+    {
+      "kind": "limit",
+      "name": "Sample length 882000 -> 1048575 frames (2^20 - 1): sample loader warning max",
+      "service": "long_samples",
+      "address": "0x8d5084dc",
+      "file_offset": "0x13f738",
+      "length": 8,
+      "before": "09da0d0050750000",
+      "after": "09da0f00ffff0000"
+    },
+    {
+      "kind": "limit",
+      "name": "Release floor -66 dB -> chosen idle threshold: envelope stage 4",
+      "service": "release_floor",
+      "setting": "release_floor",
+      "address": "0x8d50e226",
+      "file_offset": "0x145482",
+      "length": 8,
+      "before": "01da10004d620000",
+      "after": "01da8200a6730000",
+      "choices": {
+        "-20": "01dacc0ccdcc0000",
+        "-21": "01da680b7a730000",
+        "-22": "01da2a0ad2da0000",
+        "-23": "01da0f09f8cb0000",
+        "-24": "01da130862850000",
+        "-25": "01da320718ae0000",
+        "-26": "01da6a06534a0000",
+        "-27": "01dab7055bb10000",
+        "-28": "01da180580840000",
+        "-29": "01da8a040ba70000",
+        "-30": "01da0c0414370000",
+        "-31": "01da9b0319870000",
+        "-32": "01da37034e180000",
+        "-33": "01dadd028a950000",
+        "-34": "01da8d02bcce0000",
+        "-35": "01da4602e4b40000",
+        "-36": "01da07027a560000",
+        "-37": "01dace013ddc0000",
+        "-38": "01da9c0151860000",
+        "-39": "01da6f01bba90000",
+        "-40": "01da470114ae0000",
+        "-41": "01da24018c0b0000",
+        "-42": "01da040115490000",
+        "-43": "01dae700ccfa0000",
+        "-44": "01dace008ac00000",
+        "-45": "01dab8009c440000",
+        "-46": "01daa400a23a0000",
+        "-47": "01da9200895e0000",
+        "-48": "01da8200a6730000",
+        "-49": "01da7400e8430000",
+        "-50": "01da67001c9f0000",
+        "-51": "01da5c004f5a0000",
+        "-52": "01da52003b4f0000",
+        "-53": "01da4900c15b0000",
+        "-54": "01da410079610000",
+        "-55": "01da3a004a450000",
+        "-56": "01da33000cef0000",
+        "-57": "01da2e0039490000",
+        "-58": "01da2900a2400000",
+        "-59": "01da24002cc40000",
+        "-60": "01da20009cc40000",
+        "-61": "01da1d005b340000",
+        "-62": "01da1a004f070000",
+        "-63": "01da1700ae320000",
+        "-64": "01da1400dbac0000",
+        "-65": "01da1200436d0000",
+        "-66": "01da10004d620000"
+      }
+    },
+    {
+      "kind": "limit",
+      "name": "Release below the floor: stage 0 -> stock forced fade 5",
+      "service": "release_floor",
+      "address": "0x8d50e232",
+      "file_offset": "0x14548e",
+      "length": 2,
+      "before": "0060",
+      "after": "2860"
     },
     {
       "kind": "hook",
@@ -912,6 +1041,16 @@
     },
     {
       "kind": "hook",
+      "address": "0x8c0b2a5e",
+      "file_offset": "0xe9c9a",
+      "length": 8,
+      "before": "ffe358fe0160492f",
+      "symbol": "sdk_synth_shift_press_hook",
+      "service": "synth_shift",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "address": "0x8c08fade",
       "file_offset": "0xc6d1a",
       "length": 8,
@@ -1383,7 +1522,7 @@
       "file_offset": "0x11e70c",
       "length": 4,
       "before": "21600808",
-      "symbol": "extensions_drum_compare_r0",
+      "symbol": "extensions_preset_export_regions",
       "service": "drums",
       "call": true
     },
@@ -1414,6 +1553,72 @@
       "length": 4,
       "before": "88a11008",
       "symbol": "extensions_drum_export_gain",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Instrument shifted key handler, its pad check: Shift and a pad hold the pad on an owned kit, as on Drumline",
+      "address": "0x8c0b2978",
+      "file_offset": "0xe9bb4",
+      "length": 8,
+      "before": "00de5b8d14880000",
+      "symbol": "sdk_drum_shift_pad",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Held-pad M1, Drumline's one-pad scramble: an owned kit re-rolls the held key as its track scramble does",
+      "address": "0x8c0b3170",
+      "file_offset": "0xea3ac",
+      "length": 8,
+      "before": "00de4d8df4600000",
+      "symbol": "sdk_drum_pad_scramble",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Held-pad mode, its page's engine: an owned kit answers as Drumline, never the drum sampler",
+      "address": "0x8c0b20a2",
+      "file_offset": "0xe92de",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_drum_held_pad_engine",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Held-pad M4, Drumline's pad reset: an owned kit's key back to the kit's defaults",
+      "address": "0x8c0b32d6",
+      "file_offset": "0xea512",
+      "length": 8,
+      "before": "00de588d48200000",
+      "symbol": "sdk_drum_pad_reset",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Preset export, random's converter: a padMix kit's key also exports its send amounts above bit 16",
+      "address": "0x8d4e73ac",
+      "file_offset": "0x11e608",
+      "length": 4,
+      "before": "ffe391e5",
+      "symbol": "extensions_drum_export_random",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Preset import, random's converter: the send amounts above bit 16 into the pad record's bytes",
+      "address": "0x8d4e3b9a",
+      "file_offset": "0x11adf6",
+      "length": 4,
+      "before": "ffe3dffc",
+      "symbol": "extensions_drum_import_random",
       "service": "drums",
       "call": true
     },
@@ -1519,6 +1724,28 @@
       "length": 8,
       "before": "00de4d8db06c0000",
       "symbol": "sdk_drum_latch_key",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Track menu scramble: the selected track's engine, an owned kit's as Drumline's",
+      "address": "0x8c0b5314",
+      "file_offset": "0xec550",
+      "length": 8,
+      "before": "00de588d1c780000",
+      "symbol": "sdk_scramble_engine",
+      "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Track menu scramble, its Drumline branch: an owned kit re-rolls each key's model and controls",
+      "address": "0x8c0b5430",
+      "file_offset": "0xec66c",
+      "length": 8,
+      "before": "00de4d8d2c620000",
+      "symbol": "sdk_drum_scramble",
       "service": "drums",
       "call": true
     },
@@ -1769,6 +1996,19 @@
       "service": "extensions",
       "events": [
         "recordable_note_on"
+      ]
+    },
+    {
+      "kind": "hook",
+      "address": "0x8c073c34",
+      "file_offset": "0xaae70",
+      "length": 8,
+      "before": "ffe30eefffe38ce3",
+      "symbol": "sdk_extensions_usb_host_init",
+      "call": true,
+      "service": "extensions",
+      "events": [
+        "usb_host_ready"
       ]
     },
     {
@@ -2044,6 +2284,16 @@
     },
     {
       "kind": "hook",
+      "address": "0x8c084e14",
+      "file_offset": "0xbc050",
+      "length": 8,
+      "before": "00de578d78d40000",
+      "symbol": "extensions_player_click",
+      "service": "players",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "name": "MIX button dispatcher: master processor menu",
       "address": "0x8c093a70",
       "file_offset": "0xcacac",
@@ -2154,6 +2404,17 @@
     },
     {
       "kind": "hook",
+      "name": "Mixer: after the track gain's in-place loop, the per-key sums at the same gain",
+      "address": "0x8d510ea8",
+      "file_offset": "0x148104",
+      "length": 8,
+      "before": "0ada901100360000",
+      "symbol": "sdk_drum_send_gain_hook",
+      "call": true,
+      "service": "drum_sends"
+    },
+    {
+      "kind": "hook",
       "name": "Mixer: FX I bus reads the track sum, or the per-key sum of FX I's shares",
       "address": "0x8d511088",
       "file_offset": "0x1482e4",
@@ -2217,7 +2478,151 @@
       "symbol": "sdk_lock_step",
       "call": true,
       "service": "drum_locks"
+    },
+    {
+      "kind": "hook",
+      "name": "Drum renderer: a stock Drumline voice's render through the SDK's wrapper (SRR, its payload from its first block)",
+      "address": "0x8d51b554",
+      "file_offset": "0x1527b0",
+      "length": 4,
+      "before": "48914130",
+      "symbol": "sdk_dbox_render_select",
+      "call": true,
+      "service": "drumline"
+    },
+    {
+      "kind": "hook",
+      "name": "Drumline page: page 2's titles and values after stock sets its own",
+      "address": "0x8d531192",
+      "file_offset": "0x1683ee",
+      "length": 4,
+      "before": "a0e4b400",
+      "symbol": "sdk_drumline_page_hook",
+      "call": true,
+      "service": "drumline"
     }
   ],
-  "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches"
+  "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches",
+  "stock_content": {
+    "display": [
+      "UniversNextPro-Light.otf",
+      "adsr.svg",
+      "arpeggio.svg",
+      "aux_track.svg",
+      "auxlfo.svg",
+      "bar.svg",
+      "battery_low.svg",
+      "chord.svg",
+      "clock.svg",
+      "com.svg",
+      "cv.svg",
+      "dbox.svg",
+      "dbox_t2.svg",
+      "delay.svg",
+      "delete_popup.svg",
+      "device_icons.svg",
+      "device_popup.svg",
+      "devices.svg",
+      "dissolve.svg",
+      "drum2.svg",
+      "duallfo.svg",
+      "dynaenv.svg",
+      "ep.svg",
+      "eq.svg",
+      "external_midi.svg",
+      "filter.svg",
+      "fmstrings.svg",
+      "fmstrings2.svg",
+      "font_test.svg",
+      "fx_filter.svg",
+      "fx_send.svg",
+      "game.svg",
+      "generic_fx.svg",
+      "generic_fx2.svg",
+      "generic_synth.svg",
+      "group_popup.svg",
+      "hardsync.svg",
+      "hold.svg",
+      "in.svg",
+      "legal.svg",
+      "lfo_popup.svg",
+      "magic.svg",
+      "master.svg",
+      "master_dist.svg",
+      "mixer.svg",
+      "monitor.svg",
+      "notoemoji-subset.otf",
+      "octave.svg",
+      "off_popup.svg",
+      "ok.svg",
+      "organ.svg",
+      "palette.svg",
+      "pattern.svg",
+      "pitchbend.svg",
+      "playmode.svg",
+      "power_popup.svg",
+      "prefs.svg",
+      "prefs_generic.svg",
+      "prefs_left_menu.svg",
+      "presetbrowser.svg",
+      "prism.svg",
+      "project.svg",
+      "punch_popup.svg",
+      "reroutelfo.svg",
+      "reverb.svg",
+      "rndlfo.svg",
+      "routing.svg",
+      "sample_editor.svg",
+      "sample_slicer.svg",
+      "sampler.svg",
+      "save.svg",
+      "seq_popup.svg",
+      "sidechainlfo.svg",
+      "singlelfo.svg",
+      "slinky.svg",
+      "songmode.svg",
+      "step_popup.svg",
+      "tape.svg",
+      "tbuttons.svg",
+      "tempo.svg",
+      "track_popup.svg",
+      "tuning_editor.svg",
+      "usb_audio.svg",
+      "wavetable.svg",
+      "xy_palette.svg"
+    ],
+    "presets": [
+      "bass",
+      "drum",
+      "drumline",
+      "keys",
+      "lead",
+      "organ",
+      "pad",
+      "pluck",
+      "strings"
+    ],
+    "samples": [
+      "bandpasser",
+      "clap",
+      "conga",
+      "cymbal",
+      "ensemble",
+      "harmonium",
+      "hihat",
+      "kick",
+      "perc",
+      "refelt piano",
+      "sfx",
+      "shaker",
+      "snare",
+      "spectre",
+      "subsun",
+      "synth",
+      "tom",
+      "uknowaxel",
+      "vintage",
+      "vox"
+    ]
+  }
 }

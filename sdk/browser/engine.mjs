@@ -15,8 +15,11 @@ export class PreviewEngine {
     this.sampleRate = bounded(api.opxy_sample_rate(), 8000, 192000, 'kernel sample rate');
     if (sampleRate !== this.sampleRate) throw new Error(`Kernel requires ${this.sampleRate} Hz`);
     this.blockFrames = bounded(api.opxy_block_frames(), 1, 256, 'block length');
+    // Older ABI-1 modules are mono. Stereo output is opt-in per module.
+    this.outputChannels = bounded(api.opxy_output_channels?.() ?? 1, 1, 2, 'output channels');
     this.stateBytes = bounded(api.opxy_state_bytes(), 4, api.memory.buffer.byteLength, 'voice state size');
-    this.parameterCount = bounded(api.opxy_parameter_count(), 1, 8, 'parameter count');
+    // Eight words, or sixteen for a synth with a Shift row (SDK 1.13): its controls, then the row.
+    this.parameterCount = bounded(api.opxy_parameter_count(), 1, 16, 'parameter count');
     const alignment = bounded(api.opxy_state_alignment(), 4, 64, 'voice alignment');
     if (alignment & (alignment - 1)) throw new Error('Voice alignment must be a power of two');
     const voiceCount = bounded(api.opxy_voice_capacity(), 1, 8, 'audition voice count');
@@ -37,11 +40,11 @@ export class PreviewEngine {
                             'voice address');
       if (state % alignment) throw new Error('Misaligned voice state');
       const pitchAddress = allocate(this.blockFrames * 4);
-      const outputAddress = allocate(this.blockFrames * 4);
+      const outputAddress = allocate(this.blockFrames * this.outputChannels * 4);
       api.opxy_initialize(state);
       return { state, pitchAddress, outputAddress,
         pitch: new Uint32Array(memory, pitchAddress, this.blockFrames),
-        output: new Int32Array(memory, outputAddress, this.blockFrames),
+        output: new Int32Array(memory, outputAddress, this.blockFrames * this.outputChannels),
         active: false, note: 0, age: 0, velocity: 0, amplitude: 0, releasing: false,
         cursor: this.blockFrames };
     });
@@ -88,18 +91,25 @@ export class PreviewEngine {
     return true;
   }
   noteOff(note) {
-    for (const voice of this.voices) if (voice.active && voice.note === note) voice.releasing = true;
+    for (const voice of this.voices) if (voice.active && voice.note === note && !voice.releasing) {
+      // ABI-1 modules made before the opt-in release extension omit this export.
+      this.api.opxy_release?.(voice.state);
+      voice.releasing = true;
+    }
   }
   panic() { for (const voice of this.voices) {
     if (voice.active) this.api.opxy_destroy(voice.state);
     voice.active = false;
   } }
 
-  render(output) {
+  render(output, right) {
+    if (this.outputChannels === 2 && (!right || right.length !== output.length)) {
+      throw new Error('Stereo preview requires equal left and right output buffers');
+    }
     // No typed-array creation, memory growth, transcendental functions or messages
     // here. Each voice retains its partial block across arbitrary host quanta.
     for (let i = 0; i < output.length; ++i) {
-      let sample = 0;
+      let sample = 0, sampleRight = 0;
       for (let j = 0; j < this.voices.length; ++j) {
         const voice = this.voices[j];
         if (!voice.active) continue;
@@ -114,9 +124,14 @@ export class PreviewEngine {
           voice.cursor = 0;
         }
         // Compiled headroom determines audition normalization, peak 0.1/voice.
-        sample += voice.output[voice.cursor++] * this.auditionGain * voice.amplitude * voice.velocity;
+        const at = voice.cursor++ * this.outputChannels;
+        sample += voice.output[at] * this.auditionGain * voice.amplitude * voice.velocity;
+        if (this.outputChannels === 2) {
+          sampleRight += voice.output[at + 1] * this.auditionGain * voice.amplitude * voice.velocity;
+        }
       }
       output[i] = sample;
+      if (right) right[i] = this.outputChannels === 2 ? sampleRight : sample;
     }
   }
 }

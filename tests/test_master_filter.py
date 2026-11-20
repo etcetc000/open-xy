@@ -280,8 +280,10 @@ class MasterFilter(unittest.TestCase):
             for omitted in (False,True):
                 main=folder/'main.cpp'
                 main.write_text('#include "master_processor.hpp"\n#include <cstring>\nusing namespace opxy::platform::master_processor;\n'+
-                    ('extern "C" const opxy::master::Processor* sdk_extension_first_processor(){return nullptr;}\n'
-                     'extern "C" const Display* sdk_extension_first_panel(){return nullptr;}\n' if omitted else '')+
+                    ('extern "C" const opxy::master::Processor* first_processor() __asm__("sdk_extension_first_processor");\n'
+                     'extern "C" const Display* first_panel() __asm__("sdk_extension_first_panel");\n'
+                     'extern "C" const opxy::master::Processor* first_processor(){return nullptr;}\n'
+                     'extern "C" const Display* first_panel(){return nullptr;}\n' if omitted else '')+
                     'int main(){if(processor_count()!='+('1' if omitted else '2')+')return 1;\n'
                     'if(std::strcmp(registration(1).id,"'+('second' if omitted else 'first')+'"))return 2;\n'
                     'if(!registration(1).display || registration(0).processor)return 3;\n'+

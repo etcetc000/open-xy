@@ -370,6 +370,7 @@ u32 sdk_lock_step(u32 project, u32 track, u32 position) {
     }
     step_handle[track] = static_cast<opxy::u16>(h);
     step_fresh[track] = true;
+    step_applied(project, track, h);
     return result;
 }
 
