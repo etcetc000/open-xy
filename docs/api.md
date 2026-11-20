@@ -1236,6 +1236,56 @@ prepared while the sample browser is open, and a sample that does not fit stays
 unanalyzed. Results are released before stock frees the sample. A collection's
 analysis budgets together may not exceed 2 MiB.
 
+### Sample kernel
+
+SDK 1.17.
+
+```cpp
+struct SampleTaps { const i16* origin; u32 shift, last, reverse, channels, level; };
+void sample_interpolate(i32* output, const u32* positions, u32 count, const SampleTaps&);
+```
+
+[sample_kernel.hpp](../sdk/include/opxy/sample_kernel.hpp) is a sample voice's
+second pass as one routine. The machine computes its playhead positions itself
+(frames << `shift` plus a fraction, as many as the block plays); the routine
+reads the two neighbouring frames at each, interpolates linearly with the
+fraction's top 14 bits, applies the pad `level` (Q27, `sample_unity_level` is
+unity) and writes `output[0 .. 2 * count - 1]` as interleaved stereo words
+(a mono source gives both). Past `last` the next frame is the region's first;
+`reverse` reads backwards from `origin`, which may be any `i16` address: a stereo
+origin that is not 4-byte aligned is read in 16-bit halves rather than with a
+32-bit load, which would fault on the device. Every position must be below
+`frames << shift`; nothing checks it. `sample_interpolate_reference` in the
+header defines every word; the host build runs it, and golden vectors in
+`tests/test_sample_kernel.py` pin it. The device runs hand-written BF707 code
+(`sdk/platform/blackfin/sample_kernel.s`), which no test in the SDK runs: the
+SDK has no Blackfin simulator. Its words were compared with the reference's on a
+BF707 simulator outside the SDK, and a test pins that code by digest, so any
+change to it fails until it is compared again (the failure says how). About 15
+cycles a frame at unity level, 24 (mono) to 32 (stereo) below 2^28, 51 above,
+and about 6 more a frame for an unaligned stereo origin: counts from that
+simulator, not from a device. The code, 2,872 bytes (a test checks the size when
+the toolchain is present), sits in the module's normal text and is cached
+like the machine's own code: the loops are short and run 64 frames at a time,
+so they stay in the instruction cache after the first frame, and fast memory
+is left alone. Only a build with a machine whose own C++ includes the header
+(SDK 1.17) links it; other builds are byte-identical. When the machine or any of
+its tests includes the header, its host tests (`sdk.py test`) link the host
+build, `sdk/host/sample_kernel.cpp`.
+
+```cpp
+struct SampleFade { const u32* from; const u32* to; const u16* weights; };
+void sample_crossfade(i32* output, const SampleFade&, u32 count, const SampleTaps&);
+```
+
+`sample_crossfade` mixes two playheads, as a grain splice does: each frame reads
+`from[i]` and `to[i]` exactly as `sample_interpolate` would, mixes them as
+`(a * (16384 - w) + b * w) >> 14` with `w = weights[i]` (0 to 16384; 0 gives
+`from` exactly), then applies the level. The machine keeps every decision (when a
+splice starts, the fade's shape and length) and hands over only the positions
+and weights. `sample_crossfade_reference` defines it; about 40 cycles a stereo
+frame in that simulator.
+
 ## Effects
 
 [effect.hpp](../sdk/include/opxy/effect.hpp) defines the effect interface. An

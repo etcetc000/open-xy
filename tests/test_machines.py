@@ -529,6 +529,23 @@ class OutsideMachines(unittest.TestCase):
         declare(None)
         self.assertNotIn('{1, 1, 1, 1}, nullptr', table())
 
+    def test_the_sample_kernel_needs_sdk_1_17(self):
+        include = '#include <opxy/sample_kernel.hpp>\n'
+        sample = self.copy('probesample')
+        source = sample / 'sample.cpp'
+        source.write_text(include + source.read_text(encoding='utf-8'), encoding='utf-8')
+        self.numberless(sample, sdk='1.16', base='drumSampler')
+        with self.assertRaisesRegex(ValueError, r'The sample kernel \(opxy/sample_kernel.hpp\) needs "sdk": "1.17"'):
+            machines.machine_at(sample)
+        self.numberless(sample, sdk='1.17', base='drumSampler')
+        self.assertEqual(machines.machine_at(sample).id, sample.name)
+        # In its tests it's the machine's own business, at any version.
+        source.write_text(source.read_text(encoding='utf-8').replace(include, ''), encoding='utf-8')
+        (sample / 'tests').mkdir(exist_ok=True)
+        (sample / 'tests/kernel.cpp').write_text(include, encoding='utf-8')
+        self.numberless(sample, sdk='1.10', base='drumSampler')
+        self.assertEqual(machines.machine_at(sample).id, sample.name)
+
     def test_only_a_sample_engines_own_screen_reads_the_overview_from_sdk_1_8(self):
         include = '#include <opxy/sample_overview.hpp>\n'
         # A synth at its own version, or one the header doesn't yet exist in.

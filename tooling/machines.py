@@ -59,7 +59,10 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # bits around process (resources.busShift), and lets a note player page eight
 # controls ("press": "page"); and gives a note player a shift row ("shift"),
 # Shift turns and encoder clicks in its Controls, and its step clock's tempo.
-# 1.17 lets a sample engine declare fewer than 256 voices, 27 at least (resources.voiceCapacity).
+# 1.17 lets a sample engine declare fewer than 256 voices, 27 at least
+# (resources.voiceCapacity); and adds the sample kernel
+# (opxy/sample_kernel.hpp): a sample voice's interpolation, level and crossfade
+# as one SDK routine.
 SDK_VERSION = (1, 17)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
@@ -615,6 +618,8 @@ def machine_at(root, identity=None):
     if reads_sample_overview(root, 'synth_shift'):
         require_sdk(version, (1, 13), "A synth's Shift row on its display (opxy/synth_shift.hpp)")
         require(synth_shift(definition), 'Only a synth with a Shift row ("shift") reads opxy/synth_shift.hpp')
+    if reads_sample_overview(root, 'sample_kernel'):
+        require_sdk(version, (1, 17), 'The sample kernel (opxy/sample_kernel.hpp)')
     native = read_native(root, identity)
     # The native plan compiles extra translation units only into synths.
     if kind not in ('synth', 'drum'):
