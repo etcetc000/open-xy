@@ -14,7 +14,7 @@ import math
 from pathlib import Path
 
 from .benchmark import append_callback
-from .definitions import (ROOT, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
+from .definitions import (ROOT, STOCK_VOICES, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
                           shift_choices, shift_field, shift_parameters, stock_shift_codes, synth_shift,
                           validate_definition)
 
@@ -451,6 +451,12 @@ def sample_callbacks(m):
     return [m.prefix + suffix for flag, entries in SAMPLE_SERVICES if resources.get(flag, 0) for suffix, *_ in entries]
 
 
+def sample_refusal(prefix, stereo):
+    """The inert voice object and refusal counter of a sample adapter below 256 voices."""
+    source = (TEMPLATES / 'sample_voice_refusal.cpp.in').read_text(encoding='utf-8')
+    return source.replace('@PREFIX@', prefix).replace('@STEREO@', str(int(bool(stereo))))
+
+
 def generate_sample_voice(directory, m, benchmark=False):
     resources = m.definition['resources']
     values = dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'], NAME=m.native_name,
@@ -461,6 +467,12 @@ def generate_sample_voice(directory, m, benchmark=False):
                   # The drum page edits outer markers only; an engine with its own screen spans them.
                   OUTER_MARKERS=int(bool(resources.get('drumControls', 0)) or 'display' in resources),
                   SLICE_TIMING=resources.get('sliceTiming', 0))
+    # Below stock's 256 a refused index gets a shared inert object, not null
+    # (sample_voice_refusal.cpp.in); at 256 nothing is ever refused and the
+    # adapter stays as it was.
+    refusing = resources['voiceCapacity'] < STOCK_VOICES
+    values['REFUSED'] = 'refused()' if refusing else 'nullptr'
+    values['REFUSAL_DEFINITIONS'] = sample_refusal(m.prefix, values['STEREO']) if refusing else ''
     path = expand('sample_voice.cpp.in', values, Path(directory) / f'sample_voice_{m.prefix}.cpp')
     return append_callback(path, m) if benchmark else path
 

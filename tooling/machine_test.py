@@ -22,7 +22,7 @@ import xml.etree.ElementTree as ET
 from . import cpu
 from .formats import require
 from .machines import machine_at
-from .native import check_sources
+from .native import check_sources, host_units
 from .pipeline import NO_WINDOW, ROOT
 
 
@@ -37,6 +37,8 @@ def host_tests(m, host_cxx, scratch):
                    # Only a drum kit's tests link its extra sources: other machines' tests
                    # include what they need, and linking them as well defines it twice.
                    str(test), *(str(m.root / source) for source in (m.sources if getattr(m, 'kind', None) == 'drum' else ())),
+                   # The host build of an SDK unit the machine's own C++ uses (the sample kernel).
+                   *(str(path) for path in host_units(m)),
                    '-o', str(binary)]
         result = subprocess.run(command, capture_output=True, text=True, timeout=300, creationflags=NO_WINDOW)
         require(result.returncode == 0, f'{m.id}: {test.name} does not compile:\n{result.stdout}{result.stderr}')
