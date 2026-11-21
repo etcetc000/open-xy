@@ -21,8 +21,12 @@ def measured_peak(metric, case):
     return metric['maximum_budget_percent']
 
 
-def package_data(package):
+def package_data(package, source_sdk=None):
     package = Path(package)
+    if (package / 'collection.json').is_file():
+        from .collection_profile import run
+        result = run('inspect', source_sdk, package)
+        return result['manifest'], result['report'], result['identity']
     manifest_bytes = (package / 'manifest.json').read_bytes()
     manifest = json.loads(manifest_bytes)
     require(manifest.get('profiling') is True, 'Benchmark requires a profiling-enabled package')
@@ -112,6 +116,8 @@ def aggregate(captures, expected, identity, name, commit, url):
                            worst_setting=own[worst]['setting'])
     if url is not None:
         measurement['report'] = url
+    if 'collection_sha256' in identity:
+        measurement['collection_sha256'] = identity['collection_sha256']
     validate(measurement, case['kind'], commit, legacy=False)
     return (measurement, values[heaviest], case, [(own[index], medians.get(index), maxima[index]) for index in values],
             combinations, silent)
@@ -162,27 +168,33 @@ def aggregate_drum(captures, expected, identity, name, commit, url, own):
         measurement.update(filter_percent=medians[filtered[0]], filter_peak_percent=maxima[filtered[0]])
     if url is not None:
         measurement['report'] = url
+    if 'collection_sha256' in identity:
+        measurement['collection_sha256'] = identity['collection_sha256']
     validate(measurement, case['kind'], commit, legacy=False)
     return measurement, values[worst], case, [(own[index], medians[index], maxima[index]) for index in values], [], []
 
 
-def create(package, paths, name, url, out):
+def create(package, paths, name, url, out, source_sdk=None):
     from . import native, catalog
-    manifest, report, identity = package_data(package)
-    _, machines, _ = native.configuration(native.package_collection(package), native.package_layout(package))
-    machine = next((m for m in machines if m.id == name), None)
-    require(machine is not None, 'Unknown package machine')
-    # Publication binds the tested source tree, not an arbitrary user-supplied SHA.
-    commit = catalog.git('rev-parse', 'HEAD', cwd=machine.root).strip()
-    require(not catalog.git('status', '--porcelain', '--untracked-files=all', '--', '.', cwd=machine.root).strip(),
-            'Commit the machine before building and profiling it')
-    files = machine.files()
-    prefix = 'external/' + name + '/'
-    actual = {key: sha(path.read_bytes()) for key, path in files.items()}
-    require(actual == {k: v for k, v in report['sources'].items() if k.startswith(prefix)},
-            'Machine source differs from the measured build')
-    for path in files.values():
-        catalog.git('ls-files', '--error-unmatch', '--', str(path.relative_to(machine.root)), cwd=machine.root)
+    manifest, report, identity = package_data(package, source_sdk=source_sdk)
+    if 'collection_sha256' in identity:
+        from .collection_profile import run
+        commit = run('source', source_sdk, package, machine=name)['commit']
+    else:
+        _, machines, _ = native.configuration(native.package_collection(package), native.package_layout(package))
+        machine = next((m for m in machines if m.id == name), None)
+        require(machine is not None, 'Unknown package machine')
+        # Publication binds the tested source tree, not an arbitrary user-supplied SHA.
+        commit = catalog.git('rev-parse', 'HEAD', cwd=machine.root).strip()
+        require(not catalog.git('status', '--porcelain', '--untracked-files=all', '--', '.', cwd=machine.root).strip(),
+                'Commit the machine before building and profiling it')
+        files = machine.files()
+        prefix = 'external/' + name + '/'
+        actual = {key: sha(path.read_bytes()) for key, path in files.items()}
+        require(actual == {k: v for k, v in report['sources'].items() if k.startswith(prefix)},
+                'Machine source differs from the measured build')
+        for path in files.values():
+            catalog.git('ls-files', '--error-unmatch', '--', str(path.relative_to(machine.root)), cwd=machine.root)
     captures = [json.loads(Path(path).read_text()) for path in paths]
     measurement, values, case, runs, combinations, silent = aggregate(captures, report['benchmark_cases'],
                                                                       identity, name, commit, url)
@@ -263,6 +275,8 @@ def create(package, paths, name, url, out):
             f"Compile report SHA-256: `{identity['compile_report_sha256']}`.\n\n"
             "Attribution uses the user-confirmed installed package, expected case order and exact report count; "
             "the device does not attest its firmware hash. Raw captures remain private because they contain device identity.\n")
+    if 'collection_sha256' in identity:
+        text += f"\nLoaded collection SHA-256: `{identity['collection_sha256']}`. Firmware SHA-256 above identifies its resident kernel.\n"
     if warning:
         print('WARNING: ' + name + ': ' + warning)
     if silent:

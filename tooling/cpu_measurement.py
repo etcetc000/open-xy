@@ -106,7 +106,7 @@ def validate(value, kind, commit=None, legacy=True):
     require(legacy or 'peak_percent' in value,
             'cpu: average and worst observed block peak are required; rerun sdk.py profile report '
             'with the original captures (docs/profiling.md)')
-    require(set(value) - {'report', 'peak_percent'} - ({'voice_peak_percent'} if drum else set()) -
+    require(set(value) - {'report', 'peak_percent', 'collection_sha256'} - ({'voice_peak_percent'} if drum else set()) -
             ({'filter_peak_percent'} if filtered else set()) ==
             (SWEEP_FIELDS if sweep else FILTER_FIELDS if filtered else DRUM_FIELDS if drum else FIELDS),
             'cpu: unexpected measurement fields')
@@ -115,6 +115,9 @@ def validate(value, kind, commit=None, legacy=True):
     require(commit is None or value['commit'] == commit, 'cpu: measurement must match the catalog commit')
     require(isinstance(value['firmware_sha256'], str) and re.fullmatch(r'[0-9a-f]{64}', value['firmware_sha256']),
             'cpu: firmware_sha256 must identify the measured build')
+    if 'collection_sha256' in value:
+        require(isinstance(value['collection_sha256'], str) and re.fullmatch(r'[0-9a-f]{64}', value['collection_sha256']),
+                'cpu: collection_sha256 must identify the measured RAM collection')
     require(type(value['runs']) is int and 1 <= value['runs'] <= 100, 'cpu: use 1 to 100 independent runs')
     fields = (('block_percent', 'midpoint_percent', 'combined_percent') if sweep else
               ('block_percent', 'midpoint_percent', 'kit_percent', 'choke_percent', 'ceiling_percent') if drum else
