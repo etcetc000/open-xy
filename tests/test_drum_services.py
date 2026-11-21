@@ -206,7 +206,7 @@ class DrumHookUnits(unittest.TestCase):
         kit = lambda sdk, name: replace(synth, kind='drum', id=name, sdk=sdk)
         units = lambda *machines: [step for _name, m, step in native.plan(native.Collection(machines)) if m is None]
         for machines, linked in (((synth,), False), ((shift,), False), ((kit((1, 17), 'oldkit'),), False),
-                                 ((kit((1, 8), 'oldkit'), shift), False), ((kit((1, 19), 'newkit'),), True),
+                                 ((kit((1, 8), 'oldkit'), shift), False), ((kit((1, 18), 'newkit'),), True),
                                  ((kit((1, 19), 'newkit'),), True),
                                  ((kit((1, 17), 'oldkit'), kit((1, 18), 'newkit'), synth), True)):
             with self.subTest(machines=[(m.id, m.kind, m.sdk) for m in machines]):
