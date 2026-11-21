@@ -4,7 +4,9 @@ The step-lock handles (lock_handles.cpp) are the drum_locks service's, linked on
 padMix kit, a Shift-row synth or a drumline_page extension; units every build links reach them through startup.cpp, which forwards to
 them or answers 0. These link a synth alone, a kit without padMix and a padMix kit with
 the pinned Blackfin tools, and check that a browser selection without a service finds a
-fallback for every symbol a shared object imports from it.
+fallback for every symbol a shared object imports from it. The last links the 1.16
+fixture kit alone and beside the 1.18 one: only with the 1.18 kit does the build link
+the played_pad service's snapshot (drum_trigger.cpp).
 """
 import copy
 import json
@@ -139,6 +141,59 @@ class ServiceLinks(unittest.TestCase):
             self.assertEqual(shared_imports & provided['drum_locks'],
                              {'sdk_step_locks_' + name for name in
                               ('size', 'write', 'begin', 'byte', 'loaded', 'held_value', 'held_set', 'frame')})
+
+
+    def test_only_a_kit_declaring_sdk_1_18_links_the_played_pad_snapshot(self):
+        # A real build of the 1.16 fixture kit, alone and beside the 1.18 one: the Python
+        # path compiles and links sdk_drum_trigger only with the 1.18 kit, and the browser
+        # path (builder/core.mjs linkKit, over the same objects) links it only when the
+        # 1.18 kit is selected.
+        import base64
+        from tooling import browser_kit
+        from tooling.machines import FIXED_NUMBERS, read_collection
+        kits = [FIXTURES / 'probekit16', FIXTURES / 'probekit18']
+        with tempfile.TemporaryDirectory(prefix='links-played-') as folder:
+            out, report = self.compile(Path(folder) / 'old', kits[0])
+            self.assertNotIn('played_pad', report['services'])
+            self.assertFalse((out / 'sdk/drum_trigger.o').exists())
+            self.assertNotIn('sdk_drum_trigger', symbols(out / 'module.elf')[0] | symbols(out / 'module.elf')[1])
+            out, report = self.compile(Path(folder) / 'both', *kits)
+            self.assertIn('played_pad', report['services'])
+            self.assertIn('sdk_drum_trigger', symbols(out / 'sdk/drum_trigger.o')[0])
+            profile, machines, definitions = native.configuration(read_collection(None, kits))
+            owners, services = native.object_owners(machines, profile), native.object_services(machines, profile)
+            self.assertEqual(services['sdk/drum_trigger.o'], 'played_pad')
+            objects = [dict(name=name, owner=owner, service=services.get(name),
+                            bytes=base64.b64encode((out / name).read_bytes()).decode('ascii'))
+                       for name, owner in owners.items()]
+            entries = [browser_kit.machine_entry(m, profile, {}, Path(folder), 'clang++') for m in machines]
+            kit = dict(version='0.0.0', profile=profile, fixed=FIXED_NUMBERS, machines=entries,
+                       definitions={key: value for key, value in definitions.items() if key in native.DEFINITIONS})
+            script = """
+import {linkKit, readObject} from %s;
+let input = '';
+for await (const chunk of process.stdin) input += chunk;
+const {kit, objects, selections} = JSON.parse(input);
+kit.objects = objects.map(({bytes, service, ...o}) =>
+  ({...readObject(Buffer.from(bytes, 'base64')), ...o, ...(service ? {service} : {})}));
+process.stdout.write(JSON.stringify(selections.map(selection => {
+  const linked = linkKit(kit, selection);
+  return {objects: linked.objects.map(o => o.name), trigger: linked.globals.has('sdk_drum_trigger'),
+          services: [...linked.services]};
+})));
+""" % json.dumps((ROOT / 'builder/core.mjs').as_uri())
+            selections = [['probekit16'], ['probekit18'], ['probekit16', 'probekit18']]
+            result = subprocess.run(['node', '--input-type=module', '-e', script], capture_output=True, text=True,
+                                    encoding='utf-8', cwd=ROOT, timeout=120,
+                                    input=json.dumps(dict(kit=kit, objects=objects, selections=selections)))
+            self.assertEqual(result.returncode, 0, result.stderr[-4000:])
+            for selection, linked in zip(selections, json.loads(result.stdout)):
+                with self.subTest(selection=selection):
+                    expected = 'probekit18' in selection
+                    self.assertEqual('sdk/drum_trigger.o' in linked['objects'], expected)
+                    self.assertEqual(linked['trigger'], expected)
+                    self.assertEqual('played_pad' in linked['services'], expected)
+                    self.assertIn('drums', linked['services'])
 
 
 if __name__ == '__main__':

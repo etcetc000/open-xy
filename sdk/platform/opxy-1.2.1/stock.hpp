@@ -79,6 +79,12 @@ inline void* pad_region(u32 track, u32 key) {
 const u32 kDrumEditKey = 0x8400dfc8;
 inline u32 drum_held_key() { return word(kDrumEditKey); }
 inline u32 drum_played_key(u32 track) { return stock<u32(u32)>(0x8d4d6cb0)(track); }
+// Stock's GUI getter of a track's control parameter vector: {stock, begin, end},
+// eight Q31 words from begin (the screen's controls and a kit's track offsets).
+struct TrackParameters { u32 stock0; u32 begin, end; };
+inline const TrackParameters* track_parameters(u32 track) {
+    return stock<const TrackParameters*(u32)>(0x8d4d72a8)(track);
+}
 inline u32 drum_selected_key(u32 track) { return stock<u32(u32)>(0x8d4d6c98)(track); }
 // An owned kit's key, which its screen, Shift row and locks show and its
 // per-key edits change: the held key, else the selected one. The SDK never

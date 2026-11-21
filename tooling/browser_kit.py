@@ -62,7 +62,7 @@ def kit_presets(m):
     with no sample loaded, as before the machine shipped samples. sdk.py build installs the
     samples and the presets as they are."""
     presets = m.presets or {}
-    emptied = sorted(name for name, preset in presets.items() if preset['regions'])
+    emptied = sorted(name for name, preset in presets.items() if m.kind == 'sample' and preset['regions'])
     if emptied:
         print(f'{m.id}: the kit leaves out its own samples; its presets {", ".join(emptied)} load no sample in '
               'the builder (sdk.py build installs them)', file=sys.stderr)

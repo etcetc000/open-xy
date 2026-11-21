@@ -62,8 +62,11 @@ for its preset sites, by a synth with a [Shift row](#a-synths-shift-row), and
 per-key sends the `drum_sends` service, used only by a kit declaring `padMix` and
 by a `drumline_page` extension.
 The step locks of a kit's Shift fields are the `drum_locks` service, used by a
-`padMix` kit, by a synth with a Shift row and by a `drumline_page` extension. The [track filter](#the-track-filter-on-kit-voices) on kit
-voices needs no hook: it is in every kit's adapter.
+`padMix` kit, by a synth with a Shift row and by a `drumline_page` extension.
+The `played_pad` service has no edit: it links the [drum trigger](#screens)
+snapshot (`drum_trigger.cpp`) only with a kit declaring SDK 1.18 or later,
+whose screen reads it. The [track filter](#the-track-filter-on-kit-voices) on
+kit voices needs no hook: it is in every kit's adapter.
 A [`drumline_page` extension](drumline-page.md) uses the `drumline` service and
 also those of samples, octaves, drum transport, sends and the note-start hooks,
 whose hooks it extends ([Drumline's second page](#drumlines-second-page)).
@@ -436,6 +439,25 @@ envelope page (frame `8d5292bc`, layout `8d527fdc`) draws words 8..11 as the
 amp attack, decay, sustain and release, reading them through `8d4d7458(track, 8)`
 as floats; the filter envelope starts at word 32. The screen reads the first
 four words of a bounds-checked vector on instrument tracks only, and adds no hook.
+
+Drum trigger drawing reads the last played pitch at `8d4d6cb0`, which stock's
+counter writer `8d4d6c32` updates from both sequenced-note dispatch
+(`8d592092`) and live-note dispatch (`8d595838`). The live held-key map is
+not a sequencer event map. The GUI resolves that played pitch to its canonical
+pad and decodes its model/control snapshot independently of the selected
+pad used by the header. It adds no hook or cross-role state. Intermediate
+hits can coalesce between display frames; current GUI offsets are not a
+record of past audio-side step locks. The screen calls it only once the
+track's note-start counter has moved since the page's activation or a track
+change, and gives a zero snapshot until then. It reads the counter once a
+frame, the value the machine gets as `note_serial`. As long as only a note
+start moves the counter (the writer above also sets the byte), the byte's value
+at boot or from another kit's hits never shows. Whether a project load
+re-activates the page or moves the counter is not established; if it does
+neither, the screen keeps naming the pad of the last hit before the load,
+resolved on the loaded kit. Only the screen of a kit declaring SDK 1.18 or later calls it, so its unit
+(`drum_trigger.cpp`) is the `played_pad` service's, which a build links only
+with such a kit.
 
 Stock paints the screen slots in ascending page order each frame, so page
 numbers are layers. The compositor's loop advance is hooked: when the selected
