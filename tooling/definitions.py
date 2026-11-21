@@ -124,8 +124,13 @@ DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum
 # effect's after the first four are alternates on the send page. A note player's
 # after the first four are its second page (SDK 1.16).
 CONTROLS = {'synth': (4, 8), 'drum': (8, 8), 'sample': (1, 8), 'effect': (1, 8), 'master': (1, 8), 'player': (4, 8)}
-# Stock voice indices: a voice object for each, 0..255.
+# The most voices a machine declares; a sample adapter at this capacity is the
+# one it has always been (it never refuses an index).
 STOCK_VOICES = 256
+# Stock's voice manager builds 27 voice wrappers at audio init (8d51c640) and
+# gives each its number, 0..26, which its voice start passes to an engine's
+# factory as the voice index (8d51adf8, abi-1.2.1.md "Sample engines").
+STOCK_VOICE_WRAPPERS = 27
 SYNTH_POSITIONS = 4
 # An effect's shift row (SDK 1.7) packs its choices into one Q31 word; this many
 # combinations keep each one's bucket over a thousand codes wide.
@@ -191,12 +196,12 @@ def validate_definition(value, kind):
             require(resources.get(flag, 0) in (0, 1), flag + ' must be 0 or 1')
     if 'voiceCapacity' in resources:
         require(1 <= resources['voiceCapacity'] <= 256, 'Voice capacity must be 1..256')
-    # Stock creates a voice object for every index 0..255 and never checks for a
-    # missing one. Synth voices are shared out to notes as they start (voice.cpp.in);
-    # a sample engine's voice is bound to its sample when created, so it needs all 256.
+    # A sample engine's voice is bound to its sample when created, so it needs a
+    # voice for every index stock passes: the numbers of its voice wrappers.
     if kind == 'sample':
-        require(resources['voiceCapacity'] == STOCK_VOICES,
-                'A sample engine needs voiceCapacity 256: stock creates a voice for every one of its 256 indices')
+        require(resources['voiceCapacity'] >= STOCK_VOICE_WRAPPERS,
+                f'A sample engine needs voiceCapacity {STOCK_VOICE_WRAPPERS} or more: stock passes its '
+                f"{STOCK_VOICE_WRAPPERS} voice wrappers' numbers as voice indices")
     if kind == 'sample':
         heap = resources.get('sampleAnalysis', 0)
         require(type(heap) is int and (heap == 0 or (4096 <= heap <= ANALYSIS_HEAP_LIMIT and heap % 4 == 0)),

@@ -101,6 +101,20 @@ class SampleServices(unittest.TestCase):
             result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=120, **hidden)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_refused_voice_index_gets_an_inert_object(self):
+        from tooling.adapters import sample_refusal
+        with tempfile.TemporaryDirectory(prefix='sample-refusal-') as folder:
+            for name, stereo in (('wide', 1), ('narrow', 0)):
+                (Path(folder) / f'refusal_{name}.inc').write_text(sample_refusal(name, stereo), encoding='utf-8')
+            binary = Path(folder) / ('refusal' + ('.exe' if os.name == 'nt' else ''))
+            hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+            command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I' + folder, '-I' + str(ROOT / 'sdk/include'),
+                       str(ROOT / 'tests/fixtures/sample_voice_refusal.cpp'), '-o', str(binary)]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=120, **hidden)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=120, **hidden)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_cache_lifetime_capacity_and_browser_deferral(self):
         self.run_fixture('sample_cache')
 

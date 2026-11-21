@@ -47,6 +47,8 @@ DEFINITIONS = dict(stock_catalog_insert=0x8d5bd928, stock_gui_role=0x8d5c3eac, s
                    stock_player_name_tail=0x8d5bdddc, stock_player_id_tail=0x8d5bde64, stock_sample_slice_receive_tail=0x8d5b1264)
 TEMPLATES = 'sdk/platform/opxy-1.2.1/'
 RUNTIME_ASM, RUNTIME_CXX = 'sdk/platform/blackfin/divide.s', 'sdk/platform/blackfin/memory.cpp'
+# The sample kernel (opxy/sample_kernel.hpp): linked only for a machine that includes it.
+KERNEL_ASM = 'sdk/platform/blackfin/sample_kernel.s'
 ALLOWED_SECTIONS = {'.text', '.rodata', '.data', '.bss'}
 MAX_COMPILER_FILE = 64 << 20
 ANALYSIS = ['analysis/compile-report.json']
@@ -206,6 +208,21 @@ def includes(m=None):
     return paths
 
 
+def includes_header(machines, header):
+    """Whether a machine's own C++ (its tests and tools aside) includes opxy/<header>.hpp."""
+    from .machines import reads_sample_overview
+    return any(reads_sample_overview(m.root, header) for m in machines if getattr(m, 'root', None))
+
+
+def host_units(m):
+    """The host builds of the header-tied SDK units a machine's own C++ or its tests include
+    (a test may call a routine the machine itself does not)."""
+    from .machines import reads_sample_overview
+    tests = m.root / 'tests'
+    return [ROOT / UNIT_HOST[unit] for unit, header in UNIT_HEADERS.items()
+            if includes_header([m], header) or (tests.is_dir() and reads_sample_overview(tests, header))]
+
+
 def plan(machines, profile=None):
     """Every object in link order as (name, owner machine or None, step).
 
@@ -229,7 +246,8 @@ def plan(machines, profile=None):
         units += [(f'{m.id}/native_{unit.name}.o', m, 'native:' + unit.name) for unit in m.native]
     services = active_services(profile or config(), service_users(machines))
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
-              if UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services]
+              if (UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services) and
+              (step not in UNIT_HEADERS or includes_header(machines, UNIT_HEADERS[step]))]
     units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in linked_extensions(machines)]
     names = [name for name, _m, _step in units]
     require(len(names) == len(set(names)), 'Duplicate object name')
@@ -238,7 +256,7 @@ def plan(machines, profile=None):
 
 # The SDK's shared objects, after every machine's. Sources are TEMPLATES/<unit>.cpp
 # or .s, except the generated units and the Blackfin runtime.
-SDK_UNITS = ('divide', 'memory', 'registration', 'registration_stock', 'startup', 'startup_exit', 'startup_label', 'benchmark', 'benchmark_clock', 'voice_clock',
+SDK_UNITS = ('divide', 'sample_kernel', 'memory', 'registration', 'registration_stock', 'startup', 'startup_exit', 'startup_label', 'benchmark', 'benchmark_clock', 'voice_clock',
              'hook', 'sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache', 'sample_cache_stock',
              'sample_cache_hooks', 'sample_progress', 'sample_progress_stock', 'pad_assignment',
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
@@ -259,6 +277,11 @@ UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callba
                                'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'sample_overview', 'sample_overview_stock'), 'samples')
 UNIT_SERVICES.update(dict.fromkeys(('players', 'player_hooks', 'player_table'), 'players'))
 UNIT_SERVICES['keyboard_octaves'] = 'octaves'
+# SDK units that patch nothing, each linked only when a machine's own C++ includes
+# the header it implements (opxy/<header>.hpp); other builds are unchanged.
+UNIT_HEADERS = {'sample_kernel': 'sample_kernel'}
+# Their host builds, which a machine's host tests link in place of the device unit.
+UNIT_HOST = {'sample_kernel': 'sdk/host/sample_kernel.cpp'}
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock', 'usb_host'), 'extensions'))
 UNIT_SERVICES['drum_hooks'] = 'drums'
 UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
@@ -580,6 +603,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(generate_registration_stock(folder)), obj)
             if step == 'divide':
                 return assemble_unit(ROOT / RUNTIME_ASM, obj)
+            if step == 'sample_kernel':
+                return assemble_unit(ROOT / KERNEL_ASM, obj)
             if step == 'memory':
                 return cxx(RUNTIME_CXX, obj)
             if step == 'startup_label':
