@@ -35,10 +35,11 @@ void text(void* node,const char* value) {
     require(row >= 0 && row < 4 && std::strlen(value) < sizeof(captions[0]), "bounded private caption");
     std::strcpy(captions[row],value);
 }
+bool sparse = false;
 void draw(Popup* p,u32 flags) {
     require(p->svg==reinterpret_cast<void*>(1) && !flags,"restore the document before drawing");++draws;
     require(p->rows[0]->visible,"first stock container remains visible");
-    for(u32 i=0;i<4;++i){require(!p->icons[i]->visible,"hide send-specific icons");if(i)require(p->rows[i]->visible==(tuning != 0),"tuning rows follow the installed controls");}
+    for(u32 i=0;i<4;++i){require(!p->icons[i]->visible,"hide send-specific icons");if(i)require(p->rows[i]->visible==(tuning != 0 && !(tuning == 2 && sparse && i == 2)),"tuning rows follow the installed controls");}
 }
 }
 bool sdk_input_monitor_shift_visible() { return held; }
@@ -46,7 +47,6 @@ u32 sdk_live_input_page() { return held ? tuning : 0; }
 const char* sdk_live_input_page_hint() {
     return extra_available ? (tuning == 2 ? "m1 > quick" : "m1 > vocal fx") : nullptr;
 }
-bool sparse = false;
 const char* sdk_live_input_caption(u32 row, bool label) {
     if (tuning == 2 && sparse && row == 2) return nullptr;
     const char* labels[] = {nullptr, "tune", "retune", "amount"};
