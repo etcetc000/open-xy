@@ -1,0 +1,33 @@
+// Stock's voice start (8d51adf8) stores whatever the factory returns in the
+// voice wrapper and calls it at once (method +0x14 for a sample engine) and on
+// every later render, never checking for null. Stock's 27 voice wrappers pass
+// their own numbers, 0..26, as the index (direct calls only; indirect calls
+// were not traced), so a capacity of 27 or more is not expected to refuse; should
+// a higher index come all the same, it gets this one shared inert object: it
+// renders silence, ignores every other call and holds no state. Each refusal
+// adds one to <prefix>_voice_refusals, which nothing in the SDK reads (a
+// debugger or simulator may).
+extern "C" {
+extern opxy::u32 @PREFIX@_voice_refusals __asm__("@PREFIX@_voice_refusals");
+opxy::u32 @PREFIX@_voice_refusals;
+}
+static int refused_render(void*, opxy::i32* output, const opxy::i32*) {
+    for (unsigned i = 0; i < (@STEREO@ ? 128u : 64u); ++i) output[i] = 0;
+    return 0;
+}
+static int refused_ignore() { return 0; }
+static void refused_noop() {}
+static int refused_stereo() { return @STEREO@; }
+static const void* const refused_vtable[11] = {
+    reinterpret_cast<const void*>(&refused_ignore), reinterpret_cast<const void*>(&refused_ignore),
+    reinterpret_cast<const void*>(&refused_render), reinterpret_cast<const void*>(&refused_noop),
+    reinterpret_cast<const void*>(&refused_ignore), reinterpret_cast<const void*>(&refused_noop),
+    reinterpret_cast<const void*>(&refused_ignore), reinterpret_cast<const void*>(&refused_noop),
+    reinterpret_cast<const void*>(&refused_stereo), reinterpret_cast<const void*>(&refused_ignore),
+    reinterpret_cast<const void*>(opxy::platform::kVoiceDefaultMethod)
+};
+static const void* const* refused_object = refused_vtable;
+static void* refused() {
+    ++@PREFIX@_voice_refusals;
+    return &refused_object;
+}

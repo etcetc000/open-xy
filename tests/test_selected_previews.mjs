@@ -36,6 +36,25 @@ const machine = {
     graphics:{nodes:['anim_node_0'], texts:[], palette:['anim_palette_0'], paths:0, points:0}},
 };
 
+// A kit's preview module as the builder reads it (builder/core.mjs kitKey, kitModel): every
+// key on model 2 of three, its controls, and each model's name and labels.
+function kitApi() {
+  const memory = {buffer:new ArrayBuffer(512)}, bytes = new Uint8Array(memory.buffer), strings = new Map();
+  let next = 64;
+  const text = value => {
+    if (!strings.has(value)) { bytes.set(new TextEncoder().encode(value + '\0'), next); strings.set(value, next); next += value.length + 1; }
+    return strings.get(value);
+  };
+  const labels = [['TUNE', 'DEC'], ['A', 'B', 'C', 'D'], ['PTCH', 'DEC', 'RAMP', '']];
+  return {memory,
+    opxy_drum_defaults:() => { bytes.set([2, 64, 127, 0, 5, 1, 2, 3, 4], 16); return 16; },
+    opxy_drum_model_name:model => text(['BD', 'SD', 'HH'][model]),
+    opxy_drum_label:(model, slot) => text(labels[model][slot] ?? ''),
+    opxy_drum_count:() => 4};
+}
+const kitMachine = {...machine, id:'kit', name:'Kit', controls:['CTRL 1', 'CTRL 2', 'CTRL 3', 'CTRL 4', 'CTRL 5', 'CTRL 6', 'CTRL 7', 'CTRL 8'],
+  preview:{...machine.preview, kit:{models:3, padMix:true, groups:[{label:'TRX', count:2}, {label:'EFM', count:1}]}}};
+
 async function harness({machines = [machine], delayed = false} = {}) {
   const html = readFileSync(new URL('../builder/index.html', import.meta.url), 'utf8');
   const elements = new Map([...html.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => [id, new Element()]));
@@ -46,9 +65,9 @@ async function harness({machines = [machine], delayed = false} = {}) {
   const compilations = [], ticks = [], scenes = [], rawFrames = [], module = {};
   const retained = {headerSvg,
     PreviewDisplay:class {
-      constructor(compiled) { assert.equal(compiled, module); }
-      tick(input, elapsed, serial, track, reduced, activity) {
-        ticks.push({input, elapsed, serial, track, reduced, activity});
+      constructor(compiled) { assert.equal(compiled, module); this.api = kitApi(); }
+      tick(input, elapsed, serial, track, reduced, activity, ...drum) {
+        ticks.push({input, elapsed, serial, track, reduced, activity, ...(drum.length ? {drum} : {})});
         const frame = Int32Array.of(17); rawFrames.push(frame); return frame;
       }
     },
@@ -144,6 +163,19 @@ test('default UI is rendered once with default controls, frozen, and reused acro
   assert.equal(await h.artwork(0), gray);
   assert.equal(h.compilations.length, 1); assert.equal(h.ticks.length, 1); assert.equal(h.scenes.length, 2);
   h.events.pagehide(); assert.equal(h.blobs.size, 0); assert.equal(h.figures().length, 0);
+});
+
+test('a drum kit renders its first key as the kit sets it up, with its model, choices and stock header', async () => {
+  const h = await harness({machines:[kitMachine]});
+  h.open(); await h.dialog.settled();
+  assert.equal(h.figures()[0].children[1].children[0].tag, 'img');
+  assert.equal(h.ticks.length, 1);
+  // Key 53: model 2 (EFM's first), controls 64, 127, 0, 5, ... as Q31 words, 127 full scale.
+  assert.deepEqual(h.ticks[0], {input:shownControls([64 << 24, 0x7fffffff, 0, 5 << 24, 1 << 24, 2 << 24, 3 << 24, 4 << 24], [0, 1, 2, 3]),
+    elapsed:0, serial:0, track:0, reduced:true, activity:{held_notes:0, note_off_serial:0},
+    drum:[2, 0, [1, 0, 0, 0], null, {pan:0, level:0, pad:[0, 0, 0, 0]}, 0]});
+  // The model's labels and 0..127 values; the machine's own header text wins; an unnamed slot is blank.
+  assert.ok((await h.artwork(0)).includes(headerSvg(['PTCH', 'DEC', 'RAMP', ''], ['64', 'WIDE', '0', ''])));
 });
 
 test('bulk install actions reset selected exceptions, retain unselected exceptions, and reuse snapshots', async () => {

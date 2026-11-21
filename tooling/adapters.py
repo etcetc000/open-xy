@@ -14,7 +14,7 @@ import math
 from pathlib import Path
 
 from .benchmark import append_callback
-from .definitions import (ROOT, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
+from .definitions import (ROOT, STOCK_VOICES, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
                           shift_choices, shift_field, shift_parameters, stock_shift_codes, synth_shift,
                           validate_definition)
 
@@ -221,6 +221,22 @@ def generate_drum_callbacks(directory, machines):
     return destination
 
 
+# A drum kit's keys and names, as the device's adapter reads them (drum_voice.cpp.in),
+# for the builder's audition and screen header: a key's default model and eight
+# controls (nine bytes), a model's name, a slot's label and the slots it uses.
+DRUM_KEYS = '''static opxy::u8 drum_key[9];
+const opxy::u8* opxy_drum_defaults(opxy::u32 key) {
+    drum_key[0] = 0; drum_key[1] = 0; drum_key[2] = 0; drum_key[3] = 0; drum_key[4] = 0;
+    drum_key[5] = 0; drum_key[6] = 0; drum_key[7] = 0; drum_key[8] = 0;
+    @NAMESPACE@::drum_defaults(key, &drum_key[0], &drum_key[1]);
+    return drum_key;
+}
+const char* opxy_drum_model_name(opxy::u32 model) { return @NAMESPACE@::model_name(model); }
+const char* opxy_drum_label(opxy::u32 model, opxy::u32 slot) { return @NAMESPACE@::parameter_name(model, slot); }
+opxy::u32 opxy_drum_count(opxy::u32 model) { return @NAMESPACE@::parameter_count(model); }
+'''
+
+
 def generate_voice_preview(directory, definition, *, kind='synth'):
     """Browser preview voices for a synth or drum definition (curated or local)."""
     require(kind in ('synth', 'drum'), 'Browser previews audition synths and drums')
@@ -230,6 +246,7 @@ def generate_voice_preview(directory, definition, *, kind='synth'):
     count = definition['resources'].get('modelCount', 0)
     values['DRUM_SELECT'] = (f"{values['NAMESPACE']}::drum_select(*voice, shared, owner(voice), drum_model < {count} ? drum_model : 0);\n    "
                              if kind == 'drum' else '')
+    values['DRUM_KEYS'] = DRUM_KEYS.replace('@NAMESPACE@', values['NAMESPACE']) if kind == 'drum' else ''
     return expand('voice_preview.cpp.in', values, Path(directory) / 'voice_preview.cpp', ROOT / 'sdk/host')
 
 
@@ -434,6 +451,12 @@ def sample_callbacks(m):
     return [m.prefix + suffix for flag, entries in SAMPLE_SERVICES if resources.get(flag, 0) for suffix, *_ in entries]
 
 
+def sample_refusal(prefix, stereo):
+    """The inert voice object and refusal counter of a sample adapter below 256 voices."""
+    source = (TEMPLATES / 'sample_voice_refusal.cpp.in').read_text(encoding='utf-8')
+    return source.replace('@PREFIX@', prefix).replace('@STEREO@', str(int(bool(stereo))))
+
+
 def generate_sample_voice(directory, m, benchmark=False):
     resources = m.definition['resources']
     values = dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'], NAME=m.native_name,
@@ -444,6 +467,12 @@ def generate_sample_voice(directory, m, benchmark=False):
                   # The drum page edits outer markers only; an engine with its own screen spans them.
                   OUTER_MARKERS=int(bool(resources.get('drumControls', 0)) or 'display' in resources),
                   SLICE_TIMING=resources.get('sliceTiming', 0))
+    # Below stock's 256 a refused index gets a shared inert object, not null
+    # (sample_voice_refusal.cpp.in); at 256 nothing is ever refused and the
+    # adapter stays as it was.
+    refusing = resources['voiceCapacity'] < STOCK_VOICES
+    values['REFUSED'] = 'refused()' if refusing else 'nullptr'
+    values['REFUSAL_DEFINITIONS'] = sample_refusal(m.prefix, values['STEREO']) if refusing else ''
     path = expand('sample_voice.cpp.in', values, Path(directory) / f'sample_voice_{m.prefix}.cpp')
     return append_callback(path, m) if benchmark else path
 
@@ -556,7 +585,8 @@ def generate_synth_controls(directory, machines):
                              '        return true;'])
         body.extend(['    default: return false;', '    }', '}'])
         formatters.append('\n'.join(body))
-        # A drum kit's press always pages its whole row.
+        # A drum kit's press pages its whole row, on a key that has a second row
+        # (synth_controls.cpp second_row).
         page = m.kind == 'drum' or own_screen and count > 4 or paged(m.definition)
         # An effect's shift row: its choice counts and titles; other rows leave the fields zero.
         extra = ''
@@ -847,11 +877,13 @@ def generate_player_object(directory, m):
     from .native import player_header_ids, player_page_ids
     values = dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'], NAME=m.native_name,
                   PAGE='nullptr', PAGE_READY='nullptr', PAGE_DECLARATIONS='', PAGE_UNIT='',
-                  PAGED='true' if paged(m.definition) else 'false')
+                  PAGED='true' if paged(m.definition) else 'false',
+                  CLICKS='true' if m.definition.get('press') == 'click' else 'false')
     # One choice marks an absent slot: its encoder turns nothing (players.cpp).
     # So do the second page's slots a player leaves out.
     steps = [1 if p.get('absent') else enum_steps(p) for p in m.definition['parameters']]
     values['STEPS'] = ', '.join(map(str, steps + [1] * (8 - len(steps))))
+    values.update(player_shift_values(m))
     if m.display == 'player':
         p = m.prefix
         page = (TEMPLATES / 'player_page.cpp.in').read_text(encoding='utf-8')
@@ -869,6 +901,27 @@ def generate_player_object(directory, m):
                                                     f'int {p}_screen_register() __asm__("{p}_screen_register");',
                                                     f'int {p}_screen_ready() __asm__("{p}_screen_ready");']))
     return expand('player_object.cpp.in', values, Path(directory) / f'player_object_{m.prefix}.cpp')
+
+
+def player_shift_values(m):
+    """A player's shift row (SDK 1.16) as its Player's table, or nothing, which leaves the
+    generated source of a player without one as it was."""
+    shift = shift_parameters(m.definition)
+    if not shift:
+        return dict(SHIFT_TABLE='', SHIFT='')
+    choices, defaults = [], []
+    for parameter in shift:
+        count = len(parameter['mapping']['labels'])
+        # The stored default (catalog_defaults' Q15) and its choice, as the SDK steps an enum.
+        bucket = min((math.floor(parameter['default'] * 32767 + 0.5) * count) >> 15, count - 1)
+        width = 0x7fffffff // count
+        choices.append(count)
+        defaults.append(bucket * width + width // 2)
+    choices += [0] * (8 - len(shift))
+    defaults += [0] * (8 - len(shift))
+    table = (f'static const opxy::platform::PlayerShift player_shift = {{{len(shift)}, '
+             f'{{{", ".join(map(str, choices))}}}, {{{", ".join(map(str, defaults))}}}}};\n')
+    return dict(SHIFT_TABLE=table, SHIFT=', &player_shift')
 
 
 def generate_player_table(directory, machines):

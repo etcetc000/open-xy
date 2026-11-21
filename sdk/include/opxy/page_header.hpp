@@ -95,7 +95,7 @@ static inline void page_header(PageHeader& state, const Input& input, F& frame,
 // The same header for a synth with a Shift row (SDK 1.13): pass draw::shift_row(input)
 // (opxy/synth_shift.hpp) as `shift`, with the row's titles and captions indexed by
 // entry, 0..7. While Shift is held, both rows name and show the row instead, as a
-// drum kit's header shows its two Shift rows: page 1's entries (0..3) on top and
+// padMix kit's header shows its two Shift rows: page 1's entries (0..3) on top and
 // page 2's (4..7) under them, the page the encoders are on bright on the bar and
 // the other small and grey. A press, with Shift held or not, moves the bar as it
 // does without Shift. Absent entries take an empty title and caption. Shift's press
