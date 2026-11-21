@@ -60,7 +60,11 @@ void sdk_input_monitor_frame(u32 painted, u32 selected) {
     popup.svg = document;
     const i32 center = tune ? (tilt || extra ? 0 : -20) : 60;
     for (u32 i = 0; i < 4; ++i) {
-        const bool shown = i == 0 ? tilt || extra : tune;
+        const bool monitor_row = i == 0 && tilt;
+        const bool processor_row = tune && (extra || i != 0) &&
+                                   sdk_live_input_caption(i, true) && sdk_live_input_caption(i, false);
+        const bool shown = monitor_row || processor_row;
+        if (!shown && popup.values[i]) set_text(popup.values[i], "");
         if (popup.icons[i]) popup.icons[i]->visible = 0;
         if (!popup.rows[i]) continue;
         popup.rows[i]->visible = shown;

@@ -35,13 +35,17 @@ inline void render(Voice& voice, Shared&, opxy::u32 owner, opxy::Output output, 
 
 
 class SynthVoices(unittest.TestCase):
-    def test_sample_engines_take_a_voice_for_every_stock_index(self):
+    def test_sample_engines_take_a_voice_for_every_stock_voice_wrapper(self):
+        # Stock passes its 27 voice wrappers' numbers, 0..26, as voice indices.
         definition = copy.deepcopy(fixture('probesample').definition)
         validate_definition(definition, 'sample')
-        for capacity in (1, 8, 255):
+        for capacity in (1, 8, 26):
             definition['resources']['voiceCapacity'] = capacity
-            with self.subTest(capacity=capacity), self.assertRaisesRegex(ValueError, '256'):
+            with self.subTest(capacity=capacity), self.assertRaisesRegex(ValueError, '27 or more'):
                 validate_definition(definition, 'sample')
+        for capacity in (27, 255):
+            definition['resources']['voiceCapacity'] = capacity
+            validate_definition(definition, 'sample')
 
     def run_fixture(self, capacity, source):
         definition = copy.deepcopy(fixture('probesynth').definition)

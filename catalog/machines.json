@@ -2603,8 +2603,8 @@
       "maintainer": "akadanieljoshua",
       "status": "published",
       "repository": "https://github.com/akadanieljoshua/comet",
-      "tag": "v1.0.0",
-      "commit": "67071ffe7ff7bf4aaca7973f33bcccf952b33a26",
+      "tag": "v1.2.0",
+      "commit": "272bcaaf88bdf953a791d16799f9570220c8deea",
       "path": ".",
       "keywords": [
         "delay",
@@ -2613,12 +2613,12 @@
         "physical"
       ],
       "cpu": {
-        "benchmark": "opxy-effect-callback-v1",
-        "commit": "67071ffe7ff7bf4aaca7973f33bcccf952b33a26",
-        "firmware_sha256": "7372a79a53d8d7f2a29fe670943cb11943ee8a70ce3b4958add9f523dfe3ffa1",
+        "benchmark": "opxy-effect-callback-v2",
+        "commit": "272bcaaf88bdf953a791d16799f9570220c8deea",
+        "firmware_sha256": "377e65bb78fc28e2a9a569c996f093886e2958a2080b08483ec561bc09012ab0",
         "runs": 1,
-        "block_percent": 3.323415,
-        "peak_percent": 5.004959
+        "block_percent": 3.147936,
+        "peak_percent": 3.398184
       }
     },
     {
@@ -2644,6 +2644,19 @@
         "block_percent": 4.470893,
         "peak_percent": 6.953536
       }
+    },
+    {
+      "id": "euclid_arp",
+      "kind": "player",
+      "maintainer": "yfukami",
+      "status": "published",
+      "repository": "https://github.com/yfukami/op-xy-euclidean-arp",
+      "tag": "v1.0.0",
+      "commit": "11c73c296c3db24de50420a6c804554607484f81",
+      "path": "machines/euclidean_arp",
+      "keywords": [
+        "experimental"
+      ]
     }
   ]
 }

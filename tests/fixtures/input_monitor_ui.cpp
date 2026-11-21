@@ -46,7 +46,9 @@ u32 sdk_live_input_page() { return held ? tuning : 0; }
 const char* sdk_live_input_page_hint() {
     return extra_available ? (tuning == 2 ? "m1 > quick" : "m1 > vocal fx") : nullptr;
 }
+bool sparse = false;
 const char* sdk_live_input_caption(u32 row, bool label) {
+    if (tuning == 2 && sparse && row == 2) return nullptr;
     const char* labels[] = {nullptr, "tune", "retune", "amount"};
     const char* values[] = {nullptr, "F# minor", "hard", "100%"};
     const char* extra_labels[] = {"harmony", "blend", "compress", "de-ess"};
@@ -98,6 +100,10 @@ int main() {
             std::strcmp(captions[2],"compress   soft")==0 &&
             std::strcmp(captions[3],"de-ess   off   m1 > quick")==0,
             "the second page uses all four rows, including the Tilt Mic row");
+    tuning=1;sdk_input_monitor_frame(63,63);
+    sparse=true;tuning=2;sdk_input_monitor_frame(63,63);
+    require(!row_nodes[2].visible && captions[2][0] == 0,
+            "a sparse page hides the undeclared row and clears its old caption");
     require(motion_q10(0x41c00000u)==24*1024 && motion_q10(0xc1c00000u)==-24*1024,"native slide endpoints");
     require(!motion_q10(0x7fc00000u) && !motion_q10(1),"invalid or subpixel motion is bounded");
     return 0;

@@ -464,8 +464,10 @@ checks (`11a09aaa`, `8d51b880`) stay stock.
 
 ## Synth voices
 
-Stock asks the factory for a voice object per voice index (0–255) and calls
-it through an 11-entry method table: render once per 64-sample block, start on
+Stock asks the factory for a voice object per voice index and calls
+it through an 11-entry method table (for sample engines the index is a voice
+wrapper's number, 0..26, see [sample engines](#sample-engines); the synth
+adapter answers any index from 0 to 255 and does not rely on that): render once per 64-sample block, start on
 a note, and unchanged stock defaults for the rest (see
 [`voice.cpp.in`](../sdk/platform/opxy-1.2.1/voice.cpp.in)). It never checks
 for a missing object, so the factory gives every index a small handle. Stock
@@ -908,7 +910,19 @@ outer and inner markers, tuning, level, flags and tagged settings. This also
 preserves the live sample when stock reloads a newly saved preset.
 
 Stock starts these voices through a separate note-start method; factory
-creation alone does not start or choke a voice. Page 7 maps notes to
+creation alone does not start or choke a voice.
+
+The factory's index is a voice wrapper's number. At audio init the voice
+manager (`8d51c640`) builds its 27 wrappers in one loop, and the wrapper
+constructor (`8d51c546`) stores the loop count, 0..26, in the wrapper's byte 0.
+The engine factory dispatcher, `8d506e92`, has one direct caller in the image,
+the voice start (`8d51adf8`), which passes that byte, for the sampler's and the
+drum sampler's voices alike; indirect calls to the dispatcher were not traced.
+No note, steal or start path writes the byte. The voice start stores
+whatever the factory returns at `wrapper + 0x94` and calls it at once (method
+`+0x14` for a sample engine) and on every render, never checking for null; so
+a sample adapter below 256 voices answers an index it refuses with a shared
+inert object, not null. Page 7 maps notes to
 the stock 24 canonical pads. Optional same-key choke is scoped to track and
 canonical pad, and checked before DSP or analysis lookup.
 
