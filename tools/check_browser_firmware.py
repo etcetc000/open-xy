@@ -69,7 +69,23 @@ def expanded_profile(profile):
     return expanded
 
 
-def selection_services(profile, result, machines_by_id, extension_sources):
+def selection_services(kit, result):
+    """The services a selection links (builder/core.mjs activeServices): its machines' kinds
+    and declared features, its extensions, and their processor or Drumline page."""
+    selected = [m for m in kit['machines'] if m['id'] in result['selected']]
+    chosen = [e for e in kit.get('extensions', []) if e['id'] in result['extensions']]
+    # Settings extensions link no runtime; every chosen extension adds its capabilities.
+    return active_services(kit['profile'], [m['kind'] for m in selected] +
+                           [f for m in selected for f in m.get('features', [])] +
+                           (['extension'] if any(e.get('linked', True) for e in chosen) else []) +
+                           [c for e in chosen for c in e.get('capabilities', [])] +
+                           # kit.json names it master_processor; older kits, master_filter (core.mjs processorOf).
+                           (['master_filter'] if any(e.get('master_processor') or e.get('master_filter')
+                                                     for e in chosen) else []) +
+                           (['drumline_page'] if any(e.get('drumline_page') for e in chosen) else []))
+
+
+def source_selection_services(profile, result, machines_by_id, extension_sources):
     selected = Collection((machines_by_id[ident] for ident in result['selected']),
                           (extension_sources[ident] for ident in result['extensions']))
     return active_services(profile, service_users(selected))
@@ -161,7 +177,7 @@ def check_expanded(directory, kit, stock, boot_label, machines_by_id, extension_
         prefix = directory / 'reference' / result['name']
         module, symbols = check_module(prefix, result, reviewed, boot_label)
         check_numbers(kit, result, symbols)  # every 4 MiB build, the whole collection included
-        services = selection_services(reviewed, result, machines_by_id, extension_sources)
+        services = source_selection_services(reviewed, result, machines_by_id, extension_sources)
         for profiling, suffix in ((True, '.ldr'), (False, '.profiling-off.ldr')):
             require(assembled(stock, module, symbols, reviewed, services, profiling, selection_settings(kit, result)) == prefix.with_suffix(suffix).read_bytes(),
                     'Python/browser firmware differs (experimental memory): ' + suffix)
@@ -208,7 +224,7 @@ def verify_generated(directory, stock_file, content):
         prefix = directory / 'reference' / result['name']
         module, symbols = check_module(prefix, result, kit['profile'], boot_label)
         numbers = check_numbers(kit, result, symbols)
-        services = selection_services(kit['profile'], result, machines_by_id, extension_sources)
+        services = source_selection_services(kit['profile'], result, machines_by_id, extension_sources)
         values = selection_settings(kit, result)
         modes = {}
         for profiling in (True, False):
