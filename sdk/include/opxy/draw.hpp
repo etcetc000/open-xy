@@ -92,7 +92,7 @@ struct Input {
     // its step 1..7 (0, 17, 33, 50, 67, 83, 100; an amount as its nearest); 0
     // when neutral, not declared, and for other machines.
     i8 pad[4];
-    // A drum kit declaring SDK 1.17 or later (drawing ABI 7); zero otherwise.
+    // A drum kit declaring SDK 1.18 or later (drawing ABI 7); zero otherwise.
     // Latest played drum pad; zero when unavailable. Read when note_serial changes.
     // Controls reflect the GUI snapshot and current offsets, not past step locks.
     u32 trigger_key, trigger_model;

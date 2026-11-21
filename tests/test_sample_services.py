@@ -161,7 +161,7 @@ class SampleServices(unittest.TestCase):
         self.run_fixture('screen_drawing', defines=('OPXY_SCREEN_KIT=0',))
 
     def test_older_kit_screen_is_struck_by_its_selected_pad_only(self):
-        # A kit declaring SDK 1.16 or earlier keeps the selected-pad strike filter.
+        # A kit declaring SDK 1.17 or earlier keeps the selected-pad strike filter.
         self.run_fixture('screen_drawing', defines=('OPXY_SCREEN_KIT=2',))
 
     def test_played_drum_snapshot_is_independent_of_selection(self):

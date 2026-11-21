@@ -167,11 +167,11 @@ def drum_transport(m):
 
 # The SDK version from which a drum kit's screen reads the track's note serial and the
 # played pad's snapshot; an older kit keeps the selected-pad strike filter (screen_drawing.hpp).
-PLAYED_PAD_SDK = (1, 17)
+PLAYED_PAD_SDK = (1, 18)
 
 
 def played_pad(m):
-    """Whether a drum kit's screen reads the played-pad snapshot (SDK 1.17): it alone calls
+    """Whether a drum kit's screen reads the played-pad snapshot (SDK 1.18): it alone calls
     sdk_drum_trigger, so only a build with such a kit links that unit (native.UNIT_SERVICES)."""
     return getattr(m, 'kind', 'synth') == 'drum' and getattr(m, 'sdk', (1, 0)) >= PLAYED_PAD_SDK
 
@@ -435,7 +435,7 @@ def generate_screen(directory, m):
 namespace {{
 struct Machine {{
     static const char* const ids[{len(ids)}];
-    // A drum kit's note serial and played-pad snapshot (screen_drawing.hpp): from SDK 1.17
+    // A drum kit's note serial and played-pad snapshot (screen_drawing.hpp): from SDK 1.18
     // the track's serial and the snapshot, before it the selected pad's strikes only.
     static const bool played_pad = {'true' if played_pad(m) else 'false'};
     static const bool selected_pad = {'true' if drum and not played_pad(m) else 'false'};

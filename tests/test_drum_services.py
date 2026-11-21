@@ -187,8 +187,8 @@ class DrumHookUnits(unittest.TestCase):
                 self.assertEqual(len(defining), 1, defining)
                 self.assertEqual(native.UNIT_SERVICES.get(defining[0]), 'drums', defining)
 
-    def test_the_played_pad_snapshot_is_linked_only_with_a_kit_declaring_sdk_1_17(self):
-        # Only the screen of a kit declaring SDK 1.17 or later calls sdk_drum_trigger
+    def test_the_played_pad_snapshot_is_linked_only_with_a_kit_declaring_sdk_1_18(self):
+        # Only the screen of a kit declaring SDK 1.18 or later calls sdk_drum_trigger
         # (screen_drawing.hpp played_pad), so the units a build selects hold drum_trigger
         # only when such a kit is in it: not for a synth, a Shift-row synth (a drums
         # user) or an older kit, whose screens never call it.
@@ -205,10 +205,10 @@ class DrumHookUnits(unittest.TestCase):
         synth, shift = fixture('probesynth'), fixture('probeshift')
         kit = lambda sdk, name: replace(synth, kind='drum', id=name, sdk=sdk)
         units = lambda *machines: [step for _name, m, step in native.plan(native.Collection(machines)) if m is None]
-        for machines, linked in (((synth,), False), ((shift,), False), ((kit((1, 16), 'oldkit'),), False),
-                                 ((kit((1, 8), 'oldkit'), shift), False), ((kit((1, 17), 'newkit'),), True),
-                                 ((kit((1, 18), 'newkit'),), True),
-                                 ((kit((1, 16), 'oldkit'), kit((1, 17), 'newkit'), synth), True)):
+        for machines, linked in (((synth,), False), ((shift,), False), ((kit((1, 17), 'oldkit'),), False),
+                                 ((kit((1, 8), 'oldkit'), shift), False), ((kit((1, 19), 'newkit'),), True),
+                                 ((kit((1, 19), 'newkit'),), True),
+                                 ((kit((1, 17), 'oldkit'), kit((1, 18), 'newkit'), synth), True)):
             with self.subTest(machines=[(m.id, m.kind, m.sdk) for m in machines]):
                 selected = units(*machines)
                 self.assertEqual('drum_trigger' in selected, linked)
@@ -218,7 +218,7 @@ class DrumHookUnits(unittest.TestCase):
                 if any(m.kind == 'drum' or m is shift for m in machines):
                     self.assertIn('drum_synthesis_stock', selected)   # the drums service itself stays
 
-    def test_the_browser_kit_links_the_played_pad_snapshot_only_for_a_kit_declaring_sdk_1_17(self):
+    def test_the_browser_kit_links_the_played_pad_snapshot_only_for_a_kit_declaring_sdk_1_18(self):
         # The browser builder's path: the kit lists each machine's features
         # (browser_kit.machine_entry), core.mjs activeServices turns services on from
         # them, and linkKit keeps a service's SDK object only while it is on.
@@ -230,19 +230,19 @@ class DrumHookUnits(unittest.TestCase):
         # A real drawn kit: the browser kit builds a drawn kit's preview from its drum definition.
         base = fixture('probekit16')
         kits = {name: replace(base, id=name, sdk=sdk)
-                for name, sdk in (('kit110', (1, 10)), ('kit116', (1, 16)), ('kit117', (1, 17)), ('kit118', (1, 18)))}
+                for name, sdk in (('kit110', (1, 10)), ('kit117', (1, 17)), ('kit118', (1, 18)), ('kit119', (1, 19)))}
         # Each kit listed on its own, under the fixture's id, whose artwork names its nodes.
         with tempfile.TemporaryDirectory(prefix='played-pad-kit-') as folder:
             entries = {name: browser_kit.machine_entry(replace(m, id=base.id), config(), {}, Path(folder) / name, 'clang++')
                        for name, m in kits.items()}
         for name, entry in entries.items():
             with self.subTest(kit=name):
-                self.assertEqual('playedPad' in entry.get('features', []), kits[name].sdk >= (1, 17))
+                self.assertEqual('playedPad' in entry.get('features', []), kits[name].sdk >= (1, 18))
         # The kit's objects carry their service as the native build assigns it.
         services = native.object_services(native.Collection(list(kits.values())))
         objects = [dict(name=name, owner=None, service=service) for name, service in services.items()]
         self.assertIn('played_pad', services.values())
-        selections = [['kit110'], ['kit116'], ['kit117'], ['kit118'], ['kit116', 'kit117'], ['kit110', 'kit116']]
+        selections = [['kit110'], ['kit117'], ['kit118'], ['kit119'], ['kit117', 'kit118'], ['kit110', 'kit117']]
         script = """
 import {activeServices} from %s;
 let input = '';
@@ -263,6 +263,6 @@ process.stdout.write(JSON.stringify(selections.map(selection => {
         self.assertEqual(len(trigger), 1)
         for selection, names in zip(selections, linked):
             with self.subTest(selection=selection):
-                expected = any(kits[name].sdk >= (1, 17) for name in selection)
+                expected = any(kits[name].sdk >= (1, 18) for name in selection)
                 self.assertEqual(trigger[0] in names, expected)
                 self.assertTrue(any(services.get(name) == 'drums' for name in names))

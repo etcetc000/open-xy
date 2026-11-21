@@ -64,7 +64,7 @@ by a `drumline_page` extension.
 The step locks of a kit's Shift fields are the `drum_locks` service, used by a
 `padMix` kit, by a synth with a Shift row and by a `drumline_page` extension.
 The `played_pad` service has no edit: it links the [drum trigger](#screens)
-snapshot (`drum_trigger.cpp`) only with a kit declaring SDK 1.17 or later,
+snapshot (`drum_trigger.cpp`) only with a kit declaring SDK 1.18 or later,
 whose screen reads it. The [track filter](#the-track-filter-on-kit-voices) on
 kit voices needs no hook: it is in every kit's adapter.
 A [`drumline_page` extension](drumline-page.md) uses the `drumline` service and
@@ -455,7 +455,7 @@ start moves the counter (the writer above also sets the byte), the byte's value
 at boot or from another kit's hits never shows. Whether a project load
 re-activates the page or moves the counter is not established; if it does
 neither, the screen keeps naming the pad of the last hit before the load,
-resolved on the loaded kit. Only the screen of a kit declaring SDK 1.17 or later calls it, so its unit
+resolved on the loaded kit. Only the screen of a kit declaring SDK 1.18 or later calls it, so its unit
 (`drum_trigger.cpp`) is the `played_pad` service's, which a build links only
 with such a kit.
 

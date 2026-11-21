@@ -63,8 +63,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # (resources.voiceCapacity); and adds the sample kernel
 # (opxy/sample_kernel.hpp): a sample voice's interpolation, level and crossfade
 # as one SDK routine.
-# 1.17 adds per-model drum value editing, played-pad display snapshots and sample-free kit presets.
-SDK_VERSION = (1, 17)
+# 1.18 adds per-model drum value editing, played-pad display snapshots and sample-free kit presets.
+SDK_VERSION = (1, 18)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -292,7 +292,7 @@ def check_preset(value, identity, samples=None, shift=False, kind='synth', pad_m
     or, for a sample engine shipping its own (SDK 1.10), at one of them. A synth with a
     Shift row (SDK 1.13) saves it as Drumline saves its keys, in sample-less regions
     (docs/abi-1.2.1.md#a-synths-shift-row), which it may keep. A drum kit without padMix
-    (SDK 1.17) may keep its 24 pad records; a padMix kit's records also carry each key's
+    (SDK 1.18) may keep its 24 pad records; a padMix kit's records also carry each key's
     level and pad word (`gain`, `random`), whose saved form the SDK does not check yet, so
     its presets keep empty regions."""
     engine = value.get('engine') if isinstance(value, dict) else None
@@ -560,7 +560,7 @@ def machine_at(root, identity=None):
         # One gate for a kit's per-key mixer: pan, level, pad controls and sends.
         require_sdk(version, (1, 10), "A drum kit's per-key mixer (padMix, padControls)")
     if definition['resources'].get('parameterEdit'):
-        require_sdk(version, (1, 17), 'Per-model drum value editing (parameterEdit)')
+        require_sdk(version, (1, 18), 'Per-model drum value editing (parameterEdit)')
     # Only a set flag needs 1.12: an explicit 0 is the mono, callback-free default.
     if kind == 'synth' and any(definition['resources'].get(k) for k in ('stereoOutput', 'releaseCallback')):
         require_sdk(version, (1, 12), 'Stereo synth output and voice release callbacks (stereoOutput, releaseCallback)')
@@ -676,7 +676,7 @@ def machine_at(root, identity=None):
         presets = read_presets(root, value['presets'], identity, samples, shift=bool(synth_shift(definition)), kind=kind,
                                pad_mix=kind == 'drum' and bool(definition['resources'].get('padMix', 0)))
         if kind == 'drum' and any(preset['regions'] for preset in presets.values()):
-            require_sdk(version, (1, 17), 'Sample-free drum-kit preset records')
+            require_sdk(version, (1, 18), 'Sample-free drum-kit preset records')
     if samples:
         # Every sample is there for a preset: one no preset loads only takes up the player's storage.
         loaded = {region['sample'] for preset in (presets or {}).values() for region in preset['regions']}

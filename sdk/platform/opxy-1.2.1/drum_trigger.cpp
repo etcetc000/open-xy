@@ -1,5 +1,5 @@
 // GUI role. The played-pad snapshot of a drum kit's drawn screen (draw::Input
-// trigger_*, SDK 1.17): only a kit declaring 1.17 or later calls it
+// trigger_*, SDK 1.18): only a kit declaring 1.18 or later calls it
 // (screen_drawing.hpp), so it is the unit of the played_pad service, which a
 // build links only with such a kit (tooling/native.py UNIT_SERVICES).
 #include "drum_values.hpp"

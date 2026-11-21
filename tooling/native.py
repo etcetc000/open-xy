@@ -285,7 +285,7 @@ UNIT_HOST = {'sample_kernel': 'sdk/host/sample_kernel.cpp'}
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock', 'usb_host'), 'extensions'))
 UNIT_SERVICES['drum_hooks'] = 'drums'
 UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
-# A 1.17 kit screen's played-pad snapshot: only a build with a kit declaring SDK 1.17
+# A 1.18 kit screen's played-pad snapshot: only a build with a kit declaring SDK 1.18
 # or later links it, the one kind of screen that calls it (screen_drawing.hpp played_pad).
 UNIT_SERVICES['drum_trigger'] = 'played_pad'
 # Per-key sends hook stock's mixer, so only a build with a padMix kit or a drumline_page
@@ -316,7 +316,7 @@ def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, the features
     they declare ('trackControl', 'auxTrack', 'hidePages', 'padMix', 'synthShift': a synth's
     Shift row, whose presets and step locks use the drums and drum_locks services;
-    'playedPad': a drum kit declaring SDK 1.17 or later, whose screen reads the played pad),
+    'playedPad': a drum kit declaring SDK 1.18 or later, whose screen reads the played pad),
     'extension' when it links extension code (native builds link all of the collection's;
     settings extensions link none), the capabilities they declare ('master_filter',
     'drumline_page') and the registry capabilities its extensions declare."""

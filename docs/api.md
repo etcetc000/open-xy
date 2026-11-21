@@ -904,7 +904,7 @@ const char* parameter_name(opxy::u32 model, opxy::u32 slot);
 opxy::u32 parameter_count(opxy::u32 model); // 0..8: slots 0 to count - 1 are used
 ```
 
-From SDK 1.17 a kit can declare `resources.parameterEdit: 1` and add this callback in
+From SDK 1.18 a kit can declare `resources.parameterEdit: 1` and add this callback in
 `core.h` and its engine:
 
 ```cpp
@@ -1134,7 +1134,7 @@ means 0. Callbacks are functions in the machine's namespace.
 | `chokeSameKey` | 0 or 1 | A note silences earlier voices on the same track and key (drum sampler base: the same pad, at any octave) | |
 | `padControls` | Up to two `{label, bits, signed}` fields, 1..7 bits each (2..8 signed), 9 in all; needs `padMix` | Each key's own small settings on Shift's second row ([drum kits](#synthesis-drum-kits)) | `drum_pad`, `pad_control_text` |
 | `padMix` | 0 or 1; drum kits, SDK 1.10 | Shift: the model, choke group and each key's stock pan and level; on the second row the key's pad controls and its own FX I and FX II sends; a held step locks pan, level, pad controls and sends per hit ([drum kits](#synthesis-drum-kits)) | |
-| `parameterEdit` | 0 or 1; drum kits, SDK 1.17 | A turn of an available control (below the model's count and named), without Shift and with no step held, asks the kit for the control's next stored value instead of moving it one unit a detent ([drum kits](#synthesis-drum-kits)) | `edit_parameter` |
+| `parameterEdit` | 0 or 1; drum kits, SDK 1.18 | A turn of an available control (below the model's count and named), without Shift and with no step held, asks the kit for the control's next stored value instead of moving it one unit a detent ([drum kits](#synthesis-drum-kits)) | `edit_parameter` |
 | `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
 | `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |
@@ -1503,7 +1503,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.17 and builds 1.0 to 1.17 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.18 and builds 1.0 to 1.18 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
@@ -1539,7 +1539,7 @@ firmware that holds it.
   [Shift row](#a-synths-shift-row) keeps it in up to 24 regions that point at
   no sample.
 
-From SDK 1.17 a synthesis drum kit without `padMix` may store exactly 24 sample-free pad records instead of empty
+From SDK 1.18 a synthesis drum kit without `padMix` may store exactly 24 sample-free pad records instead of empty
 `regions`: `model` is `"fm slap"` (the stored-pad marker), `params` holds four packed
 Q15 words, and optional `playmode` selects a stock choke/play mode. Optional `hikey`
 is the canonical key 53..76 in pad order. No other fields or sample paths are

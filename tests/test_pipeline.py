@@ -100,7 +100,7 @@ class Services(unittest.TestCase):
                                    if m is None and not step.startswith('extension:')]
         # The fixtures declare no track control, hidden pages, aux tracks, players, per-key
         # sends, a padMix kit's step locks or a synth's Shift row, no extension a
-        # Drumline page, and their kit declares an SDK before 1.17 (no played-pad
+        # Drumline page, and their kit declares an SDK before 1.18 (no played-pad
         # snapshot): those services stay off. None includes the sample kernel's
         # header, so no unit tied to a header is linked either.
         units = [u for u in native.SDK_UNITS if u not in native.UNIT_HEADERS]

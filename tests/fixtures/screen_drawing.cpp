@@ -1,4 +1,4 @@
-// OPXY_SCREEN_KIT: 0 a synth's screen, 1 a drum kit's declaring SDK 1.17 or
+// OPXY_SCREEN_KIT: 0 a synth's screen, 1 a drum kit's declaring SDK 1.18 or
 // later (played_pad), 2 an older drum kit's (selected_pad).
 #ifndef OPXY_SCREEN_KIT
 #define OPXY_SCREEN_KIT 1
@@ -86,7 +86,7 @@ int main() {
     ++screen::fixture_note_starts;
     require(serial() == selected + 2);
     require(binding::last_input.model == controls.model);
-    // Only a 1.17 kit's screen reads the played pad's snapshot; the rest stay zero.
+    // Only a 1.18 kit's screen reads the played pad's snapshot; the rest stay zero.
     require(binding::last_input.trigger_key == (OPXY_SCREEN_KIT == 1 ? 54u : 0u));
     require(binding::last_input.trigger_model == (OPXY_SCREEN_KIT == 1 ? 9u : 0u));
     require(binding::last_input.trigger_controls[0] == (OPXY_SCREEN_KIT == 1 ? 0x70000000 : 0));
@@ -96,7 +96,7 @@ int main() {
     require(unselected == screen::fixture_note_starts);
     pitches[61] = 0; ++releases[61]; pitches[61] = 1; ++screen::fixture_note_starts;
     require(serial() == unselected + 1);
-    // A 1.17 kit's snapshot names no pad after an activation or a track change
+    // A 1.18 kit's snapshot names no pad after an activation or a track change
     // until the track's serial moves, then the played pad until the next one.
     const auto none = [&]() {
         return binding::last_input.trigger_key == 0 && binding::last_input.trigger_model == 0 &&
