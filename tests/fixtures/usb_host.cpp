@@ -128,7 +128,8 @@ void on_ready(const usb::Registry& registry) {
 }
 const extensions::Hooks hooks = extensions::Hooks().with_usb_host_ready(on_ready);
 u32 claim_keys[] = {0}, action_claims[] = {0};
-const ExtensionRegistry tables = {claim_keys, 0, action_claims, 0};
+const __UINT64_TYPE__ claim_chords[] = {{}};
+const ExtensionRegistry tables = {claim_keys, 0, action_claims, 0, claim_chords};
 ExtensionEntry collection[] = {{"usbtest", 0, 0, &hooks}};
 }
 
@@ -143,6 +144,10 @@ i32 extension_collision_radius(u32) { return 0; }
 bool extension_record_held() { return false; }
 u32 extension_write(u32, const RecordedNote*, u32, bool) { return 0; }
 void extension_notify(const char*) {}
+const CheckpointBackend& extension_checkpoint_backend() {
+    static const CheckpointBackend backend = {};
+    return backend;
+}
 
 // The test translates the stock addresses the glue uses: functions and the memory they touch.
 Address host_stock_address(Address address) {

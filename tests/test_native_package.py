@@ -64,7 +64,7 @@ class PackageVerification(unittest.TestCase):
         self.copy = Path(self.temporary.name) / 'package'
         shutil.copytree(self.package, self.copy)
 
-    def fresh_compile(self, directory, *_args):
+    def fresh_compile(self, directory, *_args, **_options):
         (directory / 'module.elf').write_bytes(self.elf)
         return self.module, copy.deepcopy(self.report), copy.deepcopy(self.patch_profile)
 

@@ -136,6 +136,29 @@ class Extensions(unittest.TestCase):
         self.assertFalse(any(name.startswith('extension:') for name in native.provenance([])))
         self.assertNotIn('extensions', native.active_services(config(), native.service_users([])))
 
+    def test_checkpoint_permission_is_exclusive_and_not_tied_to_metronome(self):
+        with Folder() as folder:
+            alternate = extensions.extension_at(folder.declare(claims=['record_double_tap'], actions=['checkpoint']))
+            self.assertEqual(alternate.claims, ('record_double_tap',))
+            self.assertEqual(alternate.actions, ('checkpoint',))
+            standard = extensions.Extension('checkpoint', PROBE, ('metronome_checkpoint',), ('checkpoint',), {})
+            with self.assertRaisesRegex(ValueError, 'Checkpoint has multiple owners'):
+                extensions.check_collection([alternate, standard])
+
+    def test_checkpoint_storage_is_a_selected_capability(self):
+        from dataclasses import replace
+        from machine_fixtures import fixture
+        extension = extensions.Extension('checkpoint', PROBE, ('metronome_checkpoint',), ('checkpoint',), {})
+        synth = fixture('probesynth')
+        selected = native.Collection([synth], [extension])
+        self.assertIn('checkpoint', native.active_services(config(), native.service_users(selected)))
+        self.assertIn(('sdk/checkpoint.o', None, 'checkpoint'), native.plan(selected))
+        self.assertNotIn(('sdk/checkpoint_control.o', None, 'checkpoint_control'), native.plan(selected))
+        definition = copy.deepcopy(synth.definition)
+        definition['resources']['trackControl'] = dict(stateBytes=4, stateAlignment=4)
+        selected = native.Collection([replace(synth, definition=definition)], [extension])
+        self.assertIn(('sdk/checkpoint_control.o', None, 'checkpoint_control'), native.plan(selected))
+
 
 class ExtensionCatalog(unittest.TestCase):
     def entry(self, **changes):

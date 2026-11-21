@@ -262,7 +262,7 @@ SDK_UNITS = ('divide', 'sample_kernel', 'memory', 'registration', 'registration_
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
-             'extension_runtime', 'extension_collection', 'extension_stock', 'usb_host', 'track_control',
+             'extension_runtime', 'extension_collection', 'extension_stock', 'usb_host', 'checkpoint', 'checkpoint_control', 'track_control',
              'track_control_table', 'track_control_hooks', 'track_control_project',
              'synth_pages', 'aux_tracks', 'aux_hooks', 'presets',
              'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel',
@@ -283,6 +283,9 @@ UNIT_HEADERS = {'sample_kernel': 'sample_kernel'}
 # Their host builds, which a machine's host tests link in place of the device unit.
 UNIT_HOST = {'sample_kernel': 'sdk/host/sample_kernel.cpp'}
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock', 'usb_host'), 'extensions'))
+
+UNIT_SERVICES['checkpoint'] = 'checkpoint'
+UNIT_SERVICES['checkpoint_control'] = 'checkpoint_control'
 UNIT_SERVICES['drum_hooks'] = 'drums'
 UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
 # Per-key sends hook stock's mixer, so only a build with a padMix kit or a drumline_page
@@ -313,11 +316,14 @@ def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, the features
     they declare ('trackControl', 'auxTrack', 'hidePages', 'padMix', 'synthShift': a synth's
     Shift row, whose presets and step locks use the drums and drum_locks services),
-    'extension' when it links extension code (native builds link all of the collection's;
-    settings extensions link none), the capabilities they declare ('master_filter',
-    'drumline_page') and the registry capabilities its extensions declare."""
+    'extension' when it links code (settings extensions link none), and the
+    capabilities its extensions declare."""
     users = [m.kind for m in machines] + (['extension'] if linked_extensions(machines) else [])
-    return (users + ['trackControl' for m in machines if track_control(m)] +
+    checkpoint = any('checkpoint' in e.actions for e in extensions_of(machines))
+    control = any(track_control(m) or 'hidePages' in m.definition for m in machines)
+    return (users + (['checkpoint'] if checkpoint else []) +
+            (['checkpointControl'] if checkpoint and control else []) +
+            ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
             ['padMix' for m in machines if pad_mix(m)] +
@@ -451,6 +457,12 @@ def service_fallbacks(services):
         fallbacks['aux'] = {'sdk_aux_startup': 'kit_absent'}
     if 'drum_locks' in services:
         fallbacks['drum_locks'] = dict.fromkeys(('sdk_step_locks_' + call[1] for call in LOCK_CALLS), 'kit_absent')
+    if 'checkpoint' in services:
+        fallbacks['checkpoint'] = dict.fromkeys(('sdk_checkpoint_backend', 'sdk_checkpoint_discard'), 'kit_absent')
+    if 'checkpoint_control' in services:
+        fallbacks['checkpoint_control'] = {'sdk_checkpoint_control_support': 'kit_absent'}
+    if {'checkpoint', 'samples'} <= services:
+        fallbacks.setdefault('samples', {})['sdk_sample_machine'] = 'kit_absent'
     if 'drumline' in services:
         fallbacks['drumline'] = {'sdk_drumline_service': 'kit_absent'}
     return fallbacks
@@ -579,7 +591,9 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step == 'extension_runtime':
                 return cxx('sdk/platform/extension_runtime.cpp', obj)
             if step == 'extension_collection':
-                return cxx(str(extensions.generate_collection(folder, linked_extensions(machines))), obj)
+                return cxx(str(extensions.generate_collection(folder, linked_extensions(machines),
+                           control='control' in active_services(profile, service_users(machines)),
+                           samples='samples' in active_services(profile, service_users(machines)))), obj)
             if step == 'screen_order':
                 return cxx(str(generate_screen_order(folder)), obj)
             if step == 'sample_callbacks':
@@ -612,7 +626,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                                                 player_pages=[x.prefix for x in by_kind(machines, 'player')],
                                                 control='control' in services, aux='aux' in services,
                                                 locks='drum_locks' in services,
-                                                drumline='drumline' in services)), obj)
+                                                drumline='drumline' in services, checkpoint='checkpoint' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
             return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)

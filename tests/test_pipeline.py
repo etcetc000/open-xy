@@ -107,7 +107,7 @@ class Services(unittest.TestCase):
         self.assertNotIn('sample_kernel', units)
         self.assertEqual(steps(machines), [u for u in units if native.UNIT_SERVICES.get(u) not in
                                           ('control', 'aux', 'players', 'master_filter', 'drum_sends', 'drum_locks',
-                                           'drumline', 'synth_shift')])
+                                           'checkpoint', 'checkpoint_control', 'drumline', 'synth_shift')])
         self.assertEqual(active_services(profile, ['drum', 'padMix']), {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks'})
         self.assertEqual(active_services(profile, ['drum', 'hidePages', 'padMix']),
                          {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks', 'control'})
@@ -120,7 +120,7 @@ class Services(unittest.TestCase):
         self.assertNotIn('drumline_page', native.service_users(machines))
         self.assertIn('drumline_page', native.service_users(paged))
         self.assertEqual(steps(paged), [u for u in units if native.UNIT_SERVICES.get(u) not in
-                                        ('control', 'aux', 'players', 'master_filter', 'synth_shift')])
+                                        ('control', 'aux', 'players', 'master_filter', 'checkpoint', 'checkpoint_control', 'synth_shift')])
         self.assertEqual(native.subset(paged, paged[:1]).extensions, (page,))
         without = [m for m in machines if m.kind not in ('sample', 'drum')]  # nor any extension
         self.assertEqual(steps(without), [u for u in units if u not in native.UNIT_SERVICES])

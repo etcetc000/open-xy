@@ -634,6 +634,8 @@ const i32* aux_kept(u32 track, u32 pattern) {
 void aux_restore(u32 track, u32 pattern, const i32* controls) {
     Kept* kept = kept_of(track);
     if (!kept || pattern >= kPatterns) return;
+    seen_block[track] = 0;
+    if (!controls) { kept->patterns &= ~(1u << pattern); return; }
     for (u32 c = 0; c < kControls; ++c) kept->values[pattern][c] = controls[c];
     kept->patterns |= 1u << pattern;
 }

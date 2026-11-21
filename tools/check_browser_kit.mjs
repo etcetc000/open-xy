@@ -27,7 +27,15 @@ if (offersExpandedMemory(kit.profile)) {
   writeFileSync(script, reviewed.replace(memoryLine(kit.profile), memoryLine(expanded.profile)));
   layouts.push({suffix: '-expanded', kit: expanded, script, results: [], file: 'selections-expanded.json'});
 }
-// Links one selection in the browser and with GNU ld and requires identical modules.
+function gnuLink(memory, prefix, definitions, objects) {
+  execFileSync(ld, ['-T', memory.script, '-e', 'extensions_synth_exit', '-o', prefix + '.elf',
+    ...definitions.map(([key, value]) => `--defsym=${key}=${value}`),
+    ...objects.map(o => resolve(objectDir, o.name))], {stdio: 'pipe', windowsHide: true});
+}
+
+const hex = entries => Object.entries(entries).map(([key, value]) => [key, `0x${value.toString(16)}`]);
+
+// Fits must match GNU's bytes. Over-budget optional choices must be rejected by both linkers.
 async function parity(memory, mask, selected, extensions, numbering, name) {
   const prefix = resolve(destination, name);
   let linked;
