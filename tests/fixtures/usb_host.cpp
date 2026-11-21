@@ -143,6 +143,9 @@ i32 extension_collision_radius(u32) { return 0; }
 bool extension_record_held() { return false; }
 u32 extension_write(u32, const RecordedNote*, u32, bool) { return 0; }
 void extension_notify(const char*) {}
+extensions::Motion extension_motion() { return {}; }
+extensions::InputMonitor extension_input_monitor() { return {}; }
+bool extension_monitor_input(bool) { return false; }
 
 // The test translates the stock addresses the glue uses: functions and the memory they touch.
 Address host_stock_address(Address address) {

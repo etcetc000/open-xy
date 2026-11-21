@@ -125,4 +125,22 @@ struct Hooks {
         return Hooks(context, recordable_note_on, selected_note_off, recording_tick, input_activity, queued_control, f);
     }
 };
+
+// A motion subscription is independent of the controller and USB callback table.
+// Motion uses signed stock channels before LFO smoothing; units are device-specific.
+struct Motion { i16 x, y, z; Time time; bool valid; };
+struct InputMonitor { bool active, owned, available; };
+struct MotionActions {
+    bool (*monitor_input)(bool enabled);
+};
+using OnMotion = void (*)(const Motion&, const InputMonitor&, const MotionActions&);
+struct InputMonitorText {
+    const char* title;
+    const char* choices[2];
+    const char* idle;
+    const char* active;
+    const char* save_failed;
+};
+struct MotionHooks { OnMotion motion; const InputMonitorText* monitor_text; };
+
 }}

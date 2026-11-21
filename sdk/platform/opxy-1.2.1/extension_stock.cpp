@@ -5,6 +5,9 @@
 #include "stock.hpp"
 
 extern "C" {
+#ifndef OPXY_PLAIN_EXTENSIONS
+void sdk_live_input_gui_tick() __asm__("sdk_live_input_gui_tick");
+#endif
 void sdk_extensions_controller_update(opxy::u32, opxy::u32) __asm__("sdk_extensions_controller_update");
 void sdk_extensions_key(const opxy::u32*) __asm__("sdk_extensions_key");
 opxy::u32 sdk_extensions_key_queue(const opxy::u32*) __asm__("sdk_extensions_key_queue");
@@ -25,6 +28,9 @@ const u32 kRecorder = 0x860c072c;
 const u32 kProject = 0x840a0524;
 const u32 kRecordHeld = kPlaying + 3;  // byte: Record held
 const u32 kInputEnabled = 0x08023c48;
+#ifndef OPXY_PLAIN_EXTENSIONS
+const u32 kMotion = 0x08037ba0;
+#endif
 using Wide = __UINT64_TYPE__;
 // Only the normal live-input call establishes this scope. Sequencer playback
 // calls the broad dispatcher directly and cannot become a history event.
@@ -43,6 +49,17 @@ bool unmodified(u32 key) {
 }
 }
 
+#ifndef OPXY_PLAIN_EXTENSIONS
+extensions::Motion extension_motion() {
+    extensions::Motion motion = {};
+    const volatile i16* axes = at<const volatile i16>(kMotion);
+    motion.x = axes[0]; motion.y = axes[1]; motion.z = axes[2];
+    stock<void(extensions::Time*)>(0x8d5be3a0)(&motion.time);
+    motion.valid = motion.x || motion.y || motion.z;
+    return motion;
+}
+
+#endif
 TrackPattern extension_pattern(u32 track) {
     TrackPattern p = {};
     if (!word(kProject) || track >= 8) return p;
@@ -128,7 +145,12 @@ using namespace opxy::platform;
 void sdk_extensions_controller_update(u32 controller, u32 elapsed) {
     extensions_sync();
     stock<void(u32, u32)>(0x8d5986b8)(controller, elapsed);
+#ifdef OPXY_PLAIN_EXTENSIONS
     extensions_sync();
+#else
+    extensions_motion();
+    sdk_live_input_gui_tick();
+#endif
 }
 void sdk_extensions_recorder_tick(u32 state, u32 delta) {
     extensions_recording_tick(delta);

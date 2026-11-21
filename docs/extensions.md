@@ -1,8 +1,9 @@
 # Firmware extensions
 
 Extensions change how the OP-XY itself behaves: recording, controls, the
-sequencer. Machines make sound and draw; extensions observe the firmware's
-events and act through stock. Like machines, extensions live in repositories of
+sequencer. Extensions observe firmware events and act through stock. Dedicated
+audio adapters can also process monitored input or the master mix. Like
+machines, extensions live in repositories of
 their own and reach builds through the catalog
 ([`catalog/extensions.json`](../catalog/extensions.json)). Capture is the first,
 in [open-xy-core-machines](https://github.com/etcetc000/open-xy-core-machines/tree/main/extensions/capture), and the worked example for the next.
@@ -57,7 +58,7 @@ of its own beside it.
 | --- | --- | --- |
 | Observe | Read-only; every subscriber, in collection order | Every event |
 | Transform | One ordered chain that may change or drop the event | None yet |
-| Claim | One owner per build; a second claimant fails the build | `record_double_tap` |
+| Claim | One owner per build; a second claimant fails the build | `record_double_tap`; the `monitor_input` action also has one owner |
 
 ### Thread and host
 
@@ -71,7 +72,7 @@ filters to that track for it.
 | Kind | What | Here |
 | --- | --- | --- |
 | Events | Something happened | The `Hooks` callbacks |
-| Actions | Change something through stock | `Actions::insert_notes`, `Actions::replace_notes`, `Actions::notify` |
+| Actions | Change something through stock | `Actions::insert_notes`, `Actions::replace_notes`, `Actions::notify`, `Actions::monitor_input` |
 | Surfaces | Add to the screen | None for extensions yet: menu rows, pages, overlays |
 | Saved state | Data kept with a project | None for extensions yet |
 
@@ -95,6 +96,7 @@ only for the callback. The SDK does not sandbox native code.
 | `recording_tick` | The selected track's scaled Q8 recording time, while playing and recordable; a discontinuity asks the subscriber to discard timing | Recorder tick |
 | `input_activity` | Any live note input, accepted or not, on any track; for cancelling gestures | Live onset |
 | `queued_control` | A queued key (Record and the other queued controls; not keyboard keys 26–49) after stock handled it, with a microsecond time. `accepted`: stock took it as input (for Record, stock registered the press or release); `unmodified`: no other key or Shift held. Key numbers are in `keys` | Key queue |
+| `motion` | Three signed stock motion channels and a monotonic microsecond time, plus live input-monitor status and scoped actions; once after each stock controller update, playing or stopped | Existing controller update |
 | `usb_host_ready` | Once, while the stock USB host stack starts and before any device is enumerated: add USB host class drivers to the `Registry` ([USB host drivers](#usb-host-drivers)). Not on the controller path | Host stack start |
 
 Project and pattern IDs are opaque equality tokens. Lengths use pattern ticks;
@@ -125,6 +127,27 @@ device answers; a copy of the `Device` that `probe` received stays usable with t
 task, until `remove` runs for it. How the stack works is in
 [the firmware contract](abi-1.2.1.md#usb-host-drivers).
 
+
+### Subscribe to motion
+
+Set `"motion": true` in `extension.json` and export a separate
+`extern constexpr MotionHooks motion_hooks = {observe, nullptr};` in
+`opxy::extensions::<id>`. Keep the ordinary `hooks` export, even if it has no
+other subscriptions. The SDK calls the motion observer after each stock
+controller update, including while stopped.
+
+```cpp
+void observe(const Motion& sample, const InputMonitor& monitor,
+             const MotionActions& actions);
+```
+
+The sample contains three signed channels, a monotonic timestamp in
+microseconds, and a validity flag. Motion alone selects no audio processor or
+monitor hooks. A motion observer can ignore the monitor status and actions.
+An extension that declares the exclusive `monitor_input` action can supply
+its monitor text as the second member of `MotionHooks`. The motion action table
+has no note-edit or popup actions.
+
 ## Claims and actions
 
 [`profiles/extensions.json`](../profiles/extensions.json) holds the registry: the
@@ -137,7 +160,7 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
   [`DoubleTap`](../sdk/include/opxy/double_tap.hpp) helper handles taps, holds,
   repeats and timeouts on any key without delaying stock controls.
   `record_double_tap` is capture's.
-- **An action** is permission to change stock state. The runtime grants an
+- **A control action** is permission to change stock state. The runtime grants an
   extension's actions inside its `queued_control` callback for a key it claims,
   once stock accepted the event; an action's `requires` limits that to one
   claim, and without it any claim its holder owns grants it.
@@ -151,7 +174,44 @@ SDK's claims and actions. Each extension's `extension.json` lists those it uses.
     recording a held note there.
   - `notify` unlocks `Actions::notify`: one short popup per callback.
 
-  Calls outside the callback, with a stale context, or a second write or
+- **An event action** declares its callback with `event` in the registry;
+  it does not need a key claim. `monitor_input` declares `event: "motion"` and
+  `exclusive: true`: only one extension in a build may request it, and that
+  extension must subscribe to `motion`. Motion callbacks cannot edit notes or
+  post popups, including when the same extension also owns a key claim.
+
+  `MotionActions::monitor_input(true)` requests temporary internal-mic monitoring;
+  `false` starts a 200 ms fade-out and releases it after the fade. Renew the
+  request in each motion callback: omitting a renewal starts the same release. A second call in one callback is refused.
+  The SDK requires the internal mic already selected on the external-audio
+  track, no sample workflow or project load, enabled input and stock permission
+  to monitor. The user must also opt in: on the external-audio Aux track,
+  hold **Shift** on its input page to reveal the monitor owner's control. Turn
+  the dark encoder counterclockwise to disable it or clockwise to enable it.
+  The extension supplies the row and status captions. Changes save separately
+  from projects in `user/<extension-id>.cfg`; failed saves retain the previous choice.
+  Off is the default. **Shift + M1** also opens the stock selector; cancelling
+  that selector leaves the preference unchanged.
+  The Aux input track shows short native live/idle confirmations as automatic
+  monitoring changes; the normal manual-monitor control remains available.
+  It never changes the selected source, gain, routing or project
+  parameters. `InputMonitor.active` reports stock monitoring;
+  `owned` distinguishes monitoring the SDK enabled; `available` reports the
+  current eligibility. Existing manual monitoring is never acquired or stopped.
+  A manual monitoring stop or an eligibility/project change cancels an owned
+  request; release it before trying again. Lowering before rearming is the
+  subscriber's responsibility. Automatic monitoring fades in over 50 ms and
+  out over 200 ms before the input reaches the dry mix and FX sends. Manual
+  monitoring bypasses this envelope. Safety/manual cancellations release
+  immediately; switching Auto off never switches off manually owned monitoring.
+
+  `Motion.valid` rejects zero/uninitialized channels and disabled input. Channels
+  are signed stock units before LFO smoothing; the interface does not claim a
+  physical scale or infer face proximity. Observe timestamps to reject controller
+  gaps. The event samples the existing controller stage and installs no nearby
+  sensor hook.
+
+  Calls outside their callback scope, with a stale context, or a second write or
   popup in one callback are refused.
 
 Observers cannot transform notes or suppress stock input.
@@ -230,6 +290,48 @@ A [master-processor extension](master-filter.md) supplies a stereo audio transfo
 and an authored panel through the SDK's shared master-processor capability, with one active processor at a time.
 It uses the stock selector and the project companion service; it does not
 intercept the controller recording events listed above.
+
+## Live input processor
+
+Declare `"live_input": true` to process the built-in mic, headset mic and
+3.5 mm line input monitored on Aux 5. A collection may include one live input
+processor. Selecting it in the builder or adding it with `--extension` enables
+it whenever stock Aux 5 monitoring renders one of those sources.
+
+Export `hooks` as usual (an empty `Hooks()` is valid) and supply these two
+functions in `opxy::extensions::<id>`:
+
+- `void reset_input()` discards retained audio. It runs before the first block
+  and after a source change or a skipped block, immediately before processing resumes.
+- `void process_input(i32* stereo)` transforms `opxy::block_frames` interleaved
+  stereo Q31 frames at 44.1 kHz in place. Even indices are left. The buffer is
+  borrowed for the callback.
+
+To expose controls, declare `"live_input": {"controls": true}`, include
+`<opxy/live_input.hpp>`, and export `extern constexpr live_input::Controls
+input_controls`. On Aux 5 M1, hold Shift to reach the first three rows on
+encoders 2–4. The first encoder remains available to the monitor extension.
+The last four rows are optional and use encoders 1–4 on a second page.
+Shift + M1 switches pages when the second has a row, and releasing Shift
+returns to the first page.
+
+Each row declares its caption, choice captions, number of choices, and initial
+index. Empty rows have no caption or choices. At least one row is required on
+the first page. There are at most 32 choices per row and at most 18 total bits
+of choice information (each row uses the smallest number of bits that fits
+its declared count). The SDK checks defaults, storage, and the 31-byte
+combined caption limit at build time. Choices last for the current session.
+
+Supply `void prepare_input(const live_input::Parameters& parameters)`. It
+receives the chosen indices in declaration order and the current Brain
+pitch-class mask when available, with C in bit 0. The SDK does not interpret
+choice indices; the extension decides what the controls and Brain mask mean.
+
+The DSP callbacks run on the audio role. Use preallocated state and bounded work.
+The callback runs before the monitored input is mixed into the dry and send
+buses. Stock controls source selection, monitoring, feedback protection and
+routing. This capability covers the Aux 5 monitoring path. The raw sampler
+input uses its own path.
 
 ## Drumline page
 
