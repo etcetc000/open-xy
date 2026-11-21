@@ -1,6 +1,7 @@
 import {existsSync, readFileSync, readdirSync, realpathSync} from 'node:fs';
 import {basename, dirname, posix, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {gzipSync} from 'node:zlib';
 import {defineConfig, loadEnv, normalizePath} from 'vite';
 import {openKit} from './builder/core.mjs';
 
@@ -145,13 +146,15 @@ export default defineConfig(async ({command, mode}) => {
           '  Permissions-Policy: midi=(self), usb=(self)',
           '/',
           '  Cache-Control: no-cache',
-          '/kit.json',
+          '/kit.json.gz',
           '  Cache-Control: no-cache',
           '/assets/*',
           '  Cache-Control: public, max-age=31536000, immutable',
           '',
         ].join('\n')});
-        if (kit) this.emitFile({type:'asset',fileName:'kit.json',source:kit});
+        // Compress the complete verified collection to stay within the host's per-asset limit.
+        // entry.mjs decodes the gzip file explicitly; no Content-Encoding override is needed.
+        if (kit) this.emitFile({type:'asset',fileName:'kit.json.gz',source:gzipSync(kit)});
       },
     }],
   };
