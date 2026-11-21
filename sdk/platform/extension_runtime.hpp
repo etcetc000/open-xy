@@ -46,6 +46,13 @@ struct CheckpointBackend {
 // Generated: no backend or storage is linked without a checkpoint subscriber.
 const CheckpointBackend& extension_checkpoint_backend();
 
+// Once, while the stock USB host stack starts: every extension that takes the event
+// adds its drivers to the registry.
+void extensions_usb_host_ready(const usb::Registry& registry);
+// The 1.2.1 adapter's USB host glue (opxy-1.2.1/usb_host.cpp): the stack's startup hook
+// calls usb_host_start each time the host starts.
+void usb_host_start();
+
 // An instrument track's pattern, as notes are written to it.
 struct TrackPattern { u32 pattern, length, scale; bool editable; };
 TrackPattern extension_pattern(u32 track);

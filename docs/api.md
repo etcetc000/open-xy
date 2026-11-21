@@ -272,8 +272,8 @@ Every machine kind keeps its controls in `definition.json` (for example
 | `schema` | 1 |
 | `id` | The machine's name; also its C++ namespace |
 | `name` | Display name |
-| `parameters` | Ordered controls, each with `id`, `label`, `default`, `mapping`, `display`: four to eight for a synth (see [alternate controls](#alternate-controls)), exactly eight for a drum kit, one to eight for a sample engine or effect; an effect's after the fourth are alternates on its send page. Labels are at most eight letters, digits or spaces |
-| `shift` | Optional: an effect's [shift row](#effect-pages-and-shift-rows) (SDK 1.7) or a synth's [Shift row](#a-synths-shift-row) (SDK 1.13) |
+| `parameters` | Ordered controls, each with `id`, `label`, `default`, `mapping`, `display`: four to eight for a synth (see [alternate controls](#alternate-controls)), exactly eight for a drum kit, one to eight for a sample engine or effect, four for a note player or five to eight for one whose press switches the page (SDK 1.16); an effect's after the fourth are alternates on its send page, a paged player's its second page. Labels are at most eight letters, digits or spaces |
+| `shift` | Optional: an effect's [shift row](#effect-pages-and-shift-rows) (SDK 1.7), a synth's [Shift row](#a-synths-shift-row) (SDK 1.13) or a player's [Shift layer](#a-players-shift-layer-sdk-116) (SDK 1.16) |
 | `presets` | Named maps containing exactly the declared controls (a Shift row's aside); may be empty |
 | `resources` | What the kind declares about its storage (below) |
 
@@ -379,15 +379,21 @@ its own [header text](display.md#frame). Custom send effects also
 use the slower Shift rate for continuous controls, with stock FX captions
 except for `enum` and `division` controls.
 
-A sample engine declares `voiceCapacity`, which must be 256 (stock creates a
-voice for each of its 256 voice indices and binds each to its sample), and the
+A sample engine declares `voiceCapacity`, 27 to 256 (below 256: SDK 1.17): stock's voice manager
+has 27 voice wrappers and passes each one's number, 0..26, as the voice index,
+and the adapter binds a voice to its sample when created, so it keeps one per
+index. Each voice costs the machine's voice size plus the adapter's own state, so
+27 is the smallest image. Below 256, an index at or above the capacity (which
+stock is not known to pass; indirect calls were not traced) gets a shared silent
+object and adds one to `<prefix>_voice_refusals`, an exported per-engine word
+that nothing in the SDK reads: a debugger, a simulator or a build's own code may. It also declares the
 optional [sample services](#sample-engines) it uses. An effect declares no resources (`{}`).
 A synth declares:
 
 | Field | Required value or meaning |
 | --- | --- |
 | `voiceBytes`, `voiceAlignment` | `Voice` size (whole words) and alignment, checked against the compiled type |
-| `voiceCapacity` | Notes that sound at once, 1..256. Stock plays at most 8 notes per track and fades a note it takes, so 8 keeps a machine on one track within its own voices; allow 8 for each track it plays on at once. Values above 27, stock's voice slots, keep 27 voices plus the spare (28). Stock's 256 voice indices share these voices and one spare ([synth voices](abi-1.2.1.md#synth-voices)) |
+| `voiceCapacity` | Notes that sound at once, 1..256. Stock plays at most 8 notes per track and fades a note it takes, so 8 keeps a machine on one track within its own voices; allow 8 for each track it plays on at once. Values above 27, stock's voice slots, keep 27 voices plus the spare (28). Every voice index the adapter answers, 0 to 255, shares these voices and one spare ([synth voices](abi-1.2.1.md#synth-voices)) |
 | `sharedBytes` | `Shared` size, or 0 when `Shared` is empty |
 | `outputPeakQ31` | Positive declared oscillator peak; the preview uses it for audition gain |
 | `stereoOutput` | Optional integer 0/1 (SDK 1.12): write 64 interleaved left/right frames, 128 words |
@@ -403,7 +409,7 @@ Exceptions and allocation are not supported.
 
 A synth may declare a **Shift row** (SDK 1.13): up to eight more controls,
 which Shift and an encoder turn on its engine page, as Shift reaches the second
-row of a drum kit's or an effect's controls. With two pages
+row of a `padMix` kit's or an effect's controls. With two pages
 (`"press": "page"`), that makes sixteen controls: two pages of four, and a
 Shift row under each. List them in `"shift"` in `definition.json`, declared as
 parameters are; entry `i` sits under page `i / 4`, encoder `i % 4`, so a synth
@@ -447,7 +453,7 @@ const opxy::u32 octave = ((static_cast<opxy::u32>(parameters[9]) >> 16) * 5) >> 
   region, `{"model": "fm slap", "params": [...]}`, its four `params` from
   `tooling.definitions.shift_preset_params`; one saved on the device is the
   surest form ([firmware](abi-1.2.1.md#a-synths-shift-row)).
-- **Locks per step**, as a drum kit's Shift fields lock: hold a step, hold
+- **Locks per step**, as a `padMix` kit's Shift fields lock: hold a step, hold
   Shift and turn; the step plays that entry at the value turned to, and turning
   it back to the track's value unlocks it. A lock acts from the step's note
   start on every voice the track is sounding, as a stock lock does, and copies,
@@ -457,13 +463,13 @@ const opxy::u32 octave = ((static_cast<opxy::u32>(parameters[9]) >> 16) * 5) >> 
   stock's, unchanged; the LFOs don't reach the row, and the track menu's
   scramble leaves it alone.
 - **What it costs.** Presets and locks use the drum kits' preset hooks and
-  step-lock service, so a build with a Shift-row synth links them: about 86 KiB
+  the `padMix` kits' step-lock service, so a build with a Shift-row synth links them: about 86 KiB
   of module memory, most of it the lock pool, once for the whole build.
 - **Showing it.** While Shift is held, the stock header names and captions the
   entries under the page the encoders are on. A machine drawing its own header
   reads the row from [`opxy/synth_shift.hpp`](display.md#a-synths-shift-row),
   and the [two-page header](display.md#two-page-header) shows all of it in both
-  rows, as a drum kit's header shows its two Shift rows: page 1's entries on
+  rows, as a `padMix` kit's header shows its two Shift rows: page 1's entries on
   top, page 2's under them, the page the encoders are on bright. A press of any encoder switches pages with Shift held too, and the row
   follows, so Shift and a press reach page 2's entries without letting go, as
   on a `padMix` kit.
@@ -722,20 +728,23 @@ all eight controls (`parameter_count` 8); `sdk.py test --machine` counts them
 and fails a kit with more; on the device such a kit's keys play their defaults
 and turn nothing. The definition declares
 the eight controls: slots 0..3 on the four encoders and slots 4..7 their
-second row, one per encoder. As a synth's two pages (`"press": "page"`), any
-press switches the whole row between slots 0..3 and 4..7, and a slot the key's
-model leaves unnamed shows blank; a drum kit declares no `press`. As on stock Drumline,
-Shift and the first encoder choose the selected key's model, and Shift and
+second row, one per encoder. As a synth's two pages (`"press": "page"`), a
+press switches the whole row between slots 0..3 and 4..7 when the selected
+key's model uses any of slots 4..7 (one below its count and named), and a
+slot the model leaves unnamed shows blank; otherwise the row stays on, or
+returns to, 0..3. On a `padMix` kit (below) a press always pages. A drum kit
+declares no `press`. On a kit without groups or `padMix` (below), as on stock Drumline,
+with no step held, Shift and the first encoder choose the selected key's model, and Shift and
 the second encoder its choke group, NONE or 1..3; keys sharing a group cut
 each other off. While Shift is held the first encoder's cell shows MACHINE and
 the model, the second's CHOKE and the group, and the third and fourth are
-blank and turn nothing.
+blank and turn nothing. For a held step, see the step locks below.
 
 A kit may name groups of consecutive models in `resources.modelGroups`, such
 as `[{"label": "TRX", "count": 13}, {"label": "EFM", "count": 8}]`: 2..16
 groups, each with a label of at most eight letters, digits, spaces or hyphens
 and at least one model, whose counts add up
-to `modelCount`. Shift's first encoder then chooses the group (KIT), keeping
+to `modelCount`. With no step held, Shift's first encoder then chooses the group (KIT), keeping
 the model's place in it, so a kit's first model stays first; the second the
 model within the group (MACHINE); the third the choke group (CHOKE); and the
 fourth turns nothing. A kit with `padMix` (below) may name groups too, but its
@@ -875,7 +884,12 @@ leaves the original. Limits and what is not kept:
 - Synths have no such locks.
 
 The engine's eight controls lock as before
-([firmware](abi-1.2.1.md#step-locks-of-a-kits-shift-fields)).
+([firmware](abi-1.2.1.md#step-locks-of-a-kits-shift-fields)). On a kit without
+`padMix`, with a step held, Shift and each encoder turn the control the encoder
+shows without Shift (slots 0..3, or 4..7 on the second row), so they lock it as
+that encoder does, but with the fine turn of a synth's page; enum choices keep
+their one-choice stepping. The cells keep their Shift titles. On a `padMix` kit
+they lock its Shift fields, as above.
 
 In the machine namespace, declare these callbacks in `core.h` and implement
 them alongside the engine:
@@ -899,7 +913,7 @@ unused slots. The screen shows the selected key's controls and labels with
 the track's offsets applied, so a held step shows the values its locks play;
 the display's `Input::model` is the selected key's model. A slot is available
 when it is below the count and named: an unnamed slot shows blank and ignores
-turns. Integer edits already have one-unit precision, including Shift turns.
+turns. Integer edits already have one-unit precision.
 
 The adapter stores the model and the eight controls losslessly in four
 existing per-key preset words (eight 7 bits, the model 4), and marks the pad
@@ -1222,6 +1236,56 @@ prepared while the sample browser is open, and a sample that does not fit stays
 unanalyzed. Results are released before stock frees the sample. A collection's
 analysis budgets together may not exceed 2 MiB.
 
+### Sample kernel
+
+SDK 1.17.
+
+```cpp
+struct SampleTaps { const i16* origin; u32 shift, last, reverse, channels, level; };
+void sample_interpolate(i32* output, const u32* positions, u32 count, const SampleTaps&);
+```
+
+[sample_kernel.hpp](../sdk/include/opxy/sample_kernel.hpp) is a sample voice's
+second pass as one routine. The machine computes its playhead positions itself
+(frames << `shift` plus a fraction, as many as the block plays); the routine
+reads the two neighbouring frames at each, interpolates linearly with the
+fraction's top 14 bits, applies the pad `level` (Q27, `sample_unity_level` is
+unity) and writes `output[0 .. 2 * count - 1]` as interleaved stereo words
+(a mono source gives both). Past `last` the next frame is the region's first;
+`reverse` reads backwards from `origin`, which may be any `i16` address: a stereo
+origin that is not 4-byte aligned is read in 16-bit halves rather than with a
+32-bit load, which would fault on the device. Every position must be below
+`frames << shift`; nothing checks it. `sample_interpolate_reference` in the
+header defines every word; the host build runs it, and golden vectors in
+`tests/test_sample_kernel.py` pin it. The device runs hand-written BF707 code
+(`sdk/platform/blackfin/sample_kernel.s`), which no test in the SDK runs: the
+SDK has no Blackfin simulator. Its words were compared with the reference's on a
+BF707 simulator outside the SDK, and a test pins that code by digest, so any
+change to it fails until it is compared again (the failure says how). About 15
+cycles a frame at unity level, 24 (mono) to 32 (stereo) below 2^28, 51 above,
+and about 6 more a frame for an unaligned stereo origin: counts from that
+simulator, not from a device. The code, 2,872 bytes (a test checks the size when
+the toolchain is present), sits in the module's normal text and is cached
+like the machine's own code: the loops are short and run 64 frames at a time,
+so they stay in the instruction cache after the first frame, and fast memory
+is left alone. Only a build with a machine whose own C++ includes the header
+(SDK 1.17) links it; other builds are byte-identical. When the machine or any of
+its tests includes the header, its host tests (`sdk.py test`) link the host
+build, `sdk/host/sample_kernel.cpp`.
+
+```cpp
+struct SampleFade { const u32* from; const u32* to; const u16* weights; };
+void sample_crossfade(i32* output, const SampleFade&, u32 count, const SampleTaps&);
+```
+
+`sample_crossfade` mixes two playheads, as a grain splice does: each frame reads
+`from[i]` and `to[i]` exactly as `sample_interpolate` would, mixes them as
+`(a * (16384 - w) + b * w) >> 14` with `w = weights[i]` (0 to 16384; 0 gives
+`from` exactly), then applies the level. The machine keeps every decision (when a
+splice starts, the fade's shape and length) and hands over only the positions
+and weights. `sample_crossfade_reference` defines it; about 40 cycles a stereo
+frame in that simulator.
+
 ## Effects
 
 [effect.hpp](../sdk/include/opxy/effect.hpp) defines the effect interface. An
@@ -1413,7 +1477,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.16 and builds 1.0 to 1.16 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.17 and builds 1.0 to 1.17 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
@@ -1422,7 +1486,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | `presetDefaults` | Optional `{"amp": {...}, "volume": n}` overriding generated factory preset values: the envelope's `attack`, `decay`, `release` and `sustain`, and the track `volume` (16384 by default; 32767 is full), each 0..32767. It does not rewrite existing projects or presets |
 | `presets` | Optional folder inside the machine folder holding the machine's own [presets](#presets); `sdk` 1.3, instruments only |
 | `samples` | Optional folder inside the machine folder holding a sample engine's own [samples](#own-samples), which its presets load; `sdk` 1.10, sample engines forking the sampler |
-| `graphics` | Optional `{"grayscale": "panel.grayscale.svg.fragment"}` for a synth's developer-authored [grayscale artwork](display.md#grayscale-artwork); `sdk` 1.5 |
+| `graphics` | Optional `{"grayscale": "panel.grayscale.svg.fragment"}` for developer-authored [grayscale artwork](display.md#grayscale-artwork): a synth's (`sdk` 1.5), or an effect's that draws its own page (`sdk` 1.7) |
 
 An effect's optional `dryParameter` field names the control used by the stock
 source dry mixer, as described under [effects](#effects).
@@ -1562,13 +1626,19 @@ passed to a build with `--machine`.
 SDK 1.8 adds `"kind": "player"`. A player transforms live and sequenced notes
 before the track's instrument receives them. Its `machine.json` declares no
 identity or base; the layout assigns an unused player type and its own page.
-Use four parameters, `"resources": {}`, `player.cpp` and `panel.svg.fragment`.
+Use four parameters (or five to eight, below), `"resources": {}`, `player.cpp` and `panel.svg.fragment`.
 A parameter an encoder doesn't need may be left empty, declared `"absent": true`
 as for a synth's empty slot: its title and value stay empty and its encoder turns nothing.
 A player with five to eight parameters declares `"press": "page"` (SDK 1.16):
 its last four are a second page, parameter `i` on encoder `i - 4`, and a press
 of any encoder switches between the two. A slot the second page leaves out
 stays empty. The page is per track, starts on the first four and is not saved.
+Should stock not place the player's own page, its Maestro page shows the first
+four and the player keeps that one page.
+Stock keeps all eight parameter words in the project and sets them to the
+declared defaults only when the player is chosen, so a project saved while a
+player had four parameters opens a later version with five to eight with the 0
+its words 4..7 held then, not the new parameters' defaults.
 Its header shows [both pages in place](ux.md#more-than-four-controls).
 Players have no instrument presets, audio-render CPU estimate or browser audio preview.
 
@@ -1586,9 +1656,21 @@ void display(const State&, const opxy::player::Controls&, opxy::player::Display&
 eight tones. Each tone has a MIDI pitch and velocity, and a delay in stock
 player steps. Zero sounds on the next step. A plan's tones release together
 with its root; at most eight roots can be held. A ninth plan is dropped.
+
 `release` returns true for a silent control key, false to let stock release
 its chord. Note callbacks do not allocate, block, log, perform I/O or draw.
 State holds no resources. Display reads are advisory while sequencing runs.
+
+A player step is 8 of the sequencer's 1920 ticks per quarter note:
+`opxy::player::steps_per_quarter` is 240 (60 steps per sixteenth), and steps
+follow the project tempo. That is read from stock's code (Maestro's step
+interval of 8 ticks; Arpeggio's rates are its 96-per-quarter table times 20)
+and has not been timed on a device. `clock_ticks(phase, ticks_per_quarter)`
+runs a clock of another resolution on steps, e.g. a 96-per-quarter clock
+ticks twice every five steps. `Controls.bpm_x10` is the audio clock's tempo
+word in tenths of a BPM (0 outside 20..300 BPM), for players with time in
+seconds. Whether it follows external MIDI sync, and how soon it follows a
+tempo edit, has not been checked.
 
 For live changes to held chords, optionally implement
 `bool update(State&, const Controls&, Update&)`. After a taken press or any
@@ -1621,8 +1703,10 @@ SDK adds the [two-page header](display.md#two-page-header) as the first nodes
 of the artwork's root `<g>` and draws it: keep the player's own artwork below
 y=38. `lit` shows the 24 `<id>_dot_0..23`
 circles or filled paths; `text` replaces the centered `<id>_text` text leaf.
-All strings must terminate within their fixed arrays. The SDK then fills
-`played[4]` from emitted, still-held stock chord records, ignoring queued
+`display` receives a zeroed `Display` every frame, so a string it leaves
+alone (a value it does not write, such as `values[4..7]` of a one-page
+player) is empty; every string it writes must terminate within its fixed
+array. The SDK then fills `played[4]` from emitted, still-held stock chord records, ignoring queued
 strum tones, and supplies `lowest_key` for the output keyboard.
 
 The output keyboard is optional: omit all its key and activity nodes for an
@@ -1640,3 +1724,67 @@ Player types remain stable when a subsequent build uses the saved layout.
 Stock firmware replaces an unknown saved player with Arpeggio. Project
 companions currently describe engine/effect identities only: preserve the
 firmware's `layout.json` for player identities.
+
+### A player's Shift layer (SDK 1.16)
+
+A player may declare a shift row: `"shift"` in `definition.json`, enum
+controls of 2..255 choices (declared as an effect's, no packing limit), one to
+four, or one to eight for a player whose press switches the page, and declare
+`"sdk": "1.16"`. The row's ids and labels are for the author only: the player
+receives each control's word, not its label, so a page that shows the row
+names its choices itself.
+
+As in a [synth's Shift row](#a-synths-shift-row), entry `i` sits under page
+`i / 4`, encoder `i % 4`. With Shift held, encoder k of the page shown steps
+entry `row + k` one choice per detent, where `row` is 0 on the first page and
+4 on the second; a player of one page always has row 0. On a player that
+declares a shift row, every Shift + turn adds its signed detents to
+`Controls.shift_turns[row + k]` (wrapping), declared entry or not. A player
+without a shift row ignores Shift: Shift + turn edits its controls as a turn
+does, and its `shift_turns` stay 0. `Controls.shift_value[i]` holds entry i's choice
+centre word, 0 beyond the row; read it with
+`opxy::player::choice(value, choices)`. So on a paged player:
+
+| Page shown | Encoder k without Shift | Encoder k with Shift |
+| --- | --- | --- |
+| First | `value[k]` | `shift_value[k]`, `shift_turns[k]` |
+| Second | `value[4 + k]` | `shift_value[4 + k]`, `shift_turns[4 + k]` |
+
+A press with Shift held does not reach a player, so Shift and a press do not
+switch pages (on a synth they do): let go of Shift, press, and hold it again.
+
+Every player also receives `Controls.shift` (1 while Shift is held, published
+once per GUI frame) and `Controls.clicks[k]` (a wrapping count of encoder k's
+clicks, a press released without a turn and without Shift, while the player's
+page is shown). `clicks` counts only the presses the SDK does not take: a
+paged player's press switches its page, so a paged player's `clicks` stay 0
+(unless stock did not place its page: it then has one page and counts them).
+On a player of one page stock still receives the click; on encoder 4 that is
+stock's toggle of the fourth control (its hold switch: it sets that control to
+its first or last value) and Maestro's hold-mode callback, which the SDK's turns
+otherwise bypass, as without the SDK: a player that counts `clicks[3]` gets both
+with every click. A player that acts on encoder 4's click itself declares
+`"press": "click"` at the top of `definition.json` (SDK 1.16, one page of up to
+four parameters): its presses are then only clicks, and encoder 4's click no
+longer runs the toggle or the callback, which would otherwise flip whatever the
+click did (a latch the click turns on, the toggle turns off).
+Keep the last counts in `State` to see new ones.
+
+The SDK builds `Controls` (112 bytes since SDK 1.16, 36 before) for every
+press, release and stock step of each SDK player, and for its page each GUI
+frame. That takes 93 instructions more than before 1.16 on the usual path
+(fewer when the tempo is out of range): the shift words, turns and clicks are
+two loops of exactly eight words and four bytes, and the tempo a fixed
+decoding, so the cost does not vary with the player. At roughly one cycle per
+instruction that is about 100 cycles a call, 0.02 % of the 580,352-cycle
+audio block, plus up to three cache-line fills when the 68-byte input area is
+not in cache. Counted from the compiler's listing, not timed on a device.
+
+Shift values and counters live beside `State` in the player object: they
+start at the row's defaults and zero when the player is built (chosen, or a
+project loads) and are **not saved with the project**, unlike the controls.
+Not verified on a device: that stock's Maestro controller reaches the SDK's
+turn hook while Shift is held (if it does not, Shift turns do nothing), and
+that stock delivers keyboard notes to the player while Shift is held. Key
+events other than notes (the -/+ keys, Shift + key) and Shift + encoder clicks
+are not available to players; they need a new hook.

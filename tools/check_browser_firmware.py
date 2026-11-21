@@ -168,9 +168,8 @@ def check_expanded(directory, kit, stock, boot_label, machines_by_id, extension_
     return len(selections)
 
 
-def main():
-    directory, stock_file, content = map(lambda p: Path(p).resolve(), sys.argv[1:])
-    subprocess.run(['node', str(ROOT / 'tools/check_browser_firmware.mjs'), str(directory), str(stock_file), str(content)], check=True)
+def verify_generated(directory, stock_file, content):
+    """Independently compare the generated browser artifacts against GNU and Python."""
     kit = json.loads((directory / 'kit.json').read_text(encoding='utf-8'))
     # Definitions of the machines the kit was built from, wherever they live.
     collection = configuration(package_collection(directory / 'source'))[1]
@@ -215,8 +214,7 @@ def main():
         for profiling in (True, False):
             expected = assembled(stock, module, symbols, kit['profile'], services, profiling, values)
             suffix = '.ldr' if profiling else '.profiling-off.ldr'
-            require(expected == prefix.with_suffix(suffix).read_bytes(),
-                    f'Python/browser firmware differs: {result["name"]}{suffix}')
+            require(expected == prefix.with_suffix(suffix).read_bytes(), 'Python/browser firmware differs: ' + result['name'] + suffix)
             modes[profiling] = expected
         # The modes differ only inside the reviewed profiling hook windows.
         restored = bytearray(modes[False])
@@ -292,6 +290,12 @@ def main():
     expanded = check_expanded(directory, kit, stock, boot_label, machines_by_id, extension_sources)
     print('Independent GNU/Python verification passed for the checked selections (module, symbols, BSS, LDR, assets, ZIP)'
           + (f', and {expanded} at the experimental 4 MiB layout (module, symbols, BSS, LDR).' if expanded else '.'))
+
+
+def main():
+    directory, stock_file, content = map(lambda p: Path(p).resolve(), sys.argv[1:])
+    subprocess.run(['node', str(ROOT / 'tools/check_browser_firmware.mjs'), str(directory), str(stock_file), str(content)], check=True)
+    verify_generated(directory, stock_file, content)
 
 
 if __name__ == '__main__':

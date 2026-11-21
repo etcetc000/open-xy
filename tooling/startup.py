@@ -15,8 +15,8 @@ def _declare(name, signature='()'):
 
 # Every call into the step-lock handles (lock_handles.cpp, the drum_locks service) from
 # units every build links: result, name, parameters and the body without the service.
-# The companion's open-xy.locks (size, write, begin, byte, loaded); a padMix kit's held
-# step, which the Shift row edits and shows (held_value, held_set); and the GUI frame,
+# The companion's open-xy.locks (size, write, begin, byte, loaded); a padMix kit's or a
+# Shift-row synth's held step, which its Shift row edits and shows (held_value, held_set); and the GUI frame,
 # which expires a step note's handle that no note start took (frame). Without the
 # service each answers 0 or does nothing, as the browser builder's fallback kit_absent does.
 LOCK_CALLS = (('u32', 'size', ('void*', 'u32'), 'return 0;'),

@@ -4,6 +4,23 @@ Open-XY builds OP-XY firmware in the browser. It runs as a website or from a
 single `opxy-builder.html` file, including offline from `file://`. Firmware never
 leaves the browser.
 
+## Expert mode
+
+After acknowledging the notice, choose **Expert mode** for a compact build panel.
+The mode and your machine/extension choices are remembered in this browser.
+Load a `layout.json` config, or edit the selection, and choose a verified
+`os.ldr`. **Save config** exports your selection and machine numbers before a
+build. **Build ZIP** creates the normal download.
+
+With the XY already in dev-menu MTP mode and other transfer apps closed,
+**Build & copy to XY** requests the device in that click, builds the selection,
+then sends it using the same MTP client as the guide. Each file is read back and
+hash-checked before the next; content goes first and `os.ldr` last. Failed builds,
+cancellation and readback failures cannot report a completed copy. The browser
+still requires device permission, and the notice must be acknowledged on each
+load. Writing the boot partition and rebooting remain physical device actions.
+The compact completion screen shows those remaining actions in one line.
+
 ## MTP troubleshooting on macOS
 
 Select **I’m having trouble connecting to MTP** in either the OS-copy guide or
@@ -66,10 +83,13 @@ directing you to format.
    in one click. The next page links to the official OS 1.2.1 download and explains
    how to power cycle, check that the menu is gone, and reinstall. After reinstalling,
    **Try again** goes straight to enabling the dev menu for the same computer.
-3. Select machines. Synth rows have a playable preview of their C++ sound and
-   display code. Open **Preview controls** to adjust parameters, play the
+3. Select machines. Synth and drum kit rows have a playable preview of their C++
+   sound and display code. Open **Preview controls** to adjust parameters, play the
    keyboard and set its volume. The controls start collapsed; reopening them
-   keeps parameter values, and closing them stops preview notes. Each row shows
+   keeps parameter values, and closing them stops preview notes. A kit's keyboard
+   is its 24 keys, each set up as the kit sets it up: pressing one selects it and
+   plays its machine, and **Machine** and the sliders edit the selected key, as
+   Shift and the encoders do on the device ([kit previews](preview.md#drum-kits)). Each row shows
    its code, data and state size against the memory meter.
    Machines from the [catalog](catalog.md) are marked
    **Community** and start unselected; their details name the maintainer and
@@ -114,7 +134,7 @@ directing you to format.
    session; only selected machines' overrides enter the installation package.
    The same dialog previews every selected machine with its setting applied.
    For machines with a browser module, it renders the default UI once and caches
-   a frozen SVG snapshot. There is no animation loop or audio; changing graphics
+   a frozen SVG snapshot; a drum kit's shows its first key as the kit sets it up. There is no animation loop or audio; changing graphics
    reuses the same frame, and reopening reuses the cached snapshots. Machines
    without a browser module show their static artwork with a fallback label.
    Machines using stock screens are identified when no visual preview is available.
@@ -174,8 +194,8 @@ The builder accepts the stock OS 1.2.1 file or any Open-XY OS made from it,
 including one from an earlier release: it rebuilds the stock image by undoing
 the reviewed edits and accepts it only if it matches OS 1.2.1 exactly. An exact
 output of the same collection also restores its machine and extension
-selection; for any other, choose them again (the layout still keeps machine
-numbers). Saved selection files also retain extensions; older selection files
+selection when there are no saved or edited choices. Otherwise the current
+choices are kept (the layout still keeps machine numbers). Saved selection files also retain extensions; older selection files
 without that field select none.
 Encrypted `.tfw`, unknown patches and damaged files are rejected. Projects,
 presets and samples on the device are not touched.
@@ -228,6 +248,16 @@ computer. A layout from a build for OS 1.2.0 still loads. Numbers given to a mac
 open another machine. Adding a machine to the collection means adding it to
 the native build; the builder is not a plugin loader and does not raise the
 voice limit.
+
+Changes you make to the machine or extension selection are saved in this browser,
+including an empty selection. Refreshing keeps these choices; machines removed
+from the catalog are left out, and new entries stay unselected. If saved extensions
+now conflict, the choices remain visible and Build explains which conflict to
+resolve; valid machine choices are preserved. Browser storage
+is local to this site and browser. If storage is unavailable the machine page
+says so. The OS file must be selected again after a refresh. A disabled Build
+button explains what is missing: leave audition preview using **Go to OS setup**,
+load a verified OS, and choose machines that fit the memory limit.
 
 ## Web development
 

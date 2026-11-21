@@ -32,8 +32,8 @@ const u32 kHandleWord = 37;
 
 // Whether `track` is a handle client, and whether a pattern's machine `engine` is one:
 // the checks the backend asks, defined by the client's glue (drum_locks.cpp: an owned
-// padMix kit). Another client (stock Drumline, a synth) adds itself there; the backend
-// itself knows no machine. Only a client's patterns on instrument tracks 0..7 are
+// padMix kit, a synth with a Shift row, stock Drumline with a drumline_page extension);
+// the backend itself knows no machine. Only a client's patterns on instrument tracks 0..7 are
 // searched, collected, swept and carried: word 37 on any other track stays stock's.
 bool handle_client(u32 track);
 bool pattern_client(u32 engine);
@@ -81,7 +81,7 @@ opxy::u32 sdk_step_locks_held_set(opxy::u32 track, opxy::u32 key, opxy::u32 fiel
 void sdk_step_locks_frame() __asm__("sdk_step_locks_frame");
 // The same calls as every build links them (startup.cpp): the service's in a build with
 // it, otherwise 0 and nothing. Units outside the drum_locks service call these, never
-// step_locks:: directly, so a build without a padMix kit links.
+// step_locks:: directly, so a build without the service links.
 opxy::u32 sdk_project_locks_held_value(opxy::u32, opxy::u32, opxy::u32, opxy::i32*) __asm__("sdk_project_locks_held_value");
 opxy::u32 sdk_project_locks_held_set(opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::i32)
     __asm__("sdk_project_locks_held_set");

@@ -124,8 +124,13 @@ DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum
 # effect's after the first four are alternates on the send page. A note player's
 # after the first four are its second page (SDK 1.16).
 CONTROLS = {'synth': (4, 8), 'drum': (8, 8), 'sample': (1, 8), 'effect': (1, 8), 'master': (1, 8), 'player': (4, 8)}
-# Stock voice indices: a voice object for each, 0..255.
+# The most voices a machine declares; a sample adapter at this capacity is the
+# one it has always been (it never refuses an index).
 STOCK_VOICES = 256
+# Stock's voice manager builds 27 voice wrappers at audio init (8d51c640) and
+# gives each its number, 0..26, which its voice start passes to an engine's
+# factory as the voice index (8d51adf8, abi-1.2.1.md "Sample engines").
+STOCK_VOICE_WRAPPERS = 27
 SYNTH_POSITIONS = 4
 # An effect's shift row (SDK 1.7) packs its choices into one Q31 word; this many
 # combinations keep each one's bucket over a thousand codes wide.
@@ -191,12 +196,12 @@ def validate_definition(value, kind):
             require(resources.get(flag, 0) in (0, 1), flag + ' must be 0 or 1')
     if 'voiceCapacity' in resources:
         require(1 <= resources['voiceCapacity'] <= 256, 'Voice capacity must be 1..256')
-    # Stock creates a voice object for every index 0..255 and never checks for a
-    # missing one. Synth voices are shared out to notes as they start (voice.cpp.in);
-    # a sample engine's voice is bound to its sample when created, so it needs all 256.
+    # A sample engine's voice is bound to its sample when created, so it needs a
+    # voice for every index stock passes: the numbers of its voice wrappers.
     if kind == 'sample':
-        require(resources['voiceCapacity'] == STOCK_VOICES,
-                'A sample engine needs voiceCapacity 256: stock creates a voice for every one of its 256 indices')
+        require(resources['voiceCapacity'] >= STOCK_VOICE_WRAPPERS,
+                f'A sample engine needs voiceCapacity {STOCK_VOICE_WRAPPERS} or more: stock passes its '
+                f"{STOCK_VOICE_WRAPPERS} voice wrappers' numbers as voice indices")
     if kind == 'sample':
         heap = resources.get('sampleAnalysis', 0)
         require(type(heap) is int and (heap == 0 or (4096 <= heap <= ANALYSIS_HEAP_LIMIT and heap % 4 == 0)),
@@ -274,16 +279,21 @@ def validate_definition(value, kind):
         require(sorted(p['control'] for p in parameters[4:]) == [0, 1, 2, 3],
                 'A drum kit has one alternate per encoder')
     # Two pages share positions with no alternate; no duplicate saved parameters.
-    require('press' in value or not any(p.get('absent') and 'control' in p for p in parameters),
+    require(paged(value) or not any(p.get('absent') and 'control' in p for p in parameters),
             'Only a paged synth puts an absent slot on a position')
-    if 'press' in value:
+    # A note player of four parameters whose presses are only its own clicks (SDK 1.16):
+    # encoder 4's press no longer runs stock's toggle of the fourth control.
+    if value.get('press') == 'click':
+        require(kind == 'player' and len(parameters) <= SYNTH_POSITIONS,
+                '"press": "click" is for a note player of up to four parameters')
+    elif 'press' in value:
         alternates = [p for p in control_positions(value)[SYNTH_POSITIONS:] if p is not None]
         require(kind in ('synth', 'effect', 'player') and value['press'] == 'page' and 5 <= len(parameters) <= 8 and
                 alternates and len(set(alternates)) == len(alternates),
                 '"press": "page" needs five to eight synth, effect or player parameters and at most one alternate per position; '
-                "a drum kit's press always pages its row")
+                'a drum kit declares no "press": its paging is built in')
     # A player's encoders have no alternates of their own: a press shows its second four.
-    require(kind != 'player' or len(parameters) <= SYNTH_POSITIONS or 'press' in value,
+    require(kind != 'player' or len(parameters) <= SYNTH_POSITIONS or paged(value),
             'A note player with more than four parameters pages them: "press": "page"')
     if 'shift' in value:
         validate_shift(value['shift'], kind, set(names), value)
@@ -307,16 +317,24 @@ def validate_shift(shift, kind, names, definition=None):
         return validate_synth_shift(shift, names, definition)
     # An effect's shift row: one to four enum controls that Shift and the send
     # page's encoders choose, packed into one send-track word (synth_controls.cpp).
-    require(kind == 'effect' and isinstance(shift, list) and 1 <= len(shift) <= SYNTH_POSITIONS,
-            'An effect\'s shift row holds one to four controls')
+    # A player's (SDK 1.16): one to four enums of 2..255 choices, each kept in its
+    # own word beside the player's State (players.cpp), so no packing limit. As in
+    # a synth's Shift row, entry i sits under page i / 4, encoder i % 4, so a paged
+    # player's ("press": "page") holds up to eight.
+    most = 2 * SYNTH_POSITIONS if kind == 'player' and paged(definition or {}) else SYNTH_POSITIONS
+    require(kind in ('effect', 'player') and isinstance(shift, list) and 1 <= len(shift) <= most,
+            'An effect\'s or player\'s shift row holds one to four controls, a paged player\'s one to eight')
     count = 1
     for parameter in shift:
         validate_parameter(parameter)
         require(parameter['mapping']['kind'] == 'enum', 'A shift-row control is an enum')
+        require(kind != 'player' or len(parameter['mapping']['labels']) <= 255,
+                'A player\'s shift-row control has at most 255 choices')
         require(parameter['id'] not in names, 'Duplicate parameter identity')
         names.add(parameter['id'])
         count *= len(parameter['mapping']['labels'])
-    require(count <= SHIFT_STATES, 'A shift row holds at most %d combinations of its choices' % SHIFT_STATES)
+    require(kind == 'player' or count <= SHIFT_STATES,
+            'A shift row holds at most %d combinations of its choices' % SHIFT_STATES)
 
 
 def validate_synth_shift(shift, names, definition):
