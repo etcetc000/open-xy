@@ -80,7 +80,7 @@ SDK_1_7_NODES = 256
 # keys for synth and effect screens, each 0 or 1 unless EXTENDED_RANGES says otherwise.
 # A display declaring none of them, within DISPLAY_LIMITS, is a plain one: its
 # generated code and renderer are those of a display before 1.20.
-# Provisional: the next free SDK number when this lands; a renumber changes this line,
+# A renumber changes this line,
 # SDK_VERSION and its history (tooling/machines.py) and the "1.20" text in the docs and fixtures.
 EXTENDED_SDK = (1, 20)
 EXTENDED_KEYS = ('affine', 'fullCanvas', 'rgba', 'cubic', 'openPaths', 'segmentPaths', 'quadratic', 'commands',
