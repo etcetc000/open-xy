@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = 'd5d1563fdb2b1260c0bf6aa0d8b638f957e2320184e2ce98d647c1eb44cf9623';
+export const PROFILE_SHA256 = '17e4cba7f79b1bb2610e974921bd570daa05d75dd202a583bf818a00abee626c';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -1281,11 +1281,17 @@ export function kitGroup(kit, model) {
   while (group + 1 < (kit.groups?.length ?? 0) && model >= first + kit.groups[group].count) first += kit.groups[group++].count;
   return {group, place:model - first, label:kit.groups?.[group]?.label ?? ''};
 }
+// A key the kit has not set up: with padVolume, 0 dB (dB + 30) on the third encoder, in the
+// choke group's place with groups; with padRandom, none on the fourth (SDK 1.23).
 export function kitChoices(kit, model, choke = 0) {
-  if (!kit.groups?.length) return [model, choke, 0, 0];
   const {group, place} = kitGroup(kit, model);
-  return [group, place, choke, 0];
+  const choices = kit.groups?.length ? [group, place, choke, 0] : [model, choke, 0, 0];
+  if (kit.padVolume) choices[2] = 30;
+  if (kit.padRandom) choices[3] = 0;
+  return choices;
 }
+// A kit's selected key as its screen is told it (SDK 1.23): 0..23, or 0 for an older kit.
+export const kitSelectedKey = (kit, key) => kit.selectedKey ? key - KIT_KEYS[0] : 0;
 // The display's pan, level and pad fields for a key the kit has not set up: centred, 0 dB, neutral.
 export const kitMix = kit => kit.padMix ? {pan:0, level:0, pad:[0, 0, 0, 0]} : {pan:0, level:0};
 // The stock header of a kit's page: each shown slot's label and its 0..127 value, blank when unused.

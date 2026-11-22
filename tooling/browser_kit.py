@@ -14,7 +14,7 @@ import sys
 
 from .adapters import aux_preset_files, catalog_entry
 from .catalog import official
-from .definitions import control_positions, paged, shift_words, synth_shift
+from .definitions import KIT_CONTROLS_SDK, control_positions, paged, shift_words, synth_shift
 from .formats import require, sha
 from .machines import FIXED_NUMBERS, check_request
 from .pipeline import (ROOT, add_overwrite_argument, child, document, fresh_output, read, require_release_host,
@@ -69,10 +69,17 @@ def kit_presets(m):
     return {name: dict(preset, regions=[]) if name in emptied else preset for name, preset in presets.items()}
 
 
-def kit_preview(definition):
-    """A drum kit's models, their groups and whether its keys hold pan, level and pad fields."""
+def kit_preview(definition, sdk=(1, 0)):
+    """A drum kit's models, their groups, whether its keys hold pan, level and pad mix,
+    whether its Shift row sets their volume and random (SDK 1.23) and whether its screen
+    is told the selected key (a kit declaring SDK 1.23 or later)."""
     resources = definition['resources']
     kit = dict(models=resources['modelCount'], padMix=bool(resources.get('padMix', 0)))
+    for key in ('padVolume', 'padRandom'):
+        if resources.get(key, 0):
+            kit[key] = True
+    if tuple(sdk) >= KIT_CONTROLS_SDK:
+        kit['selectedKey'] = True
     if resources.get('modelGroups'):
         kit['groups'] = [dict(label=g['label'], count=g['count']) for g in resources['modelGroups']]
     return kit
@@ -135,7 +142,7 @@ def machine_entry(m, profile, sources, output, preview_cxx):
         # A drum kit: what its keys choose from, for the builder's audition and default frame
         # (builder/core.mjs kitKey). Each key's model and controls come from the module.
         if m.kind == 'drum':
-            entry['preview']['kit'] = kit_preview(m.definition)
+            entry['preview']['kit'] = kit_preview(m.definition, m.sdk)
     # A synth with a Shift row: its own presets keep the row in sample-less regions
     # (builder/core.mjs presetFiles).
     if m.kind == 'synth' and synth_shift(m.definition):

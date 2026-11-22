@@ -41,6 +41,17 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
     sdk_synth_shown(track, shown);
     const DrumMachine::Shift choice = control >= page_controls
         ? machine->shift(control - page_controls, shown[0] >= page_controls) : DrumMachine::kShiftNone;
+#if OPXY_KIT_CONTROLS
+    // A drum-kit control's Shift encoder (the key's volume or random) before the
+    // choice at its position (drum_kit_controls.cpp).
+    if (control >= page_controls &&
+        sdk_drum_kit_edit(*machine, track, key, region, control - page_controls, delta, model, controls))
+        return 0;
+    // A key the kit marks for the first time plays as it did unmarked (sdk_drum_kit_setup);
+    // its pack keeps an ampEnvelope kit's amp values.
+    const bool unmarked = !drum_marked(record[24]);
+    const DrumKitKept kept = drum_kit_keep(*machine, region);
+#endif
     if (choice == DrumMachine::kShiftPan || choice == DrumMachine::kShiftLevel) {
         // Stock's own pad fields, edited as stock's editor does (8d4d60b0,
         // 8d4d60d8); level as a cut.
@@ -133,6 +144,10 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
     if (!drum_pack(model, controls, static_cast<i32*>(region) + 1, drum_codec(machine->model_count, machine->count))) return 0;
     record[24] = mark;
     *pad_word = pad;
+#if OPXY_KIT_CONTROLS
+    drum_kit_restore(kept, region);
+    if (unmarked) sdk_drum_kit_setup(*machine, region);
+#endif
     if (send < kDrumSends) drum_send_record_set(record, send, send_index);
     // Pan and level only when they are the edit, or the level as the key is
     // set up: drum_level reads a stored boost as 0 dB, so writing it back on
@@ -271,7 +286,16 @@ static bool scramble_key(const opxy::platform::DrumMachine& machine, const opxy:
     }
     unsigned char* record = static_cast<unsigned char*>(region);
     const bool setup = machine.pad_mix && !drum_ready(record);
+#if OPXY_KIT_CONTROLS
+    // As an edit: an ampEnvelope kit's amp values kept, a newly marked key set up.
+    const bool unmarked = !drum_marked(record[24]);
+    const DrumKitKept kept = drum_kit_keep(machine, region);
+#endif
     if (!drum_pack(model, controls, static_cast<i32*>(region) + 1, codec)) return false;
+#if OPXY_KIT_CONTROLS
+    drum_kit_restore(kept, region);
+    if (unmarked) sdk_drum_kit_setup(machine, region);
+#endif
     record[24] = drum_mark(record[24]);
     if (setup) {
         static_cast<i32*>(region)[kDrumPadWord / 4] = static_cast<i32>(kDrumPadReady);

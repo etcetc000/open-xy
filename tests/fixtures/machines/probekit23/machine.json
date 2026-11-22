@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "sdk": "1.23",
+  "kind": "drum",
+  "description": "Test fixture: a two-model drawn drum kit with the drum-kit controls and the selected key."
+}

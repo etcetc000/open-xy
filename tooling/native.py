@@ -19,7 +19,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from . import benchmark, extensions, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables, voice_heap
-from .adapters import (pad_mix, played_pad, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
+from .adapters import (kit_controls, pad_mix, played_pad, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
@@ -179,7 +179,13 @@ def check_sources(machines):
                 validate_source_boundary(path.read_text(encoding='utf-8'), m.source(path.relative_to(m.root).as_posix()))
 
 
-def compile_cxx(cxx, assembler, source, obj, includes=()):
+# Defined for every SDK unit of a build with a kit declaring the drum-kit controls
+# (SDK 1.23): the shared drum units' calls into them (drum_kit_controls.hpp). Every
+# other build compiles those units as before.
+KIT_CONTROLS_DEFINE = '-DOPXY_KIT_CONTROLS=1'
+
+
+def compile_cxx(cxx, assembler, source, obj, includes=(), defines=()):
     """cc1plus via the driver to assembly, then the pinned assembler.
 
     The driver never chooses an assembler, so object bytes depend only on the
@@ -189,7 +195,7 @@ def compile_cxx(cxx, assembler, source, obj, includes=()):
     obj = Path(obj).resolve()
     assembly = obj.with_suffix('.s')
     generated = Path(source).is_absolute()
-    flags = [*CXX_FLAGS, *('-I' + str((ROOT / path).resolve()) for path in includes), '-fstack-usage']
+    flags = [*CXX_FLAGS, *defines, *('-I' + str((ROOT / path).resolve()) for path in includes), '-fstack-usage']
     subprocess.run([str(cxx), *flags, '-S', Path(source).name if generated else source, '-o', str(assembly)],
                    cwd=Path(source).parent if generated else ROOT, check=True, capture_output=True, text=True,
                    timeout=300, **hidden_process())
@@ -269,7 +275,7 @@ SDK_UNITS = ('divide', 'sample_kernel', 'memory', 'registration', 'registration_
              'players', 'player_hooks', 'player_table', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
              'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_trigger', 'drum_hooks',
              'drum_send', 'drum_send_hooks', 'drum_locks', 'lock_handles', 'drumline', 'drumline_hooks',
-             'synth_shift_hooks')
+             'synth_shift_hooks', 'drum_kit_controls', 'drum_amp_envelope')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -288,6 +294,10 @@ UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
 # A 1.21 kit screen's played-pad snapshot: only a build with a kit declaring SDK 1.21
 # or later links it, the one kind of screen that calls it (screen_drawing.hpp played_pad).
 UNIT_SERVICES['drum_trigger'] = 'played_pad'
+# The drum-kit controls (SDK 1.23): their GUI unit only with a kit declaring any of them,
+# and the note-off hook an ampEnvelope kit's adapter reads only with such a kit.
+UNIT_SERVICES['drum_kit_controls'] = 'kit_controls'
+UNIT_SERVICES['drum_amp_envelope'] = 'amp_envelope'
 # Per-key sends hook stock's mixer, so only a build with a padMix kit or a drumline_page
 # extension links them.
 UNIT_SERVICES.update(dict.fromkeys(('drum_send', 'drum_send_hooks'), 'drum_sends'))
@@ -316,7 +326,9 @@ def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, the features
     they declare ('trackControl', 'auxTrack', 'hidePages', 'padMix', 'synthShift': a synth's
     Shift row, whose presets and step locks use the drums and drum_locks services;
-    'playedPad': a drum kit declaring SDK 1.21 or later, whose screen reads the played pad),
+    'playedPad': a drum kit declaring SDK 1.21 or later, whose screen reads the played pad;
+    'kitControls': a drum kit declaring padVolume, padRandom or ampEnvelope, and 'ampEnvelope'
+    one declaring ampEnvelope),
     'extension' when it links extension code (native builds link all of the collection's;
     settings extensions link none), the capabilities they declare ('master_filter',
     'drumline_page') and the registry capabilities its extensions declare."""
@@ -327,6 +339,8 @@ def service_users(machines):
             ['padMix' for m in machines if pad_mix(m)] +
             ['synthShift' for m in machines if m.kind == 'synth' and synth_shift(m.definition)] +
             ['playedPad' for m in machines if m.kind == 'drum' and played_pad(m)] +
+            ['kitControls' for m in machines if kit_controls(m)] +
+            ['ampEnvelope' for m in machines if kit_controls(m) & 4] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
             (['drumline_page'] if any(e.drumline_page is not None for e in extensions_of(machines)) else []) +
             [c for e in extensions_of(machines) for c in e.capabilities])
@@ -445,12 +459,20 @@ def number_suffixes(kind, own_screen=False):
             ('_engine_id', '_page_id', '_screen_page_id') if kind == 'sample' and own_screen else ('_engine_id', '_page_id'))
 
 
+# The drum-kit controls' entry points that shared SDK units compiled with
+# OPXY_KIT_CONTROLS call (drum_kit_controls.hpp).
+KIT_CONTROLS_CALLS = ('sdk_drum_kit_unpack', 'sdk_drum_kit_keeps', 'sdk_drum_kit_setup', 'sdk_drum_kit_edit',
+                      'sdk_drum_amp_tick')
+
+
 def service_fallbacks(services):
     """What a selection that does not use a service gets for the service's entry points
     that shared objects (startup's included) import: kit_absent, which answers 0. Track
     control's saved data, the aux service's start, every call into the step-lock
-    handles (startup.LOCK_CALLS) and stock Drumline's second page (startup's
-    sdk_drumline_get)."""
+    handles (startup.LOCK_CALLS), stock Drumline's second page (startup's
+    sdk_drumline_get) and the drum-kit controls' entry points the shared drum units
+    call in a build with such a kit (drum_kit_controls.hpp): each 0 is a kit without
+    them."""
     fallbacks = {}
     if 'control' in services:
         fallbacks['control'] = dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'), 'kit_absent')
@@ -460,6 +482,8 @@ def service_fallbacks(services):
         fallbacks['drum_locks'] = dict.fromkeys(('sdk_step_locks_' + call[1] for call in LOCK_CALLS), 'kit_absent')
     if 'drumline' in services:
         fallbacks['drumline'] = {'sdk_drumline_service': 'kit_absent'}
+    if 'kit_controls' in services:
+        fallbacks['kit_controls'] = dict.fromkeys(KIT_CONTROLS_CALLS, 'kit_absent')
     return fallbacks
 
 
@@ -561,8 +585,12 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
     def assemble_unit(source, obj):
         execute([tools['as'], '-mcpu=bf707', '-I', ROOT, '-o', obj, source])
 
+    # The SDK's units of a build with a kit declaring the drum-kit controls see
+    # OPXY_KIT_CONTROLS; a machine's own units never do.
+    defines = (KIT_CONTROLS_DEFINE,) if 'kit_controls' in active_services(profile, service_users(machines)) else ()
+
     def cxx(source, obj, m=None):
-        compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m))
+        compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m), defines if m is None else ())
 
     def display_unit(folder, m):
         generate_display(folder, machine=m)
@@ -656,7 +684,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
     require(provenance(machines) == before, 'Sources changed during compilation')
     report = dict(schema=1, target=TARGET, status='experimental-unqualified', sources=before,
                   host=host_platform(), tools=host_pins('tools')[0], compiler=host_pins('compiler')[0],
-                  cxx_flags=CXX_FLAGS, profiling=profiling, benchmark_cases=benchmark.cases(linked, sweep),
+                  cxx_flags=[*CXX_FLAGS, *defines], profiling=profiling, benchmark_cases=benchmark.cases(linked, sweep),
                   **({'benchmark_sweep': True} if sweep else {}),
                   sizes=sizes, memory=usage, module_bytes=module_bytes(profile), audio_stack_bytes=stack,
                   reserved_bytes=profile['reserved_bytes'],

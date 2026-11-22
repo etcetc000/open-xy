@@ -774,7 +774,8 @@ with no step held, Shift and the first encoder choose the selected key's model, 
 the second encoder its choke group, NONE or 1..3; keys sharing a group cut
 each other off. While Shift is held the first encoder's cell shows MACHINE and
 the model, the second's CHOKE and the group, and the third and fourth are
-blank and turn nothing. For a held step, see the step locks below.
+blank and turn nothing (a `padVolume` kit's third and a `padRandom` kit's
+fourth: [the drum-kit controls](#the-drum-kit-controls)). For a held step, see the step locks below.
 
 A kit may name groups of consecutive models in `resources.modelGroups`, such
 as `[{"label": "TRX", "count": 13}, {"label": "EFM", "count": 8}]`: 2..16
@@ -782,8 +783,9 @@ groups, each with a label of at most eight letters, digits, spaces or hyphens
 and at least one model, whose counts add up
 to `modelCount`. With no step held, Shift's first encoder then chooses the group (KIT), keeping
 the model's place in it, so a kit's first model stays first; the second the
-model within the group (MACHINE); the third the choke group (CHOKE); and the
-fourth turns nothing. A kit with `padMix` (below) may name groups too, but its
+model within the group (MACHINE); the third the choke group (CHOKE), or a
+`padVolume` kit's volume in its place; and the fourth turns nothing, or sets a
+`padRandom` kit's random. A kit with `padMix` (below) may name groups too, but its
 Shift row has no KIT: MACHINE scrolls every model through the groups, and a
 group only titles its models.
 
@@ -998,7 +1000,66 @@ none is free, a voice already fading goes before the oldest note's. Without the
 flag, notes on one key layer, up to `voiceCapacity`. This is separate from the
 choke groups Shift chooses, which stock applies to keys sharing a group. A
 synth or an effect cannot declare it; sample engines have their own
-`chokeSameKey` (see [Services](#services)).
+`chokeSameKey` (see [Services](#services)). With `ampEnvelope` (below) a cut
+voice fades over one block (64 frames, 1.45 ms) instead, and the note that cut
+it waits that block out: it renders silence for that block and starts with the
+next, so a retrigger sounds 64 frames late, and a note cut again while it waits
+never sounds. A note on a pad with nothing sounding starts at once.
+
+### The drum-kit controls
+
+From SDK 1.23 a kit without `padMix` may ask for each of three controls of a
+key's own, each `0` or `1` in `resources` (omitted means 0). A kit declaring
+none of them builds and plays exactly as before, and a build without such a
+kit compiles the SDK's code as before. They play on keys the kit has marked as
+its own (any edit, scramble, reset or kit preset marks a key): a key never
+marked plays at 0 dB, with no random and the kit's default amp envelope,
+whatever stock left in its record. The first time the kit marks a key it sets
+the key's volume to 0 dB and its random to none, so it sounds as it did.
+
+- **`padVolume`**: Shift and the third encoder set the selected key's volume:
+  stock's own per-pad level, in whole dB from -30 to +20, one a detent, 0 dB by
+  default. While Shift is held its cell shows VOLUME and the level, such as
+  `-6dB` or `+3dB`. In a kit with groups it takes the choke group's place:
+  such a kit's keys keep the choke groups their presets give them, but Shift
+  does not change them. The adapter multiplies each note's output by the
+  volume after the amp envelope, saturating above full scale (a boost can take
+  a voice past its `outputPeakQ31`), and ramps a change over one block while the
+  note sounds. It is saved with the pad, follows pad copy and paste, and presets
+  carry it as the region's `gain`.
+- **`padRandom`**: Shift and the fourth encoder set the selected key's random,
+  0..100% in 1% steps, none by default; its cell shows RANDOM and the percentage.
+  Each note on the key moves each of its eight controls by a random amount of up
+  to ±(random × 32) steps, drawn once when the note first renders and held for
+  the note, after the track's offsets, clamped to 0..127. It is stock Drumline's
+  per-pad random: saved with the pad and carried by presets as the region's
+  `random`. The generator is the SDK's own and runs on the audio side only.
+- **`ampEnvelope`**: M2 shows the drum sampler's amp page for the kit (start,
+  attack, hold, decay), and each key keeps its own four values: selecting a key
+  puts its values on the page, and turning M2 stores them to that key alone.
+  The adapter shapes each note with them after stock's gain, as stock's drum
+  sampler shapes a sample: the attack is a linear fade-in by stock's own step
+  table (0 starts at full); the hold is when the fade-out begins, hold × 2 s
+  (full holds to the end); the decay is the fade-out's length (about 4 ms at 0
+  to 0.97 s at full); the start has no use without a sample. A note-off starts
+  the fade-out at the decay's rate, and a note faded to silence is freed. A key
+  keeps its values in its pad record, so they are saved with the project and
+  follow pad and track copy and paste, but presets do not carry them: a key
+  without its own (one never edited on M2, a key of a loaded preset, or every
+  key of a project saved before the kit declared `ampEnvelope`) plays and shows
+  the kit's defaults, its init preset's amp `attack`, `decay`, `sustain` and
+  `release` (`presetDefaults`), which land on start, attack, hold and decay. A
+  note takes its key's values when it first renders; step locks and modulation
+  of the amp words do not reach it.
+
+The display's `Input::choices` holds the third and fourth Shift choices at
+all times: a `padVolume` kit's volume as dB + 30 (0..50, 30 is 0 dB) and a
+`padRandom` kit's random in percent ([display](display.md#shift-and-a-drum-kits-machine-sdk-18)).
+For a kit with `padRandom` or `ampEnvelope`, `finished` is not asked for a voice
+that has not rendered its note yet. The profiling workload plays such a kit's
+keys with a 6 dB boost (`padVolume`), no random and the kit's amp defaults.
+The browser preview shows the Shift choices of a key it has not set up (0 dB,
+no random) and plays neither the volume, the random nor the envelope.
 
 Holding the track key and choosing scramble re-rolls every key of a kit, as on
 Drumline: its model, from all the kit's models, and each control that model
@@ -1170,6 +1231,9 @@ means 0. Callbacks are functions in the machine's namespace.
 | `chokeSameKey` | 0 or 1 | A note silences earlier voices on the same track and key (drum sampler base: the same pad, at any octave) | |
 | `padControls` | Up to two `{label, bits, signed}` fields, 1..7 bits each (2..8 signed), 9 in all; needs `padMix` | Each key's own small settings on Shift's second row ([drum kits](#synthesis-drum-kits)) | `drum_pad`, `pad_control_text` |
 | `padMix` | 0 or 1; drum kits, SDK 1.10 | Shift: the model, choke group and each key's stock pan and level; on the second row the key's pad controls and its own FX I and FX II sends; a held step locks pan, level, pad controls and sends per hit ([drum kits](#synthesis-drum-kits)) | |
+| `padVolume` | 0 or 1; drum kits without `padMix`, SDK 1.23 | Shift's third encoder sets each key's volume, -30..+20 dB, which its notes play at ([drum-kit controls](#the-drum-kit-controls)) | |
+| `padRandom` | 0 or 1; drum kits without `padMix`, SDK 1.23 | Shift's fourth encoder sets each key's random, which moves each hit's controls by up to ±32 steps ([drum-kit controls](#the-drum-kit-controls)) | |
+| `ampEnvelope` | 0 or 1; drum kits without `padMix`, SDK 1.23 | M2's start, attack, hold and decay kept per key and shaping each note, fading on note-off ([drum-kit controls](#the-drum-kit-controls)) | |
 | `parameterEdit` | 0 or 1; drum kits, SDK 1.21 | A turn of an available control (below the model's count and named), without Shift and with no step held, asks the kit for the control's next stored value instead of moving it one unit a detent ([drum kits](#synthesis-drum-kits)) | `edit_parameter` |
 | `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
@@ -1539,7 +1603,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.21 and builds 1.0 to 1.21 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.23 and builds 1.0 to 1.23 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |

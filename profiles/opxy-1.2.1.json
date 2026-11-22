@@ -151,6 +151,12 @@
     "played_pad": [
       "playedPad"
     ],
+    "kit_controls": [
+      "kitControls"
+    ],
+    "amp_envelope": [
+      "ampEnvelope"
+    ],
     "players": [
       "player"
     ],
@@ -1673,6 +1679,17 @@
       "before": "00de4d8d605f0000",
       "symbol": "sdk_drum_edit",
       "service": "drums",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Drum renderer's filter-envelope step before a voice's render: an ampEnvelope kit's adapter reads the voice's note-off",
+      "address": "0x8d51b38a",
+      "file_offset": "0x1525e6",
+      "length": 4,
+      "before": "ffe3e797",
+      "symbol": "sdk_drum_envelope_setup",
+      "service": "amp_envelope",
       "call": true
     },
     {

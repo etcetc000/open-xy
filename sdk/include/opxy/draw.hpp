@@ -75,7 +75,9 @@ struct Input {
     // the group and its choke group, or without groups its model and choke
     // group; they hold at all times, shift only while Shift is held. A padMix
     // kit gives the same, though its first Shift row differs: read model, pan and
-    // level (its second, pad).
+    // level (its second, pad). A padVolume kit's third choice is its key's volume
+    // as dB + 30 (0..50, 30 unity), in the choke group's place with groups; a
+    // padRandom kit's fourth its key's random in percent (0..100), SDK 1.23.
     u32 shift;
     u8 choices[4];
     u32 model;               // A drum kit's selected key's model (its machine); 0 for other kinds.
@@ -84,10 +86,12 @@ struct Input {
     // centred, and its level in whole dB, -30..0, as it plays; 0 otherwise.
     // line: the row the encoders (and on a padMix kit Shift) edit, 0 the first
     // and 1 the second. The key's choke group stays in choices.
+    // selected_key: a drum kit declaring SDK 1.23 or later, its selected key,
+    // 0..23 for pad 53 + n; 0 otherwise (before SDK 1.23 a reserved 0).
     i8 pan;
     i8 level;
     u8 line;
-    u8 reserved;             // 0
+    u8 selected_key;
     // A padMix drum kit's selected key's pad fields (SDK 1.10): its pad
     // controls (resources.padControls) in 0 and 1, a signed one negative below
     // 0, then FX I and FX II, 0 when it follows the track's send: for a kit
@@ -107,7 +111,8 @@ static inline bool envelope_known(const Envelope& envelope) {
     return envelope.attack >= 0 && envelope.decay >= 0 && envelope.sustain >= 0 && envelope.release >= 0;
 }
 static_assert(sizeof(Input) == 152 && __builtin_offsetof(Input, pan) == 104 && __builtin_offsetof(Input, level) == 105 &&
-              __builtin_offsetof(Input, line) == 106 && __builtin_offsetof(Input, pad) == 108 &&
+              __builtin_offsetof(Input, line) == 106 && __builtin_offsetof(Input, selected_key) == 107 &&
+              __builtin_offsetof(Input, pad) == 108 &&
               __builtin_offsetof(Input, elapsed) == 16 && __builtin_offsetof(Input, track) == 20 &&
               __builtin_offsetof(Input, note_serial) == 24 && __builtin_offsetof(Input, reduced_motion) == 28 &&
               __builtin_offsetof(Input, shown) == 32 && __builtin_offsetof(Input, slots) == 36 &&
