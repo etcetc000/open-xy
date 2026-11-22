@@ -104,7 +104,19 @@ host does fast and the Blackfin does not:
   [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers: a
   saturating multiply, (SDK 1.7) a saturating add and (SDK 1.16) a saturating
   left shift, `shift_left`, one instruction each on the device. Use it rather
-  than `<<`, which wraps.
+  than `<<`, which wraps. SDK 1.18 adds `subtract`, an arithmetic
+  `shift_right` and `saturate` (a 64-bit value into Q31), and 1.15 helpers in
+  [`q15.hpp`](../sdk/include/opxy/q15.hpp): `saturate`, `add`, `subtract`,
+  `normalize` (shift out redundant sign bits), `multiply` (truncating) and
+  `multiply_nearest` (rounding). `multiply` is the 1.15 product of two `i16`
+  values; `product` stays the integer 16 x 16 product of two words' low halves.
+  `q31::saturate` is a short compare and select; the others are one or two
+  instructions on the device. All give the same results on the host. None
+  reads or sets the rounding mode: `multiply_nearest` rounds an exact tie in
+  the processor's current mode (unbiased, to even, after reset; the host
+  always rounds to even), so do not depend on which way a tie falls. The two
+  namespaces share names, so call these qualified (`q15::saturate`,
+  `q31::saturate`).
 - **64-bit arithmetic** and floating point may need software helpers. The
   build links only the required authenticated [arithmetic runtime](toolchain.md)
   members; their code counts toward module memory.
@@ -226,7 +238,10 @@ relies on:
 - **R4 to R7 and P3 to P5 are preserved**: push the ones the routine uses
   (`[--SP] = (R7:4, P5:3);`) and pop them before `RTS`. FP and SP are preserved
   too, and RETS when the routine calls anything. R0 to R3, P0 to P2, I0 to I3,
-  M0 to M3, B0 to B3, A0, A1 and ASTAT are free to use.
+  M0 to M3, B0 to B3, A0, A1 and ASTAT are free to use, except ASTAT's
+  rounding mode (`RND_MOD`): code built by the SDK never changes it, so a
+  routine that sets biased rounding saves ASTAT, calls nothing while it is set
+  and restores it before it returns.
 - **L0 to L3 are zero on entry and must be zero on return**: compiled code
   addresses through I0 to I3 assuming no circular buffer. A routine that sets an
   L register for a circular buffer clears it again before it returns.
@@ -1477,7 +1492,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.17 and builds 1.0 to 1.17 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.18 and builds 1.0 to 1.18 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
