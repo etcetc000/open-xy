@@ -400,6 +400,32 @@ with a voice it takes, that note fades linearly to silence over its next
 block, and the new note starts in the voice once it has, or once stock has
 stopped rendering the old note. A handle that has lost its
 voice renders silence. One adapter serves every synth.
+
+**Heap voices (SDK 1.19).** A synth whose voices take more than 128 KiB
+(`voiceBytes × (min(voiceCapacity, 27) + 1)`) and that declares SDK 1.19 keeps
+them in an arena from the stock application heap instead of in module memory
+([`voice_heap.py`](../tooling/voice_heap.py),
+[`voice_heap.hpp`](../sdk/platform/opxy-1.2.1/voice_heap.hpp)). Its
+`_register` reserves the arena before registering the engine. Startup calls
+`_register` on the audio role and, for an engine with its own page, again on
+the GUI role, and the initializers may run more than once; only the first call
+while stock's role flag says audio (`stock_gui_role` answering 0) reserves, and
+the lock and re-check below keep it to one arena even if a GUI-role call saw 0.
+If stock has not yet created its heap (its mutex word at `0x08036aa4` still 0,
+before stock's malloc first runs `8d4d0380`), the arena is refused. Otherwise it takes the
+heap's lock, as sample analysis allocates, checks the status again under it,
+allocates, aligns and zeroes the block, and publishes the zeroed voices before
+the pointer and status. A browser selection that leaves the synth out never
+reserves. The handles and each voice's bookkeeping stay in module memory, and
+no note takes a voice before the arena exists. If the heap refuses,
+`<prefix>_voice_heap_status` returns 2, the heap is never asked again, and the
+synth's notes are silent. The arena is never freed. The profile's heap fill,
+`0x8c0d0380` to `0x8d4d0380`, holds both the application heap and the module
+cut from its tail; stock's data page table (DCPLB, `0x840af2f0`) maps all of
+DDR as identical 64 MiB pages, write-back and cached in L1, so heap and module
+voices are cached alike. A collection's heap arenas take at most 1 MiB, and the
+builder refuses them with its experimental memory.
+
 Render receives 64 output words and 8 parameter words. The SDK adds the stock
 per-sample pitch increments. Output is mono Q31 peaking at most at half scale. Stock
 velocity, envelope, filter and mixing run afterwards.

@@ -33,10 +33,14 @@ async function parity(memory, mask, selected, extensions, numbering, name) {
   let linked;
   try { linked = linkKit(memory.kit, selected, numbering, extensions); }
   catch (error) {
+    // Heap voices with experimental memory: refused before any link, by design.
+    if (error.heapVoices === true && memory.suffix) { console.log('Heap voices refused with experimental memory:', selected.join(' + ')); return; }
     // Only a standard-memory overflow is an expected negative case. The same
     // selection must still link in the reviewed larger layout and match GNU there.
     if (error.capacity !== true || memory.suffix || layouts.length !== 2) throw error;
-    const expanded = linkKit(layouts[1].kit, selected, numbering, extensions);
+    let expanded;
+    try { expanded = linkKit(layouts[1].kit, selected, numbering, extensions); }
+    catch (refusal) { if (refusal.heapVoices === true) return; throw refusal; }
     const inputs = capacityInputs(expanded, layouts[1].kit.profile, kit.profile);
     const excess = expanded.sizes.allocated - moduleBytes(kit.profile);
     let rejection;
@@ -76,7 +80,7 @@ if (layouts.length > 1) {
   // The whole collection's allocated bytes with an extension choice, or null when it does
   // not fit; any other link error is a real defect and fails the check.
   const link = (k, extensions) => { try { return linkKit(k, all, null, extensions).sizes.allocated; }
-    catch (error) { if (error.capacity === true) return null; throw error; } };
+    catch (error) { if (error.capacity === true || error.heapVoices === true) return null; throw error; } };
   // One link per choice, at the larger memory: it needs more than standard memory when
   // its allocation exceeds the standard module region.
   const tried = extensionChoices(kit).map(c => ({c, larger: link(layouts[1].kit, c)}));

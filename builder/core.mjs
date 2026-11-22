@@ -610,7 +610,8 @@ export function expandedProfile(profile) {
 // The kit linked and patched for the chosen memory; the reviewed kit is unchanged.
 export const memoryKit = (kit, expanded) => {
   check(typeof expanded === 'boolean', 'Expanded memory must be a boolean');
-  return expanded ? {...kit, profile: expandedProfile(kit.profile)} : kit;
+  // experimental marks the kit (not the profile, which matches the release check's) for linkKit.
+  return expanded ? {...kit, profile: expandedProfile(kit.profile), experimental: true} : kit;
 };
 const screenTemplateOk = async kit => typeof kit.screenTemplate === 'string' &&
   await sha256(utf8.encode(kit.screenTemplate)) === kit.profile.screen_template_sha256;
@@ -765,6 +766,15 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const numbers = assignNumbers(kit, selection, layout);
   const definitions = {...kit.definitions, ...numberSymbols(kit, selection, numbers)};
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
+  // Heap voices (SDK 1.20) hold stock heap from boot; with a layout that shrinks that heap
+  // further their headroom is unknown, so the pair is refused (tooling/voice_heap.py).
+  const heapSynths = kit.machines.filter(m => selected.has(m.id) && m.heapVoices);
+  if (kit.experimental === true && heapSynths.length) {
+    const error = new Error(`${heapSynths.map(m => m.name).join(', ')} keep their voices in the stock heap, which ` +
+      'the experimental memory makes smaller: build with standard memory.');
+    error.heapVoices = true;
+    throw error;
+  }
   const services = activeServices(kit.profile, [...kit.machines.filter(m => selected.has(m.id)),
     ...(kit.extensions?.some(e => extensions.has(e.id) && e.linked !== false) ? [{kind: 'extension'}] : []),
     ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : []),

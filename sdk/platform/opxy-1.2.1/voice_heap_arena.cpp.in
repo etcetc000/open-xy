@@ -1,0 +1,12 @@
+// The voices live in an arena reserved from the stock heap at boot (voice_heap.hpp);
+// `voices` keeps their bookkeeping.
+#include "voice_heap.hpp"
+static opxy::platform::voice_heap::Arena<Voice, kVoices> voice_arena;
+static_assert(sizeof(Voice) * kVoices + alignof(Voice) - 1 == @ARENA_BYTES@, "Heap voice arena differs from the build's budget");
+static Voice& voice_of(const Slot& slot) { return voice_arena.voices[&slot - voices]; }
+extern "C" opxy::u32 @PREFIX@_voice_heap_reserve() __asm__("@PREFIX@_voice_heap_reserve");
+extern "C" opxy::u32 @PREFIX@_voice_heap_status() __asm__("@PREFIX@_voice_heap_status");
+// Called as the synth registers (registration.cpp), on either role and maybe more
+// than once: only the first call on the audio role reserves. Never an audio callback.
+opxy::u32 @PREFIX@_voice_heap_reserve() { return voice_arena.reserve(opxy::platform::voice_heap::kStockHeap); }
+opxy::u32 @PREFIX@_voice_heap_status() { return voice_arena.status; }

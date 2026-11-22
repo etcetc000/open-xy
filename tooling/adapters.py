@@ -22,6 +22,7 @@ from .definitions import (ROOT, STOCK_VOICES, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRI
 SHIFT_SLOT = 8
 from .formats import require
 from .stock_tables import REGISTRATION as RELOCATED
+from .voice_heap import on_heap, placement
 
 TEMPLATES = ROOT / 'sdk/platform/opxy-1.2.1'
 # The init preset's authored settings, shared with builder/core.mjs's defaultPreset
@@ -83,19 +84,21 @@ def generate_voice(directory, m, sweep=False):
                   CAPACITY=m.definition['resources']['voiceCapacity'])
     values.pop('PEAK')
     values.pop('RELEASE_CALLBACK')
+    # Where a synth's voices live: module memory, or a heap arena for a large pool (voice_heap.py).
+    values.update(placement(m))
     release = m.definition['resources'].get('releaseCallback', 0)
     values.update(RELEASE_METHOD=f'{m.prefix}_release' if release else 'noop',
                   RELEASE_FUNCTION=f'''int {m.prefix}_release(void* self) {{
     Handle* handle = static_cast<Handle*>(self);
     if (Slot* slot = held(handle))
-        {m.definition['id']}::release(slot->voice, shared, slot->owner);
+        {m.definition['id']}::release({values['VOICE_OF_HELD']}, shared, slot->owner);
     else if (pending(handle) || handle->wants) handle->released = 1;
     return 0;
 }}
 ''' if release else '')
     values.update(RELEASE_STATE=', released' if release else '',
                   RELEASE_CLEAR='    handle->released = 0;' if release else '',
-                  RELEASE_PENDING=f"    if (handle->released) {m.definition['id']}::release(slot.voice, shared, id);" if release else '')
+                  RELEASE_PENDING=f"    if (handle->released) {m.definition['id']}::release({values['VOICE_OF_SLOT']}, shared, id);" if release else '')
     # Expand to the original mono text when omitted, preserving its native code.
     values.update(OUTPUT_FRAMES='opxy::block_frames' if values['CHANNELS'] == 1 else '2 * opxy::block_frames',
                   STEREO_METHOD='zero' if values['CHANNELS'] == 1 else 'stereo',
@@ -382,6 +385,11 @@ def generate_registration(directory, m):
         entries[p + '_ready()'] = f'sdk_effect_ready(&record, {screen})'
     else:
         entries[p + '_register()'] = 'sdk_register_engine(&record)'
+        if on_heap(m):
+            # A synth with heap voices reserves their arena as it first registers on the audio
+            # role at boot (voice_heap.hpp); an unselected synth in a browser kit never reserves.
+            declarations.append(f'opxy::u32 {p}_voice_heap_reserve() __asm__("{p}_voice_heap_reserve");')
+            entries[p + '_register()'] = f'({p}_voice_heap_reserve(), sdk_register_engine(&record))'
         entries[p + '_record_ready()'] = 'sdk_engine_ready(&record, nullptr)'
         entries[p + '_name_matches(const void* string)'] = 'sdk_name_matches(&record, string)'
         entries[p + '_ready()'] = f'sdk_engine_ready(&record, {screen})'

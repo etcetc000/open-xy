@@ -46,6 +46,26 @@ figures for standard memory. State usually dominates, since a synth's voice pool
 notes, and one spare voice serves a note that ended as another starts. The SDK
 adds 12 bytes per stock voice index (3 KiB) and 16 per voice.
 
+From SDK 1.19, a synth whose voice pool is larger than 128 KiB keeps its voices
+outside the module, in an arena the SDK reserves from the stock heap the first
+time the synth registers on the audio role at boot
+([heap voices](abi-1.2.1.md#synth-voices)). Nothing needs declaring: the pool
+size decides. Raising a large synth's `sdk` to 1.19 or later therefore moves its
+voices to the heap. The heap is DDR cached like the module, so the voices run
+the same, at the cost of a pointer load and an index multiply wherever a voice
+is reached. Only the 3 KiB of handles and 16 bytes per voice stay in the module.
+A machine declaring an older SDK keeps every voice in the module, as before.
+
+Heap voices are held from boot until the OP-XY is switched off, unlike sample
+analysis memory, which comes and goes with samples. How much of the stock heap
+stays free under a heavy project has not been measured, so a collection's heap
+voices may take at most 1 MiB, apart from the analysis budgets, and the
+builder's experimental 4 MiB option, which shrinks the heap, refuses a
+selection with heap voices. `sdk.py compile` lists each heap synth's arena;
+the builder's memory meter shows only module memory. The 1 MiB is checked over
+the whole collection a build or browser kit is made from, not each selection.
+Should the heap refuse at boot, that synth plays silence.
+
 The limit applies to what someone installs, not to the whole catalog. When a
 collection doesn't fit at once, `sdk.py compile` links Open-XY's own machines
 and requires each other machine to fit beside them, as the builder offers it.
@@ -53,6 +73,7 @@ and requires each other machine to fit beside them, as the builder offers it.
 | Limit | Value | Why |
 | --- | --- | --- |
 | Module memory | 2032 KiB for the selected machines | Firmware heap reservation minus the relocated tables |
+| Heap voices | Pools over 128 KiB (SDK 1.19); 1 MiB for a collection | Stock heap held from boot; its headroom is unmeasured |
 | Voices | 1..256 per machine | Stock voice indices |
 | Effect state | 476 bytes | The 480-byte stock FX slot minus its object header |
 | Synth controls | 4 positions, at most 8 parameters, and a Shift row of at most 8 (SDK 1.13) | The stock four-knob page and eight-word parameter vector; the row takes two spare track words |
@@ -1492,7 +1513,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.18 and builds 1.0 to 1.18 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.19 and builds 1.0 to 1.19 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |

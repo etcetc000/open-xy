@@ -19,6 +19,7 @@ from .definitions import (ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXT
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
+from . import voice_heap
 from .pipeline import config
 
 KINDS = ('synth', 'drum', 'sample', 'effect', 'player')
@@ -65,7 +66,9 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # as one SDK routine.
 # 1.18 adds saturating 1.15 helpers to opxy/q15.hpp and saturate, subtract and
 # shift_right to opxy/q31.hpp.
-SDK_VERSION = (1, 18)
+# 1.19 keeps a synth's voices in an arena reserved from the stock heap at boot
+# when its voice pool exceeds 128 KiB (voice_heap.py).
+SDK_VERSION = (1, 19)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -910,10 +913,11 @@ def collection(entries=None, layout=None):
 
 
 def check_analysis_budgets(machines):
-    """Every machine's analysis budget comes from one stock-heap allowance."""
+    """Every machine's analysis budget comes from one stock-heap allowance; heap voice arenas have their own."""
     total = sum(m.definition['resources'].get('sampleAnalysis', 0) for m in machines if m.kind == 'sample')
     require(total <= ANALYSIS_HEAP_LIMIT,
             'Sample analysis budgets exceed the collection limit of %d bytes' % ANALYSIS_HEAP_LIMIT)
+    voice_heap.check_budget(machines)
 
 
 def by_kind(machines, *kinds):
