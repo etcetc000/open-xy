@@ -360,6 +360,11 @@ template <class Base> struct RgbaFrame : Base {
     static const bool rgba = true;
 };
 
+// The extended frames' setters live in their own namespace, which opxy::draw
+// nominates below: draw::affine and calls inside opxy::draw find them, but
+// argument-dependent lookup ignores the nomination, so a machine's own helper of
+// the same name, called unqualified on draw types, stays unambiguous.
+namespace extended_helpers {
 // Hides a node until a later frame paints it again; call after its transform
 // and paint setters. Extended frames only.
 template <class F> static inline void conceal(F& frame, u32 index) {
@@ -387,6 +392,8 @@ template <class F> static inline void affine(F& frame, u32 index, Matrix value, 
     node.a = value.a; node.b = value.b; node.c = value.c; node.d = value.d;
     node.x = value.x; node.y = value.y; node.shade = shade; node.paint = paint;
 }
+}
+using namespace extended_helpers;
 
 namespace detail {
 static inline bool node_valid(const Node& node) {
