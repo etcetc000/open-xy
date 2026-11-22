@@ -34,8 +34,8 @@ class EncoderActivity(unittest.TestCase):
     def test_all_three_input_layouts_and_atomic_validation(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp); machine = fixture.write_fixture(folder)
-            # Extension bit 4: the encoders' eight bytes after the 112-byte Input.
-            for name, extension, size in (('EncoderInput', 4, 120),):
+            # Extension bit 4: the encoders' eight bytes after the 152-byte Input.
+            for name, extension, size in (('EncoderInput', 4, 160),):
                 d = copy.deepcopy(machine.definition); display = d['resources']['display']
                 display.update(encoderActivity=1)
                 (folder/'display.h').write_text(fixture.DRAW_HEADER.replace('<opxy/draw.hpp>','<opxy/encoder_activity.hpp>'))

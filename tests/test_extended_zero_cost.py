@@ -35,8 +35,13 @@ def input_fill(text):
 PLAIN_ONLY = {
     # A sample engine's screen reads its sample; sample engines have no extended screen.
     'if (Machine::sample) sdk_sample_overview_update(controls.track)',
-    # A kit's selected pad (display_note_serial) never applies to a synth's or an effect's screen.
-    'input.note_serial = display_note_serial(controls)',
+    # A kit's selected pad and played-pad snapshot never apply to a synth's or an effect's screen,
+    # whose serial is the track's (track_note_serial, as the extended renderer's own line).
+    'if (Machine::selected_pad)',
+    'input.note_serial = selected_pad_serial(controls)',
+    'else',
+    'input.note_serial = track_note_serial(controls)',
+    'if (Machine::played_pad) played_pad_snapshot(controls, input.note_serial, input)',
 }
 EXTENDED_ONLY = {
     'input.note_serial = controls.track < 8 ? note_serial(controls.track) : 0',

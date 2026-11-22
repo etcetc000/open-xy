@@ -82,8 +82,9 @@ if (offersExpandedMemory(kit.profile)) {
       // A collection too large to search exhaustively may recover only its stock OS;
       // its memory is always known. A small one is always recovered exactly.
       const recovered = await recoverFirmware(kit, firmware, layout);
+      const held = imageSettings(kit, firmware), settings = Object.keys(held).length ? {settings: held} : {};
       assert.deepEqual(recovered, name === 'collection-expanded' && kit.machines.length > RECOVERABLE_MACHINES && recovered.earlier
-        ? {stock, selected: null, earlier: true, memory: 'expanded'} : {stock, selected, extensions, memory: 'expanded'});
+        ? {stock, selected: null, earlier: true, memory: 'expanded'} : {stock, selected, extensions, memory: 'expanded', ...settings});
       await assert.rejects(patchFirmware(kit, linked, stock, {profiling}), /outside module|exceeds its profile/);
       writeFileSync(resolve(directory, 'reference', name) + (profiling ? '.ldr' : '.profiling-off.ldr'), firmware);
     }

@@ -17,7 +17,7 @@ const opxy::draw::ShiftRow* opxy_synth_shift(opxy::u32) { return &shift_row; }
 extern "C" {
 opxy::u32 sdk_control_copies(opxy::u32) { return 1; }
 opxy::i32 sdk_control_display(opxy::u32) { return 0; }
-opxy::u32 opxy_display_abi() { return 6; }
+opxy::u32 opxy_display_abi() { return 7; }
 // Appended to draw::Input: 4 the encoders' activity (adapters.display_extension).
 opxy::u32 opxy_display_extension() { return opxy::binding::display_extension; }
 opxy::u32 opxy_display_state_bytes() { return sizeof(state); }

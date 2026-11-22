@@ -5,7 +5,7 @@ import {EncoderActivity} from '../sdk/browser/encoder_activity.mjs';
 import {shownControls} from '../sdk/browser/controls.mjs';
 const module = await WebAssembly.compile(readFileSync(process.argv[2]));
 const display = new PreviewDisplay(module), e = display.api;
-assert.equal(e.opxy_display_abi(),6);
+assert.equal(e.opxy_display_abi(),7);
 assert.equal(e.opxy_display_extension(),Number(process.argv[3]));
 assert.equal(e.opxy_display_input_bytes(),Number(process.argv[4]));
 const state = new Uint32Array(e.memory.buffer,e.opxy_display_state(),1);

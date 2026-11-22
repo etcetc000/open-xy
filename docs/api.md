@@ -834,7 +834,9 @@ OP-XY ignores `random` from bit 16, so older firmware plays each amount's
 nearest step. A region
 without `random` loads every pad field at 0; the OP-XY's own preset writer
 names it on every key the kit has set up, and a kit preset written by other
-tools should name it on every region, `"random": 0` included.
+tools for loading on the OP-XY should name it on every region, `"random": 0`
+included. A `padMix` kit's own [presets](#presets), which the SDK installs,
+keep empty regions.
 
 A `padMix` kit may declare up to two small settings of each key's own in
 `resources.padControls` (SDK 1.10), such as a filter and a sample-rate
@@ -938,6 +940,28 @@ const char* parameter_name(opxy::u32 model, opxy::u32 slot);
 opxy::u32 parameter_count(opxy::u32 model); // 0..8: slots 0 to count - 1 are used
 ```
 
+From SDK 1.21 a kit can declare `resources.parameterEdit: 1` and add this callback in
+`core.h` and its engine:
+
+```cpp
+opxy::u32 edit_parameter(opxy::u32 model, opxy::u32 slot,
+                        opxy::u32 value, opxy::i32 delta, opxy::u32 speed);
+```
+
+It edits an available control on the GUI role, before stock's existing pad publication.
+`value` is the stored 0..127 value and `delta` the signed detent count, bounded
+to -127..127. `speed` is how fast the encoder turns, 0 for a slow turn and more
+for a faster one, bounded to 0..127: stock's own editor moves pan `speed + 1` a
+detent, and a kit may accelerate the same way or ignore it. Return a new 0..127 value, or the input value for no change; an
+out-of-range result is ignored. It is called only for a turn of an available
+control (below the model's count and named), without Shift and with no step
+held: a Shift turn never calls it, and with a step held a turn locks the
+control instead, as the step locks above describe, so a control the kit steps
+through discrete values plays whatever 0..127 value the lock gives it. Without this flag, controls keep their existing unit
+steps. A kit with a per-model discrete selector can use this callback to jump
+directly to the next available option while other controls keep unit steps.
+It does not run during audio rendering or alter saved-value encoding.
+
 Keys passed to `drum_defaults` are canonical keys 53..76. Controls are
 integers 0..127; the model must be below `modelCount`. In a kit of more than 16
 models, a key on a model of seven or fewer controls stores its first seven, so
@@ -949,7 +973,8 @@ unused slots. The screen shows the selected key's controls and labels with
 the track's offsets applied, so a held step shows the values its locks play;
 the display's `Input::model` is the selected key's model. A slot is available
 when it is below the count and named: an unnamed slot shows blank and ignores
-turns. Integer edits already have one-unit precision.
+turns. Integer edits already have one-unit precision, unless the kit declares
+`parameterEdit` (above).
 
 The adapter stores the model and the eight controls losslessly in four
 existing per-key preset words (eight 7 bits, the model 4), and marks the pad
@@ -1145,6 +1170,7 @@ means 0. Callbacks are functions in the machine's namespace.
 | `chokeSameKey` | 0 or 1 | A note silences earlier voices on the same track and key (drum sampler base: the same pad, at any octave) | |
 | `padControls` | Up to two `{label, bits, signed}` fields, 1..7 bits each (2..8 signed), 9 in all; needs `padMix` | Each key's own small settings on Shift's second row ([drum kits](#synthesis-drum-kits)) | `drum_pad`, `pad_control_text` |
 | `padMix` | 0 or 1; drum kits, SDK 1.10 | Shift: the model, choke group and each key's stock pan and level; on the second row the key's pad controls and its own FX I and FX II sends; a held step locks pan, level, pad controls and sends per hit ([drum kits](#synthesis-drum-kits)) | |
+| `parameterEdit` | 0 or 1; drum kits, SDK 1.21 | A turn of an available control (below the model's count and named), without Shift and with no step held, asks the kit for the control's next stored value instead of moving it one unit a detent ([drum kits](#synthesis-drum-kits)) | `edit_parameter` |
 | `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
 | `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |
@@ -1513,7 +1539,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.20 and builds 1.0 to 1.20 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.21 and builds 1.0 to 1.21 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
@@ -1548,6 +1574,17 @@ firmware that holds it.
   as the device saved them, except that a synth with a
   [Shift row](#a-synths-shift-row) keeps it in up to 24 regions that point at
   no sample.
+
+From SDK 1.21 a synthesis drum kit without `padMix` may store exactly 24 sample-free pad records instead of empty
+`regions`: `model` is `"fm slap"` (the stored-pad marker), `params` holds four packed
+Q15 words, and optional `playmode` selects a stock choke/play mode. Optional `hikey`
+is the canonical key 53..76 in pad order. No other fields or sample paths are
+accepted. Keep track parameters neutral to edit saved pad controls freely.
+A `padMix` kit's shipped presets keep empty `regions`: its keys' records also
+carry each key's level and pad word (`gain` and `random`, as
+[synthesis drum kits](#synthesis-drum-kits) describes for presets saved on the OP-XY), and the
+SDK does not check those fields in a shipped preset yet. Presets the user saves
+and loads on the OP-XY keep them as before.
 
 #### Own samples
 

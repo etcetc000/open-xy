@@ -6,6 +6,9 @@ no machines of its own; these are small, valid folders, not copies of published 
   display without paths.
 - probefx: an effect with a Dry control (dryParameter) and controls of each mapping.
 - probesample: a drum-page (page 7) sample engine declaring every optional service.
+- probekit16, probekit21: probesynth as a two-model drawn drum kit, alike but for the digits
+  of their id and name and the SDK they declare (1.16, 1.21); image-size measurements of the
+  played-pad snapshot build them.
 - voiceheap: a sine with a long echo whose voices are too large for module memory
   (SDK 1.19 heap voices); not in NAMES.
 """

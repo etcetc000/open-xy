@@ -4,7 +4,7 @@ import {PreviewDisplay, SvgDisplay} from '../sdk/browser/display.mjs';
 import {shownControls} from '../sdk/browser/controls.mjs';
 const module = new WebAssembly.Module(readFileSync(process.argv[2]));
 const display = new PreviewDisplay(module);
-assert.equal(display.api.opxy_display_abi(), 6);
+assert.equal(display.api.opxy_display_abi(), 7);
 assert.equal(display.api.opxy_display_extension(), 0);
 const input = shownControls(Array(8).fill(0), [0,1,2,3]);
 const frame = display.tick(input, 17, 0, 0, false, null, 0, 0, [0, 0, 0, 0], null, {pan: 0, level: 0}, 0, null);

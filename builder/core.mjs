@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '6bd2a299b7490b01657119315361974ea317c80bcac99c088525b08ff3303181';
+export const PROFILE_SHA256 = 'd5d1563fdb2b1260c0bf6aa0d8b638f957e2320184e2ce98d647c1eb44cf9623';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -1171,6 +1171,17 @@ export function presetPath(machine) {
   return `content/presets/${machine.id}/default.json`;
 }
 
+// A synthesis kit's 24 sample-free pad records (SDK 1.21), as tooling.machines checks them.
+function drumPresetRegions(regions) {
+  return Array.isArray(regions) && regions.length === 24 && regions.every((region,index) =>
+    region && typeof region === 'object' && !Array.isArray(region) && region.model === 'fm slap' &&
+    Object.keys(region).every(key => ['model','params','playmode','hikey'].includes(key)) &&
+    Array.isArray(region.params) && region.params.length === 4 &&
+    region.params.every(n => Number.isInteger(n) && n >= 0 && n <= 32767) &&
+    ['gate','oneshot','mute1','loop','mute2','mute3'].includes(Object.hasOwn(region,'playmode') ? region.playmode : 'oneshot') &&
+    (!Object.hasOwn(region,'hikey') || region.hikey === 53+index));
+}
+
 // The machine's init preset, then its own presets (tooling.machines.read_presets):
 // each a version 4 preset of this machine, pointing at no samples: a kit empties the
 // regions of those loading a sample engine's own samples, which the builder doesn't
@@ -1199,6 +1210,8 @@ export function presetFiles(machine) {
     check(/^[a-z0-9][a-z0-9_-]{0,23}$/.test(name) && preset && typeof preset === 'object' &&
       preset.version === 4 && preset.platform === 'OP-XY' && preset.type === machine.id &&
       Array.isArray(preset.regions) && (preset.regions.length === 0 ||
+        // Not on a padMix kit, whose records would carry each key's level and pad word (gain, random).
+        machine.kind === 'drum' && !(machine.features ?? []).includes('padMix') && drumPresetRegions(preset.regions) ||
         // A synth's Shift row (SDK 1.13) rides in sample-less regions, as Drumline's keys do.
         machine.shiftRow === true && preset.regions.length <= 24 &&
         preset.regions.every(r => r && typeof r === 'object' && !Array.isArray(r) && !r.sample)) &&
