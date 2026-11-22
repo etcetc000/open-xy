@@ -114,7 +114,7 @@ class StereoSynth(unittest.TestCase):
 
     def test_omitted_stereo_flag_matches_explicit_mono(self):
         # Mono uses the current upstream allocator, exercised by test_voices.
-        # An explicit zero must not select the separate Field voice adapter.
+        # An explicit zero must generate the same adapter as an omitted flag.
         value = definition()
         del value['resources']['stereoOutput']
         m = SimpleNamespace(definition=value, prefix='probe', native_name='probe', kind='synth')
