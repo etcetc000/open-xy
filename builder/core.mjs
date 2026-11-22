@@ -772,7 +772,7 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const numbers = assignNumbers(kit, selection, layout);
   const definitions = {...kit.definitions, ...numberSymbols(kit, selection, numbers)};
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
-  // Heap voices (SDK 1.20) hold stock heap from boot; with a layout that shrinks that heap
+  // Heap voices (SDK 1.19) hold stock heap from boot; with a layout that shrinks that heap
   // further their headroom is unknown, so the pair is refused (tooling/voice_heap.py).
   const heapSynths = kit.machines.filter(m => selected.has(m.id) && m.heapVoices);
   if (kit.experimental === true && heapSynths.length) {
