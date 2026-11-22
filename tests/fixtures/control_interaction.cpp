@@ -12,6 +12,11 @@ const opxy::platform::DrumMachine* sdk_drum_machine(opxy::u32) { return nullptr;
 bool sdk_drum_values(opxy::u32, opxy::u8*, opxy::u8*) { return false; }
 void sdk_drum_pad_values(opxy::u32, opxy::i32*) { std::abort(); }
 const void* sdk_drumline_get() { return nullptr; }
+// The step-lock calls every build links (lock_handles.hpp). No step is ever held here
+// (host_step), so a held lock is never read or written; the frame call does nothing.
+extern "C" opxy::u32 sdk_project_locks_held_value(opxy::u32, opxy::u32, opxy::u32, opxy::i32*) { std::abort(); }
+extern "C" opxy::u32 sdk_project_locks_held_set(opxy::u32, opxy::u32, opxy::u32, opxy::u32, opxy::i32) { std::abort(); }
+extern "C" void sdk_project_locks_frame() {}
 
 namespace {
 using opxy::i32;

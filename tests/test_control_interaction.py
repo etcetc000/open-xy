@@ -38,7 +38,9 @@ class ControlInteraction(unittest.TestCase):
             for name in ('synth_controls.cpp','drum_lock_store.hpp','control_interaction_native.inc'):
                 (folder/name).write_bytes((platform/name).read_bytes())
             exe=folder/('test.exe' if os.name=='nt' else 'test')
-            for opt in ('-O2',):  # as test_synth_steps: -O0 keeps references to services this fixture leaves out
+            # -O0 too: every service synth_controls.cpp references must be in the fixture, whatever
+            # a host compiler's inlining happens to drop at -O2.
+            for opt in ('-O0', '-O2'):
                 self.run_command([HOST_CXX,'-std=c++11',opt,'-Wall','-Werror','-I'+str(folder),'-I'+str(ROOT/'sdk/include'),
                                   '-I'+str(platform),ROOT/'tests/fixtures/control_interaction.cpp','-o',exe])
                 self.run_command([exe])
