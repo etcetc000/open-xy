@@ -79,7 +79,7 @@ and requires each other machine to fit beside them, as the builder offers it.
 | Synth controls | 4 positions, at most 8 parameters, and a Shift row of at most 8 (SDK 1.13) | The stock four-knob page and eight-word parameter vector; the row takes two spare track words |
 | Sample and effect controls | 1..8 | The stock eight-word parameter vector |
 | Control labels | 8 characters | The stock parameter page |
-| Display shape | ≤ 4 paths of ≤ 64 points, ≤ 512 nodes (more than 256 need `"sdk": "1.8"`), ≤ 16 text slots (more than 4 need `"sdk": "1.3"`), ≤ 16 palette entries | Fixed-size renderer object and frame |
+| Display shape | ≤ 4 paths of ≤ 64 points, ≤ 512 nodes (more than 256 need `"sdk": "1.8"`), ≤ 16 text slots (more than 4 need `"sdk": "1.3"`), ≤ 16 palette entries; a synth or effect's [extended drawing](display.md#extended-drawing) (`"sdk": "1.20"`) up to 32 paths sharing 256 points | Fixed-size renderer object and frame |
 
 `voiceBytes`, `sharedBytes` and display state have no limit of their own
 beyond whole words and module memory. Browser previews run 8 voices in
@@ -1513,7 +1513,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.19 and builds 1.0 to 1.19 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.20 and builds 1.0 to 1.20 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |

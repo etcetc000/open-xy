@@ -118,6 +118,9 @@ def machine_entry(m, profile, sources, output, preview_cxx):
         if m.grayscale:
             entry['grayscaleArtwork'] = read(m.root / m.grayscale).decode('utf-8')
         entry['asset'] = m.native_name + '.svg'
+        # A whole-screen canvas: its display file has no stock header (core.mjs buildAssets).
+        if m.definition['resources'].get('display', {}).get('fullCanvas'):
+            entry['fullCanvas'] = 1
     if m.display != 'stock' and m.kind in ('synth', 'drum'):
         preview_dir = output / ('preview-' + m.id)
         preview.build(preview_cxx, m, preview_dir)

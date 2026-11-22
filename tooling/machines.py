@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import (ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
+from .definitions import (EXTENDED_SDK, extended_display, ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
@@ -68,7 +68,11 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # shift_right to opxy/q31.hpp.
 # 1.19 keeps a synth's voices in an arena reserved from the stock heap at boot
 # when its voice pool exceeds 128 KiB (voice_heap.py).
-SDK_VERSION = (1, 19)
+# 1.20 adds extended drawing for synth and effect screens (docs/display.md#extended-drawing):
+# affine nodes, direct colour, a whole-screen canvas, curves, open, segmented and counted
+# paths and larger path budgets; the encoders' activity, and a synth's last control
+# touched (opxy/control_interaction.hpp).
+SDK_VERSION = (1, 20)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -585,6 +589,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 3), 'More than %d display text slots' % SDK_1_2_TEXTS)
     if 'display' in definition['resources'] and definition['resources']['display']['texts'] > SDK_1_6_TEXTS:
         require_sdk(version, (1, 7), 'More than %d display text slots' % SDK_1_6_TEXTS)
+    if 'display' in definition['resources'] and extended_display(definition['resources']['display']):
+        require_sdk(version, EXTENDED_SDK, 'Extended drawing (docs/display.md#extended-drawing)')
     if definition['resources'].get('display', {}).get('nodes', 0) > SDK_1_7_NODES:
         require_sdk(version, (1, 8), 'More than %d display nodes' % SDK_1_7_NODES)
     require(definition['id'] == identity, 'Machine directory and definition identity disagree')
@@ -623,6 +629,9 @@ def machine_at(root, identity=None):
     if reads_sample_overview(root, 'synth_shift'):
         require_sdk(version, (1, 13), "A synth's Shift row on its display (opxy/synth_shift.hpp)")
         require(synth_shift(definition), 'Only a synth with a Shift row ("shift") reads opxy/synth_shift.hpp')
+    if reads_sample_overview(root, 'control_interaction'):
+        require_sdk(version, EXTENDED_SDK, 'The last control touched (opxy/control_interaction.hpp)')
+        require(kind == 'synth', "Only a synth's own screen reads opxy/control_interaction.hpp")
     if reads_sample_overview(root, 'sample_kernel'):
         require_sdk(version, (1, 17), 'The sample kernel (opxy/sample_kernel.hpp)')
     native = read_native(root, identity)

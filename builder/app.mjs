@@ -541,6 +541,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           const drum = kit ? [selected.model, 0, core.kitChoices(kit, selected.model, selected.choke), null, core.kitMix(kit),
             shown.some(slot => slot >= 4) ? 1 : 0] : [];
           renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity, ...row, ...drum));
+          // A whole-screen canvas has no header.
+          if (renderer.fullCanvas) { header.innerHTML = ''; return; }
           // The machine's header text, or the stock header: a synth's percentage of the shown
           // parameter, a kit's model's label and 0..127 value.
           const [titles, values] = kit ? core.kitHeader(names, selected.controls, shown)

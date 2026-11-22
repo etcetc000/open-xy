@@ -72,6 +72,11 @@ project companion rows) form the `control` service in the same way: a build
 uses them only when it includes a machine with [track control](api.md#track-control)
 or [hidden pages](api.md#alternate-controls). The aux track rows form the `aux`
 service, used only by a machine that [takes over aux tracks](api.md#aux-tracks).
+[Extended drawing](display.md#extended-drawing) needs no edit: its encoder
+activity reads stock's per-frame encoder flags (`8d51f1be`, read only), and the
+last control touched is recorded in the existing encoder press and turn hooks,
+compiled in only when a machine includes `opxy/control_interaction.hpp`, reading
+the edited value through stock's displayed-value getter (`8d5ac9dc`).
 Everything else must reconstruct byte for byte. Protected ranges in
 [`pipeline.py`](../tooling/pipeline.py) admit only hooks into the module and
 the reviewed startup label.

@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "sdk": "1.20",
+  "kind": "effect",
+  "description": "Test fixture: an extended effect screen with quadratic paths.",
+  "dryParameter": "dry"
+}

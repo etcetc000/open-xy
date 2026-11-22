@@ -155,6 +155,8 @@ const fits = (requested, numbers) => Object.keys(requested).length === Object.ke
 // each content folder. A machine named after one would overwrite stock's file or write into
 // stock's folder, and stock can then fail at boot, so the name is refused. Case is ignored,
 // as tooling/device.py assumes the device's FAT storage does.
+// tooling.screen.CANVAS: a whole-screen canvas's display file before its artwork.
+const CANVAS_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220"></svg>';
 export const machineContentPaths = id => [`content/display/${id}.svg`, `content/presets/${id}`,
   `content/samples/${id}`, `content/aux_presets/${id}`];
 export function stockContentFile(profile, path) {
@@ -1340,7 +1342,9 @@ export async function buildAssets(kit, selection, catalog, numbers, options = {}
       check(files['content/display/' + m.asset] === undefined, 'Display asset collision: ' + m.asset);
       try {
         const fragment = selectArtwork(m, graphicsForMachine(m, {graphics, graphicsOverrides}));
-        const artwork = baseSvg.replace('</svg>', fragment + '</svg>');
+        // A whole-screen canvas (fullCanvas) leaves the stock header out (tooling.screen.compose).
+        check(m.fullCanvas === undefined || m.fullCanvas === 0 || m.fullCanvas === 1, 'Invalid full canvas flag');
+        const artwork = (m.fullCanvas === 1 ? CANVAS_SVG : baseSvg).replace('</svg>', fragment + '</svg>');
         files['content/display/' + m.asset] = utf8.encode(artwork);
       } catch (error) {
         throw new Error('Could not prepare ' + m.id + ' graphics: ' + error.message + '. Keep this machine’s original design or use corrected artwork.');
