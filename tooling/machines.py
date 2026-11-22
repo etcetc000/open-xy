@@ -63,9 +63,9 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # (resources.voiceCapacity); and adds the sample kernel
 # (opxy/sample_kernel.hpp): a sample voice's interpolation, level and crossfade
 # as one SDK routine.
-# 1.19 adds saturating 1.15 helpers to opxy/q15.hpp and saturate, subtract and
+# 1.18 adds saturating 1.15 helpers to opxy/q15.hpp and saturate, subtract and
 # shift_right to opxy/q31.hpp.
-SDK_VERSION = (1, 19)
+SDK_VERSION = (1, 18)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}

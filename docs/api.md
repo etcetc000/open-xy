@@ -104,7 +104,7 @@ host does fast and the Blackfin does not:
   [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers: a
   saturating multiply, (SDK 1.7) a saturating add and (SDK 1.16) a saturating
   left shift, `shift_left`, one instruction each on the device. Use it rather
-  than `<<`, which wraps. SDK 1.19 adds `subtract`, an arithmetic
+  than `<<`, which wraps. SDK 1.18 adds `subtract`, an arithmetic
   `shift_right` and `saturate` (a 64-bit value into Q31), and 1.15 helpers in
   [`q15.hpp`](../sdk/include/opxy/q15.hpp): `saturate`, `add`, `subtract`,
   `normalize` (shift out redundant sign bits), `multiply` (truncating) and
@@ -1492,7 +1492,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.19 and builds 1.0 to 1.19 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.18 and builds 1.0 to 1.18 machines |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
