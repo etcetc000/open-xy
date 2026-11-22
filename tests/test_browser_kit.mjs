@@ -325,6 +325,18 @@ test('a 4 MiB build loads its module lower, shrinks the heap and restores its se
   assert.throws(() => memoryKit(plain, true), /cannot offer more memory/);
 });
 
+test('heap voices link with standard memory only', async () => {
+  const {kit} = await heapFixture();
+  const heavy = {...kit, machines:kit.machines.map(m => m.id === 'a' ? {...m, heapVoices:147567} : m)};
+  assert.ok(linkKit(heavy, ['a']).sizes.allocated > 0);
+  assert.throws(() => linkKit(memoryKit(heavy, true), ['a']),
+    e => e.heapVoices === true && e.capacity === undefined && /stock heap.*standard memory/.test(e.message));
+  // Without heap voices the experimental memory links as before.
+  assert.ok(linkKit(memoryKit(kit, true), ['a']).sizes.allocated > 0);
+  assert.equal(memoryKit(kit, true).experimental, true);
+  assert.equal(kit.experimental, undefined);
+});
+
 test('profiling option and profile hook condition must be exact booleans', async () => {
   const {kit, linked, stock} = await profilingFixture();
   for (const profiling of [0, 1, 'false', 'true', null, [], {}])

@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "sdk": "1.20",
+  "kind": "synth",
+  "description": "Test fixture: a sine with a long echo, whose voice pool is too large for module memory."
+}
