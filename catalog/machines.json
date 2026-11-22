@@ -2657,6 +2657,29 @@
       "keywords": [
         "experimental"
       ]
+    },
+    {
+      "id": "braindance",
+      "kind": "sample",
+      "maintainer": "mmockett",
+      "status": "draft",
+      "repository": "https://github.com/mmockett/OP-XY-BrainDance",
+      "tag": "v1.0.1",
+      "commit": "ce44bd23ba2071041a8adc5ff25ac9538bf771db",
+      "path": ".",
+      "keywords": [
+        "experimental",
+        "percussion",
+        "lofi"
+      ],
+      "cpu": {
+        "benchmark": "opxy-sample-callback-v2",
+        "commit": "ce44bd23ba2071041a8adc5ff25ac9538bf771db",
+        "firmware_sha256": "3e6615b594b87e521b13b505f3e1c5188cad00ea8a63dd52d909997380ae4e78",
+        "runs": 1,
+        "block_percent": 1.979095,
+        "peak_percent": 3.778134
+      }
     }
   ]
 }
