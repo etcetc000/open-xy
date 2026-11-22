@@ -18,7 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, extensions, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables
+from . import benchmark, extensions, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables, voice_heap
 from .adapters import (pad_mix, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
@@ -658,6 +658,11 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                   hardware_tested=False, cpu_timing_measured=False)
     if runtime_members:
         report['runtime'] = runtime_members
+    # Heap voices: the stock heap each heap synth of the collection reserves at boot, outside
+    # the module, over the whole collection as the 1 MiB check counts them.
+    heap = {m.id: voice_heap.arena_bytes(m) for m in machines if voice_heap.on_heap(m)}
+    if heap:
+        report['heap_voices'] = heap
     save_json(directory / 'compile-report.json', report)
     return bytes(module), report, patch_profile
 
@@ -1346,6 +1351,9 @@ def main(argv=None, command=None):
             print(json.dumps(report['sizes'], indent=2))
             print('Memory ' + memory_summary(report['memory'], report['sizes']['allocated_span_bytes'],
                                             report['module_bytes']))
+            if report.get('heap_voices'):
+                print('Heap voices, reserved from the stock heap at boot: ' + ', '.join(
+                    f'{name} {size / 1024:.1f} KiB' for name, size in report['heap_voices'].items()))
             if len(report['linked']) < len(machines):
                 print('Not every machine fits at once: linked the official machines and the extensions; '
                       'each other machine, and each extension, fits beside the official machines.')
