@@ -401,8 +401,8 @@ block, and the new note starts in the voice once it has, or once stock has
 stopped rendering the old note. A handle that has lost its
 voice renders silence. One adapter serves every synth.
 
-**Heap voices (SDK 1.20).** A synth whose voices take more than 128 KiB
-(`voiceBytes × (min(voiceCapacity, 27) + 1)`) and that declares SDK 1.20 keeps
+**Heap voices (SDK 1.19).** A synth whose voices take more than 128 KiB
+(`voiceBytes × (min(voiceCapacity, 27) + 1)`) and that declares SDK 1.19 keeps
 them in an arena from the stock application heap instead of in module memory
 ([`voice_heap.py`](../tooling/voice_heap.py),
 [`voice_heap.hpp`](../sdk/platform/opxy-1.2.1/voice_heap.hpp)). Its

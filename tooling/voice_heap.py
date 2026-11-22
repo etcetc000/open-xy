@@ -1,6 +1,6 @@
 """Where a synth's voices live: module memory, or an arena reserved from the stock heap at boot.
 
-A synth declares only its voice size, alignment and capacity. From SDK 1.20, a
+A synth declares only its voice size, alignment and capacity. From SDK 1.19, a
 synth whose voice pool is larger than STATIC_VOICE_LIMIT keeps its voices in one
 arena the SDK reserves from the stock heap the first time the synth registers on
 the audio role at boot, instead of in the shared module memory. The arena is held
@@ -14,7 +14,7 @@ from .formats import require
 
 # The first SDK version that places a large voice pool on the heap. A renumber
 # changes this line (and SDK_VERSION in machines.py).
-VOICE_HEAP_SDK = (1, 20)
+VOICE_HEAP_SDK = (1, 19)
 # Voice pools up to this many bytes stay in module memory. Every published synth
 # fits with room to spare: the largest pool in the catalog is 74,880 bytes.
 STATIC_VOICE_LIMIT = 128 * 1024
@@ -35,7 +35,7 @@ def pool_bytes(resources):
 
 def on_heap(m):
     """Whether a synth's voices go to a heap arena: its pool exceeds the static limit and it
-    declares SDK 1.20 or later."""
+    declares SDK 1.19 or later."""
     return (m.kind == 'synth' and pool_bytes(m.definition['resources']) > STATIC_VOICE_LIMIT and
             m.sdk >= VOICE_HEAP_SDK)
 

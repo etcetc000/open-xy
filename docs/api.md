@@ -46,11 +46,11 @@ figures for standard memory. State usually dominates, since a synth's voice pool
 notes, and one spare voice serves a note that ended as another starts. The SDK
 adds 12 bytes per stock voice index (3 KiB) and 16 per voice.
 
-From SDK 1.20, a synth whose voice pool is larger than 128 KiB keeps its voices
+From SDK 1.19, a synth whose voice pool is larger than 128 KiB keeps its voices
 outside the module, in an arena the SDK reserves from the stock heap the first
 time the synth registers on the audio role at boot
 ([heap voices](abi-1.2.1.md#synth-voices)). Nothing needs declaring: the pool
-size decides. Raising a large synth's `sdk` to 1.20 or later therefore moves its
+size decides. Raising a large synth's `sdk` to 1.19 or later therefore moves its
 voices to the heap. The heap is DDR cached like the module, so the voices run
 the same, at the cost of a pointer load and an index multiply wherever a voice
 is reached. Only the 3 KiB of handles and 16 bytes per voice stay in the module.
@@ -73,7 +73,7 @@ and requires each other machine to fit beside them, as the builder offers it.
 | Limit | Value | Why |
 | --- | --- | --- |
 | Module memory | 2032 KiB for the selected machines | Firmware heap reservation minus the relocated tables |
-| Heap voices | Pools over 128 KiB (SDK 1.20); 1 MiB for a collection | Stock heap held from boot; its headroom is unmeasured |
+| Heap voices | Pools over 128 KiB (SDK 1.19); 1 MiB for a collection | Stock heap held from boot; its headroom is unmeasured |
 | Voices | 1..256 per machine | Stock voice indices |
 | Effect state | 476 bytes | The 480-byte stock FX slot minus its object header |
 | Synth controls | 4 positions, at most 8 parameters, and a Shift row of at most 8 (SDK 1.13) | The stock four-knob page and eight-word parameter vector; the row takes two spare track words |
@@ -125,7 +125,19 @@ host does fast and the Blackfin does not:
   [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers: a
   saturating multiply, (SDK 1.7) a saturating add and (SDK 1.16) a saturating
   left shift, `shift_left`, one instruction each on the device. Use it rather
-  than `<<`, which wraps.
+  than `<<`, which wraps. SDK 1.18 adds `subtract`, an arithmetic
+  `shift_right` and `saturate` (a 64-bit value into Q31), and 1.15 helpers in
+  [`q15.hpp`](../sdk/include/opxy/q15.hpp): `saturate`, `add`, `subtract`,
+  `normalize` (shift out redundant sign bits), `multiply` (truncating) and
+  `multiply_nearest` (rounding). `multiply` is the 1.15 product of two `i16`
+  values; `product` stays the integer 16 x 16 product of two words' low halves.
+  `q31::saturate` is a short compare and select; the others are one or two
+  instructions on the device. All give the same results on the host. None
+  reads or sets the rounding mode: `multiply_nearest` rounds an exact tie in
+  the processor's current mode (unbiased, to even, after reset; the host
+  always rounds to even), so do not depend on which way a tie falls. The two
+  namespaces share names, so call these qualified (`q15::saturate`,
+  `q31::saturate`).
 - **64-bit arithmetic** and floating point may need software helpers. The
   build links only the required authenticated [arithmetic runtime](toolchain.md)
   members; their code counts toward module memory.
@@ -247,7 +259,10 @@ relies on:
 - **R4 to R7 and P3 to P5 are preserved**: push the ones the routine uses
   (`[--SP] = (R7:4, P5:3);`) and pop them before `RTS`. FP and SP are preserved
   too, and RETS when the routine calls anything. R0 to R3, P0 to P2, I0 to I3,
-  M0 to M3, B0 to B3, A0, A1 and ASTAT are free to use.
+  M0 to M3, B0 to B3, A0, A1 and ASTAT are free to use, except ASTAT's
+  rounding mode (`RND_MOD`): code built by the SDK never changes it, so a
+  routine that sets biased rounding saves ASTAT, calls nothing while it is set
+  and restores it before it returns.
 - **L0 to L3 are zero on entry and must be zero on return**: compiled code
   addresses through I0 to I3 assuming no circular buffer. A routine that sets an
   L register for a circular buffer clears it again before it returns.
@@ -1498,7 +1513,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.20 and builds 1.0 to 1.20 machines. From 1.20, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.19 and builds 1.0 to 1.19 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |

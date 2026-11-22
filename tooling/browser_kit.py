@@ -137,7 +137,7 @@ def machine_entry(m, profile, sources, output, preview_cxx):
     # (builder/core.mjs presetFiles).
     if m.kind == 'synth' and synth_shift(m.definition):
         entry['shiftRow'] = True
-    # A synth with heap voices (SDK 1.20): the stock heap it reserves at boot, which the
+    # A synth with heap voices (SDK 1.19): the stock heap it reserves at boot, which the
     # builder refuses to pair with a layout that shrinks that heap (core.mjs linkKit).
     if voice_heap.on_heap(m):
         entry['heapVoices'] = voice_heap.arena_bytes(m)
