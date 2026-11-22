@@ -180,6 +180,7 @@ int main() {
     sdk_drum_released = 1;
     opxy::i32 output[opxy::block_frames];
     block(1, key, output);
+    CHECK(!sdk_drum_released);   // taken by this render alone
     // Each frame is the product times the level, so a full level is one LSB under.
     CHECK(near(output[0], one) && output[1] < output[0] && output[31] > 0 && output[33] == 0 && output[63] == 0);
     // Silent within the block, it is freed once the block is mixed.
@@ -198,6 +199,15 @@ int main() {
     CHECK(flat(1, key) == one);
     block(1, key, output);
     CHECK(near(output[0], one) && output[33] == 0);
+    // A hold of 0 lets the attack finish before the fade begins.
+    key[2] = opxy::platform::kit_amp_store(key[2], 0x40000000);
+    key[3] = opxy::platform::kit_amp_store(key[3], 0);
+    note(1, 53);
+    block(1, key, output);
+    CHECK(output[0] == 0 && near(output[17], one) && near(output[63], one));
+    block(1, key, output);
+    CHECK(near(output[0], one) && output[33] == 0 && !is_active(1));
+    key[2] = opxy::platform::kit_amp_store(key[2], 0);
     // A key the kit has not marked plays the kit's defaults (this fixture's: the
     // template's, attack 8192: a rise from silence).
     opxy::i32 unmarked[8] = {0, 0, 0, 0, 0, 0, 0, 1 << 27};

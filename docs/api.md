@@ -1015,7 +1015,11 @@ kit compiles the SDK's code as before. They play on keys the kit has marked as
 its own (any edit, scramble, reset or kit preset marks a key): a key never
 marked plays at 0 dB, with no random and the kit's default amp envelope,
 whatever stock left in its record. The first time the kit marks a key it sets
-the key's volume to 0 dB and its random to none, so it sounds as it did.
+the key's volume to 0 dB and its random to none, so it sounds as it did. A key
+an older version of the kit marked keeps what stock left there: when an existing
+kit adds `padVolume` or `padRandom`, such keys in saved projects can play a level
+or random of stock's (its default kit gives the last key about 30% random) until
+they are set on Shift.
 
 - **`padVolume`**: Shift and the third encoder set the selected key's volume:
   stock's own per-pad level, in whole dB from -30 to +20, one a detent, 0 dB by
@@ -1040,7 +1044,7 @@ the key's volume to 0 dB and its random to none, so it sounds as it did.
   The adapter shapes each note with them after stock's gain, as stock's drum
   sampler shapes a sample: the attack is a linear fade-in by stock's own step
   table (0 starts at full); the hold is when the fade-out begins, hold × 2 s
-  (full holds to the end); the decay is the fade-out's length (about 4 ms at 0
+  after the attack is over (full holds to the end); the decay is the fade-out's length (about 4 ms at 0
   to 0.97 s at full); the start has no use without a sample. A note-off starts
   the fade-out at the decay's rate, and a note faded to silence is freed. A key
   keeps its values in its pad record, so they are saved with the project and
@@ -1048,7 +1052,9 @@ the key's volume to 0 dB and its random to none, so it sounds as it did.
   without its own (one never edited on M2, a key of a loaded preset, or every
   key of a project saved before the kit declared `ampEnvelope`) plays and shows
   the kit's defaults, its init preset's amp `attack`, `decay`, `sustain` and
-  `release` (`presetDefaults`), which land on start, attack, hold and decay. A
+  `release` (`presetDefaults`), which land on start, attack, hold and decay.
+  The shared template's give a short fade-in (its amp `decay` is M2's attack);
+  set `presetDefaults.amp.decay` to 0 for an instant attack. A
   note takes its key's values when it first renders; step locks and modulation
   of the amp words do not reach it.
 

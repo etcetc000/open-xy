@@ -115,19 +115,26 @@ template <u32 Controls, bool Choke> struct DrumKitVoice {
         e.level = rise ? 0 : 0x7fffffff;
         e.rise = kKitAttackSteps[rise];
         e.fall = -kKitFadeSteps[amp_index(decay)];
-        // Hold: the fade-out begins after hold x 2 s (1378 blocks); at full, never.
+        // Hold: the fade-out begins hold x 2 s (1378 blocks) after the attack has reached
+        // full scale; at full, never.
         e.hold = hold < 0x7fff0000 ? (static_cast<u32>(hold < 0 ? 0 : hold) >> 16) * 1378u >> 15 : ~0u;
     }
     // The amplitude pass: false leaves it to the adapter's own. With ampEnvelope, in
     // a block the envelope shapes (attack not over, or fading out), each frame's
     // product with the gain vector times the level, which then steps, staying at or
-    // above zero; the fade begins at the hold point or the note-off.
+    // above zero; the fade begins at the hold point, counted once the attack is over (so
+    // a hold of 0 still lets the attack finish), or at the note-off. The note-off is
+    // the hook's for this voice's render (drum_amp_envelope.cpp), taken and cleared here
+    // so no later render reads it.
     static bool shape(State& s, i32* output, const i32* amplitude, const i32* region, const i32* defaults) {
         if (!amp) return false;
         DrumAmp& e = s.amp;
         if (!e.started) amp_draw(e, region, defaults);
-        if (sdk_drum_released || e.blocks >= e.hold) e.fading = 1;
-        if (e.blocks < 0xffffffffu) ++e.blocks;
+        const bool released = sdk_drum_released;
+        sdk_drum_released = 0;
+        const bool full = e.level == 0x7fffffff;
+        if (released || (full && e.blocks >= e.hold)) e.fading = 1;
+        else if (full && e.blocks < 0xffffffffu) ++e.blocks;
         const i32 step = e.fading ? e.fall : e.level == 0x7fffffff ? 0 : e.rise;
         if (!step) return false;
         i32 level = e.level;

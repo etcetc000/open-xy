@@ -1476,7 +1476,7 @@ of stock's ADSR stepper (`8d50e358`) at `8d51b38a`, made for every drum voice ju
 before its render (`8d51b55a`), with the voice's filter envelope at `+0x2c` and
 track words 32..35: the wrapper publishes the voice's amp release request (voice
 `+0x29`, set by the note-off at `8d51a928`, or at the note's start when its gate
-has already closed, `8d51afc4`) for the render that follows, then calls the
+has already closed, `8d51afc4`) for the render that follows (whose adapter takes and clears it), then calls the
 stepper unchanged, so the filter envelope is stock's for every kit.
 
 The shared GUI units reach the controls' unit (`drum_kit_controls.cpp`) only in a
