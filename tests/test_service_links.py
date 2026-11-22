@@ -5,7 +5,7 @@ padMix kit, a Shift-row synth or a drumline_page extension; units every build li
 them or answers 0. These link a synth alone, a kit without padMix and a padMix kit with
 the pinned Blackfin tools, and check that a browser selection without a service finds a
 fallback for every symbol a shared object imports from it. The last links the 1.16
-fixture kit alone and beside the 1.18 one: only with the 1.18 kit does the build link
+fixture kit alone and beside the 1.21 one: only with the 1.21 kit does the build link
 the played_pad service's snapshot (drum_trigger.cpp).
 """
 import copy
@@ -143,15 +143,15 @@ class ServiceLinks(unittest.TestCase):
                               ('size', 'write', 'begin', 'byte', 'loaded', 'held_value', 'held_set', 'frame')})
 
 
-    def test_only_a_kit_declaring_sdk_1_18_links_the_played_pad_snapshot(self):
-        # A real build of the 1.16 fixture kit, alone and beside the 1.18 one: the Python
-        # path compiles and links sdk_drum_trigger only with the 1.18 kit, and the browser
+    def test_only_a_kit_declaring_sdk_1_21_links_the_played_pad_snapshot(self):
+        # A real build of the 1.16 fixture kit, alone and beside the 1.21 one: the Python
+        # path compiles and links sdk_drum_trigger only with the 1.21 kit, and the browser
         # path (builder/core.mjs linkKit, over the same objects) links it only when the
-        # 1.18 kit is selected.
+        # 1.21 kit is selected.
         import base64
         from tooling import browser_kit
         from tooling.machines import FIXED_NUMBERS, read_collection
-        kits = [FIXTURES / 'probekit16', FIXTURES / 'probekit18']
+        kits = [FIXTURES / 'probekit16', FIXTURES / 'probekit21']
         with tempfile.TemporaryDirectory(prefix='links-played-') as folder:
             out, report = self.compile(Path(folder) / 'old', kits[0])
             self.assertNotIn('played_pad', report['services'])
@@ -182,14 +182,14 @@ process.stdout.write(JSON.stringify(selections.map(selection => {
           services: [...linked.services]};
 })));
 """ % json.dumps((ROOT / 'builder/core.mjs').as_uri())
-            selections = [['probekit16'], ['probekit18'], ['probekit16', 'probekit18']]
+            selections = [['probekit16'], ['probekit21'], ['probekit16', 'probekit21']]
             result = subprocess.run(['node', '--input-type=module', '-e', script], capture_output=True, text=True,
                                     encoding='utf-8', cwd=ROOT, timeout=120,
                                     input=json.dumps(dict(kit=kit, objects=objects, selections=selections)))
             self.assertEqual(result.returncode, 0, result.stderr[-4000:])
             for selection, linked in zip(selections, json.loads(result.stdout)):
                 with self.subTest(selection=selection):
-                    expected = 'probekit18' in selection
+                    expected = 'probekit21' in selection
                     self.assertEqual('sdk/drum_trigger.o' in linked['objects'], expected)
                     self.assertEqual(linked['trigger'], expected)
                     self.assertEqual('played_pad' in linked['services'], expected)

@@ -96,13 +96,8 @@ another open pull request, and every other open pull request that claimed the
 same number renumbers when it rebases (its author does, or the maintainers
 when they rebase it), together with its "From SDK 1.x" documentation and
 version gates. Each drawing ABI appends to `draw::Input`
-after the previous one's last field. For example, with the played-pad snapshot
-as drawing ABI 7 (a 152-byte input), the next pull request to land a new field
-takes ABI 8 and appends it at offset 152: one that had proposed a 4-byte field
-at offset 112 for ABI 7 puts it at 152, a 156-byte input, with its
-`PreviewDisplay.tick` argument after the snapshot's, and the one after it takes
-ABI 9 after that field. A pull request that claimed SDK 1.17 after another took
-it moves to the next free version.
+after the previous one's last field, at the previous input's size, and its
+`PreviewDisplay.tick` argument follows the previous last argument.
 
 In a PR, explain the behavior, how to try it, compatibility changes and checks
 run. For a device observation, include the exact image/asset hashes and what you

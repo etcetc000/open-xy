@@ -155,6 +155,8 @@ const fits = (requested, numbers) => Object.keys(requested).length === Object.ke
 // each content folder. A machine named after one would overwrite stock's file or write into
 // stock's folder, and stock can then fail at boot, so the name is refused. Case is ignored,
 // as tooling/device.py assumes the device's FAT storage does.
+// tooling.screen.CANVAS: a whole-screen canvas's display file before its artwork.
+const CANVAS_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220"></svg>';
 export const machineContentPaths = id => [`content/display/${id}.svg`, `content/presets/${id}`,
   `content/samples/${id}`, `content/aux_presets/${id}`];
 export function stockContentFile(profile, path) {
@@ -610,7 +612,8 @@ export function expandedProfile(profile) {
 // The kit linked and patched for the chosen memory; the reviewed kit is unchanged.
 export const memoryKit = (kit, expanded) => {
   check(typeof expanded === 'boolean', 'Expanded memory must be a boolean');
-  return expanded ? {...kit, profile: expandedProfile(kit.profile)} : kit;
+  // experimental marks the kit (not the profile, which matches the release check's) for linkKit.
+  return expanded ? {...kit, profile: expandedProfile(kit.profile), experimental: true} : kit;
 };
 const screenTemplateOk = async kit => typeof kit.screenTemplate === 'string' &&
   await sha256(utf8.encode(kit.screenTemplate)) === kit.profile.screen_template_sha256;
@@ -765,6 +768,15 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const numbers = assignNumbers(kit, selection, layout);
   const definitions = {...kit.definitions, ...numberSymbols(kit, selection, numbers)};
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
+  // Heap voices (SDK 1.20) hold stock heap from boot; with a layout that shrinks that heap
+  // further their headroom is unknown, so the pair is refused (tooling/voice_heap.py).
+  const heapSynths = kit.machines.filter(m => selected.has(m.id) && m.heapVoices);
+  if (kit.experimental === true && heapSynths.length) {
+    const error = new Error(`${heapSynths.map(m => m.name).join(', ')} keep their voices in the stock heap, which ` +
+      'the experimental memory makes smaller: build with standard memory.');
+    error.heapVoices = true;
+    throw error;
+  }
   const services = activeServices(kit.profile, [...kit.machines.filter(m => selected.has(m.id)),
     ...(kit.extensions?.some(e => extensions.has(e.id) && e.linked !== false) ? [{kind: 'extension'}] : []),
     ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : []),
@@ -1159,10 +1171,7 @@ export function presetPath(machine) {
   return `content/presets/${machine.id}/default.json`;
 }
 
-// The machine's init preset, then its own presets (tooling.machines.read_presets):
-// each a version 4 preset of this machine, pointing at no samples: a kit empties the
-// regions of those loading a sample engine's own samples, which the builder doesn't
-// install (tooling.browser_kit.kit_presets). Its own default replaces the generated init preset.
+// A synthesis kit's 24 sample-free pad records (SDK 1.21), as tooling.machines checks them.
 function drumPresetRegions(regions) {
   return Array.isArray(regions) && regions.length === 24 && regions.every((region,index) =>
     region && typeof region === 'object' && !Array.isArray(region) && region.model === 'fm slap' &&
@@ -1173,6 +1182,10 @@ function drumPresetRegions(regions) {
     (!Object.hasOwn(region,'hikey') || region.hikey === 53+index));
 }
 
+// The machine's init preset, then its own presets (tooling.machines.read_presets):
+// each a version 4 preset of this machine, pointing at no samples: a kit empties the
+// regions of those loading a sample engine's own samples, which the builder doesn't
+// install (tooling.browser_kit.kit_presets). Its own default replaces the generated init preset.
 export function presetFiles(machine) {
   // An aux machine's presets: the files the kit generated (tooling.adapters.aux_preset_files).
   if (machine.catalog === '') {
@@ -1342,7 +1355,9 @@ export async function buildAssets(kit, selection, catalog, numbers, options = {}
       check(files['content/display/' + m.asset] === undefined, 'Display asset collision: ' + m.asset);
       try {
         const fragment = selectArtwork(m, graphicsForMachine(m, {graphics, graphicsOverrides}));
-        const artwork = baseSvg.replace('</svg>', fragment + '</svg>');
+        // A whole-screen canvas (fullCanvas) leaves the stock header out (tooling.screen.compose).
+        check(m.fullCanvas === undefined || m.fullCanvas === 0 || m.fullCanvas === 1, 'Invalid full canvas flag');
+        const artwork = (m.fullCanvas === 1 ? CANVAS_SVG : baseSvg).replace('</svg>', fragment + '</svg>');
         files['content/display/' + m.asset] = utf8.encode(artwork);
       } catch (error) {
         throw new Error('Could not prepare ' + m.id + ' graphics: ' + error.message + '. Keep this machine’s original design or use corrected artwork.');

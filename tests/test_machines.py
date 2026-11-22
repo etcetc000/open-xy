@@ -63,13 +63,13 @@ class DrumPresets(unittest.TestCase):
         empty = dict(self.preset(), regions=[])
         self.assertIs(machines.check_preset(empty, 'kit', kind='drum', pad_mix=True), empty)
 
-    def test_drum_features_require_sdk_1_18(self):
+    def test_drum_features_require_sdk_1_21(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve() / 'probesynth'
             shutil.copytree(FOLDER / 'probesynth', root)
             record_path, definition_path = root / 'machine.json', root / 'definition.json'
             record = json.loads(record_path.read_text())
-            record.update(kind='drum', sdk='1.18')
+            record.update(kind='drum', sdk='1.21')
             record.pop('identity', None)
             definition = json.loads(definition_path.read_text())
             definition['presets'] = {}
@@ -100,36 +100,36 @@ class DrumPresets(unittest.TestCase):
                         with self.assertRaisesRegex(ValueError, 'padMix'):
                             machines.machine_at(root)
                         definition_path.write_text(json.dumps(settings))
-                    # Refused by every earlier SDK, the last one before 1.18 included.
-                    for earlier in ('1.17', '1.16', '1.10'):
+                    # Refused by every earlier SDK, the last one before 1.21 included.
+                    for earlier in ('1.20', '1.17', '1.10'):
                         current['sdk'] = earlier
                         record_path.write_text(json.dumps(current))
-                        with self.subTest(sdk=earlier), self.assertRaisesRegex(ValueError, '1.18'):
+                        with self.subTest(sdk=earlier), self.assertRaisesRegex(ValueError, '1.21'):
                             machines.machine_at(root)
 
     def test_the_fixture_kits_differ_only_in_their_sdk(self):
-        # probekit16 and probekit18 build the kit rows of an image-size comparison. Their
+        # probekit16 and probekit21 build the kit rows of an image-size comparison. Their
         # ids and names are the same length and every file is the same but for them and
-        # the declared SDK, so a build differs only by what SDK 1.18 opts into.
+        # the declared SDK, so a build differs only by what SDK 1.21 opts into.
         from tooling import native
-        old, new = fixture('probekit16'), fixture('probekit18')
-        self.assertEqual((old.kind, old.sdk, new.kind, new.sdk), ('drum', (1, 16), 'drum', (1, 18)))
+        old, new = fixture('probekit16'), fixture('probekit21')
+        self.assertEqual((old.kind, old.sdk, new.kind, new.sdk), ('drum', (1, 16), 'drum', (1, 21)))
         self.assertEqual((len(old.id), len(old.name), old.description), (len(new.id), len(new.name), new.description))
         for name in sorted(path.name for path in (FOLDER / 'probekit16').iterdir()):
             with self.subTest(file=name):
                 self.assertEqual(sorted(path.name for path in (FOLDER / 'probekit16').iterdir()),
-                                 sorted(path.name for path in (FOLDER / 'probekit18').iterdir()))
+                                 sorted(path.name for path in (FOLDER / 'probekit21').iterdir()))
                 text = lambda kit, digits: ((FOLDER / kit / name).read_text(encoding='utf-8')
                                             .replace(kit, 'ID').replace('Probe Kit ' + digits, 'NAME')
                                             .replace('"sdk": "1.%s"' % digits, '"sdk": SDK'))
-                self.assertEqual(text('probekit16', '16'), text('probekit18', '18'))
+                self.assertEqual(text('probekit16', '16'), text('probekit21', '21'))
         units = lambda m: {step for _name, owner, step in native.plan(native.Collection([m])) if owner is None}
         self.assertEqual(units(new) - units(old), {'drum_trigger'})
         self.assertEqual(units(old) - units(new), set())
 
-    def test_any_preset_with_records_needs_sdk_1_18(self):
+    def test_any_preset_with_records_needs_sdk_1_21(self):
         # The gate is on the kit, not on each preset: one preset with records among
-        # empty ones needs SDK 1.18, whichever order the folder lists them in.
+        # empty ones needs SDK 1.21, whichever order the folder lists them in.
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve() / 'probesynth'
             shutil.copytree(FOLDER / 'probesynth', root)
@@ -156,11 +156,11 @@ class DrumPresets(unittest.TestCase):
                 for index, value in enumerate(values):
                     (root / 'presets' / ('preset%d.json' % index)).write_text(json.dumps(value))
                 with_records = any(value['regions'] for value in values)
-                for sdk in ('1.10', '1.16', '1.17', '1.18'):
+                for sdk in ('1.10', '1.17', '1.20', '1.21'):
                     record_path.write_text(json.dumps(dict(record, sdk=sdk)))
                     with self.subTest(case=name, sdk=sdk):
-                        if with_records and sdk != '1.18':
-                            with self.assertRaisesRegex(ValueError, 'Sample-free drum-kit preset records.*1.18'):
+                        if with_records and sdk != '1.21':
+                            with self.assertRaisesRegex(ValueError, 'Sample-free drum-kit preset records.*1.21'):
                                 machines.machine_at(root)
                         else:
                             loaded = machines.machine_at(root)

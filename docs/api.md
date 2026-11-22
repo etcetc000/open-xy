@@ -46,6 +46,26 @@ figures for standard memory. State usually dominates, since a synth's voice pool
 notes, and one spare voice serves a note that ended as another starts. The SDK
 adds 12 bytes per stock voice index (3 KiB) and 16 per voice.
 
+From SDK 1.19, a synth whose voice pool is larger than 128 KiB keeps its voices
+outside the module, in an arena the SDK reserves from the stock heap the first
+time the synth registers on the audio role at boot
+([heap voices](abi-1.2.1.md#synth-voices)). Nothing needs declaring: the pool
+size decides. Raising a large synth's `sdk` to 1.19 or later therefore moves its
+voices to the heap. The heap is DDR cached like the module, so the voices run
+the same, at the cost of a pointer load and an index multiply wherever a voice
+is reached. Only the 3 KiB of handles and 16 bytes per voice stay in the module.
+A machine declaring an older SDK keeps every voice in the module, as before.
+
+Heap voices are held from boot until the OP-XY is switched off, unlike sample
+analysis memory, which comes and goes with samples. How much of the stock heap
+stays free under a heavy project has not been measured, so a collection's heap
+voices may take at most 1 MiB, apart from the analysis budgets, and the
+builder's experimental 4 MiB option, which shrinks the heap, refuses a
+selection with heap voices. `sdk.py compile` lists each heap synth's arena;
+the builder's memory meter shows only module memory. The 1 MiB is checked over
+the whole collection a build or browser kit is made from, not each selection.
+Should the heap refuse at boot, that synth plays silence.
+
 The limit applies to what someone installs, not to the whole catalog. When a
 collection doesn't fit at once, `sdk.py compile` links Open-XY's own machines
 and requires each other machine to fit beside them, as the builder offers it.
@@ -53,12 +73,13 @@ and requires each other machine to fit beside them, as the builder offers it.
 | Limit | Value | Why |
 | --- | --- | --- |
 | Module memory | 2032 KiB for the selected machines | Firmware heap reservation minus the relocated tables |
+| Heap voices | Pools over 128 KiB (SDK 1.19); 1 MiB for a collection | Stock heap held from boot; its headroom is unmeasured |
 | Voices | 1..256 per machine | Stock voice indices |
 | Effect state | 476 bytes | The 480-byte stock FX slot minus its object header |
 | Synth controls | 4 positions, at most 8 parameters, and a Shift row of at most 8 (SDK 1.13) | The stock four-knob page and eight-word parameter vector; the row takes two spare track words |
 | Sample and effect controls | 1..8 | The stock eight-word parameter vector |
 | Control labels | 8 characters | The stock parameter page |
-| Display shape | ≤ 4 paths of ≤ 64 points, ≤ 512 nodes (more than 256 need `"sdk": "1.8"`), ≤ 16 text slots (more than 4 need `"sdk": "1.3"`), ≤ 16 palette entries | Fixed-size renderer object and frame |
+| Display shape | ≤ 4 paths of ≤ 64 points, ≤ 512 nodes (more than 256 need `"sdk": "1.8"`), ≤ 16 text slots (more than 4 need `"sdk": "1.3"`), ≤ 16 palette entries; a synth or effect's [extended drawing](display.md#extended-drawing) (`"sdk": "1.20"`) up to 32 paths sharing 256 points | Fixed-size renderer object and frame |
 
 `voiceBytes`, `sharedBytes` and display state have no limit of their own
 beyond whole words and module memory. Browser previews run 8 voices in
@@ -104,7 +125,19 @@ host does fast and the Blackfin does not:
   [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers: a
   saturating multiply, (SDK 1.7) a saturating add and (SDK 1.16) a saturating
   left shift, `shift_left`, one instruction each on the device. Use it rather
-  than `<<`, which wraps.
+  than `<<`, which wraps. SDK 1.18 adds `subtract`, an arithmetic
+  `shift_right` and `saturate` (a 64-bit value into Q31), and 1.15 helpers in
+  [`q15.hpp`](../sdk/include/opxy/q15.hpp): `saturate`, `add`, `subtract`,
+  `normalize` (shift out redundant sign bits), `multiply` (truncating) and
+  `multiply_nearest` (rounding). `multiply` is the 1.15 product of two `i16`
+  values; `product` stays the integer 16 x 16 product of two words' low halves.
+  `q31::saturate` is a short compare and select; the others are one or two
+  instructions on the device. All give the same results on the host. None
+  reads or sets the rounding mode: `multiply_nearest` rounds an exact tie in
+  the processor's current mode (unbiased, to even, after reset; the host
+  always rounds to even), so do not depend on which way a tie falls. The two
+  namespaces share names, so call these qualified (`q15::saturate`,
+  `q31::saturate`).
 - **64-bit arithmetic** and floating point may need software helpers. The
   build links only the required authenticated [arithmetic runtime](toolchain.md)
   members; their code counts toward module memory.
@@ -226,7 +259,10 @@ relies on:
 - **R4 to R7 and P3 to P5 are preserved**: push the ones the routine uses
   (`[--SP] = (R7:4, P5:3);`) and pop them before `RTS`. FP and SP are preserved
   too, and RETS when the routine calls anything. R0 to R3, P0 to P2, I0 to I3,
-  M0 to M3, B0 to B3, A0, A1 and ASTAT are free to use.
+  M0 to M3, B0 to B3, A0, A1 and ASTAT are free to use, except ASTAT's
+  rounding mode (`RND_MOD`): code built by the SDK never changes it, so a
+  routine that sets biased rounding saves ASTAT, calls nothing while it is set
+  and restores it before it returns.
 - **L0 to L3 are zero on entry and must be zero on return**: compiled code
   addresses through I0 to I3 assuming no circular buffer. A routine that sets an
   L register for a circular buffer clears it again before it returns.
@@ -904,7 +940,7 @@ const char* parameter_name(opxy::u32 model, opxy::u32 slot);
 opxy::u32 parameter_count(opxy::u32 model); // 0..8: slots 0 to count - 1 are used
 ```
 
-From SDK 1.18 a kit can declare `resources.parameterEdit: 1` and add this callback in
+From SDK 1.21 a kit can declare `resources.parameterEdit: 1` and add this callback in
 `core.h` and its engine:
 
 ```cpp
@@ -1134,7 +1170,7 @@ means 0. Callbacks are functions in the machine's namespace.
 | `chokeSameKey` | 0 or 1 | A note silences earlier voices on the same track and key (drum sampler base: the same pad, at any octave) | |
 | `padControls` | Up to two `{label, bits, signed}` fields, 1..7 bits each (2..8 signed), 9 in all; needs `padMix` | Each key's own small settings on Shift's second row ([drum kits](#synthesis-drum-kits)) | `drum_pad`, `pad_control_text` |
 | `padMix` | 0 or 1; drum kits, SDK 1.10 | Shift: the model, choke group and each key's stock pan and level; on the second row the key's pad controls and its own FX I and FX II sends; a held step locks pan, level, pad controls and sends per hit ([drum kits](#synthesis-drum-kits)) | |
-| `parameterEdit` | 0 or 1; drum kits, SDK 1.18 | A turn of an available control (below the model's count and named), without Shift and with no step held, asks the kit for the control's next stored value instead of moving it one unit a detent ([drum kits](#synthesis-drum-kits)) | `edit_parameter` |
+| `parameterEdit` | 0 or 1; drum kits, SDK 1.21 | A turn of an available control (below the model's count and named), without Shift and with no step held, asks the kit for the control's next stored value instead of moving it one unit a detent ([drum kits](#synthesis-drum-kits)) | `edit_parameter` |
 | `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
 | `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |
@@ -1503,7 +1539,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.18 and builds 1.0 to 1.18 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.21 and builds 1.0 to 1.21 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
@@ -1539,7 +1575,7 @@ firmware that holds it.
   [Shift row](#a-synths-shift-row) keeps it in up to 24 regions that point at
   no sample.
 
-From SDK 1.18 a synthesis drum kit without `padMix` may store exactly 24 sample-free pad records instead of empty
+From SDK 1.21 a synthesis drum kit without `padMix` may store exactly 24 sample-free pad records instead of empty
 `regions`: `model` is `"fm slap"` (the stored-pad marker), `params` holds four packed
 Q15 words, and optional `playmode` selects a stock choke/play mode. Optional `hikey`
 is the canonical key 53..76 in pad order. No other fields or sample paths are

@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "id": "probekit18",
-  "name": "Probe Kit 18",
+  "id": "probelarge",
+  "name": "Probe Large",
   "parameters": [
     {
       "id": "shape",
@@ -50,54 +50,6 @@
         "maximum": 4000
       },
       "display": "duration"
-    },
-    {
-      "id": "extra0",
-      "label": "Extra 0",
-      "default": 0.5,
-      "mapping": {
-        "kind": "linear",
-        "minimum": 0,
-        "maximum": 1
-      },
-      "display": "percent",
-      "control": 0
-    },
-    {
-      "id": "extra1",
-      "label": "Extra 1",
-      "default": 0.5,
-      "mapping": {
-        "kind": "linear",
-        "minimum": 0,
-        "maximum": 1
-      },
-      "display": "percent",
-      "control": 1
-    },
-    {
-      "id": "extra2",
-      "label": "Extra 2",
-      "default": 0.5,
-      "mapping": {
-        "kind": "linear",
-        "minimum": 0,
-        "maximum": 1
-      },
-      "display": "percent",
-      "control": 2
-    },
-    {
-      "id": "extra3",
-      "label": "Extra 3",
-      "default": 0.5,
-      "mapping": {
-        "kind": "linear",
-        "minimum": 0,
-        "maximum": 1
-      },
-      "display": "percent",
-      "control": 3
     }
   ],
   "presets": {},
@@ -110,12 +62,12 @@
     "display": {
       "stateBytes": 4,
       "stateAlignment": 4,
-      "paths": 2,
-      "points": 64,
-      "nodes": 2,
+      "paths": 6,
+      "points": 4,
+      "nodes": 6,
       "texts": 0,
-      "palette": 16
-    },
-    "modelCount": 2
+      "palette": 4,
+      "cubic": 1
+    }
   }
 }

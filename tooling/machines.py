@@ -15,10 +15,11 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import (ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
+from .definitions import (EXTENDED_SDK, extended_display, ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
+from . import voice_heap
 from .pipeline import config
 
 KINDS = ('synth', 'drum', 'sample', 'effect', 'player')
@@ -63,8 +64,16 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # (resources.voiceCapacity); and adds the sample kernel
 # (opxy/sample_kernel.hpp): a sample voice's interpolation, level and crossfade
 # as one SDK routine.
-# 1.18 adds per-model drum value editing, played-pad display snapshots and sample-free kit presets.
-SDK_VERSION = (1, 18)
+# 1.18 adds saturating 1.15 helpers to opxy/q15.hpp and saturate, subtract and
+# shift_right to opxy/q31.hpp.
+# 1.19 keeps a synth's voices in an arena reserved from the stock heap at boot
+# when its voice pool exceeds 128 KiB (voice_heap.py).
+# 1.20 adds extended drawing for synth and effect screens (docs/display.md#extended-drawing):
+# affine nodes, direct colour, a whole-screen canvas, curves, open, segmented and counted
+# paths and larger path budgets; the encoders' activity, and a synth's last control
+# touched (opxy/control_interaction.hpp).
+# 1.21 adds per-model drum value editing, played-pad display snapshots and sample-free kit presets.
+SDK_VERSION = (1, 21)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -292,7 +301,7 @@ def check_preset(value, identity, samples=None, shift=False, kind='synth', pad_m
     or, for a sample engine shipping its own (SDK 1.10), at one of them. A synth with a
     Shift row (SDK 1.13) saves it as Drumline saves its keys, in sample-less regions
     (docs/abi-1.2.1.md#a-synths-shift-row), which it may keep. A drum kit without padMix
-    (SDK 1.18) may keep its 24 pad records; a padMix kit's records also carry each key's
+    (SDK 1.21) may keep its 24 pad records; a padMix kit's records also carry each key's
     level and pad word (`gain`, `random`), whose saved form the SDK does not check yet, so
     its presets keep empty regions."""
     engine = value.get('engine') if isinstance(value, dict) else None
@@ -560,7 +569,7 @@ def machine_at(root, identity=None):
         # One gate for a kit's per-key mixer: pan, level, pad controls and sends.
         require_sdk(version, (1, 10), "A drum kit's per-key mixer (padMix, padControls)")
     if definition['resources'].get('parameterEdit'):
-        require_sdk(version, (1, 18), 'Per-model drum value editing (parameterEdit)')
+        require_sdk(version, (1, 21), 'Per-model drum value editing (parameterEdit)')
     # Only a set flag needs 1.12: an explicit 0 is the mono, callback-free default.
     if kind == 'synth' and any(definition['resources'].get(k) for k in ('stereoOutput', 'releaseCallback')):
         require_sdk(version, (1, 12), 'Stereo synth output and voice release callbacks (stereoOutput, releaseCallback)')
@@ -602,6 +611,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 3), 'More than %d display text slots' % SDK_1_2_TEXTS)
     if 'display' in definition['resources'] and definition['resources']['display']['texts'] > SDK_1_6_TEXTS:
         require_sdk(version, (1, 7), 'More than %d display text slots' % SDK_1_6_TEXTS)
+    if 'display' in definition['resources'] and extended_display(definition['resources']['display']):
+        require_sdk(version, EXTENDED_SDK, 'Extended drawing (docs/display.md#extended-drawing)')
     if definition['resources'].get('display', {}).get('nodes', 0) > SDK_1_7_NODES:
         require_sdk(version, (1, 8), 'More than %d display nodes' % SDK_1_7_NODES)
     require(definition['id'] == identity, 'Machine directory and definition identity disagree')
@@ -640,6 +651,9 @@ def machine_at(root, identity=None):
     if reads_sample_overview(root, 'synth_shift'):
         require_sdk(version, (1, 13), "A synth's Shift row on its display (opxy/synth_shift.hpp)")
         require(synth_shift(definition), 'Only a synth with a Shift row ("shift") reads opxy/synth_shift.hpp')
+    if reads_sample_overview(root, 'control_interaction'):
+        require_sdk(version, EXTENDED_SDK, 'The last control touched (opxy/control_interaction.hpp)')
+        require(kind == 'synth', "Only a synth's own screen reads opxy/control_interaction.hpp")
     if reads_sample_overview(root, 'sample_kernel'):
         require_sdk(version, (1, 17), 'The sample kernel (opxy/sample_kernel.hpp)')
     native = read_native(root, identity)
@@ -676,7 +690,7 @@ def machine_at(root, identity=None):
         presets = read_presets(root, value['presets'], identity, samples, shift=bool(synth_shift(definition)), kind=kind,
                                pad_mix=kind == 'drum' and bool(definition['resources'].get('padMix', 0)))
         if kind == 'drum' and any(preset['regions'] for preset in presets.values()):
-            require_sdk(version, (1, 18), 'Sample-free drum-kit preset records')
+            require_sdk(version, (1, 21), 'Sample-free drum-kit preset records')
     if samples:
         # Every sample is there for a preset: one no preset loads only takes up the player's storage.
         loaded = {region['sample'] for preset in (presets or {}).values() for region in preset['regions']}
@@ -933,10 +947,11 @@ def collection(entries=None, layout=None):
 
 
 def check_analysis_budgets(machines):
-    """Every machine's analysis budget comes from one stock-heap allowance."""
+    """Every machine's analysis budget comes from one stock-heap allowance; heap voice arenas have their own."""
     total = sum(m.definition['resources'].get('sampleAnalysis', 0) for m in machines if m.kind == 'sample')
     require(total <= ANALYSIS_HEAP_LIMIT,
             'Sample analysis budgets exceed the collection limit of %d bytes' % ANALYSIS_HEAP_LIMIT)
+    voice_heap.check_budget(machines)
 
 
 def by_kind(machines, *kinds):

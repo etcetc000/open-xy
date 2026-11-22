@@ -6,8 +6,9 @@ import { headerSvg } from '../sdk/browser/display.mjs';
 // shown[i] (its own or an alternate); header holds the display's own text for
 // a position, or '' for the formatted value. shiftHeld: a synth's Shift row (SDK 1.13)
 // shows in the header, the entries under the page the positions are on.
+// fullCanvas: an extended display that owns the whole screen, without the header.
 export function renderScreen(values, view, samples = null, graphics = '', controls, shown = [0, 1, 2, 3], header = ['', '', '', ''],
-                             shiftHeld = false) {
+                             shiftHeld = false, fullCanvas = false) {
   const selected = controls;
   const title = selected.definition.name;
   let drawing;
@@ -32,6 +33,6 @@ export function renderScreen(values, view, samples = null, graphics = '', contro
   }
   return `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220" role="img" aria-label="${title} ${view} screen">
     <rect width="480" height="220" fill="#000000"/>
-    ${view === 'waveform' ? drawing + headerSvg(titles, shownValues) : headerSvg(titles, shownValues) + drawing}
+    ${fullCanvas && view !== 'waveform' ? drawing : view === 'waveform' ? drawing + headerSvg(titles, shownValues) : headerSvg(titles, shownValues) + drawing}
     </svg>`;
 }

@@ -21,12 +21,12 @@ draw::Input display_input;
 binding::Frame display_frame;
 
 // The track's note-start counter: stock counts live and sequenced note starts
-// alike. A synth's, a sample engine's and, from SDK 1.18, a drum kit's serial,
+// alike. A synth's, a sample engine's and, from SDK 1.21, a drum kit's serial,
 // which reads the played pad from its snapshot (sdk_drum_trigger).
 u32 track_note_serial(const Controls& controls) {
     return controls.track < 8 ? note_serial(controls.track) : 0;
 }
-// A drum kit declaring SDK 1.17 or earlier keeps the serial it was written
+// A drum kit declaring an SDK before 1.21 keeps the serial it was written
 // against: its display is struck only by its selected pad's notes. Audio and
 // GUI are separate roles, so this reads only GUI state: when stock's note
 // counter moves, the pitches that started since the last frame (newly held,
@@ -63,7 +63,7 @@ u32 selected_pad_serial(const Controls& controls) {
     return s.serial;
 }
 extern "C" void sdk_drum_trigger(u32, draw::Input*) __asm__("sdk_drum_trigger");
-// A 1.18 kit's played-pad snapshot names no pad (all zero) until the track's
+// A 1.21 kit's played-pad snapshot names no pad (all zero) until the track's
 // serial moves after the screen's activation or a track change, so the screen
 // never shows a pad from stock's last-played byte before its first hit there
 // (that byte keeps an earlier track's or kit's key, or whatever it holds at
@@ -130,7 +130,7 @@ template <class Machine> struct Drawing {
         for (u32 i = 0; i < 4; ++i) display_input.choices[i] = controls.choices[i];
         display_input.elapsed = o->delta;
         display_input.track = controls.track;
-        // played_pad: a drum kit declaring SDK 1.18 or later, which reads the
+        // played_pad: a drum kit declaring SDK 1.21 or later, which reads the
         // track's serial and, once it has moved since activation, the played
         // pad's snapshot; selected_pad: an older kit, struck by its selected
         // pad only. Other screens never write the snapshot, which stays zero.

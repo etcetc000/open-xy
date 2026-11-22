@@ -18,7 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, extensions, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables
+from . import benchmark, extensions, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables, voice_heap
 from .adapters import (pad_mix, played_pad, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
@@ -27,7 +27,7 @@ from .adapters import (pad_mix, played_pad, sends_per_key, aux_preset_files, cat
                        generate_voice, generate_drum_callbacks, preset_files, sample_callbacks, track_control,
                        control_callbacks)
 from .contributors import validate_source_boundary
-from .definitions import paged, synth_shift
+from .definitions import extended_display, paged, synth_shift
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
 from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, sample_path, tree
@@ -285,7 +285,7 @@ UNIT_HOST = {'sample_kernel': 'sdk/host/sample_kernel.cpp'}
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock', 'usb_host'), 'extensions'))
 UNIT_SERVICES['drum_hooks'] = 'drums'
 UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
-# A 1.18 kit screen's played-pad snapshot: only a build with a kit declaring SDK 1.18
+# A 1.21 kit screen's played-pad snapshot: only a build with a kit declaring SDK 1.21
 # or later links it, the one kind of screen that calls it (screen_drawing.hpp played_pad).
 UNIT_SERVICES['drum_trigger'] = 'played_pad'
 # Per-key sends hook stock's mixer, so only a build with a padMix kit or a drumline_page
@@ -316,7 +316,7 @@ def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, the features
     they declare ('trackControl', 'auxTrack', 'hidePages', 'padMix', 'synthShift': a synth's
     Shift row, whose presets and step locks use the drums and drum_locks services;
-    'playedPad': a drum kit declaring SDK 1.18 or later, whose screen reads the played pad),
+    'playedPad': a drum kit declaring SDK 1.21 or later, whose screen reads the played pad),
     'extension' when it links extension code (native builds link all of the collection's;
     settings extensions link none), the capabilities they declare ('master_filter',
     'drumline_page') and the registry capabilities its extensions declare."""
@@ -572,6 +572,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         folder = obj.parent
         folder.mkdir(exist_ok=True)
         if m is None:
+            if step == 'synth_controls' and includes_header(machines, 'control_interaction'):
+                return cxx(str(control_interaction_unit(folder)), obj)
             if step == 'drum_callbacks':
                 return cxx(str(generate_drum_callbacks(folder, machines)), obj)
             if step == 'benchmark':
@@ -665,8 +667,22 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                   hardware_tested=False, cpu_timing_measured=False)
     if runtime_members:
         report['runtime'] = runtime_members
+    # Heap voices: the stock heap each heap synth of the collection reserves at boot, outside
+    # the module, over the whole collection as the 1 MiB check counts them.
+    heap = {m.id: voice_heap.arena_bytes(m) for m in machines if voice_heap.on_heap(m)}
+    if heap:
+        report['heap_voices'] = heap
     save_json(directory / 'compile-report.json', report)
     return bytes(module), report, patch_profile
+
+
+def control_interaction_unit(folder):
+    """synth_controls.cpp with the last control touched captured (opxy/control_interaction.hpp),
+    for a build where a machine reads it; other builds compile synth_controls.cpp as it is."""
+    path = Path(folder) / 'synth_controls_interaction.cpp'
+    path.write_text('// Generated: synth controls that record the last control touched.\n'
+                    '#define OPXY_CONTROL_INTERACTION 1\n#include "synth_controls.cpp"\n', encoding='utf-8', newline='\n')
+    return path
 
 
 def normalize_object(data):
@@ -1000,8 +1016,60 @@ def panel_root(fragment, source):
         raise ValueError(f'{source} must be one SVG element, such as <g id="..._panel">...</g> ({error})') from None
 
 
+def check_extended_outlines(by_id, prefix, display):
+    """An extended display's paths: each as its topology reserves them (cubic, quadratic,
+    open, segmented or closed), checked before the device only moves their coordinates."""
+    points, commands = display['points'], display.get('commands', 0)
+    for index, name in enumerate(display_ids(prefix, display)[:display['paths']]):
+        node = by_id.get(name)
+        verbs = re.findall(r'[A-Za-z]', node.get('d', '')) if node is not None else []
+        coordinates = re.findall(NUMBER, node.get('d', '')) if node is not None else []
+        cubic, quadratic = bool(display.get('cubic')), bool(display.get('quadratic'))
+        segments = bool(display.get('segmentPaths', 0) & (1 << index))
+        opened = cubic or bool(display.get('openPaths', 0) & (1 << index))
+        if quadratic:
+            expected, pairs, topology = ['M'] + ['Q'] * (commands - 1), 2 * commands - 1, 'M and %d Q' % (commands - 1)
+        elif cubic:
+            expected, pairs, topology = ['M', 'C'], points, 'M and C'
+        elif segments:
+            expected, pairs, topology = ['M', 'L'] * (points - 1), 2 * (points - 1), '%d M/L pairs' % (points - 1)
+        else:
+            expected = ['M'] + ['L'] * (points - 1) + ([] if opened else ['Z'])
+            pairs, topology = points, 'M, %d L%s' % (points - 1, '' if opened else ' and Z')
+        require(node is not None and node.tag == 'path' and verbs == expected and len(coordinates) == 2 * pairs and
+                (display.get('affine') or cubic or node.get('fill') == 'none'),
+                'Mutable path must contain exactly %s with %d coordinate pairs%s: %s'
+                % (topology, pairs, '' if display.get('affine') or cubic else ', unfilled', name))
+        if quadratic or cubic:
+            continue
+        # The stock parser merges repeated points; adjacent segments share their vertex.
+        q10 = [(round(float(x) * 1024), round(float(y) * 1024)) for x, y in zip(coordinates[::2], coordinates[1::2])]
+        if segments:
+            require(all(q10[2 * i + 1] == q10[2 * i + 2] for i in range(points - 2)),
+                    'Separate segments share each inner vertex with the next segment: ' + name)
+            q10 = q10[::2] + q10[-1:]
+        require(len(set(q10)) == points,
+                'Mutable outline repeats a point; the device merges repeated points, so keep each distinct: ' + name)
+
+
+def check_rgba(by_id, prefix, display):
+    """A direct-colour display's nodes own explicit paint, which the device recolours in place."""
+    for name in display_ids(prefix, display)[:display['nodes']]:
+        node = by_id[name]
+        require('opacity' not in node.attrib, 'RGBA nodes use fill-opacity and stroke-opacity, not opacity: ' + name)
+        for paint in ('fill', 'stroke'):
+            value = node.get(paint, 'none')
+            require(value == 'none' or re.fullmatch(r'#[0-9A-Fa-f]{6}', value),
+                    'RGBA nodes take #RRGGBB or none: ' + name)
+            if value != 'none':
+                require(0 < float(node.get(paint + '-opacity', '1')) <= 1,
+                        'RGBA paint starts visible, its opacity above 0: ' + name)
+
+
 def check_outlines(by_id, prefix, display):
     """Drawing paths are the first nodes: exactly M, (points - 1) L and Z; filled paths must enclose area."""
+    if extended_display(display):
+        return check_extended_outlines(by_id, prefix, display)
     points = display['points']
     for name in display_ids(prefix, display)[:display['paths']]:
         node = by_id.get(name)
@@ -1032,6 +1100,8 @@ def check_bindings(by_id, prefix, display):
     count = display['nodes'] + display['texts']
     bound, texts, palette = ids[:display['nodes']], ids[display['nodes']:count], ids[count:]
     check_outlines(by_id, prefix, display)
+    if display.get('rgba'):
+        check_rgba(by_id, prefix, display)
     for name in bound + texts:
         node = by_id.get(name)
         kind = ('text',) if name in texts else ('path', 'circle')
@@ -1136,7 +1206,8 @@ def prepare_assets(catalog, profile, machines):
     owners = {}  # every file a machine or extension adds, by who adds it
     for m in machines:
         if m.display != 'stock':
-            outputs[f'content/display/{m.native_name}.svg'] = screen.compose(page_artwork(m))
+            outputs[f'content/display/{m.native_name}.svg'] = screen.compose(
+                page_artwork(m), full_canvas=bool(m.definition['resources'].get('display', {}).get('fullCanvas')))
         for path, preset in preset_files(m).items():
             outputs[path] = (json.dumps(preset, indent=2) + '\n').encode('utf-8')
         # A sample engine's own samples (SDK 1.10), installed as they are.
@@ -1353,6 +1424,9 @@ def main(argv=None, command=None):
             print(json.dumps(report['sizes'], indent=2))
             print('Memory ' + memory_summary(report['memory'], report['sizes']['allocated_span_bytes'],
                                             report['module_bytes']))
+            if report.get('heap_voices'):
+                print('Heap voices, reserved from the stock heap at boot: ' + ', '.join(
+                    f'{name} {size / 1024:.1f} KiB' for name, size in report['heap_voices'].items()))
             if len(report['linked']) < len(machines):
                 print('Not every machine fits at once: linked the official machines and the extensions; '
                       'each other machine, and each extension, fits beside the official machines.')

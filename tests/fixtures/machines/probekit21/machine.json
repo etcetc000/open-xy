@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "sdk": "1.18",
+  "sdk": "1.21",
   "kind": "drum",
   "description": "Test fixture: a two-model drawn drum kit, for linking and image-size checks."
 }

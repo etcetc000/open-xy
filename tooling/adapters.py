@@ -14,7 +14,7 @@ import math
 from pathlib import Path
 
 from .benchmark import append_callback
-from .definitions import (ROOT, STOCK_VOICES, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
+from .definitions import (extended_display, ROOT, STOCK_VOICES, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
                           shift_choices, shift_field, shift_parameters, stock_shift_codes, synth_shift,
                           validate_definition)
 
@@ -22,6 +22,7 @@ from .definitions import (ROOT, STOCK_VOICES, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRI
 SHIFT_SLOT = 8
 from .formats import require
 from .stock_tables import REGISTRATION as RELOCATED
+from .voice_heap import on_heap, placement
 
 TEMPLATES = ROOT / 'sdk/platform/opxy-1.2.1'
 # The init preset's authored settings, shared with builder/core.mjs's defaultPreset
@@ -83,19 +84,21 @@ def generate_voice(directory, m, sweep=False):
                   CAPACITY=m.definition['resources']['voiceCapacity'])
     values.pop('PEAK')
     values.pop('RELEASE_CALLBACK')
+    # Where a synth's voices live: module memory, or a heap arena for a large pool (voice_heap.py).
+    values.update(placement(m))
     release = m.definition['resources'].get('releaseCallback', 0)
     values.update(RELEASE_METHOD=f'{m.prefix}_release' if release else 'noop',
                   RELEASE_FUNCTION=f'''int {m.prefix}_release(void* self) {{
     Handle* handle = static_cast<Handle*>(self);
     if (Slot* slot = held(handle))
-        {m.definition['id']}::release(slot->voice, shared, slot->owner);
+        {m.definition['id']}::release({values['VOICE_OF_HELD']}, shared, slot->owner);
     else if (pending(handle) || handle->wants) handle->released = 1;
     return 0;
 }}
 ''' if release else '')
     values.update(RELEASE_STATE=', released' if release else '',
                   RELEASE_CLEAR='    handle->released = 0;' if release else '',
-                  RELEASE_PENDING=f"    if (handle->released) {m.definition['id']}::release(slot.voice, shared, id);" if release else '')
+                  RELEASE_PENDING=f"    if (handle->released) {m.definition['id']}::release({values['VOICE_OF_SLOT']}, shared, id);" if release else '')
     # Expand to the original mono text when omitted, preserving its native code.
     values.update(OUTPUT_FRAMES='opxy::block_frames' if values['CHANNELS'] == 1 else '2 * opxy::block_frames',
                   STEREO_METHOD='zero' if values['CHANNELS'] == 1 else 'stereo',
@@ -167,11 +170,11 @@ def drum_transport(m):
 
 # The SDK version from which a drum kit's screen reads the track's note serial and the
 # played pad's snapshot; an older kit keeps the selected-pad strike filter (screen_drawing.hpp).
-PLAYED_PAD_SDK = (1, 18)
+PLAYED_PAD_SDK = (1, 21)
 
 
 def played_pad(m):
-    """Whether a drum kit's screen reads the played-pad snapshot (SDK 1.18): it alone calls
+    """Whether a drum kit's screen reads the played-pad snapshot (SDK 1.21): it alone calls
     sdk_drum_trigger, so only a build with such a kit links that unit (native.UNIT_SERVICES)."""
     return getattr(m, 'kind', 'synth') == 'drum' and getattr(m, 'sdk', (1, 0)) >= PLAYED_PAD_SDK
 
@@ -269,6 +272,8 @@ def generate_voice_preview(directory, definition, *, kind='synth'):
 
 def drawing_layout(display):
     """Frame byte layout shared by the C++ frame and the browser."""
+    if extended_display(display):
+        return extended_layout(display)
     paths, points, nodes, texts, palette = (display[k] for k in ('paths', 'points', 'nodes', 'texts', 'palette'))
     path_bytes = 4 + 8 * points
     # An empty path or text array keeps one unused element (draw.hpp).
@@ -280,6 +285,46 @@ def drawing_layout(display):
                 FRAME_BYTES=header_at + 32)
 
 
+def extended_layout(display):
+    """An extended frame's byte layout (draw.hpp ExtendedFrame): its path and node types."""
+    paths, points, nodes, texts, palette = (display[k] for k in ('paths', 'points', 'nodes', 'texts', 'palette'))
+    commands = display.get('commands', 0)
+    if display.get('quadratic'):
+        path_bytes, points_at = 8 + 20 * commands, 8
+    else:
+        points_at = 8 if display.get('countedPaths') else 4
+        path_bytes = points_at + 8 * points
+    node_bytes = 32 if display.get('affine') else 28
+    nodes_at = max(paths, 1) * path_bytes
+    texts_at = nodes_at + node_bytes * nodes
+    header_at = texts_at + 36 * max(texts, 1)
+    return dict(PATHS=paths, POINTS=points, COMMANDS=commands, NODES=nodes, TEXTS=texts, PALETTE=palette,
+                PATH_BYTES=path_bytes, POINTS_AT=points_at, NODE_BYTES=node_bytes, FRAME_NODES_AT=nodes_at,
+                FRAME_TEXTS_AT=texts_at, FRAME_HEADER_AT=header_at, FRAME_BYTES=header_at + 32)
+
+
+def extended_frame(display):
+    """The C++ type of an extended display's frame, spelled as draw.hpp's aliases resolve."""
+    layout, flag = extended_layout(display), lambda k: 'true' if display.get(k) else 'false'
+    size = layout['COMMANDS'] if display.get('quadratic') else layout['POINTS']
+    frame = (f"opxy::draw::ExtendedFrame<{layout['PATHS']}, {size}, {layout['NODES']}, {layout['TEXTS']}, "
+             f"{layout['PALETTE']}, {flag('affine')}, {flag('cubic')}, {display.get('openPaths', 0)}u, "
+             f"{display.get('segmentPaths', 0)}u, {flag('quadratic')}, {flag('countedPaths')}>")
+    if display.get('rgba'):
+        frame = f'opxy::draw::RgbaFrame<{frame} >'
+    return frame
+
+
+def display_extension(definition):
+    """What an extended display's input appends to draw::Input, as the browser reads it
+    (display.mjs): 4 the encoders' activity. Bits 1 and 2 are left for later inputs."""
+    return 4 if definition['resources']['display'].get('encoderActivity') else 0
+
+
+def display_input_type(definition):
+    return 'EncoderInput' if definition['resources']['display'].get('encoderActivity') else 'Input'
+
+
 def screen_bytes(m):
     """Renderer object size: the 76-byte stock screen, then the renderer's words
     (screen_drawing.hpp). The generated renderer asserts its C++ object has this size."""
@@ -288,6 +333,10 @@ def screen_bytes(m):
     # delta; then validated geometry and applied key per path (one word each when absent).
     texts, paths = max(display['texts'], 1), max(display['paths'], 1)
     words = display['nodes'] + 7 * texts + display['palette'] + 1 + 2 * paths
+    if extended_display(display):
+        # extended_drawing.hpp: a palette word even without a palette, and each node's
+        # authored visibility byte (whole words).
+        words += (display['palette'] == 0) + (display['nodes'] + 3) // 4
     return 76 + 4 * words
 
 
@@ -300,6 +349,8 @@ def generate_display(directory, *, machine=None, definition=None, kind="synth", 
         assignment = {'symbol_prefix': 'local_preview'}
     namespace, prefix = namespace or definition['id'], symbol_prefix or assignment['symbol_prefix']
     display = definition['resources']['display']
+    if extended_display(display):
+        return generate_extended_display(Path(directory), definition, namespace, prefix)
     layout = drawing_layout(display)
     frame = 'opxy::draw::Frame<{PATHS}, {POINTS}, {NODES}, {TEXTS}, {PALETTE}>'.format(**layout)
     header = f'''// Generated by the SDK; no renderer addresses in author code.
@@ -365,6 +416,86 @@ extern "C" unsigned {prefix}_display_validate(const Frame* frame) {{
     (directory / 'display_binding.cpp').write_text(source, encoding='utf-8', newline='\n')
 
 
+def generate_extended_display(directory, definition, namespace, prefix):
+    """An extended display's binding (docs/display.md#extended-drawing): its frame and input
+    types, and the encoder activity the renderer gives its input."""
+    display = definition['resources']['display']
+    layout, frame, input_type = extended_layout(display), extended_frame(display), display_input_type(definition)
+    header = f'''// Generated by the SDK; no renderer addresses in author code.
+#pragma once
+#include "display.h"
+#include <opxy/encoder_activity.hpp>
+namespace opxy {{ namespace binding {{
+using DisplayState = {namespace}::DisplayState;
+using DisplayInput = draw::{input_type};
+typedef {frame} Frame;
+const unsigned display_bytes = {display['stateBytes']};
+const unsigned display_alignment = {display['stateAlignment']};
+const bool full_canvas = {'true' if display.get('fullCanvas') else 'false'};
+const unsigned display_extension = {display_extension(definition)};
+}}}}
+extern "C" {{
+void {prefix}_display_reset(opxy::binding::DisplayState*, opxy::binding::Frame*);
+void {prefix}_display_render(opxy::binding::DisplayState*, const opxy::binding::DisplayInput*, opxy::binding::Frame*);
+unsigned {prefix}_display_validate(const opxy::binding::Frame*);
+}}
+namespace opxy {{ namespace binding {{
+static inline void display_reset(DisplayState* state, Frame* frame) {{ {prefix}_display_reset(state, frame); }}
+static inline void display_render(DisplayState* state, const DisplayInput* input, Frame* frame) {{
+    {prefix}_display_render(state, input, frame);
+}}
+static inline bool display_valid(const Frame* frame) {{ return {prefix}_display_validate(frame) != 0; }}
+}}}}
+''' + encoder_binding(display)
+    member = 'commands' if display.get('quadratic') else 'points'
+    source = f'''// Generated translation unit. One display implementation, bounded SDK frame.
+#include "display_binding.hpp"
+#include "display.cpp"
+using opxy::binding::Frame;
+static_assert(sizeof(opxy::binding::DisplayState) == opxy::binding::display_bytes,
+              "Declared display size differs from C++ type");
+static_assert(alignof(opxy::binding::DisplayState) == opxy::binding::display_alignment,
+              "Declared display alignment differs from C++ type");
+static_assert(__is_trivial(opxy::binding::DisplayState) && __is_standard_layout(opxy::binding::DisplayState),
+              "Display state must be trivial standard-layout data");
+static_assert(sizeof(Frame) == {layout['FRAME_BYTES']} &&
+              sizeof(Frame::path_type) == {layout['PATH_BYTES']} && sizeof(Frame::node_type) == {layout['NODE_BYTES']} &&
+              __builtin_offsetof(Frame::path_type, {member}) == {layout['POINTS_AT']} &&
+              __builtin_offsetof(Frame, nodes) == {layout['FRAME_NODES_AT']} &&
+              __builtin_offsetof(Frame, texts) == {layout['FRAME_TEXTS_AT']} &&
+              __builtin_offsetof(Frame, header) == {layout['FRAME_HEADER_AT']} &&
+              __builtin_offsetof(opxy::draw::Text, chars) == 12,
+              "Drawing frame layout differs from the declared display");
+extern "C" void {prefix}_display_reset(opxy::binding::DisplayState* state, Frame* frame) {{
+    {namespace}::display_reset(*state);
+    for (opxy::u32 i = 0; i < Frame::path_count; ++i) frame->paths[i].key = 0;
+}}
+extern "C" void {prefix}_display_render(opxy::binding::DisplayState* state,
+                                       const opxy::binding::DisplayInput* input, Frame* frame) {{
+    {namespace}::display(*state, *input, *frame);
+}}
+extern "C" unsigned {prefix}_display_validate(const Frame* frame) {{
+    return opxy::draw::valid(*frame);
+}}
+'''
+    (directory / 'display_binding.hpp').write_text(header, encoding='utf-8', newline='\n')
+    (directory / 'display_binding.cpp').write_text(source, encoding='utf-8', newline='\n')
+
+
+def encoder_binding(display):
+    if not display.get('encoderActivity'):
+        return 'namespace opxy { namespace binding { inline void snapshot_encoders(DisplayInput&) {} }}\n'
+    return '''#if defined(__bfin__)
+#include "encoder_activity.hpp"
+namespace opxy { namespace binding {
+inline void snapshot_encoders(DisplayInput& input) { input.encoders = platform::encoder_activity(); }
+}}
+#else
+namespace opxy { namespace binding { inline void snapshot_encoders(DisplayInput&) {} }}
+#endif
+'''
+
+
 def generate_registration(directory, m):
     """A machine's stock record (and own screen) for the SDK's checked registration."""
     p, effect = m.prefix, m.kind == 'effect'
@@ -399,6 +530,11 @@ def generate_registration(directory, m):
         entries[p + '_ready()'] = f'sdk_effect_ready(&record, {screen})'
     else:
         entries[p + '_register()'] = 'sdk_register_engine(&record)'
+        if on_heap(m):
+            # A synth with heap voices reserves their arena as it first registers on the audio
+            # role at boot (voice_heap.hpp); an unselected synth in a browser kit never reserves.
+            declarations.append(f'opxy::u32 {p}_voice_heap_reserve() __asm__("{p}_voice_heap_reserve");')
+            entries[p + '_register()'] = f'({p}_voice_heap_reserve(), sdk_register_engine(&record))'
         entries[p + '_record_ready()'] = 'sdk_engine_ready(&record, nullptr)'
         entries[p + '_name_matches(const void* string)'] = 'sdk_name_matches(&record, string)'
         entries[p + '_ready()'] = f'sdk_engine_ready(&record, {screen})'
@@ -428,6 +564,8 @@ def generate_screen(directory, m):
     from .native import display_ids
     ids = display_ids(m.prefix, m.definition['resources']['display'])
     table = ''.join(f'    "{name}",\n' for name in ids)
+    if extended_display(m.definition['resources']['display']):
+        return generate_extended_screen(Path(directory), m, ids, table)
     drum = getattr(m, 'kind', 'synth') == 'drum'
     source = f'''// Generated by the SDK: {m.native_name}'s declared display as renderer data.
 #include "display_binding.hpp"
@@ -435,7 +573,7 @@ def generate_screen(directory, m):
 namespace {{
 struct Machine {{
     static const char* const ids[{len(ids)}];
-    // A drum kit's note serial and played-pad snapshot (screen_drawing.hpp): from SDK 1.18
+    // A drum kit's note serial and played-pad snapshot (screen_drawing.hpp): from SDK 1.21
     // the track's serial and the snapshot, before it the selected pad's strikes only.
     static const bool played_pad = {'true' if played_pad(m) else 'false'};
     static const bool selected_pad = {'true' if drum and not played_pad(m) else 'false'};
@@ -448,6 +586,26 @@ const char* const Machine::ids[{len(ids)}] = {{
 OPXY_SCREEN(opxy::screen::Drawing<Machine>, "{m.prefix}", "{m.native_name}.svg", {RELOCATED['PAGE_LIMIT']}, {screen_bytes(m)})
 '''
     destination = Path(directory) / 'screen.cpp'
+    destination.write_text(source, encoding='utf-8', newline='\n')
+    return destination
+
+
+def generate_extended_screen(directory, m, ids, table):
+    """An extended display's renderer (extended_drawing.hpp)."""
+    source = f'''// Generated by the SDK: {m.native_name}'s declared display as renderer data.
+#include "display_binding.hpp"
+#include "extended_drawing.hpp"
+namespace {{
+struct Machine {{
+    static const char* const ids[{len(ids)}];
+    static const bool percent_sends = {'true' if getattr(m, 'sdk', (1, 0)) >= (1, 15) else 'false'};
+}};
+const char* const Machine::ids[{len(ids)}] = {{
+{table}}};
+}}
+OPXY_SCREEN(opxy::screen::ExtendedDrawing<Machine>, "{m.prefix}", "{m.native_name}.svg", {RELOCATED['PAGE_LIMIT']}, {screen_bytes(m)})
+'''
+    destination = directory / 'screen.cpp'
     destination.write_text(source, encoding='utf-8', newline='\n')
     return destination
 

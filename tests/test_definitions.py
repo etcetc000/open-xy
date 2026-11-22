@@ -12,7 +12,7 @@ import unittest
 
 from tooling.adapters import (catalog_defaults, catalog_entry, control_cycles, default_preset, generate_display,
                                generate_player_object, generate_screen, generate_synth_controls, preset_files, preset_path, screen_bytes)
-from tooling.definitions import ROOT, control_positions, paged, validate_definition
+from tooling.definitions import ROOT, control_positions, extended_display, paged, validate_definition
 from machine_fixtures import FOLDER, fixture
 from tooling.native import display_ids
 
@@ -170,13 +170,24 @@ class Definitions(unittest.TestCase):
     def test_displays_declare_their_shape_within_limits(self):
         for key, value in (('stateBytes', 61), ('stateBytes', 0),
                            ('stateAlignment', 3), ('stateAlignment', 8),
-                           ('paths', 0), ('paths', 5), ('points', 1), ('points', 65),
+                           ('paths', 0), ('paths', 33), ('points', 1), ('points', 257),
                            ('nodes', 1), ('nodes', 513), ('texts', -1), ('texts', 33), ('texts', True),
                            ('palette', 0), ('palette', 17), ('kind', 'drawing')):
             changed = copy.deepcopy(self.engine)
             changed['resources']['display'][key] = value
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                 validate_definition(changed, 'synth')
+        # More paths or points than a plain display holds make it an extended one
+        # (docs/display.md#extended-drawing): 5 paths of 64 points or 4 of 65 then share 256 coordinate pairs.
+        for key, value in (('paths', 5), ('points', 65)):
+            changed = copy.deepcopy(self.engine)
+            changed['resources']['display'][key] = value
+            self.assertFalse(extended_display(self.engine['resources']['display']))
+            self.assertTrue(extended_display(changed['resources']['display']))
+        changed = copy.deepcopy(self.engine)
+        changed['resources']['display'].update(paths=5, points=64)
+        with self.assertRaisesRegex(ValueError, '256 coordinate pairs'):
+            validate_definition(changed, 'synth')
         # A display without paths declares no points.
         without = fixture('probesources').definition
         validate_definition(without, 'synth')
@@ -432,12 +443,12 @@ class Definitions(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_a_kit_screen_reads_the_note_serial_its_sdk_declares(self):
-        """A drum kit declaring SDK 1.18 or later reads the track's serial and the played pad's
+        """A drum kit declaring SDK 1.21 or later reads the track's serial and the played pad's
         snapshot; an older kit keeps the selected-pad strike filter; other screens neither."""
         definition = copy.deepcopy(fixture('probesynth').definition)
-        for kind, sdk, played, selected in (('drum', (1, 18), 'true', 'false'), ('drum', (1, 19), 'true', 'false'),
+        for kind, sdk, played, selected in (('drum', (1, 21), 'true', 'false'), ('drum', (1, 20), 'false', 'true'),
                                             ('drum', (1, 17), 'false', 'true'), ('drum', (1, 8), 'false', 'true'),
-                                            ('synth', (1, 18), 'false', 'false'), ('sample', (1, 17), 'false', 'false')):
+                                            ('synth', (1, 21), 'false', 'false'), ('sample', (1, 17), 'false', 'false')):
             m = SimpleNamespace(prefix='kit', native_name='kit', definition=definition, kind=kind, sdk=sdk)
             with self.subTest(kind=kind, sdk=sdk), tempfile.TemporaryDirectory() as directory:
                 text = generate_screen(directory, m).read_text(encoding='utf-8')

@@ -1,7 +1,7 @@
 #include "core.h"
 #include <opxy/q31.hpp>
 
-namespace probekit18 {
+namespace probekit21 {
 // Callbacks run serially per voice; owner is a stable nonzero voice ID.
 inline void initialize(Voice& voice, Shared&, opxy::u32) { voice.phase = 0; }
 inline void start(Voice& voice, Shared&, opxy::u32) { voice.phase = 0; }
@@ -27,7 +27,7 @@ inline void render(Voice& voice, Shared&, opxy::u32, opxy::Output output,
     }
 }
 }
-namespace probekit18 {
+namespace probekit21 {
 void drum_defaults(opxy::u32 key, opxy::u8* model, opxy::u8* controls) {
     *model = key & 1;
     for (opxy::u32 i = 0; i < 8; ++i) controls[i] = 64;

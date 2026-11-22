@@ -76,6 +76,19 @@ DISPLAY_LIMITS = dict(paths=(0, 4), points=(0, 64), nodes=(1, 512), texts=(0, 32
 SDK_1_2_TEXTS, SDK_1_6_TEXTS = 4, 16
 # Nodes a display could hold before SDK 1.8.
 SDK_1_7_NODES = 256
+# Extended drawing (SDK 1.20, docs/display.md#extended-drawing): optional display
+# keys for synth and effect screens, each 0 or 1 unless EXTENDED_RANGES says otherwise.
+# A display declaring none of them, within DISPLAY_LIMITS, is a plain one: its
+# generated code and renderer are those of a display before 1.20.
+# A renumber changes this line,
+# SDK_VERSION and its history (tooling/machines.py) and the "1.20" text in the docs and fixtures.
+EXTENDED_SDK = (1, 20)
+EXTENDED_KEYS = ('affine', 'fullCanvas', 'rgba', 'cubic', 'openPaths', 'segmentPaths', 'quadratic', 'commands',
+                 'countedPaths', 'encoderActivity')
+EXTENDED_RANGES = dict(openPaths=0xffffffff, segmentPaths=0xffffffff, commands=128)
+EXTENDED_LIMITS = dict(paths=32, points=256)
+# Path storage: coordinate pairs in all, and a counted display's reserved bytes.
+EXTENDED_POINTS, COUNTED_PATH_BYTES = 256, 2816
 # Analysis storage is allocated from the stock heap at runtime, which also holds
 # stock samples; a collection's analysis budgets together take at most this much.
 ANALYSIS_HEAP_LIMIT = 2 * 1024 * 1024
@@ -213,7 +226,7 @@ def validate_definition(value, kind):
         require(resources.get('drumControls', 0) or not resources.get('sliceTiming', 0),
                 'sliceTiming needs drumControls')
         if 'display' in resources:
-            validate_display(resources['display'])
+            validate_display(resources['display'], kind)
         if 'stockShift' in resources:
             validate_stock_shift(resources)
     if kind == 'effect' and 'bufferBytes' in resources:
@@ -225,11 +238,11 @@ def validate_definition(value, kind):
         require(resources.get('transport', 0) in (0, 1), 'transport must be 0 or 1')
         require(0 <= resources.get('busShift', 0) <= EFFECT_BUS_SHIFT, 'busShift is 0..%d bits' % EFFECT_BUS_SHIFT)
         if 'display' in resources:
-            validate_display(resources['display'])
+            validate_display(resources['display'], kind)
     if kind in ('synth', 'drum'):
-        validate_synth_resources(resources)
+        validate_synth_resources(resources, kind)
     if kind == 'master':
-        validate_display(resources['display'])
+        validate_display(resources['display'], kind)
     if kind == 'drum':
         require(2 <= resources['modelCount'] <= 64, 'A drum kit has 2..64 models')
         require(resources.get('chokeSameKey', 0) in (0, 1), 'chokeSameKey must be 0 or 1')
@@ -449,7 +462,7 @@ def shift_parameters(definition):
     return [] if 'voiceBytes' in definition['resources'] else definition.get('shift', [])
 
 
-def validate_synth_resources(resources):
+def validate_synth_resources(resources, kind='synth'):
     # Sizes are bounded by the shared module memory, checked when the collection links.
     require(4 <= resources['voiceBytes'] and resources['voiceBytes'] % 4 == 0,
             'Voice state must occupy at least one whole word')
@@ -458,7 +471,7 @@ def validate_synth_resources(resources):
     require(0 <= resources['sharedBytes'] and resources['sharedBytes'] % 4 == 0,
             'Shared state must occupy whole words')
     require(0 < resources['outputPeakQ31'] <= 0x7fffffff, 'Invalid oscillator output headroom')
-    validate_display(resources['display'])
+    validate_display(resources['display'], kind)
     if 'trackControl' in resources:
         control = resources['trackControl']
         present = tuple(k for k in CONTROL_OPTIONS if isinstance(control, dict) and k in control)
@@ -485,20 +498,65 @@ def validate_synth_resources(resources):
         require(control.get('unique') is True, 'A track control machine that takes over aux tracks must be unique')
 
 
-def validate_display(display):
+def extended_display(display):
+    """Whether a display uses extended drawing: an extended key, or more paths or points than a plain one."""
+    return (any(k in display for k in EXTENDED_KEYS) or
+            any(display.get(k, 0) > DISPLAY_LIMITS[k][1] for k in EXTENDED_LIMITS))
+
+
+def validate_display(display, kind=None):
     require(not (isinstance(display, dict) and 'kind' in display),
             'This display uses a contract from before SDK 1.0: see docs/display.md#migrating-from-before-sdk-10')
-    keys(display, DISPLAY_FIELDS, 'display')
+    optional = tuple(k for k in EXTENDED_KEYS if isinstance(display, dict) and k in display)
+    keys(display, (*DISPLAY_FIELDS, *optional), 'display')
+    for name in optional:
+        high = EXTENDED_RANGES.get(name, 1)
+        require(type(display[name]) is int and 0 <= display[name] <= high, 'Display %s must be 0..%d' % (name, high))
+    extended = extended_display(display)
+    require(not extended or kind in ('synth', 'effect'), 'Extended drawing is for synth and effect screens')
     for name, (low, high) in DISPLAY_LIMITS.items():
+        high = EXTENDED_LIMITS.get(name, high) if extended else high
+        low = 0 if name == 'palette' and display.get('affine') else low
         require(type(display[name]) is int and low <= display[name] <= high,
                 'Display %s must be %d..%d' % (name, low, high))
-    require((display['points'] >= 2) == (display['paths'] > 0),
-            'Paths have 2..64 points; a display without paths declares 0 points')
+    if extended:
+        validate_extended(display, kind)
+    else:
+        require((display['points'] >= 2) == (display['paths'] > 0),
+                'Paths have 2..64 points; a display without paths declares 0 points')
     require(display['paths'] <= display['nodes'], 'Each path is also a node')
     require(type(display['stateBytes']) is int and type(display['stateAlignment']) is int and
             4 <= display['stateBytes'] and display['stateAlignment'] in (4, 8, 16) and
             display['stateBytes'] % display['stateAlignment'] == 0,
             'Display state must occupy aligned whole words')
+
+
+def validate_extended(display, kind):
+    """The extended keys' combinations (draw.hpp ExtendedFrame and RgbaFrame)."""
+    def get(key):
+        return display.get(key, 0)
+    paths, points, commands = display['paths'], display['points'], get('commands')
+    if get('quadratic'):
+        require(get('affine') and paths > 0 and points == 0 and commands >= 2 and
+                not (get('cubic') or get('openPaths') or get('segmentPaths') or get('countedPaths')),
+                'Quadratic paths need affine, paths, points 0, commands 2..128 and no other path option')
+    else:
+        require(not commands, 'commands needs quadratic paths')
+        require((points >= 2) == (paths > 0), 'Paths have 2..256 points; a display without paths declares 0 points')
+    if get('countedPaths'):
+        require(get('affine') and paths > 0 and not get('cubic'), 'Counted paths need affine polylines')
+        require(paths * (8 + 8 * points) <= COUNTED_PATH_BYTES,
+                'Counted paths reserve at most %d bytes: paths * (8 + 8 * points)' % COUNTED_PATH_BYTES)
+    else:
+        require(paths * (2 * commands if get('quadratic') else points) <= EXTENDED_POINTS,
+                'Paths hold at most %d coordinate pairs in all' % EXTENDED_POINTS)
+    opened, segments = get('openPaths'), get('segmentPaths')
+    require(opened < 1 << paths and segments < 1 << paths and not opened & segments,
+            'openPaths and segmentPaths name declared paths, never the same one')
+    require(not get('cubic') or paths > 0 and points == 4 and not (opened or segments),
+            'Cubic paths have four points and no topology mask')
+    require(not get('rgba') or get('affine') and display['palette'] == 0, 'rgba needs affine and palette 0')
+    require(get('affine') or display['palette'] >= 1, 'Display palette must be 1..16 without affine')
 
 
 def validate_parameter(parameter, alternate=False, required=True):

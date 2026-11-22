@@ -64,7 +64,7 @@ by a `drumline_page` extension.
 The step locks of a kit's Shift fields are the `drum_locks` service, used by a
 `padMix` kit, by a synth with a Shift row and by a `drumline_page` extension.
 The `played_pad` service has no edit: it links the [drum trigger](#screens)
-snapshot (`drum_trigger.cpp`) only with a kit declaring SDK 1.18 or later,
+snapshot (`drum_trigger.cpp`) only with a kit declaring SDK 1.21 or later,
 whose screen reads it. The [track filter](#the-track-filter-on-kit-voices) on
 kit voices needs no hook: it is in every kit's adapter.
 A [`drumline_page` extension](drumline-page.md) uses the `drumline` service and
@@ -75,6 +75,11 @@ project companion rows) form the `control` service in the same way: a build
 uses them only when it includes a machine with [track control](api.md#track-control)
 or [hidden pages](api.md#alternate-controls). The aux track rows form the `aux`
 service, used only by a machine that [takes over aux tracks](api.md#aux-tracks).
+[Extended drawing](display.md#extended-drawing) needs no edit: its encoder
+activity reads stock's per-frame encoder flags (`8d51f1be`, read only), and the
+last control touched is recorded in the existing encoder press and turn hooks,
+compiled in only when a machine includes `opxy/control_interaction.hpp`, reading
+the edited value through stock's displayed-value getter (`8d5ac9dc`).
 Everything else must reconstruct byte for byte. Protected ranges in
 [`pipeline.py`](../tooling/pipeline.py) admit only hooks into the module and
 the reviewed startup label.
@@ -403,6 +408,32 @@ with a voice it takes, that note fades linearly to silence over its next
 block, and the new note starts in the voice once it has, or once stock has
 stopped rendering the old note. A handle that has lost its
 voice renders silence. One adapter serves every synth.
+
+**Heap voices (SDK 1.19).** A synth whose voices take more than 128 KiB
+(`voiceBytes × (min(voiceCapacity, 27) + 1)`) and that declares SDK 1.19 keeps
+them in an arena from the stock application heap instead of in module memory
+([`voice_heap.py`](../tooling/voice_heap.py),
+[`voice_heap.hpp`](../sdk/platform/opxy-1.2.1/voice_heap.hpp)). Its
+`_register` reserves the arena before registering the engine. Startup calls
+`_register` on the audio role and, for an engine with its own page, again on
+the GUI role, and the initializers may run more than once; only the first call
+while stock's role flag says audio (`stock_gui_role` answering 0) reserves, and
+the lock and re-check below keep it to one arena even if a GUI-role call saw 0.
+If stock has not yet created its heap (its mutex word at `0x08036aa4` still 0,
+before stock's malloc first runs `8d4d0380`), the arena is refused. Otherwise it takes the
+heap's lock, as sample analysis allocates, checks the status again under it,
+allocates, aligns and zeroes the block, and publishes the zeroed voices before
+the pointer and status. A browser selection that leaves the synth out never
+reserves. The handles and each voice's bookkeeping stay in module memory, and
+no note takes a voice before the arena exists. If the heap refuses,
+`<prefix>_voice_heap_status` returns 2, the heap is never asked again, and the
+synth's notes are silent. The arena is never freed. The profile's heap fill,
+`0x8c0d0380` to `0x8d4d0380`, holds both the application heap and the module
+cut from its tail; stock's data page table (DCPLB, `0x840af2f0`) maps all of
+DDR as identical 64 MiB pages, write-back and cached in L1, so heap and module
+voices are cached alike. A collection's heap arenas take at most 1 MiB, and the
+builder refuses them with its experimental memory.
+
 Render receives 64 output words and 8 parameter words. The SDK adds the stock
 per-sample pitch increments. Output is mono Q31 peaking at most at half scale. Stock
 velocity, envelope, filter and mixing run afterwards.
@@ -455,7 +486,7 @@ start moves the counter (the writer above also sets the byte), the byte's value
 at boot or from another kit's hits never shows. Whether a project load
 re-activates the page or moves the counter is not established; if it does
 neither, the screen keeps naming the pad of the last hit before the load,
-resolved on the loaded kit. Only the screen of a kit declaring SDK 1.18 or later calls it, so its unit
+resolved on the loaded kit. Only the screen of a kit declaring SDK 1.21 or later calls it, so its unit
 (`drum_trigger.cpp`) is the `played_pad` service's, which a build links only
 with such a kit.
 
