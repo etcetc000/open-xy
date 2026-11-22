@@ -70,7 +70,7 @@ class VoiceZero(unittest.TestCase):
         self.assertIn('zeroed_bytes exceeds the voice', built.stderr)
 
     def test_both_voice_adapters_use_it(self):
-        for template, call in (('voice.cpp.in', 'zero_voice(slot.voice);'), ('drum_voice.cpp.in', 'zero_voice(slot->voice);')):
+        for template, call in (('voice.cpp.in', 'zero_voice(@VOICE_OF_SLOT@);'), ('drum_voice.cpp.in', 'zero_voice(slot->voice);')):
             with self.subTest(template=template):
                 text = (PLATFORM / template).read_text(encoding='utf-8')
                 self.assertIn('#include "voice_zero.hpp"', text)

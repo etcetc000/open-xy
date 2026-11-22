@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "voiceheap",
+  "name": "Voice Heap",
+  "parameters": [
+    {"id": "time", "label": "Time", "default": 0.5,
+     "mapping": {"kind": "linear", "minimum": 0, "maximum": 1}, "display": "percent"},
+    {"id": "feedback", "label": "Feedback", "default": 0.5,
+     "mapping": {"kind": "linear", "minimum": 0, "maximum": 1}, "display": "percent"},
+    {"id": "level", "label": "Level", "default": 0.65,
+     "mapping": {"kind": "linear", "minimum": 0, "maximum": 1}, "display": "percent"},
+    {"id": "decay", "label": "Decay", "default": 0.5,
+     "mapping": {"kind": "linear", "minimum": 0, "maximum": 1}, "display": "percent"}
+  ],
+  "presets": {
+    "Echo": {"time": 0.5, "feedback": 0.5, "level": 0.65, "decay": 0.5}
+  },
+  "resources": {
+    "voiceBytes": 16396, "voiceAlignment": 4, "voiceCapacity": 8, "sharedBytes": 0,
+    "outputPeakQ31": 1073741824,
+    "display": {"stateBytes": 4, "stateAlignment": 4, "paths": 2, "points": 64, "nodes": 2, "texts": 0, "palette": 16}
+  }
+}

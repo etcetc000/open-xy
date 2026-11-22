@@ -6,6 +6,8 @@ no machines of its own; these are small, valid folders, not copies of published 
   display without paths.
 - probefx: an effect with a Dry control (dryParameter) and controls of each mapping.
 - probesample: a drum-page (page 7) sample engine declaring every optional service.
+- voiceheap: a sine with a long echo whose voices are too large for module memory
+  (SDK 1.19 heap voices); not in NAMES.
 """
 from pathlib import Path
 import os

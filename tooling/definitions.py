@@ -76,13 +76,13 @@ DISPLAY_LIMITS = dict(paths=(0, 4), points=(0, 64), nodes=(1, 512), texts=(0, 32
 SDK_1_2_TEXTS, SDK_1_6_TEXTS = 4, 16
 # Nodes a display could hold before SDK 1.8.
 SDK_1_7_NODES = 256
-# Extended drawing (SDK 1.21, docs/display.md#extended-drawing): optional display
+# Extended drawing (SDK 1.20, docs/display.md#extended-drawing): optional display
 # keys for synth and effect screens, each 0 or 1 unless EXTENDED_RANGES says otherwise.
 # A display declaring none of them, within DISPLAY_LIMITS, is a plain one: its
-# generated code and renderer are those of a display before 1.21.
+# generated code and renderer are those of a display before 1.20.
 # Provisional: the next free SDK number when this lands; a renumber changes this line,
-# SDK_VERSION and its history (tooling/machines.py) and the "1.21" text in the docs and fixtures.
-EXTENDED_SDK = (1, 21)
+# SDK_VERSION and its history (tooling/machines.py) and the "1.20" text in the docs and fixtures.
+EXTENDED_SDK = (1, 20)
 EXTENDED_KEYS = ('affine', 'fullCanvas', 'rgba', 'cubic', 'openPaths', 'segmentPaths', 'quadratic', 'commands',
                  'countedPaths', 'encoderActivity')
 EXTENDED_RANGES = dict(openPaths=0xffffffff, segmentPaths=0xffffffff, commands=128)
