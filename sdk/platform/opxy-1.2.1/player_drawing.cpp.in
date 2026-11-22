@@ -1,0 +1,50 @@
+// The player's own drawn page (screen_player_drawing.hpp, SDK 1.22): its
+// display.cpp, compiled here after player.cpp so that it reads State, draws a
+// draw::Frame each GUI frame. It registers in a free page slot at startup and
+// paints in place of the stock Maestro page while the selected track plays this
+// player (players.cpp).
+#include "registration.hpp"
+#include "display.cpp"
+#include "screen_player_drawing.hpp"
+namespace {
+struct Page {
+    typedef @NAMESPACE@::DisplayState DisplayState;
+    typedef opxy::draw::Frame<@PATHS@, @POINTS@, @NODES@, @TEXTS@, @PALETTE@> Frame;
+    static const bool paged = @PAGED@;
+    static const char* const ids[@ID_COUNT@];
+    static const char* const titles[8];
+    static const void* const* vtable() { return @PREFIX@_player_vtable; }
+    static opxy::player::Controls controls(void* object) { return opxy::platform::player_controls(object); }
+    static void reset(DisplayState& display, Frame& frame) {
+        @NAMESPACE@::display_reset(display);
+        for (opxy::u32 i = 0; i < Frame::path_count; ++i) frame.paths[i].key = 0;
+    }
+    // The player's display, with the State its note callbacks keep: a GUI read
+    // while the sequencer may be changing it, as player::display's is.
+    static void render(void* object, DisplayState& display, const opxy::player::Controls& controls,
+                       const opxy::draw::Input& input, Frame& frame) {
+        @NAMESPACE@::display(display, static_cast<const State&>(state(object)), controls, input, frame);
+    }
+};
+static_assert(sizeof(Page::DisplayState) == @STATE_BYTES@, "Declared display size differs from C++ type");
+static_assert(alignof(Page::DisplayState) == @STATE_ALIGNMENT@, "Declared display alignment differs from C++ type");
+static_assert(__is_trivial(Page::DisplayState) && __is_standard_layout(Page::DisplayState),
+              "Display state must be trivial standard-layout data");
+const char* const Page::ids[@ID_COUNT@] = {
+@IDS@
+};
+const char* const Page::titles[8] = {@TITLES@};
+typedef opxy::screen::PlayerDrawing<Page> Renderer;
+}
+OPXY_SCREEN(Renderer, "@PREFIX@", "@NAME@.svg", @PAGE_LIMIT@, @SCREEN_BYTES@)
+namespace {
+const opxy::platform::Record page_record = {nullptr, nullptr, nullptr, nullptr, @PREFIX@_page_id, 0};
+const opxy::platform::Screen page_screen = {
+    reinterpret_cast<char*>(&opxy_screen_state), sizeof(Renderer::Object),
+    reinterpret_cast<const char*>(&opxy_screen_vtable), opxy_screen_asset,
+    reinterpret_cast<char* (*)(char*, opxy::u32)>(&opxy_screen_ctor)};
+}
+// GUI startup: construct the page in its slot; once it is in place the
+// compositor may paint it for the Maestro page.
+int @PREFIX@_screen_register() { return opxy::platform::register_player_page(&page_record, &page_screen); }
+int @PREFIX@_screen_ready() { return sdk_screen_ready(&page_record, &page_screen); }

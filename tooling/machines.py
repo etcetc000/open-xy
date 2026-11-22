@@ -73,7 +73,9 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # paths and larger path budgets; the encoders' activity, and a synth's last control
 # touched (opxy/control_interaction.hpp).
 # 1.21 adds per-model drum value editing, played-pad display snapshots and sample-free kit presets.
-SDK_VERSION = (1, 21)
+# 1.22 lets a note player draw its own page (resources.display): a draw::Frame from its
+# State and Controls each GUI frame, as a synth draws its screen.
+SDK_VERSION = (1, 22)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -640,11 +642,17 @@ def machine_at(root, identity=None):
         require(kind == 'effect' and 'dryParameter' not in value and type(level) in (int, float) and 0 <= level <= 1,
                 'dryLevel is a number from 0 to 1 on an effect without dryParameter')
         dry_level = round(level * 0x7fffffff)
-    # A synth or drum kit draws its own screen, and so may an effect (SDK 1.7) or a sample
-    # engine (SDK 1.8); other sample engines and effects use a stock page.
-    display = 'player' if kind == 'player' else 'drawing' if kind in ('synth', 'drum') or 'display' in definition['resources'] else 'stock'
+    # A synth or drum kit draws its own screen, and so may an effect (SDK 1.7), a sample
+    # engine (SDK 1.8) or a note player (SDK 1.22); other sample engines and effects use
+    # a stock page, and other players the SDK's dot page.
+    drawn = kind in ('synth', 'drum') or 'display' in definition['resources']
+    display = 'drawing' if drawn else 'player' if kind == 'player' else 'stock'
     if kind == 'effect' and display == 'drawing':
         require_sdk(version, (1, 7), "An effect's own page (resources.display)")
+    if kind == 'player' and display == 'drawing':
+        require_sdk(version, (1, 22), "A note player's own drawn page (resources.display)")
+        require((root / 'display.cpp').is_file() and (root / 'display.h').is_file(),
+                'A player that draws its own page supplies display.h and display.cpp')
     if reads_sample_overview(root):
         require_sdk(version, (1, 8), 'A sample overview (opxy/sample_overview.hpp)')
         require(kind == 'sample' and display == 'drawing', "Only a sample engine's own screen reads a sample overview")
@@ -660,7 +668,8 @@ def machine_at(root, identity=None):
     # The native plan compiles extra translation units only into synths.
     if kind not in ('synth', 'drum'):
         require(not sources and not includes,
-                'Sample engines, effects and players compile one sample.cpp, fx.cpp or player.cpp (and an effect its display.cpp)')
+                'Sample engines, effects and players compile one sample.cpp, fx.cpp or player.cpp '
+                '(and an effect or a drawing player its display.cpp)')
     # Pad settings live in the stock drum page's pad records, whose fade the SDK then owns.
     if kind == 'sample' and definition['resources'].get('padSettings', 0):
         require(requested['page'] == SAMPLE_BASES['drumSampler'],

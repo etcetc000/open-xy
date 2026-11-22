@@ -1539,7 +1539,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.21 and builds 1.0 to 1.21 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.22 and builds 1.0 to 1.22 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
@@ -1699,7 +1699,8 @@ passed to a build with `--machine`.
 SDK 1.8 adds `"kind": "player"`. A player transforms live and sequenced notes
 before the track's instrument receives them. Its `machine.json` declares no
 identity or base; the layout assigns an unused player type and its own page.
-Use four parameters (or five to eight, below), `"resources": {}`, `player.cpp` and `panel.svg.fragment`.
+Use four parameters (or five to eight, below), `"resources": {}`, `player.cpp` and `panel.svg.fragment`
+(or, drawing its [own page](#a-players-own-drawn-page-sdk-122), a display in `resources`, `display.h` and `display.cpp`).
 A parameter an encoder doesn't need may be left empty, declared `"absent": true`
 as for a synth's empty slot: its title and value stay empty and its encoder turns nothing.
 A player with five to eight parameters declares `"press": "page"` (SDK 1.16):
@@ -1792,6 +1793,45 @@ keys in the lower 444-pixel-wide row at y=174, fitting whole F-to-E octaves
 around the input keyboard and every emitted note. This preserves octaves
 under voicing, spread and simultaneous chords. MIDI endpoints use partial
 octaves. Hidden nodes move beyond the display.
+
+### A player's own drawn page (SDK 1.22)
+
+A player may instead draw its page as a synth draws its screen: declare
+`"resources": {"display": {...}}` with the [display fields](display.md#declaration)
+(plain drawing; the [extended](display.md#extended-drawing) keys are for synths and
+effects), `"sdk": "1.22"`, and supply `display.h` (the `DisplayState` and `Frame`
+types, as a synth's) and `display.cpp`:
+
+```cpp
+void display_reset(DisplayState&);
+void display(DisplayState&, const State&, const opxy::player::Controls&,
+             const opxy::draw::Input&, Frame&);
+```
+
+The SDK compiles `display.cpp` in the player's one unit, after `player.cpp`, so
+it reads `State` directly: the same advisory GUI read as `display(const State&, ...)`
+above, while the sequencer may be changing it. The frame, its validation and its
+artwork bindings are a synth's ([display](display.md#frame)); the dot page's
+`<id>_dot_*`, `<id>_text`, keyboard and output-keyboard nodes are not used, and
+the SDK fills no `played` notes. `draw::Input` carries the player's eight controls
+in `slots`, the page shown in `shown` and `parameters` (slots 4..7 on a paged
+player's second page, `line` 1 there), `elapsed`, `track`, the track's
+`note_serial` and [note activity](display.md#note-activity-sdk-11), its
+[amp envelope](display.md#amp-envelope-sdk-110), and `shift` as `Controls.shift`;
+the shift row's values and turns are in `Controls`. `reduced_motion` is 0, the
+drum fields 0. The display resets when its page is shown again or the track
+changes, as a synth's does.
+
+A one-page player keeps the stock header: its labels, and each value the frame's
+`header` caption or else the amount 0..100. A paged player draws the
+[two-page header](display.md#two-page-header) itself, in its own frame and
+artwork, as a paged synth does; the SDK adds none. `sdk.py test` checks the
+artwork against the declared display and runs the display on the host with
+`player.cpp` over a held key's frames, refusing invalid ones.
+
+Not yet run on a device: the renderer is the dot page's registration and
+compositor path with the synth renderer's frame application, compiled into the
+player's unit.
 
 Player types remain stable when a subsequent build uses the saved layout.
 Stock firmware replaces an unknown saved player with Arpeggio. Project

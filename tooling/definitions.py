@@ -199,7 +199,7 @@ def validate_definition(value, kind):
     label(value['name'])
     resources = value['resources']
     options = {'sample': SAMPLE_OPTIONS, 'effect': EFFECT_OPTIONS, 'drum': DRUM_OPTIONS,
-               'synth': ('trackControl', 'stereoOutput', 'releaseCallback')}.get(kind, ())
+               'synth': ('trackControl', 'stereoOutput', 'releaseCallback'), 'player': ('display',)}.get(kind, ())
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
     require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'stockShift', 'padControls')),
@@ -239,6 +239,9 @@ def validate_definition(value, kind):
         require(0 <= resources.get('busShift', 0) <= EFFECT_BUS_SHIFT, 'busShift is 0..%d bits' % EFFECT_BUS_SHIFT)
         if 'display' in resources:
             validate_display(resources['display'], kind)
+    # A note player's own drawn page (SDK 1.22, tooling.machines).
+    if kind == 'player' and 'display' in resources:
+        validate_display(resources['display'], kind)
     if kind in ('synth', 'drum'):
         validate_synth_resources(resources, kind)
     if kind == 'master':
