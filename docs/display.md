@@ -198,6 +198,9 @@ pages are: the first on top and the second under it, the one the encoders edit
 header shows only the edited row. The
 previews use drawing ABI 6, a 112-byte input: ABI 5 (104 bytes) ends after the
 amp envelope, ABI 4 (88 bytes) after `model`, ABI 3 (84 bytes) after `choices`.
+A preview of an [extended](#extended-drawing) display also exports
+`opxy_display_extension()`: 0, or 4 when its input appends the encoder record
+after those 112 bytes. A renderer that does not know a bit refuses the preview.
 
 While a pad is held on a drum kit (without Shift), the SDK draws stock's own
 held-pad strip over the kit's screen, as stock Drumline does: after 0.3 s it
@@ -513,9 +516,7 @@ SDK 1.21 is provisional until it is released.
 | `openPaths`, `segmentPaths` | Bit masks: open polylines (`M`, then `L`s, no `Z`), or separate segments between adjacent points. They never share a path or go with `cubic` |
 | `quadratic: 1`, `commands` | Paths whose line and quadratic commands change each frame (`draw::AffineQuadraticFrame`): `points: 0`, 2..128 `commands`, `affine`; authored as `M` and `commands - 1` `Q` commands |
 | `countedPaths: 1` | Paths with an active point count of 2..`points` (`draw::AffineCountedFrame`); needs `affine`; `paths * (8 + 8 * points)` at most 2816 bytes |
-| `glyphs`, `glyphDefinitions`, `glyphStart` | Outlines chosen per frame from the machine's own artwork ([glyph atlas](glyph-atlas.md)) |
 | `encoderActivity: 1` | Which encoders were touched this frame ([below](#encoder-activity)) |
-| `audioWords`, `audioTransport`, `audioMode`, `audioReset`, `audioAccumulators` | A synth's audio snapshot ([below](#audio-snapshots)) |
 
 [draw.hpp](../sdk/include/opxy/draw.hpp) defines the frames and checks every
 combination at compile time; `python sdk.py test` checks the declaration.
@@ -525,8 +526,7 @@ animates. Browser and device rasterization can differ at the edges.
 
 ### Encoder activity
 
-With `encoderActivity: 1` the input is `draw::EncoderInput` (or the audio
-input types below with an `encoders` record) from
+With `encoderActivity: 1` the input is `draw::EncoderInput` from
 [`opxy/encoder_activity.hpp`](../sdk/include/opxy/encoder_activity.hpp).
 `encoders.available` is 1 when the host reports activity; bits 0..3 of
 `encoders.mask` are the physical encoders pressed or turned since the last
@@ -540,26 +540,9 @@ A synth's screen can include
 [`opxy/control_interaction.hpp`](../sdk/include/opxy/control_interaction.hpp)
 and call `control_interaction::latest(track)` for the last control pressed or
 turned on that track: its physical encoder, parameter and value. Only a build
-whose machines include the header captures it.
-
-### Audio snapshots
-
-A synth can declare `audioWords: 1..16` and take a final
-`const opxy::AudioContext&` argument in `render`; it publishes words with
-`publish_word` or `add_packed16` from
-[`opxy/telemetry.hpp`](../sdk/include/opxy/telemetry.hpp). Its display reads
-`draw::AudioInput` from
-[`opxy/audio_transport.hpp`](../sdk/include/opxy/audio_transport.hpp):
-`audio_words` and `audio_count`, where a count of 0 means no snapshot. Without
-`audioTransport` the snapshot exists only in browser previews.
-
-`audioTransport: 1` carries snapshots on the device between the audio and
-screen processors, outside `render`. `audioMode` 0 keeps the words, 1 sums
-one packed accumulator, and 2 sums `audioAccumulators` words followed by
-kept ones. Up to 256 words, or `audioReset: 1` (a reset request the producer
-applies in its own callback, modes 0 and 2), select `draw::TelemetryInput`.
-The browser builder does not yet export firmware for these machines; build
-them natively.
+whose machines include the header captures it. Encoder activity says which
+encoders moved this frame, for motion; this says which parameter was last
+edited and its value, and stays until the next edit.
 
 ## Migrating from before SDK 1.0
 

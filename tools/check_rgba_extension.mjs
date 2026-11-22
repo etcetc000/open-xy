@@ -9,7 +9,7 @@ const nodes = Array.from({length:2}, (_,i) => ({attributes:{stroke:'#12AbEf','st
  setAttribute(name,value){this.attributes[name]=value;}}));
 const renderer=Object.assign(Object.create(SvgDisplay.prototype),{
  points:0,paths:[],nodes,texts:[],keys:[],applied:['',''],shown:[],palette:[],fillable:[false,true],strokeable:[true,true],
- extended:true,stride:1,glyphCount:0,concealed:[],authoredVisibility:[],
+ extended:true,stride:1,concealed:[],authoredVisibility:[],
  affine:true,rgba:true,nodesAt:1,nodeWords:8,textsAt:17,headerAt:26,frameWords:34,
 });
 renderer.apply(frame);

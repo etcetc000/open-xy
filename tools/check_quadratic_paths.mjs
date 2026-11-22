@@ -7,7 +7,7 @@ const nodes=Array.from({length:8},()=>({attributes:{stroke:'#112233'},setAttribu
 const renderer=Object.assign(Object.create(SvgDisplay.prototype),{
   points:0,commands:16,quadratic:true,cubic:false,paths:nodes,nodes,texts:[],keys:Array(8).fill(0),applied:Array(8).fill(''),
   shown:[],palette:[],fillable:Array(8).fill(false),strokeable:Array(8).fill(true),rgba:true,affine:true,openPaths:0,segmentPaths:0,
-  extended:true,stride:82,glyphCount:0,concealed:[],authoredVisibility:[],
+  extended:true,stride:82,concealed:[],authoredVisibility:[],
   nodesAt:656,nodeWords:8,textsAt:720,headerAt:729,frameWords:737,
 });
 for(const count of [15,10,16]){

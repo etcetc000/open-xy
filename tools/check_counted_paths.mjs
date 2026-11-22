@@ -7,8 +7,8 @@ const nodes=Array.from({length:4},()=>({attributes:{},setAttribute(k,v){this.att
 const renderer=Object.assign(Object.create(SvgDisplay.prototype),{
  points:80,counted:true,quadratic:false,cubic:false,paths:nodes,nodes,texts:[],keys:Array(4).fill(0),applied:Array(4).fill(''),
  shown:[],palette:[],fillable:Array(4).fill(false),strokeable:Array(4).fill(true),rgba:true,affine:true,openPaths:0,segmentPaths:15,
- extended:true,stride:162,glyphCount:0,concealed:[],authoredVisibility:[],
- nodesAt:648,nodeWords:8,textsAt:680,headerAt:689,glyphsAt:697,frameWords:697,
+ extended:true,stride:162,concealed:[],authoredVisibility:[],
+ nodesAt:648,nodeWords:8,textsAt:680,headerAt:689,frameWords:697,
 });
 for(const counts of [[80,60,52,40],[2,2,2,2],[64,64,64,64]]){
  const frame=display.tick(shownControls(Array(8).fill(0),[0,1,2,3]),17,0);renderer.apply(frame);

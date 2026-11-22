@@ -84,15 +84,11 @@ SDK_1_7_NODES = 256
 # SDK_VERSION and its history (tooling/machines.py) and the "1.21" text in the docs and fixtures.
 EXTENDED_SDK = (1, 21)
 EXTENDED_KEYS = ('affine', 'fullCanvas', 'rgba', 'cubic', 'openPaths', 'segmentPaths', 'quadratic', 'commands',
-                 'countedPaths', 'glyphs', 'glyphDefinitions', 'glyphStart', 'encoderActivity',
-                 'audioWords', 'audioTransport', 'audioMode', 'audioReset', 'audioAccumulators')
-EXTENDED_RANGES = dict(openPaths=0xffffffff, segmentPaths=0xffffffff, commands=128, glyphs=64, glyphDefinitions=16,
-                       glyphStart=255, audioWords=256, audioMode=2, audioAccumulators=24)
+                 'countedPaths', 'encoderActivity')
+EXTENDED_RANGES = dict(openPaths=0xffffffff, segmentPaths=0xffffffff, commands=128)
 EXTENDED_LIMITS = dict(paths=32, points=256)
 # Path storage: coordinate pairs in all, and a counted display's reserved bytes.
 EXTENDED_POINTS, COUNTED_PATH_BYTES = 256, 2816
-# Audio snapshot words without the native transport (browser previews only), and with it.
-AUDIO_WORDS, TRANSPORT_WORDS = 16, 256
 # Analysis storage is allocated from the stock heap at runtime, which also holds
 # stock samples; a collection's analysis budgets together take at most this much.
 ANALYSIS_HEAP_LIMIT = 2 * 1024 * 1024
@@ -535,7 +531,7 @@ def validate_display(display, kind=None):
 
 
 def validate_extended(display, kind):
-    """The extended keys' combinations (draw.hpp ExtendedFrame, RgbaFrame and GlyphFrame)."""
+    """The extended keys' combinations (draw.hpp ExtendedFrame and RgbaFrame)."""
     def get(key):
         return display.get(key, 0)
     paths, points, commands = display['paths'], display['points'], get('commands')
@@ -560,27 +556,6 @@ def validate_extended(display, kind):
             'Cubic paths have four points and no topology mask')
     require(not get('rgba') or get('affine') and display['palette'] == 0, 'rgba needs affine and palette 0')
     require(get('affine') or display['palette'] >= 1, 'Display palette must be 1..16 without affine')
-    if get('glyphs'):
-        require(get('affine') and 1 <= get('glyphDefinitions') and paths <= get('glyphStart') and
-                get('glyphStart') + 2 * get('glyphs') <= display['nodes'],
-                'Glyphs need affine, 1..16 glyphDefinitions and two nodes each from glyphStart, after the paths')
-    else:
-        require(not get('glyphDefinitions') and not get('glyphStart'), 'glyphDefinitions and glyphStart need glyphs')
-    require(kind == 'synth' or not any(k in display for k in ('audioWords', 'audioTransport', 'audioMode', 'audioReset',
-                                                              'audioAccumulators')),
-            'Audio snapshots come from a synth: an effect declares none')
-    if get('audioTransport'):
-        words, mode = get('audioWords'), display.get('audioMode')
-        require(words > 0 and mode is not None, 'audioTransport needs audioWords and audioMode')
-        require(mode != 1 or words == 1, 'audioMode 1 (one packed accumulator) needs audioWords 1')
-        require(mode != 2 or 1 <= display.get('audioAccumulators', 1) < words,
-                'audioMode 2 needs 1..24 audioAccumulators, fewer than audioWords')
-        require('audioAccumulators' not in display or mode == 2, 'audioAccumulators needs audioMode 2')
-        require(not get('audioReset') or mode != 1, 'audioReset needs audioMode 0 or 2')
-    else:
-        require(not any(k in display for k in ('audioMode', 'audioReset', 'audioAccumulators')),
-                'audioMode, audioReset and audioAccumulators need audioTransport')
-        require(get('audioWords') <= AUDIO_WORDS, 'audioWords is at most %d without audioTransport' % AUDIO_WORDS)
 
 
 def validate_parameter(parameter, alternate=False, required=True):

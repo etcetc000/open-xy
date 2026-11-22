@@ -45,7 +45,7 @@ u32 host_turn(u32 p, u32 track, u32 slot, u32 event) {
     if (!clamp) ++value;
     return 0x12345678;
 }
-i32 host_get(u32 p, u32 track, u32 slot) { CHECK(p == 0x86bd027cu && track < 8 && slot < 8); ++reads; return value; }
+i32 host_get(u32 p, u32 track, u32 slot, u32 flag) { CHECK(p == 0x86bd027cu && track < 8 && slot < 8 && flag == 1); ++reads; return value; }
 int ready() { return 1; }
 bool format(u32, i32, char*) { return false; }
 }

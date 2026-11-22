@@ -50,25 +50,6 @@ inline void display(DisplayState& state,const opxy::draw::Input&,Frame& frame){
     metadata.write_text(json.dumps(record) + '\n')
     return machine_at(folder)
 
-def write_glyph_fixture(folder):
-    machine=write_fixture(folder);definition=machine.definition
-    definition['resources']['display'].update(nodes=6,glyphs=1,glyphDefinitions=2,glyphStart=4)
-    (machine.root/'definition.json').write_text(json.dumps(definition))
-    header=(machine.root/'display.h').read_text().replace(
-        'using Frame=opxy::draw::RgbaFrame<opxy::draw::AffineCountedFrame<4,80,4,0,0,0,15>>;',
-        'using Frame=opxy::draw::GlyphFrame<opxy::draw::RgbaFrame<opxy::draw::AffineCountedFrame<4,80,6,0,0,0,15>>,1,2,4>;')
-    (machine.root/'display.h').write_text(header)
-    source=(machine.root/'display.cpp').read_text().replace(' for(unsigned i=0;i<4;++i)opxy::draw::header',
-        ' for(unsigned i=4;i<6;++i)opxy::draw::affine(frame,i,opxy::draw::Matrix{1024,0,0,1024,0,0});\n frame.glyphs[0]=state.serial%2;\n for(unsigned i=0;i<4;++i)opxy::draw::header')
-    (machine.root/'display.cpp').write_text(source)
-    scaffold='M0 0 '+' '.join(f'L{i} 0' for i in range(1,16))
-    extra='<g transform="translate(1024,1024)">'+''.join(
-        f'<path id="probesynth_glyph_{i//2}_{i%2}" d="{d}" fill="none" stroke="#ffffff" stroke-width="1.3"/>'
-        for i,d in enumerate(['M0 0 L1 2','M0 0','M3 4 L5 6','M7 8 L9 10']))+'</g>'
-    extra+=''.join(f'<path id="probesynth_node_{i}" d="{scaffold}" fill="none" stroke="#ffffff" stroke-width="1.3"/>' for i in range(4,6))
-    art=(machine.root/'panel.svg.fragment').read_text();(machine.root/'panel.svg.fragment').write_text(art[:-4]+extra+'</g>')
-    return machine_at(machine.root)
-
 class CountedPaths(unittest.TestCase):
     def run_command(self,command):
         r=subprocess.run(list(map(str,command)),capture_output=True,text=True,timeout=120,**HIDDEN)
@@ -126,12 +107,5 @@ int main(){
             folder=Path(temp);machine=write_fixture(folder/'machine');out=folder/'preview';out.mkdir()
             preview.compile_preview('clang++',machine.definition,out,machine.root)
             self.run_command(['node',ROOT/'tools/check_counted_paths.mjs',out/'engine.wasm'])
-
-    @unittest.skipUnless(shutil.which('clang++') and shutil.which('node'),'WASM and Node required')
-    def test_glyph_tail_composes_with_counted_path_prefix(self):
-        with tempfile.TemporaryDirectory() as temp:
-            folder=Path(temp);machine=write_glyph_fixture(folder/'machine');native.validate_panel(machine)
-            out=folder/'preview';out.mkdir();preview.compile_preview('clang++',machine.definition,out,machine.root)
-            self.run_command(['node',ROOT/'tools/check_counted_glyph_paths.mjs',out/'engine.wasm'])
 
 if __name__=='__main__':unittest.main()

@@ -65,8 +65,8 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # as one SDK routine.
 # 1.21 adds extended drawing for synth and effect screens (docs/display.md#extended-drawing):
 # affine nodes, direct colour, a whole-screen canvas, curves, open, segmented and counted
-# paths, glyph atlases and larger path budgets; a synth's audio snapshots for its screen,
-# the encoders' activity and the last control touched (opxy/control_interaction.hpp).
+# paths and larger path budgets; the encoders' activity, and a synth's last control
+# touched (opxy/control_interaction.hpp).
 SDK_VERSION = (1, 21)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.

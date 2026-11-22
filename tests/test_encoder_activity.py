@@ -1,4 +1,4 @@
-"""Opt-in physical GUI events preserve legacy input contracts and audio layout."""
+"""Opt-in physical encoder activity: its input layout, validation and native source."""
 import copy
 import json
 import os
@@ -26,21 +26,18 @@ class EncoderActivity(unittest.TestCase):
                 with self.assertRaises(ValueError): definitions.validate_definition(trial, 'synth')
             adapters.generate_display(folder, definition=machine.definition)
             header = (folder/'display_binding.hpp').read_text()
-            self.assertIn('using DisplayInput = draw::AudioInput;', header)
-            self.assertIn('display_extension = 1;', header)
+            self.assertIn('using DisplayInput = draw::Input;', header)
+            self.assertIn('display_extension = 0;', header)
             self.assertNotIn('platform::encoder_activity()', header)
 
     @unittest.skipUnless(shutil.which(CXX) and shutil.which('node'), 'WASM compiler and Node required')
     def test_all_three_input_layouts_and_atomic_validation(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp); machine = fixture.write_fixture(folder)
-            # Extension bits: 1 audio words, 2 the transport's input, 4 encoders; sizes beyond the 112-byte Input.
-            for words, name, extension, size in ((0,'EncoderInput',4,120),(1,'EncoderAudioInput',5,188),(256,'EncoderTelemetryInput',6,1168)):
+            # Extension bit 4: the encoders' eight bytes after the 112-byte Input.
+            for name, extension, size in (('EncoderInput', 4, 120),):
                 d = copy.deepcopy(machine.definition); display = d['resources']['display']
                 display.update(encoderActivity=1)
-                if words: display['audioWords'] = words
-                else: del display['audioWords']
-                if words == 256: display.update(audioTransport=1,audioMode=0,audioReset=1)
                 (folder/'display.h').write_text(fixture.DRAW_HEADER.replace('<opxy/draw.hpp>','<opxy/encoder_activity.hpp>'))
                 (folder/'display.cpp').write_text('''#include "display.h"
 namespace probesynth {
@@ -58,7 +55,7 @@ void display(DisplayState& s, const opxy::draw::TYPE& input, Frame& f) {
                     folder/'display_binding.cpp',ROOT/'sdk/host/display_preview_extended.cpp',ROOT/'sdk/platform/blackfin/memory.cpp',
                     '-o',wasm,'-Wl,--no-entry','-Wl,--initial-memory=524288','-Wl,--max-memory=524288',
                     *('-Wl,--export='+n for n in preview.DISPLAY_EXPORTS + preview.EXTENDED_EXPORTS)])
-                self.run_command(['node',ROOT/'tools/check_encoder_activity.mjs',wasm,extension,size,words])
+                self.run_command(['node',ROOT/'tools/check_encoder_activity.mjs',wasm,extension,size])
 
     def test_native_getter_read_only_and_frame_order(self):
         source = (ROOT/'sdk/platform/opxy-1.2.1/encoder_activity.hpp').read_text()

@@ -5,7 +5,7 @@ import {shownControls} from '../sdk/browser/controls.mjs';
 const module=new WebAssembly.Module(readFileSync(process.argv[2]));
 const display=new PreviewDisplay(module);
 const input=shownControls(Array(8).fill(0),[0,1,2,3]);
-const tick=(track=0)=>display.tick(input,17,0,track,false,null,0,0,[0,0,0,0],null,{pan:0,level:0},0,null,{count:0,words:Array(16).fill(0)});
+const tick=(track=0)=>display.tick(input,17,0,track,false,null,0,0,[0,0,0,0],null,{pan:0,level:0},0,null);
 assert.equal(tick()[5],0,'real idle baseline before first interaction');
 assert.equal(display.controlInteraction(0,1,1,100,{type:'input',isTrusted:false}),false);
 assert.equal(tick()[5],0,'synthetic input/automation creates no serial');

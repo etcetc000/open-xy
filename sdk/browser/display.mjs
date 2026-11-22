@@ -10,12 +10,9 @@ import { inputWords } from './controls.mjs';
 // track's amp envelope, and ABI 6 a padMix kit key's pan, level and pad fields
 // and the row the encoders edit.
 const INPUT_BYTES = {1: 68, 2: 76, 3: 84, 4: 88, 5: 104, 6: 112};
-// An extended display (docs/display.md#extended-drawing) appends to its
-// ABI's input what opxy_display_extension says: 1 sixteen audio words and their count,
-// 2 the transport's 256 words, count, sequence, both commands, reset support and its
-// reset request, 4 the encoders' availability and mask (after any audio).
-const AUDIO_EXTENSION = 1, TRANSPORT_EXTENSION = 2, ENCODER_EXTENSION = 4;
-const AUDIO_BYTES = {[AUDIO_EXTENSION]: 4 * 17, [TRANSPORT_EXTENSION]: 4 * 262};
+// An extended display (docs/display.md#extended-drawing) appends to its ABI's
+// input what opxy_display_extension says: 4 the encoders' availability and mask.
+const ENCODER_EXTENSION = 4;
 const ENVELOPE = ['attack', 'decay', 'sustain', 'release'];
 const integer = (value, low, high, name) => {
   if (!Number.isInteger(value) || value < low || value > high) throw new Error(`Invalid ${name}`);
@@ -92,17 +89,12 @@ export class PreviewDisplay {
     const e = this.api;
     const abi = e.opxy_display_abi(), inputBytes = e.opxy_display_input_bytes();
     const extension = e.opxy_display_extension ? integer(e.opxy_display_extension(), 0, 7, 'display extension') : 0;
-    const audio = extension & (AUDIO_EXTENSION | TRANSPORT_EXTENSION);
-    if (audio === (AUDIO_EXTENSION | TRANSPORT_EXTENSION)) throw new Error('Invalid display extension');
-    const audioBytes = AUDIO_BYTES[audio] ?? 0, encoderBytes = extension & ENCODER_EXTENSION ? 8 : 0;
-    if (INPUT_BYTES[abi] === undefined || inputBytes !== INPUT_BYTES[abi] + audioBytes + encoderBytes)
+    if (extension & ~ENCODER_EXTENSION) throw new Error('Invalid display extension');
+    const encoderBytes = extension & ENCODER_EXTENSION ? 8 : 0;
+    if (INPUT_BYTES[abi] === undefined || inputBytes !== INPUT_BYTES[abi] + encoderBytes)
       throw new Error('Unsupported drawing ABI');
-    // Word offsets of the appended audio snapshot and encoder record.
-    this.audioAt = INPUT_BYTES[abi] / 4;
-    this.audioCapacity = audio === TRANSPORT_EXTENSION ? 256 : audio ? 16 : 0;
-    this.transport = audio === TRANSPORT_EXTENSION;
-    this.audioWords = audio ? integer(e.opxy_display_audio_words(), 1, this.audioCapacity, 'display audio words') : 0;
-    this.encodersAt = encoderBytes ? (INPUT_BYTES[abi] + audioBytes) / 4 : 0;
+    // Word offset of the appended encoder record.
+    this.encodersAt = encoderBytes ? INPUT_BYTES[abi] / 4 : 0;
     this.noteActivity = abi >= 2;
     this.hasShift = abi >= 3;
     this.hasModel = abi >= 4;
@@ -110,9 +102,9 @@ export class PreviewDisplay {
     this.hasMix = abi >= 6;
     this.stateBytes = integer(e.opxy_display_state_bytes(), 4, e.memory.buffer.byteLength, 'display state size');
     // Largest declared frame: 4 paths of 64 points, 512 nodes, 32 texts and the header;
-    // an extended one: 2816 bytes of paths, 512 affine nodes, 32 texts, the header and 64 glyphs.
+    // an extended one: 2816 bytes of paths, 512 affine nodes, 32 texts and the header.
     const frameBytes = integer(e.opxy_display_frame_bytes(), 32,
-      extension || e.opxy_display_extension ? 2816 + 512 * 32 + 32 * 36 + 32 + 64 * 4 : 4 * 516 + 512 * 28 + 32 * 36 + 32,
+      e.opxy_display_extension ? 2816 + 512 * 32 + 32 * 36 + 32 : 4 * 516 + 512 * 28 + 32 * 36 + 32,
       'drawing frame size');
     this.memory = e.memory.buffer;
     const ranges = [
@@ -152,9 +144,6 @@ export class PreviewDisplay {
     this.api.opxy_control_source(1);
     return this.api.opxy_control_event(track, physical, parameter, value) === 1;
   }
-  // The reset a transport display asked for in its last frame, and its target (0: none).
-  audioResetTarget() { return this.transport ? this.input[this.audioAt + 261] >>> 0 : 0; }
-  audioResetRequested() { return this.audioResetTarget() !== 0; }
   // input: shownControls(words, shown) from controls.mjs.
   // model: a drum kit's selected machine (0..127), 0 for other kinds; shift: 1
   // while Shift is held, with its controls' choices (0..255 each). amp: the
@@ -163,11 +152,10 @@ export class PreviewDisplay {
   // pad fields, -128..127}, and line, the row the encoders edit (0 or 1).
   // shiftRow: a synth's Shift row, {held: 0 or 1, line: 0 or 1, values: up to eight Q31
   // words}; null leaves it as last written (zeros at first).
-  // audio: an audio display's snapshot, {count: 0 or its words, words: its capacity's
-  // words, and for the transport sequence, requested, applied, resetSupported}; null
-  // when none was taken. encoders: {available: 0 or 1, mask: 0..15}; null when unknown.
+  // encoders: an extended display's encoder activity, {available: 0 or 1, mask: 0..15};
+  // null when unknown.
   tick(input, elapsed, serial, track = 0, reducedMotion = false, activity = null, model = 0, shift = 0, choices = [0, 0, 0, 0],
-       amp = null, mix = {pan: 0, level: 0}, line = 0, shiftRow = null, audio = null, encoders = null) {
+       amp = null, mix = {pan: 0, level: 0}, line = 0, shiftRow = null, encoders = null) {
     if (typeof reducedMotion !== 'boolean') throw new Error('Invalid display input');
     // Validate the complete snapshot before mutating input/state.
     const [p0, p1, p2, p3, shown, ...slots] = inputWords(input);
@@ -194,17 +182,7 @@ export class PreviewDisplay {
       row = [integer(shiftRow.held ?? 0, 0, 1, 'shift row held'), integer(shiftRow.line ?? 0, 0, 1, 'shift row line'),
              ...Array.from({length: 8}, (_, i) => integer(values[i] ?? 0, 0, 0x7fffffff, 'shift row value'))];
     }
-    let snapshot = null, encoder = null;
-    if (this.audioWords) {
-      const words = audio?.words ?? Array(this.audioCapacity).fill(0);
-      const count = audio === null ? 0 : integer(audio.count, 0, this.audioWords, 'audio snapshot count');
-      if (count !== 0 && count !== this.audioWords || !Array.isArray(words) || words.length !== this.audioCapacity)
-        throw new Error('Invalid audio snapshot');
-      snapshot = [...words.map(word => integer(word, 0, 0xffffffff, 'audio snapshot word')), count];
-      if (this.transport)
-        snapshot.push(...['sequence', 'requested', 'applied'].map(key => integer(audio?.[key] ?? 0, 0, 0xffffffff, 'audio ' + key)),
-                      integer(audio?.resetSupported ?? 0, 0, 1, 'audio reset support'), 0);
-    }
+    let encoder = null;
     if (this.encodersAt) {
       const available = encoders === null ? 0 : integer(encoders.available, 0, 1, 'encoder availability');
       const mask = encoders === null ? 0 : integer(encoders.mask, 0, 15, 'encoder mask');
@@ -219,7 +197,6 @@ export class PreviewDisplay {
     if (this.envelope) this.input.set(envelope, 22);
     if (this.hasMix) this.input.set([mixed, padded], 26);
     if (row && this.shiftRow) this.shiftRow.set(row);
-    if (snapshot) this.input.set(snapshot, this.audioAt);
     if (encoder) this.input.set(encoder, this.encodersAt);
     this.api.opxy_display_render();
     if (this.api.opxy_display_valid() !== 1) throw new Error('Display emitted an invalid drawing frame');
@@ -263,33 +240,12 @@ export function headerSvg(titles, values) {
   return `<g data-opxy-header="" font-family="sans-serif">${bar}${text}</g>`;
 }
 
-// A glyph outline (docs/display.md#glyph-atlases): absolute M, L, C and Z only, at
-// most 16 commands, as tooling.native.glyph_commands accepts.
-function glyphCommands(data) {
-  const token = /[MLCZ]|[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)/g;
-  if (data.replace(token, '').replace(/[\s,]/g, '')) throw new Error('Unsupported glyph outline');
-  const tokens = data.match(token) || [], records = [];
-  let i = 0, closed = true;
-  while (i < tokens.length) {
-    const verb = tokens[i++], count = {M: 2, L: 2, C: 6, Z: 0}[verb];
-    if (count === undefined || closed && verb !== 'M' || i + count > tokens.length) throw new Error('Invalid glyph contour');
-    const values = tokens.slice(i, i + count).map(Number);
-    i += count;
-    if (values.some(v => !Number.isFinite(v) || Math.abs(v) > 8192)) throw new Error('Invalid glyph coordinate');
-    records.push([verb, values]);
-    closed = verb === 'Z';
-    if (records.length > 16) throw new Error('A glyph outline has at most 16 commands');
-  }
-  if (!records.length) throw new Error('Empty glyph outline');
-  return records;
-}
 // An extended display's options, as preview.drawing_bindings gives them, checked as
 // tooling.definitions.validate_extended checks the declaration.
-function extendedOptions(bindings, paths, points, nodes, palette) {
+function extendedOptions(bindings, paths, points, palette) {
   const o = {};
   for (const [key, high] of [['affine', 1], ['fullCanvas', 1], ['rgba', 1], ['cubic', 1], ['quadratic', 1], ['countedPaths', 1],
-                             ['openPaths', 0xffffffff], ['segmentPaths', 0xffffffff], ['commands', 128], ['glyphs', 64],
-                             ['glyphDefinitions', 16], ['glyphStart', 255]])
+                             ['openPaths', 0xffffffff], ['segmentPaths', 0xffffffff], ['commands', 128]])
     o[key] = integer(bindings[key] ?? 0, 0, high, 'display ' + key);
   const pairs = o.quadratic ? 2 * o.commands : points;
   if (paths > 32 || (o.quadratic ? points !== 0 || !paths || !o.affine || o.commands < 2 || o.cubic || o.openPaths ||
@@ -297,14 +253,12 @@ function extendedOptions(bindings, paths, points, nodes, palette) {
       (o.countedPaths ? !o.affine || !paths || o.cubic || paths * (8 + 8 * points) > 2816 : paths * pairs > 256) ||
       o.openPaths >= 2 ** paths || o.segmentPaths >= 2 ** paths || (o.openPaths & o.segmentPaths) ||
       (o.cubic && (!paths || points !== 4 || o.openPaths || o.segmentPaths)) ||
-      (o.rgba && (!o.affine || palette)) || (!o.affine && !palette) ||
-      (o.glyphs ? !o.affine || !o.glyphDefinitions || o.glyphStart < paths || o.glyphStart + 2 * o.glyphs > nodes
-                : o.glyphDefinitions || o.glyphStart))
+      (o.rgba && (!o.affine || palette)) || (!o.affine && !palette))
     throw new Error('Unsupported retained asset bindings');
   return o;
 }
 const EXTENDED = ['affine', 'fullCanvas', 'rgba', 'cubic', 'openPaths', 'segmentPaths', 'quadratic', 'commands',
-                  'countedPaths', 'glyphs', 'glyphDefinitions', 'glyphStart'];
+                  'countedPaths'];
 
 // The whole artwork in authored order, with the frame's nodes, text slots and
 // palette entries bound by ID, as on the device.
@@ -313,7 +267,7 @@ export class SvgDisplay {
     if (typeof asset !== 'string' || asset.length > 65536 || /<!DOCTYPE|<!ENTITY/i.test(asset)) {
       throw new Error('Invalid drawing asset');
     }
-    const { nodes, texts, palette, paths, points, glyphSources = [] } = bindings;
+    const { nodes, texts, palette, paths, points } = bindings;
     // Extended: an extended key, or more paths or points than a plain display holds.
     this.extended = EXTENDED.some(key => key in bindings) || paths > 4 || points > 64;
     if (!Array.isArray(nodes) || !Array.isArray(texts) || !Array.isArray(palette) ||
@@ -323,27 +277,23 @@ export class SvgDisplay {
         palette.length > 16) {
       throw new Error('Unsupported retained asset bindings');
     }
-    const o = this.extended ? extendedOptions(bindings, paths, points, nodes.length, palette.length) : {};
+    const o = this.extended ? extendedOptions(bindings, paths, points, palette.length) : {};
     this.affine = o.affine === 1; this.fullCanvas = o.fullCanvas === 1; this.rgba = o.rgba === 1;
     this.cubic = o.cubic === 1; this.quadratic = o.quadratic === 1; this.counted = o.countedPaths === 1;
     this.openPaths = o.openPaths ?? 0; this.segmentPaths = o.segmentPaths ?? 0; this.commands = o.commands ?? 0;
-    this.glyphCount = o.glyphs ?? 0; this.glyphDefinitions = o.glyphDefinitions ?? 0; this.glyphStart = o.glyphStart ?? 0;
-    if (!Array.isArray(glyphSources) || glyphSources.length !== 2 * this.glyphDefinitions)
-      throw new Error('Invalid glyph outline bindings');
     this.points = points;
     // Frame words: paths (key, points), nodes (7 words), texts (3 words and 24
     // bytes), then the header's four 8-byte strings. An empty path or text
     // array still holds one unused element, as in draw.hpp.
     // Extended frames: a quadratic path's key, count and 5-word commands; a counted
-    // path's key and count before its points; 8-word affine nodes; the glyph selectors last.
+    // path's key and count before its points; 8-word affine nodes.
     this.stride = this.quadratic ? 2 + 5 * this.commands : (this.counted ? 2 : 1) + 2 * points;
     this.nodeWords = this.affine ? 8 : 7;
     this.nodesAt = Math.max(paths, 1) * this.stride;
     this.textsAt = this.nodesAt + this.nodeWords * nodes.length;
     this.headerAt = this.textsAt + 9 * Math.max(texts.length, 1);
-    this.glyphsAt = this.headerAt + 8;
-    this.frameWords = this.glyphsAt + this.glyphCount;
-    const ids = [...nodes, ...texts, ...palette, ...glyphSources];
+    this.frameWords = this.headerAt + 8;
+    const ids = [...nodes, ...texts, ...palette];
     if (new Set(ids).size !== ids.length || ids.some(id => !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(id))) {
       throw new Error('Invalid retained asset identities');
     }
@@ -384,7 +334,7 @@ export class SvgDisplay {
       return { fill, stroke, width };
     });
     this.nodes = nodes.map(id => leaf(id, ['path', 'circle']));
-    if (this.extended) this.extendedNodes(glyphSources, leaf);
+    if (this.extended) this.extendedNodes();
     // The device renderer only changes a fill the artwork already has.
     this.fillable = this.nodes.map(node => (node.getAttribute('fill') || 'none') !== 'none');
     this.strokeable = this.nodes.map(node => (node.getAttribute('stroke') || 'none') !== 'none');
@@ -398,28 +348,11 @@ export class SvgDisplay {
     // The header's text for each control position; '' keeps the stock value.
     this.header = ['', '', '', ''];
   }
-  // Glyph outlines, glyph instance scaffolds and direct-colour paint, checked as
-  // tooling.native checks the artwork; each node's authored visibility, for conceal.
-  extendedNodes(glyphSources, leaf) {
+  // Direct-colour paint, checked as tooling.native checks the artwork; each node's
+  // authored visibility, for conceal.
+  extendedNodes() {
     this.authoredVisibility = this.nodes.map(node => node.getAttribute('visibility'));
     this.concealed = this.nodes.map(() => false);
-    this.glyphOutlines = glyphSources.map((id, i) => {
-      const source = leaf(id, ['path']);
-      if (source.getAttribute('transform')) throw new Error('A glyph outline is untransformed');
-      const records = glyphCommands(source.getAttribute('d') || '');
-      if (!(i % 2) && records.length < 2) throw new Error("A glyph's first outline draws something");
-      // Q10 once, truncated as the device's parser stores the source.
-      return records.length === 1 ? '' : records.map(([verb, values]) =>
-        verb + values.map(v => String(Math.trunc(v * 1024) / 1024)).join(' ')).join(' ');
-    });
-    for (let i = this.glyphStart; i < this.glyphStart + 2 * this.glyphCount; ++i) {
-      const node = this.nodes[i];
-      if (node.localName !== 'path' || node.getAttribute('fill') !== 'none') throw new Error('A glyph instance is a path with fill="none"');
-      const records = glyphCommands(node.getAttribute('d') || '');
-      if (records.length !== 16 || records.some(([verb], k) => verb !== (k ? 'L' : 'M')) ||
-          new Set(records.map(([, values]) => values.join(','))).size !== 16) throw new Error('Invalid glyph instance');
-    }
-    this.glyphApplied = Array(this.glyphCount).fill(-1);
     if (this.rgba) for (const node of this.nodes) {
       if (node.getAttribute('opacity') !== null) throw new Error('RGBA nodes use fill-opacity and stroke-opacity');
       for (const paint of ['fill', 'stroke']) {
@@ -484,15 +417,6 @@ export class SvgDisplay {
       let active = 0;
       for (let i = 0; i < this.paths.length; ++i) active += integer(frame[i * this.stride + 1], 2, this.points, 'active path points');
       if (active > 256) throw new Error('Counted paths draw at most 256 points in all');
-    }
-    // Every selector is checked before any glyph changes.
-    for (let i = 0; i < this.glyphCount; ++i) integer(frame[this.glyphsAt + i], 0, this.glyphDefinitions - 1, 'glyph selector');
-    for (let i = 0; i < this.glyphCount; ++i) {
-      const selected = frame[this.glyphsAt + i];
-      if (this.glyphApplied[i] === selected) continue;
-      for (let part = 0; part < 2; ++part)
-        this.nodes[this.glyphStart + 2 * i + part].setAttribute('d', this.glyphOutlines[2 * selected + part]);
-      this.glyphApplied[i] = selected;
     }
     for (let path = 0; path < this.paths.length; path++) {
       const offset = path * this.stride, key = frame[offset];

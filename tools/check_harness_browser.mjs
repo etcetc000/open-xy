@@ -85,7 +85,7 @@ try {
       window.encoderChecks = [];
       window.originalEncoderTick = PreviewDisplay.prototype.tick;
       PreviewDisplay.prototype.tick = function(...args) {
-        window.encoderChecks.push({...args[7], elapsed:args[1]});
+        window.encoderChecks.push({...args[13], elapsed:args[1]});
         return window.originalEncoderTick.apply(this,args);
       };
     })()`);
@@ -181,11 +181,6 @@ try {
   await evaluate('window.dispatchEvent(new Event("blur"))');
   assert.equal(await evaluate('machineLab.getStatus().heldNotes'), 0);
   await click('waveform');
-  // Telemetry-backed draws complete after the bounded worklet snapshot RPC.
-  for (let attempt=0; attempt<20; ++attempt) {
-    if (await evaluate('Boolean(document.querySelector("#screen polyline"))')) break;
-    await delay(50);
-  }
   assert.ok(await evaluate('Boolean(document.querySelector("#screen polyline"))'));
   await click('routing');
   const preset = Object.values(controls.presets).at(-1) ?? controls.defaults();

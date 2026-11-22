@@ -55,6 +55,15 @@ class ControlInteraction(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             wrapper=native.control_interaction_unit(Path(temp)).read_text(encoding='utf-8')
         self.assertIn('#define OPXY_CONTROL_INTERACTION 1\n#include "synth_controls.cpp"\n',wrapper)
+    def test_capture_reads_the_value_as_the_pages_show_it(self):
+        # The capture calls stock's displayed-value getter with the four arguments
+        # synth_controls.cpp shown_value passes; a shorter call leaves the last one undefined.
+        platform=ROOT/'sdk/platform/opxy-1.2.1'
+        shown='stock<opxy::i32(u32, u32, u32, u32)>(0x8d5ac9dc)(kProject, track, slot, 1)'
+        self.assertIn(shown,(platform/'synth_controls.cpp').read_text(encoding='utf-8'))
+        inc=(platform/'control_interaction_native.inc').read_text(encoding='utf-8')
+        self.assertEqual(inc.count('0x8d5ac9dc'),1)
+        self.assertIn('stock<opxy::i32(opxy::u32,opxy::u32,opxy::u32,opxy::u32)>(0x8d5ac9dcu)(project,track,parameter,1)',inc)
     @unittest.skipUnless(HOST_CXX,'Host C++ compiler unavailable')
     def test_host_baselines_bounds_order_and_wrap(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -66,7 +75,7 @@ class ControlInteraction(unittest.TestCase):
             folder=Path(temp);m=fixture.write_fixture(folder/'machine');out=folder/'out';out.mkdir()
             p=m.root/'display.cpp';s=p.read_text()
             s='#include <opxy/control_interaction.hpp>\n'+s
-            s=s.replace('const opxy::i32 x = input.audio_count ? (input.audio_words[0] & 2047) : -1;',
+            s=s.replace('const opxy::i32 x = static_cast<opxy::i32>(input.track) + 1;',
                         'const auto e=opxy::control_interaction::latest(input.track);\n    const opxy::i32 x=e.available?e.serial:-1;')
             s=s.replace('512, x, 0','512, x, e.normalized_value_at_event')
             s=s.replace('0, 0, 0, 0, 1024','0, 0, 0, static_cast<opxy::i32>(e.physical_knob), static_cast<opxy::i32>(e.parameter_index)')

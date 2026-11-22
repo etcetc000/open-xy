@@ -9,7 +9,7 @@ static_assert(@SHARED_BYTES@ == 0 ? __is_empty(Shared) : sizeof(Shared) == @SHAR
               "Declared shared size differs from the compiled type");
 static Voice voices[8];
 static Shared shared;
-@AUDIO_STORAGE@static opxy::u32 owner(Voice* voice) { return static_cast<opxy::u32>(voice - voices) + 1; }
+static opxy::u32 owner(Voice* voice) { return static_cast<opxy::u32>(voice - voices) + 1; }
 // A drum kit's previewed model (the harness's Shift / Model control); unused by synths.
 static opxy::u32 drum_model;
 extern "C" {
@@ -29,6 +29,6 @@ void opxy_release(Voice* voice) { @RELEASE_CALLBACK@ }
 void opxy_destroy(Voice* voice) { @NAMESPACE@::destroy(*voice, shared, owner(voice)); }
 void opxy_preview_model(opxy::u32 model) { drum_model = model; }
 void opxy_render(Voice* voice, opxy::i32* output, const opxy::i32* parameters, const opxy::u32* pitch) {
-    @DRUM_SELECT@@AUDIO_CONTEXT@@NAMESPACE@::render(*voice, shared, owner(voice), output, parameters, pitch@AUDIO_ARGUMENT@);
+    @DRUM_SELECT@@NAMESPACE@::render(*voice, shared, owner(voice), output, parameters, pitch);
 }
-@DRUM_KEYS@@AUDIO_EXPORTS@}
+@DRUM_KEYS@}
