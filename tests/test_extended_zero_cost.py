@@ -45,10 +45,19 @@ EXTENDED_ONLY = {
 }
 
 
+def filled_early(plain):
+    """Whether the plain renderer's animate touches its input before the first page_controls
+    loop, where input_fill does not look."""
+    body = plain[plain.index('static void animate('):]
+    return 'display_input' in body[:body.index('for (u32 i = 0; i < page_controls; ++i) {')]
+
+
 def unexpected(plain, extended):
-    """The statements one renderer has and the other lacks, beyond the intended differences."""
+    """The statements one renderer has and the other lacks, beyond the intended differences;
+    a plain fill before the compared range counts as one the extended renderer lacks."""
     a, b = input_fill(plain), input_fill(extended)
-    return sorted(set(a) - set(b) - PLAIN_ONLY), sorted(set(b) - set(a) - EXTENDED_ONLY)
+    early = ['display_input before the page_controls loop'] if filled_early(plain) else []
+    return early + sorted(set(a) - set(b) - PLAIN_ONLY), sorted(set(b) - set(a) - EXTENDED_ONLY)
 
 
 class ExtendedZeroCost(unittest.TestCase):
@@ -108,6 +117,11 @@ class ExtendedZeroCost(unittest.TestCase):
             with self.subTest(added=change):
                 changed = plain.replace(render, '        ' + change + '\n' + render, 1)
                 self.assertNotEqual(unexpected(changed, extended), ([], []))
+        # A fill line inserted before the compared range is caught too.
+        loop = '        for (u32 i = 0; i < page_controls; ++i) {\n            display_input.parameters'
+        self.assertEqual(plain.count(loop), 1)
+        early = plain.replace(loop, '        display_input.bpm_x10 = platform::bpm_x10();\n' + loop, 1)
+        self.assertNotEqual(unexpected(early, extended), ([], []))
         call = 'platform::amp_envelope(controls.track, input.amp);'
         self.assertIn(call, extended)
         self.assertNotEqual(unexpected(plain, extended.replace(call, '', 1)), ([], []))
