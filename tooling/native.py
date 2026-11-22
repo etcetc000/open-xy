@@ -18,7 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, extensions, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables
+from . import audio_telemetry, benchmark, extensions, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables
 from .adapters import (pad_mix, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
@@ -27,7 +27,7 @@ from .adapters import (pad_mix, sends_per_key, aux_preset_files, catalog_entry, 
                        generate_voice, generate_drum_callbacks, preset_files, sample_callbacks, track_control,
                        control_callbacks)
 from .contributors import validate_source_boundary
-from .definitions import paged, synth_shift
+from .definitions import extended_display, paged, synth_shift
 from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
 from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, sample_path, tree
@@ -45,6 +45,9 @@ DEFINITIONS = dict(stock_catalog_insert=0x8d5bd928, stock_gui_role=0x8d5c3eac, s
                    stock_sample_key_tail=0x8d589214, stock_drum_classify_tail=0x8d5b79f6, stock_player_factory_tail=0x8d57ee70,
                    stock_player_load_tail=0x8d588d98, stock_player_load_kept=0x8d588da2,
                    stock_player_name_tail=0x8d5bdddc, stock_player_id_tail=0x8d5bde64, stock_sample_slice_receive_tail=0x8d5b1264)
+# The stock calls the audio transport's hooks run first or forward to (profile service
+# 'telemetry'); defined only for a build that links them.
+TELEMETRY_DEFINITIONS = dict(stock_telemetry_tick=0x8d4d6a10, stock_telemetry_receive=0x8d4d669e)
 TEMPLATES = 'sdk/platform/opxy-1.2.1/'
 RUNTIME_ASM, RUNTIME_CXX = 'sdk/platform/blackfin/divide.s', 'sdk/platform/blackfin/memory.cpp'
 # The sample kernel (opxy/sample_kernel.hpp): linked only for a machine that includes it.
@@ -119,6 +122,8 @@ def configuration(entries=None, layout=None):
     machines = Collection(collection(entries, layout), extensions.check_collection(
         [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]))
     definitions = dict(DEFINITIONS)
+    if audio_telemetry.users(machines):
+        definitions.update(TELEMETRY_DEFINITIONS)
     for m in machines:
         if m.kind == 'player':
             definitions[m.prefix + '_player_id'] = m.identity['player']
@@ -269,7 +274,7 @@ SDK_UNITS = ('divide', 'sample_kernel', 'memory', 'registration', 'registration_
              'players', 'player_hooks', 'player_table', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
              'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_hooks',
              'drum_send', 'drum_send_hooks', 'drum_locks', 'lock_handles', 'drumline', 'drumline_hooks',
-             'synth_shift_hooks')
+             'synth_shift_hooks', 'telemetry_protocol', 'telemetry_native', 'telemetry_hooks', 'telemetry_registry')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -298,6 +303,11 @@ UNIT_SERVICES.update(dict.fromkeys(('drumline', 'drumline_hooks'), 'drumline'))
 # A synth's Shift row (SDK 1.13): Shift and an encoder press switch its pages, as a
 # press does without Shift (synth_controls.cpp sdk_synth_shift_press).
 UNIT_SERVICES['synth_shift_hooks'] = 'synth_shift'
+# A synth's audio snapshots on the device (audioTransport, audio_transport_native.hpp):
+# the wire protocol, both processors' endpoints, their two hooks and the registry of the
+# selected synths' banks.
+UNIT_SERVICES.update(dict.fromkeys(('telemetry_protocol', 'telemetry_native', 'telemetry_hooks',
+                                    'telemetry_registry'), 'telemetry'))
 # Track control and hidden pages run from the GUI tick hook; startup stands in for
 # the saved data's entry points in builds that don't link it.
 UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'track_control_hooks',
@@ -312,7 +322,8 @@ UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks',
 def service_users(machines):
     """What a native build's services are chosen by: its machines' kinds, the features
     they declare ('trackControl', 'auxTrack', 'hidePages', 'padMix', 'synthShift': a synth's
-    Shift row, whose presets and step locks use the drums and drum_locks services),
+    Shift row, whose presets and step locks use the drums and drum_locks services,
+    'audioTransport': a synth's audio snapshots on the device),
     'extension' when it links extension code (native builds link all of the collection's;
     settings extensions link none), the capabilities they declare ('master_filter',
     'drumline_page') and the registry capabilities its extensions declare."""
@@ -322,6 +333,7 @@ def service_users(machines):
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
             ['padMix' for m in machines if pad_mix(m)] +
             ['synthShift' for m in machines if m.kind == 'synth' and synth_shift(m.definition)] +
+            ['audioTransport' for m in audio_telemetry.users(machines)] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
             (['drumline_page'] if any(e.drumline_page is not None for e in extensions_of(machines)) else []) +
             [c for e in extensions_of(machines) for c in e.capabilities])
@@ -565,6 +577,12 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         folder = obj.parent
         folder.mkdir(exist_ok=True)
         if m is None:
+            if step == 'telemetry_registry':
+                return cxx(str(audio_telemetry.generate_registry(folder, machines)), obj)
+            if step == 'telemetry_protocol':
+                return cxx(TEMPLATES + 'telemetry/protocol.cpp', obj)
+            if step == 'synth_controls' and includes_header(machines, 'control_interaction'):
+                return cxx(str(control_interaction_unit(folder)), obj)
             if step == 'drum_callbacks':
                 return cxx(str(generate_drum_callbacks(folder, machines)), obj)
             if step == 'benchmark':
@@ -660,6 +678,15 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         report['runtime'] = runtime_members
     save_json(directory / 'compile-report.json', report)
     return bytes(module), report, patch_profile
+
+
+def control_interaction_unit(folder):
+    """synth_controls.cpp with the last control touched captured (opxy/control_interaction.hpp),
+    for a build where a machine reads it; other builds compile synth_controls.cpp as it is."""
+    path = Path(folder) / 'synth_controls_interaction.cpp'
+    path.write_text('// Generated: synth controls that record the last control touched.\n'
+                    '#define OPXY_CONTROL_INTERACTION 1\n#include "synth_controls.cpp"\n', encoding='utf-8', newline='\n')
+    return path
 
 
 def normalize_object(data):
@@ -993,8 +1020,109 @@ def panel_root(fragment, source):
         raise ValueError(f'{source} must be one SVG element, such as <g id="..._panel">...</g> ({error})') from None
 
 
+def glyph_commands(node):
+    """A glyph outline: absolute M, L, C and Z only, at most 16 commands, no transform."""
+    require(node is not None and node.tag == 'path' and not node.get('transform'),
+            'A glyph outline is an untransformed path')
+    data = node.get('d', '')
+    token = r'[MLCZ]|[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)'
+    require(re.fullmatch(r'[\s,]*', re.sub(token, '', data)) is not None,
+            'A glyph outline uses absolute M, L, C and Z only')
+    tokens, result, i, closed = re.findall(token, data), [], 0, True
+    while i < len(tokens):
+        verb = tokens[i]
+        i += 1
+        require(verb in 'MLCZ' and (not closed or verb == 'M'), 'A glyph contour starts with M')
+        n = {'M': 2, 'L': 2, 'C': 6, 'Z': 0}[verb]
+        values = tokens[i:i + n]
+        i += n
+        require(len(values) == n and all(re.fullmatch(NUMBER, v) for v in values), 'A glyph command lacks coordinates')
+        require(all(abs(float(v)) <= 8192 for v in values), 'Glyph coordinates are within 8192 pixels')
+        result.append((verb, values))
+        closed = verb == 'Z'
+        require(len(result) <= 16, 'A glyph outline has at most 16 commands')
+    require(result, 'A glyph outline is empty')
+    return result
+
+
+def glyph_ids(prefix, display):
+    """Each glyph definition's two outlines: <prefix>_glyph_<definition>_<0|1>."""
+    return [f'{prefix}_glyph_{d}_{p}' for d in range(display.get('glyphDefinitions', 0)) for p in range(2)]
+
+
+def check_glyphs(by_id, prefix, display):
+    """Glyph outlines, and each instance's two stroke-only nodes reserving 16 distinct points."""
+    if not display.get('glyphs'):
+        return
+    for index, name in enumerate(glyph_ids(prefix, display)):
+        commands = glyph_commands(by_id.get(name))
+        require(index % 2 or len(commands) >= 2, "A glyph's first outline draws something: " + name)
+    for index in range(display['glyphStart'], display['glyphStart'] + 2 * display['glyphs']):
+        name = f'{prefix}_node_{index}'
+        node = by_id.get(name)
+        require(node is not None and node.tag == 'path' and node.get('fill') == 'none',
+                'A glyph instance node is a path with fill="none": ' + name)
+        # The stock parser merges repeated points, so the 16 reserved points are distinct.
+        commands = glyph_commands(ET.Element('path', {'d': node.get('d', '')}))
+        require(len(commands) == 16 and [v for v, _ in commands] == ['M'] + ['L'] * 15 and
+                len({tuple(float(x) for x in values) for _, values in commands}) == 16,
+                'A glyph instance node reserves M and 15 L to 16 distinct points: ' + name)
+
+
+def check_extended_outlines(by_id, prefix, display):
+    """An extended display's paths: each as its topology reserves them (cubic, quadratic,
+    open, segmented or closed), checked before the device only moves their coordinates."""
+    points, commands = display['points'], display.get('commands', 0)
+    for index, name in enumerate(display_ids(prefix, display)[:display['paths']]):
+        node = by_id.get(name)
+        verbs = re.findall(r'[A-Za-z]', node.get('d', '')) if node is not None else []
+        coordinates = re.findall(NUMBER, node.get('d', '')) if node is not None else []
+        cubic, quadratic = bool(display.get('cubic')), bool(display.get('quadratic'))
+        segments = bool(display.get('segmentPaths', 0) & (1 << index))
+        opened = cubic or bool(display.get('openPaths', 0) & (1 << index))
+        if quadratic:
+            expected, pairs, topology = ['M'] + ['Q'] * (commands - 1), 2 * commands - 1, 'M and %d Q' % (commands - 1)
+        elif cubic:
+            expected, pairs, topology = ['M', 'C'], points, 'M and C'
+        elif segments:
+            expected, pairs, topology = ['M', 'L'] * (points - 1), 2 * (points - 1), '%d M/L pairs' % (points - 1)
+        else:
+            expected = ['M'] + ['L'] * (points - 1) + ([] if opened else ['Z'])
+            pairs, topology = points, 'M, %d L%s' % (points - 1, '' if opened else ' and Z')
+        require(node is not None and node.tag == 'path' and verbs == expected and len(coordinates) == 2 * pairs and
+                (display.get('affine') or cubic or node.get('fill') == 'none'),
+                'Mutable path must contain exactly %s with %d coordinate pairs%s: %s'
+                % (topology, pairs, '' if display.get('affine') or cubic else ', unfilled', name))
+        if quadratic or cubic:
+            continue
+        # The stock parser merges repeated points; adjacent segments share their vertex.
+        q10 = [(round(float(x) * 1024), round(float(y) * 1024)) for x, y in zip(coordinates[::2], coordinates[1::2])]
+        if segments:
+            require(all(q10[2 * i + 1] == q10[2 * i + 2] for i in range(points - 2)),
+                    'Separate segments share each inner vertex with the next segment: ' + name)
+            q10 = q10[::2] + q10[-1:]
+        require(len(set(q10)) == points,
+                'Mutable outline repeats a point; the device merges repeated points, so keep each distinct: ' + name)
+
+
+def check_rgba(by_id, prefix, display):
+    """A direct-colour display's nodes own explicit paint, which the device recolours in place."""
+    for name in display_ids(prefix, display)[:display['nodes']]:
+        node = by_id[name]
+        require('opacity' not in node.attrib, 'RGBA nodes use fill-opacity and stroke-opacity, not opacity: ' + name)
+        for paint in ('fill', 'stroke'):
+            value = node.get(paint, 'none')
+            require(value == 'none' or re.fullmatch(r'#[0-9A-Fa-f]{6}', value),
+                    'RGBA nodes take #RRGGBB or none: ' + name)
+            if value != 'none':
+                require(0 < float(node.get(paint + '-opacity', '1')) <= 1,
+                        'RGBA paint starts visible, its opacity above 0: ' + name)
+
+
 def check_outlines(by_id, prefix, display):
     """Drawing paths are the first nodes: exactly M, (points - 1) L and Z; filled paths must enclose area."""
+    if extended_display(display):
+        return check_extended_outlines(by_id, prefix, display)
     points = display['points']
     for name in display_ids(prefix, display)[:display['paths']]:
         node = by_id.get(name)
@@ -1025,6 +1153,9 @@ def check_bindings(by_id, prefix, display):
     count = display['nodes'] + display['texts']
     bound, texts, palette = ids[:display['nodes']], ids[display['nodes']:count], ids[count:]
     check_outlines(by_id, prefix, display)
+    check_glyphs(by_id, prefix, display)
+    if display.get('rgba'):
+        check_rgba(by_id, prefix, display)
     for name in bound + texts:
         node = by_id.get(name)
         kind = ('text',) if name in texts else ('path', 'circle')
@@ -1129,7 +1260,8 @@ def prepare_assets(catalog, profile, machines):
     owners = {}  # every file a machine or extension adds, by who adds it
     for m in machines:
         if m.display != 'stock':
-            outputs[f'content/display/{m.native_name}.svg'] = screen.compose(page_artwork(m))
+            outputs[f'content/display/{m.native_name}.svg'] = screen.compose(
+                page_artwork(m), full_canvas=bool(m.definition['resources'].get('display', {}).get('fullCanvas')))
         for path, preset in preset_files(m).items():
             outputs[path] = (json.dumps(preset, indent=2) + '\n').encode('utf-8')
         # A sample engine's own samples (SDK 1.10), installed as they are.

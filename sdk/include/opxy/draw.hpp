@@ -20,7 +20,10 @@ const i32 node_left = -64, node_right = 640, node_top = -64, node_bottom = 320;
 const i32 hidden_x = node_right, hidden_y = node_bottom;
 // Terminated text: a text slot holds at most 23 characters, a header value 7.
 const u32 text_capacity = 24, header_capacity = 8;
-enum Paint : u32 { keep = 0, stroke = 1, fill_and_stroke = 2 };
+// The rgba_* paints and hidden belong to extended frames only (see "Extended
+// drawing" below); a Frame refuses them.
+enum Paint : u32 { keep = 0, stroke = 1, fill_and_stroke = 2,
+                   rgba_stroke = 3, rgba_fill_and_stroke = 4, rgba_fill = 5, hidden = 6 };
 struct Point { i32 x, y; };
 // A clockwise rotation as a Q10 unit vector; {unit, 0} is no rotation.
 struct Turn { i32 cos, sin; };
@@ -273,5 +276,222 @@ static inline bool valid(const F& frame) {
     for (u32 i = 0; i < page_controls; ++i)
         if (!terminated(frame.header[i], header_capacity)) return false;
     return true;
+}
+
+// Extended drawing (docs/display.md#extended-drawing): opt-in frame
+// shapes for synth and effect screens. A display declaring none of the
+// extended keys keeps Frame, its renderer and its generated code unchanged.
+//
+// An affine node carries a whole 2 x 3 matrix, Q10, as SVG matrix(a,b,c,d,x,y):
+// non-uniform scale, shear and reflection. With rgba, shade is a packed colour
+// (color()); with a palette, a palette entry as for Node.
+struct AffineNode { i32 a, b, c, d, x, y; u32 shade; Paint paint; };
+struct Matrix { i32 a, b, c, d, x, y; };
+// A quadratic path is a command stream: a move, then lines and quadratic
+// curves; the first count of its reserved commands are drawn.
+enum PathVerb : u32 { move_to = 1, line_to = 2, quadratic_to = 3 };
+struct QuadraticCommand { PathVerb kind; Point control, end; };
+template <u32 Commands> struct QuadraticPath { u32 key, count; QuadraticCommand commands[Commands]; };
+// A counted path draws the first count of its reserved points.
+template <u32 Points> struct CountedPath { u32 key, count; Point points[Points]; };
+template <u32 Size, bool Quadratic, bool Counted> struct PathStorage { typedef Path<Size> type; };
+template <u32 Size> struct PathStorage<Size, true, false> { typedef QuadraticPath<Size> type; };
+template <u32 Size> struct PathStorage<Size, false, true> { typedef CountedPath<Size> type; };
+template <bool Affine> struct NodeKind { typedef Node type; };
+template <> struct NodeKind<true> { typedef AffineNode type; };
+// Extended path budgets: up to 32 paths and 256 points (coordinate pairs) in
+// all; counted paths reserve at most 2816 bytes of path storage.
+const u32 extended_paths = 32, extended_points = 256, counted_path_bytes = 2816;
+// Affine and cubic path coordinates, and affine translations: +/- 8192 pixels.
+const i32 extended_extent = 8192;
+// Paths, Points (for a quadratic frame, commands per path), Nodes, Texts and
+// Palette as for Frame, then the options the display declares. The layout is
+// Frame's, with these path and node types.
+template <u32 Paths, u32 Points, u32 Nodes, u32 Texts, u32 Palette, bool Affine, bool Cubic = false,
+          u32 OpenPaths = 0, u32 SegmentPaths = 0, bool Quadratic = false, bool Counted = false>
+struct ExtendedFrame {
+    static const bool extended = true;
+    static const bool affine = Affine, cubic = Cubic, quadratic = Quadratic, counted = Counted, rgba = false;
+    static const u32 open_paths = OpenPaths, segment_paths = SegmentPaths;
+    static const u32 glyph_count = 0, glyph_definition_count = 0, glyph_start = 0;
+    static_assert(Paths <= extended_paths && Points <= extended_points &&
+                  (Counted ? Paths * (8 + 8 * Points) <= counted_path_bytes
+                           : Paths * Points * (Quadratic ? 2 : 1) <= extended_points),
+                  "Extended path budget");
+    static_assert(!Counted || (Affine && Paths > 0 && Points >= 2 && !Cubic && !Quadratic),
+                  "Counted paths are affine polylines");
+    static_assert(!Quadratic || (Affine && Paths > 0 && Points >= 2 && !Cubic && !OpenPaths && !SegmentPaths),
+                  "Quadratic paths are affine, without topology masks");
+    static_assert(!Cubic || (Paths > 0 && Points == 4 && !OpenPaths && !SegmentPaths),
+                  "A cubic path holds its start, two controls and its end");
+    static_assert(Paths == 32 || ((OpenPaths >> (Paths % 32)) == 0 && (SegmentPaths >> (Paths % 32)) == 0),
+                  "A topology mask names a path beyond the path count");
+    static_assert(!(OpenPaths & SegmentPaths), "Path topology masks overlap");
+    typedef typename NodeKind<Affine>::type node_type;
+    typedef typename PathStorage<Points, Quadratic, Counted>::type path_type;
+    static const u32 path_count = Paths;
+    static const u32 point_count = Quadratic ? 0 : Points;
+    static const u32 command_capacity = Quadratic ? Points : 0;
+    static const u32 node_count = Nodes;
+    static const u32 text_count = Texts;
+    static const u32 palette_count = Palette;
+    path_type paths[Paths > 0 ? Paths : 1];
+    node_type nodes[Nodes];
+    Text texts[Texts > 0 ? Texts : 1];
+    char header[page_controls][header_capacity];
+};
+template <u32 Paths, u32 Points, u32 Nodes, u32 Texts, u32 Palette, u32 OpenPaths = 0, u32 SegmentPaths = 0>
+using AffineFrame = ExtendedFrame<Paths, Points, Nodes, Texts, Palette, true, false, OpenPaths, SegmentPaths>;
+template <u32 Paths, u32 Points, u32 Nodes, u32 Texts, u32 Palette>
+using CubicFrame = ExtendedFrame<Paths, Points, Nodes, Texts, Palette, false, true>;
+template <u32 Paths, u32 Points, u32 Nodes, u32 Texts, u32 Palette>
+using AffineCubicFrame = ExtendedFrame<Paths, Points, Nodes, Texts, Palette, true, true>;
+template <u32 Paths, u32 Commands, u32 Nodes, u32 Texts, u32 Palette>
+using AffineQuadraticFrame = ExtendedFrame<Paths, Commands, Nodes, Texts, Palette, true, false, 0, 0, true>;
+template <u32 Paths, u32 Points, u32 Nodes, u32 Texts, u32 Palette, u32 OpenPaths = 0, u32 SegmentPaths = 0>
+using AffineCountedFrame = ExtendedFrame<Paths, Points, Nodes, Texts, Palette, true, false, OpenPaths, SegmentPaths, false, true>;
+// Frame's nodes and closed outlines, with more than four paths or 64 points.
+template <u32 Paths, u32 Points, u32 Nodes, u32 Texts, u32 Palette, u32 OpenPaths = 0, u32 SegmentPaths = 0>
+using LargeFrame = ExtendedFrame<Paths, Points, Nodes, Texts, Palette, false, false, OpenPaths, SegmentPaths>;
+// Direct colour: each node's shade is a color() and its paint an rgba_* paint.
+// Same layout as its base, which is affine and has no palette.
+template <class Base> struct RgbaFrame : Base {
+    static_assert(Base::extended && Base::affine && Base::palette_count == 0,
+                  "RGBA needs affine nodes and no palette");
+    static const bool rgba = true;
+};
+// A glyph atlas: Instances glyphs, each two owned path nodes from node Start
+// on, each showing one of Definitions immutable outlines from the artwork.
+// The base's layout, then one definition index per instance.
+template <class Base, u32 Instances, u32 Definitions, u32 Start> struct GlyphFrame {
+    static const bool extended = true;
+    static const bool rgba = Base::rgba, affine = Base::affine, cubic = Base::cubic,
+                      quadratic = Base::quadratic, counted = Base::counted;
+    static const u32 open_paths = Base::open_paths, segment_paths = Base::segment_paths;
+    static const u32 path_count = Base::path_count, point_count = Base::point_count,
+                     command_capacity = Base::command_capacity, node_count = Base::node_count,
+                     text_count = Base::text_count, palette_count = Base::palette_count;
+    static const u32 glyph_count = Instances, glyph_definition_count = Definitions, glyph_start = Start;
+    static_assert(Base::extended && Base::glyph_count == 0 && affine && Instances > 0 && Instances <= 64 &&
+                  Definitions > 0 && Definitions <= 16 && Start >= path_count && Start <= node_count &&
+                  2 * Instances <= node_count - Start, "Glyph atlas exceeds the declared nodes");
+    typedef typename Base::path_type path_type;
+    typedef typename Base::node_type node_type;
+    path_type paths[path_count > 0 ? path_count : 1];
+    node_type nodes[node_count];
+    Text texts[text_count > 0 ? text_count : 1];
+    char header[page_controls][header_capacity];
+    u32 glyphs[Instances];
+};
+
+// Hides a node until a later frame paints it again; call after its transform
+// and paint setters. Extended frames only.
+template <class F> static inline void conceal(F& frame, u32 index) {
+    if (index < F::node_count) { frame.nodes[index].paint = hidden; frame.nodes[index].shade = 0; }
+}
+// Shows outline `definition` at glyph instance `instance`.
+template <class F> static inline void glyph(F& frame, u32 instance, u32 definition) {
+    if (instance < F::glyph_count) frame.glyphs[instance] = definition;
+}
+// A packed colour: red, green, blue and alpha bytes.
+static inline u32 color(u8 red, u8 green, u8 blue, u8 alpha = 255) {
+    return u32(red) | u32(green) << 8 | u32(blue) << 16 | u32(alpha) << 24;
+}
+template <class F> static inline void rgba(F& frame, u32 index, u32 packed, Paint paint = rgba_stroke) {
+    if (index < F::node_count) { frame.nodes[index].shade = packed; frame.nodes[index].paint = paint; }
+}
+static inline Matrix matrix(const Node& node) {
+    const i32 a = floor_q10(node.scale * node.cos), b = floor_q10(node.scale * node.sin);
+    const Matrix m = {a, b, -b, a, node.x, node.y};
+    return m;
+}
+static inline Matrix matrix(const AffineNode& node) {
+    const Matrix m = {node.a, node.b, node.c, node.d, node.x, node.y};
+    return m;
+}
+template <class F> static inline void affine(F& frame, u32 index, Matrix value, u32 shade = 0, Paint paint = keep) {
+    if (index >= F::node_count) return;
+    AffineNode& node = frame.nodes[index];
+    node.a = value.a; node.b = value.b; node.c = value.c; node.d = value.d;
+    node.x = value.x; node.y = value.y; node.shade = shade; node.paint = paint;
+}
+
+namespace detail {
+static inline bool node_valid(const Node& node) {
+    return placement(node.x, node.y, node.scale) && rotation_valid(node.cos, node.sin);
+}
+// Matrix words within +/- 16, translation within the extended extent.
+static inline bool node_valid(const AffineNode& node) {
+    const i32 limit = 16 * unit, translation = extended_extent * unit;
+    return node.a >= -limit && node.a <= limit && node.b >= -limit && node.b <= limit &&
+           node.c >= -limit && node.c <= limit && node.d >= -limit && node.d <= limit &&
+           node.x >= -translation && node.x <= translation && node.y >= -translation && node.y <= translation;
+}
+static inline bool point_valid(Point point, i32 extent) {
+    return point.x >= -extent * unit && point.x <= extent * unit &&
+           point.y >= -extent * unit && point.y <= extent * unit;
+}
+// Plain paths keep Frame's extent unless the frame is affine or cubic.
+template <u32 Points> static inline bool path_valid(const Path<Points>& path, bool wide) {
+    if (!path.key) return false;
+    for (u32 i = 0; i < Points; ++i)
+        if (!point_valid(path.points[i], wide ? extended_extent : path_extent)) return false;
+    return true;
+}
+template <u32 Commands> static inline bool path_valid(const QuadraticPath<Commands>& path, bool) {
+    if (!path.key || path.count < 2 || path.count > Commands) return false;
+    for (u32 i = 0; i < path.count; ++i) {
+        const QuadraticCommand& command = path.commands[i];
+        if ((i == 0 ? command.kind != move_to : command.kind != line_to && command.kind != quadratic_to) ||
+            !point_valid(command.end, extended_extent)) return false;
+        if (command.kind == quadratic_to && !point_valid(command.control, extended_extent)) return false;
+    }
+    return true;
+}
+template <u32 Points> static inline bool path_valid(const CountedPath<Points>& path, bool) {
+    if (!path.key || path.count < 2 || path.count > Points) return false;
+    for (u32 i = 0; i < path.count; ++i)
+        if (!point_valid(path.points[i], extended_extent)) return false;
+    return true;
+}
+template <u32 Points> static inline u32 active_points(const CountedPath<Points>& path) { return path.count; }
+template <class P> static inline u32 active_points(const P&) { return 0; }
+template <class F> static inline bool extended_valid(const F& frame) {
+    u32 active = 0;
+    for (u32 p = 0; p < F::path_count; ++p) {
+        if (!path_valid(frame.paths[p], F::affine || F::cubic)) return false;
+        if (F::counted && (active += active_points(frame.paths[p])) > extended_points) return false;
+    }
+    for (u32 i = 0; i < F::node_count; ++i) {
+        const typename F::node_type& node = frame.nodes[i];
+        if (!node_valid(node)) return false;
+        if (node.paint == hidden) {
+            if (node.shade != 0) return false;
+        } else if (F::rgba) {
+            if (node.paint == keep ? node.shade != 0 : node.paint < rgba_stroke || node.paint > rgba_fill) return false;
+        } else if (node.paint > fill_and_stroke ||
+                   (F::palette_count ? node.shade >= F::palette_count : node.paint != keep || node.shade != 0)) {
+            return false;
+        }
+    }
+    for (u32 i = 0; i < F::text_count; ++i) {
+        const Text& text = frame.texts[i];
+        if (!placement(text.x, text.y, text.scale) || !terminated(text.chars, text_capacity)) return false;
+    }
+    for (u32 i = 0; i < page_controls; ++i)
+        if (!terminated(frame.header[i], header_capacity)) return false;
+    return true;
+}
+} // namespace detail
+// The extended frames' checks, chosen over valid(const F&) as more specialized.
+template <u32 P, u32 Q, u32 N, u32 T, u32 C, bool A, bool Cu, u32 O, u32 S, bool Qu, bool Co>
+static inline bool valid(const ExtendedFrame<P, Q, N, T, C, A, Cu, O, S, Qu, Co>& frame) {
+    return detail::extended_valid(frame);
+}
+template <class B> static inline bool valid(const RgbaFrame<B>& frame) { return detail::extended_valid(frame); }
+template <class B, u32 N, u32 D, u32 S> static inline bool valid(const GlyphFrame<B, N, D, S>& frame) {
+    for (u32 i = 0; i < N; ++i)
+        if (frame.glyphs[i] >= D) return false;
+    return detail::extended_valid(frame);
 }
 }} // namespace opxy::draw

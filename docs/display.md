@@ -42,6 +42,8 @@ void display(DisplayState& state, const opxy::draw::Input& input, Frame& output)
 | `palette` | 1..16 paint entries |
 | `stateBytes`, `stateAlignment` | `DisplayState` size (whole words) and alignment, checked against the compiled type |
 
+A synth or effect screen can go beyond these with [extended drawing](#extended-drawing).
+
 [draw.hpp](../sdk/include/opxy/draw.hpp) is the format definition.
 `DisplayState` is trivial, standard-layout data. Put it, with the frame type,
 in `display.h`.
@@ -490,6 +492,74 @@ automatic conversion does not preserve the intended distinctions.
 The selection happens while packaging, without a firmware drawing ABI change or
 a new saved sound parameter. Preview artifacts authenticate the variant's hash
 and source alongside the original; rebuilding is required after editing either.
+
+## Extended drawing
+
+A synth or effect screen can declare more paths and points than the table in
+[Declaration](#declaration) allows, and the optional keys below. Any of them
+makes the display *extended*: it needs `"sdk": "1.21"`, uses
+`draw::ExtendedFrame` (or one of its aliases) instead of `draw::Frame`, and is
+drawn by a separate renderer. A display that uses none of them keeps
+`draw::Frame`, its renderer and its generated code exactly as before.
+SDK 1.21 is provisional until it is released.
+
+| Key | Meaning |
+| --- | --- |
+| `paths`, `points` | Up to 32 paths and 256 points per path, 256 coordinate pairs in all |
+| `affine: 1` | Full affine node transforms (`draw::AffineNode`, `draw::affine`); `palette` may be 0; path coordinates reach ±8192 pixels |
+| `fullCanvas: 1` | The machine owns the whole 480×220 screen: the SDK header is left out. Control values still arrive in the input |
+| `rgba: 1` | Per-node 32-bit colors (`draw::RgbaFrame`, `draw::rgba`); needs `affine` and `palette: 0` |
+| `cubic: 1` | Every path is one cubic Bézier: four points, start, two controls, end; authored as `M … C …` without `Z` |
+| `openPaths`, `segmentPaths` | Bit masks: open polylines (`M`, then `L`s, no `Z`), or separate segments between adjacent points. They never share a path or go with `cubic` |
+| `quadratic: 1`, `commands` | Paths whose line and quadratic commands change each frame (`draw::AffineQuadraticFrame`): `points: 0`, 2..128 `commands`, `affine`; authored as `M` and `commands - 1` `Q` commands |
+| `countedPaths: 1` | Paths with an active point count of 2..`points` (`draw::AffineCountedFrame`); needs `affine`; `paths * (8 + 8 * points)` at most 2816 bytes |
+| `glyphs`, `glyphDefinitions`, `glyphStart` | Outlines chosen per frame from the machine's own artwork ([glyph atlas](glyph-atlas.md)) |
+| `encoderActivity: 1` | Which encoders were touched this frame ([below](#encoder-activity)) |
+| `audioWords`, `audioTransport`, `audioMode`, `audioReset`, `audioAccumulators` | A synth's audio snapshot ([below](#audio-snapshots)) |
+
+[draw.hpp](../sdk/include/opxy/draw.hpp) defines the frames and checks every
+combination at compile time; `python sdk.py test` checks the declaration.
+The renderer keeps each path's authored allocation and changes only its
+coordinates and active length, without allocating or parsing SVG while it
+animates. Browser and device rasterization can differ at the edges.
+
+### Encoder activity
+
+With `encoderActivity: 1` the input is `draw::EncoderInput` (or the audio
+input types below with an `encoders` record) from
+[`opxy/encoder_activity.hpp`](../sdk/include/opxy/encoder_activity.hpp).
+`encoders.available` is 1 when the host reports activity; bits 0..3 of
+`encoders.mask` are the physical encoders pressed or turned since the last
+frame, before any page or Shift mapping. On the device the SDK reads stock's
+own per-frame flags; in the browser only real gestures count, never preset
+loads or automation.
+
+### The last control touched
+
+A synth's screen can include
+[`opxy/control_interaction.hpp`](../sdk/include/opxy/control_interaction.hpp)
+and call `control_interaction::latest(track)` for the last control pressed or
+turned on that track: its physical encoder, parameter and value. Only a build
+whose machines include the header captures it.
+
+### Audio snapshots
+
+A synth can declare `audioWords: 1..16` and take a final
+`const opxy::AudioContext&` argument in `render`; it publishes words with
+`publish_word` or `add_packed16` from
+[`opxy/telemetry.hpp`](../sdk/include/opxy/telemetry.hpp). Its display reads
+`draw::AudioInput` from
+[`opxy/audio_transport.hpp`](../sdk/include/opxy/audio_transport.hpp):
+`audio_words` and `audio_count`, where a count of 0 means no snapshot. Without
+`audioTransport` the snapshot exists only in browser previews.
+
+`audioTransport: 1` carries snapshots on the device between the audio and
+screen processors, outside `render`. `audioMode` 0 keeps the words, 1 sums
+one packed accumulator, and 2 sums `audioAccumulators` words followed by
+kept ones. Up to 256 words, or `audioReset: 1` (a reset request the producer
+applies in its own callback, modes 0 and 2), select `draw::TelemetryInput`.
+The browser builder does not yet export firmware for these machines; build
+them natively.
 
 ## Migrating from before SDK 1.0
 

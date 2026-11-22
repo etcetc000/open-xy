@@ -50,6 +50,10 @@ inline u32 project_bpm_x10() {
     return tempo >= 200 && tempo <= 3000 ? tempo : 0;
 }
 
+inline u32 audio_frame_index() {
+    return *reinterpret_cast<const volatile u16*>(0x84a50b98u);
+}
+
 inline u32 track_engine(u32 track) { return stock<u32(u32)>(0x8d58781c)(track); }
 // Stock's set: stores a track's parameter word and sends it to the audio side
 // (0x8d5acd9c), as it does for every edit.

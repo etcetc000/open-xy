@@ -19,7 +19,7 @@ from .formats import require, sha
 from .machines import FIXED_NUMBERS, check_request
 from .pipeline import (ROOT, add_overwrite_argument, child, document, fresh_output, read, require_release_host,
                        resolve_toolchain, tool_paths)
-from . import extensions, native, preview, screen
+from . import audio_telemetry, extensions, native, preview, screen
 
 
 def notices(machines, runtime=False):
@@ -118,6 +118,9 @@ def machine_entry(m, profile, sources, output, preview_cxx):
         if m.grayscale:
             entry['grayscaleArtwork'] = read(m.root / m.grayscale).decode('utf-8')
         entry['asset'] = m.native_name + '.svg'
+        # A whole-screen canvas: its display file has no stock header (core.mjs buildAssets).
+        if m.definition['resources'].get('display', {}).get('fullCanvas'):
+            entry['fullCanvas'] = 1
     if m.display != 'stock' and m.kind in ('synth', 'drum'):
         preview_dir = output / ('preview-' + m.id)
         preview.build(preview_cxx, m, preview_dir)
@@ -142,6 +145,10 @@ def machine_entry(m, profile, sources, output, preview_cxx):
 
 def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False):
     profile, machines, definitions = native.configuration(native.package_collection(package))
+    # The builder does not link the audio transport's hooks yet (docs/display.md#audio-snapshots).
+    transport = [m.id for m in audio_telemetry.users(machines)]
+    require(not transport, 'Audio snapshots on the device (audioTransport) need a native build; the browser kit '
+                           'cannot hold ' + ', '.join(transport))
     sources = catalog_sources(machines, personal)
     require(sha(stock_catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     runtime_members = document(package / 'analysis/compile-report.json').get('runtime', [])

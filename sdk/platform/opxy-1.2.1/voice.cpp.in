@@ -22,7 +22,7 @@
 #include "synth_controls.hpp"
 #include "voice_zero.hpp"
 #include <opxy/q31.hpp>
-@SHIFT_ROW@// Stock assembly imports use explicit names; all other C symbols keep the ABI prefix.
+@AUDIO_INCLUDE@@SHIFT_ROW@// Stock assembly imports use explicit names; all other C symbols keep the ABI prefix.
 extern "C" {
 void* @PREFIX@_factory(opxy::u32) __asm__("@PREFIX@_factory");
 const char* @PREFIX@_parameter_name(opxy::u32) __asm__("@PREFIX@_parameter_name");
@@ -53,7 +53,7 @@ const opxy::u32 kStockVoices = 27;
 const opxy::u32 kVoices = (@CAPACITY@ < kStockVoices ? @CAPACITY@ : kStockVoices) + 1;
 static Slot voices[kVoices];
 static Shared shared;
-static_assert(sizeof(Voice) == @VOICE_BYTES@, "Declared voice size differs from the compiled type");
+@AUDIO_STORAGE@static_assert(sizeof(Voice) == @VOICE_BYTES@, "Declared voice size differs from the compiled type");
 static_assert(alignof(Voice) == @VOICE_ALIGNMENT@, "Declared voice alignment differs from the compiled type");
 static_assert(alignof(Voice) >= 4 && sizeof(Voice) % 4 == 0, "A voice is cleared in whole words");
 static_assert(@SHARED_BYTES@ == 0 ? __is_empty(Shared) : sizeof(Shared) == @SHARED_BYTES@,
@@ -242,8 +242,8 @@ int @PREFIX@_render(void* self, opxy::i32* output, const opxy::i32* parameters) 
     // A note that lost its wait takes a voice once one is free.
     if (handle->wants && !held(handle) && !pending(handle)) acquire(handle, now, false);
     if (Slot* slot = held(handle)) {
-@SWEEP_CONTROLS@        @NAMESPACE@::render(slot->voice, shared, slot->owner, output, controls, increments);
-        // A taken note's last block fades linearly to silence, as stock fades one.
+@SWEEP_CONTROLS@@AUDIO_CONTEXT@        @NAMESPACE@::render(slot->voice, shared, slot->owner, output, controls, increments@AUDIO_ARGUMENT@);
+@AUDIO_END@        // A taken note's last block fades linearly to silence, as stock fades one.
         if (slot->next) {
             const opxy::i32 frames = static_cast<opxy::i32>(opxy::block_frames), step = 0x7fffffff / (frames - 1);
             @FADE_OUTPUT@

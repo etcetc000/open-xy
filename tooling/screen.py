@@ -48,8 +48,14 @@ def page_header(identity, first_node):
     return text.replace('@ID@', identity)
 
 
-def compose(fragment):
-    data = template().replace(b'</svg>', fragment + b'</svg>')
+# A whole-screen canvas (extended drawing's fullCanvas): the machine's artwork alone,
+# without the stock header the template carries.
+CANVAS = b'<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220"></svg>'
+
+
+def compose(fragment, full_canvas=False):
+    data = template()  # authenticated even when the canvas leaves it out
+    data = (CANVAS if full_canvas else data).replace(b'</svg>', fragment + b'</svg>')
     root = ET.fromstring(data)
     ids = [n.attrib['id'] for n in root.iter() if 'id' in n.attrib]
     require(len(ids) == len(set(ids)), 'Duplicate SVG binding IDs')
