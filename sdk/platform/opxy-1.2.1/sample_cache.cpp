@@ -20,6 +20,9 @@ using opxy::platform::barrier;
 using opxy::platform::SampleMachine;
 constexpr u32 kEntries = 256;
 constexpr u32 kChunkFrames = 4096;
+// The stock heap every machine's analyses may hold together
+// (tooling.definitions.ANALYSIS_HEAP_LIMIT), whatever the machines installed.
+constexpr u32 kAllowanceBytes = 2u * 1024u * 1024u;
 // One machine's analysis of one retained sample.
 struct Entry {
     // The owner is published last and cleared before storage is released.
@@ -149,11 +152,19 @@ u32 used_bytes(u32 engine) {
         if (entries[i].owner && entries[i].engine == engine) total += entries[i].bytes;
     return total;
 }
+// Heap bytes every machine's published analyses hold together.
+u32 held_bytes() {
+    u32 total = 0;
+    for (u32 i = 0; i < kEntries; ++i)
+        if (entries[i].owner) total += entries[i].bytes;
+    return total;
+}
 
 // Runs synchronously on the existing file worker, with a retained stock sample
 // reference, after assigned keys have loaded. Stock PCM is never modified.
 // Budgets are extension limits, not assumptions about stock cache size or
-// available heap memory.
+// available heap memory: a machine holds at most its own budget, and all of
+// them together at most the allowance. A sample over either waits for a release.
 void prepare_for(const void* object, const SampleMachine& m) {
     Entry* free_entry = nullptr;
     for (u32 i = 0; i < kEntries; ++i) {
@@ -176,8 +187,9 @@ void prepare_for(const void* object, const SampleMachine& m) {
         failed(free_entry, object, m.engine(), 3);
         return;
     }
-    const u32 budget = m.analysis_budget, used = used_bytes(m.engine());
-    if (used > budget || words > budget / sizeof(u32) || words * sizeof(u32) > budget - used) {
+    const u32 budget = m.analysis_budget, used = used_bytes(m.engine()), held = held_bytes();
+    if (used > budget || words > budget / sizeof(u32) || words * sizeof(u32) > budget - used ||
+        held > kAllowanceBytes || words * sizeof(u32) > kAllowanceBytes - held) {
         failed(free_entry, object, m.engine(), 4);
         return;
     }

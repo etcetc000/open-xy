@@ -90,7 +90,8 @@ EXTENDED_LIMITS = dict(paths=32, points=256)
 # Path storage: coordinate pairs in all, and a counted display's reserved bytes.
 EXTENDED_POINTS, COUNTED_PATH_BYTES = 256, 2816
 # Analysis storage is allocated from the stock heap at runtime, which also holds
-# stock samples; a collection's analysis budgets together take at most this much.
+# stock samples. A machine's budget is at most this much, and on the device all
+# machines' analyses together hold at most this much (sample_cache.cpp).
 ANALYSIS_HEAP_LIMIT = 2 * 1024 * 1024
 # A sample engine's optional services: integer 0/1 flags and the analysis budget.
 SAMPLE_FLAGS = ('chokeSameKey', 'padSettings', 'drumControls', 'stereoOutput', 'sliceTiming')

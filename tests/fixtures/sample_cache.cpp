@@ -247,7 +247,30 @@ int main() {
     sdk_sample_cache_release(&large_objects[0]);
     sdk_sample_cache_prepare(&large_objects[fitting]);
     require(sdk_sample_cache_find(&large_objects[fitting], 35) != nullptr, "failed sample did not retry once budget was freed");
+
+    // Every machine's analyses come from one allowance. With engine 35 holding
+    // all but 130,832 bytes of it, a sample of 64 KiB for each machine fits
+    // engine 35 and then, though within engine 46's own budget, not engine 46.
+    second_registered = true;
+    opxy::SampleView half{pcm.data(), 16380 * 32, 44100, 1};
+    require(4 * analysis_words(half) == 64u * 1024u, "shared allowance sample is not a whole budget");
+    Object shared(half);
+    sdk_sample_cache_prepare(&shared);
+    require(sdk_sample_cache_find(&shared, 35) && !sdk_sample_cache_find(&shared, 46) &&
+            sdk_sample_cache_failed(&shared, 46) && held_bytes() <= kAllowanceBytes,
+            "machines together exceeded the shared allowance");
+    const unsigned shared_allocations = allocations;
+    sdk_sample_cache_prepare(&shared);
+    require(allocations == shared_allocations, "sample over the shared allowance retried without a release");
+    // Any machine's release frees allowance for another's waiting sample.
+    sdk_sample_cache_release(&large_objects[1]);
+    sdk_sample_cache_prepare(&shared);
+    require(sdk_sample_cache_find(&shared, 46) != nullptr && !sdk_sample_cache_failed(&shared, 46),
+            "waiting sample did not retry once the shared allowance was freed");
+    sdk_sample_cache_release(&shared);
+    second_registered = false;
     for (auto& object : large_objects) sdk_sample_cache_release(&object);
+    require(blocks.empty(), "budget test leaked storage");
 
     for (unsigned frames : {0u, 1u, 0x100000u, 0xffffffffu}) {
         opxy::SampleView invalid{pcm.data(), frames, 44100, 1};
