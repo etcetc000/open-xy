@@ -504,7 +504,6 @@ makes the display *extended*: it needs `"sdk": "1.20"`, uses
 `draw::ExtendedFrame` (or one of its aliases) instead of `draw::Frame`, and is
 drawn by a separate renderer. A display that uses none of them keeps
 `draw::Frame`, its renderer and its generated code exactly as before.
-Extended drawing needs SDK 1.20.
 
 | Key | Meaning |
 | --- | --- |
