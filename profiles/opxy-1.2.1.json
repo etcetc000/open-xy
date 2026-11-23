@@ -204,6 +204,9 @@
     ],
     "fast_helpers": [
       "fast_helpers"
+    ],
+    "telemetry": [
+      "audioTransport"
     ]
   },
   "patches": [
@@ -1074,6 +1077,28 @@
       "before": "ffe358fe0160492f",
       "symbol": "sdk_synth_shift_press_hook",
       "service": "synth_shift",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Audio transport: the audio processor's background service, after stock's",
+      "address": "0x8c0ba4f4",
+      "file_offset": "0xf1730",
+      "length": 8,
+      "before": "00de4d8d106a0000",
+      "symbol": "sdk_telemetry_tick",
+      "service": "telemetry",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Audio transport: SDK packets between the processors, before stock's receive",
+      "address": "0x8d5b1af4",
+      "file_offset": "0x1e8d4c",
+      "length": 4,
+      "before": "f9e3d525",
+      "symbol": "sdk_telemetry_receive_hook",
+      "service": "telemetry",
       "call": true
     },
     {

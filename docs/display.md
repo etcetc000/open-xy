@@ -212,8 +212,10 @@ header shows only the edited row. The
 previews use drawing ABI 7, a 152-byte input with the played-pad snapshot after ABI 6's pad fields (112 bytes). ABI 5 (104 bytes) ends after the
 amp envelope, ABI 4 (88 bytes) after `model`, ABI 3 (84 bytes) after `choices`.
 A preview of an [extended](#extended-drawing) display also exports
-`opxy_display_extension()`: 0, or 4 when its input appends the encoder record
-after the ABI's input (152 bytes in ABI 7). A renderer that does not know a bit refuses the preview.
+`opxy_display_extension()`, what its input appends after the ABI's input (152
+bytes in ABI 7): 1 a 16-word audio snapshot, 2 a 256-word snapshot and its
+reset handshake (never with 1), 4 the encoder record, after any snapshot. A
+renderer that does not know a bit refuses the preview.
 
 While a pad is held on a drum kit (without Shift), the SDK draws stock's own
 held-pad strip over the kit's screen, as stock Drumline does: after 0.3 s it
@@ -528,7 +530,9 @@ drawn by a separate renderer. A display that uses none of them keeps
 | `openPaths`, `segmentPaths` | Bit masks: open polylines (`M`, then `L`s, no `Z`), or separate segments between adjacent points. They never share a path or go with `cubic` |
 | `quadratic: 1`, `commands` | Paths whose line and quadratic commands change each frame (`draw::AffineQuadraticFrame`): `points: 0`, 2..128 `commands`, `affine`; authored as `M` and `commands - 1` `Q` commands |
 | `countedPaths: 1` | Paths with an active point count of 2..`points` (`draw::AffineCountedFrame`); needs `affine`; `paths * (8 + 8 * points)` at most 2816 bytes |
+| `glyphs`, `glyphDefinitions`, `glyphStart` | Outlines chosen per frame from the machine's own artwork ([glyph atlas](glyph-atlas.md)) |
 | `encoderActivity: 1` | Which encoders were touched this frame ([below](#encoder-activity)) |
+| `audioTransport: 1`, `audioWords`, `audioMode`, `audioReset`, `audioAccumulators` | A synth's audio snapshot on its screen ([below](#audio-snapshots)) |
 
 [draw.hpp](../sdk/include/opxy/draw.hpp) defines the frames and checks every
 combination at compile time; `python sdk.py test` checks the declaration.
@@ -538,7 +542,8 @@ animates. Browser and device rasterization can differ at the edges.
 
 ### Encoder activity
 
-With `encoderActivity: 1` the input is `draw::EncoderInput` from
+With `encoderActivity: 1` the input is `draw::EncoderInput` (or the audio
+input types below with an `encoders` record) from
 [`opxy/encoder_activity.hpp`](../sdk/include/opxy/encoder_activity.hpp).
 `encoders.available` is 1 when the host reports activity; bits 0..3 of
 `encoders.mask` are the physical encoders pressed or turned since the last
@@ -555,6 +560,31 @@ turned on that track: its physical encoder, parameter and value. Only a build
 whose machines include the header captures it. Encoder activity says which
 encoders moved this frame, for motion; this says which parameter was last
 edited and its value, and stays until the next edit.
+
+### Audio snapshots
+
+A synth declaring `audioTransport: 1` and `audioWords: 1..256` takes a final
+`const opxy::AudioContext&` argument in `render` and publishes words with
+`publish_word`, `publish_packed16` or `add_packed16` from
+[`opxy/telemetry.hpp`](../sdk/include/opxy/telemetry.hpp). The SDK carries
+them between the audio and screen processors, outside `render`, and its display
+reads them from [`opxy/audio_transport.hpp`](../sdk/include/opxy/audio_transport.hpp):
+`audio_words` and `audio_count`, where a count of 0 means no snapshot.
+`audioWords` needs `audioTransport`: without it no snapshot reaches the device.
+
+`audioMode` 0 keeps the words, 1 sums one packed accumulator, and 2 sums
+`audioAccumulators` words followed by kept ones. At most 16 words without
+`audioReset` give `draw::AudioInput`; more, or `audioReset: 1` (a reset request
+the producer applies in its own callback, modes 0 and 2), give
+`draw::TelemetryInput`.
+
+`AudioContext::prepared_amplitude64` points at the 64 samples of envelope and
+LFO amplitude stock prepared for the voice being rendered, before velocity and
+output gain; it is null outside an ordinary synth render. Read it only during
+that `render` call and never keep the pointer.
+
+The browser builder does not yet export firmware for these machines; build
+them natively.
 
 ## Migrating from before SDK 1.0
 

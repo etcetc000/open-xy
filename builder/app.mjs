@@ -532,7 +532,20 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         $('audition-controls').classList.toggle('kit', Boolean(kit));
         $('audition-controls').append(keyboard, ...(kit ? [model] : []), volume);
         const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+        // An audio display's frame waits for its snapshot; elapsed time accumulates meanwhile.
+        let framePending = false, pendingElapsed = 0;
         function frame(dt = 34) {
+          pendingElapsed = Math.min(8192, pendingElapsed + dt);
+          if (framePending || cancelled) return;
+          if (!display.audioWords) return draw(null);
+          framePending = true;
+          audio.takeAudio().then(draw).catch(error => { if (!cancelled) $('art-caption').textContent = error.message; })
+            .finally(() => { framePending = false; });
+        }
+        function draw(snapshot) {
+          if (cancelled) return;
+          const dt = pendingElapsed;
+          pendingElapsed = 0;
           const input = shownControls(parameters, shown);
           // The preview is one track: a changing track would tell the machine to start over.
           const row = shiftWords.length ? [0, 0, [0, 0, 0, 0], null, {pan:0, level:0}, 0,
@@ -540,7 +553,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           // A kit's selected key: its model, Shift's choices for it, and its pan, level and pad fields.
           const drum = kit ? [selected.model, 0, core.kitChoices(kit, selected.model, selected.choke), null, core.kitMix(kit),
             shown.some(slot => slot >= 4) ? 1 : 0, null, null, null, core.kitSelectedKey(kit, selected.key)] : [];
-          renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity, ...row, ...drum));
+          // An audio display's snapshot follows every other argument (docs/display.md#audio-snapshots).
+          const rest = display.audioWords ? [...(kit ? drum : [...(row.length ? row : [0, 0, [0, 0, 0, 0], null,
+            {pan:0, level:0}, 0, null]), null, null, 0]), snapshot] : [...row, ...drum];
+          renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity, ...rest));
           // A whole-screen canvas has no header.
           if (renderer.fullCanvas) { header.innerHTML = ''; return; }
           // The machine's header text, or the stock header: a synth's percentage of the shown

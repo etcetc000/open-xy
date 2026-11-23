@@ -17,6 +17,12 @@ export class PreviewEngine {
     this.blockFrames = bounded(api.opxy_block_frames(), 1, 256, 'block length');
     // Older ABI-1 modules are mono. Stereo output is opt-in per module.
     this.outputChannels = bounded(api.opxy_output_channels?.() ?? 1, 1, 2, 'output channels');
+    // A synth's audio snapshots for its screen (audioTransport): 16 words, or 256 with
+    // the wide input (docs/display.md#audio-snapshots). Other modules have none.
+    this.audioWords = bounded(api.opxy_audio_words?.() ?? 0, 0, 256, 'audio snapshot words');
+    this.audioCapacity = this.audioWords ? bounded(api.opxy_audio_capacity?.() ?? 16, 16, 256, 'audio snapshot capacity') : 0;
+    if (this.audioWords && (![16, 256].includes(this.audioCapacity) || this.audioWords > this.audioCapacity))
+      throw new Error('Invalid audio snapshot capacity');
     this.stateBytes = bounded(api.opxy_state_bytes(), 4, api.memory.buffer.byteLength, 'voice state size');
     // Eight words, or sixteen for a synth with a Shift row (SDK 1.13): its controls, then the row.
     this.parameterCount = bounded(api.opxy_parameter_count(), 1, 16, 'parameter count');
@@ -35,6 +41,8 @@ export class PreviewEngine {
     };
     this.parameterAddress = allocate(this.parameterCount * 4);
     this.parameters = new Int32Array(memory, this.parameterAddress, this.parameterCount);
+    this.audioAddress = this.audioWords ? allocate(this.audioCapacity * 4) : 0;
+    this.audioSnapshot = this.audioWords ? new Uint32Array(memory, this.audioAddress, this.audioCapacity) : null;
     this.voices = Array.from({ length: voiceCount }, (_, index) => {
       const state = bounded(api.opxy_voice_state(index), 1, Number(api.__heap_base.value) - this.stateBytes,
                             'voice address');
@@ -67,6 +75,23 @@ export class PreviewEngine {
     this.parameters.set(values);
     // A partially consumed kernel block finishes before new controls apply.
     // At 44.1 kHz the bound is 63 samples (1.43 ms); never restart voice phase.
+  }
+
+  // The audio snapshot a synth's screen reads, taken between audio quanta by the
+  // worklet's message handler, never by render. reset asks the producer to restart
+  // its accumulation (audioReset); target says which part, for mixed snapshots.
+  takeAudio(track = 0, reset = false, target = 1) {
+    if (typeof reset !== 'boolean') throw new Error('Invalid audio reset request');
+    bounded(track, 0, 7, 'audio track');
+    if (reset) bounded(target, 1, 0xffffffff, 'audio reset target');
+    if (!this.audioWords) return null;
+    if (reset) this.api.opxy_audio_reset?.(track, target);
+    const count = this.api.opxy_take_audio(track, this.audioAddress);
+    if (count !== this.audioWords) throw new Error('Invalid audio snapshot');
+    const snapshot = {count, words: Array.from(this.audioSnapshot)};
+    if (!this.api.opxy_audio_sequence) return snapshot;
+    return {...snapshot, sequence: this.api.opxy_audio_sequence(track), requested: this.api.opxy_audio_requested(track),
+            applied: this.api.opxy_audio_applied(track), resetSupported: this.api.opxy_audio_reset_supported()};
   }
 
   // A drum kit's previewed model; synth previews ignore it.

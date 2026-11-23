@@ -54,6 +54,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
 | Extension events | 8 | Observes live input, stock transport and queued controls for extensions, lets a Record double-tap owner edit notes through stock editing and undo, and lets an extension add [USB host drivers](#usb-host-drivers) while the host stack starts; linked only when an extension is selected |
+| Audio transport | 2 | Runs the SDK's snapshot service after stock's background service on the audio processor (`8c0ba4f4`, stock `8d4d6a10` first) and takes SDK packets before stock's receive between the processors (`8d5b1af4`): only a packet starting with the SDK header (4, then `OXAD`) is taken, every other packet, empty ones included, goes to stock `8d4d669e` with its registers; a taken packet returns 0, which the caller does not read (it reloads R0 at `8d5b17a8`); linked only with a synth declaring [`audioTransport`](display.md#audio-snapshots) |
 | Module | 1 record | One loader block holding the linked module |
 
 The sample rows (sample dispatch, analysis, drum-page services and recorder)
@@ -82,7 +83,9 @@ project companion rows) form the `control` service in the same way: a build
 uses them only when it includes a machine with [track control](api.md#track-control)
 or [hidden pages](api.md#alternate-controls). The aux track rows form the `aux`
 service, used only by a machine that [takes over aux tracks](api.md#aux-tracks).
-[Extended drawing](display.md#extended-drawing) needs no edit: its encoder
+The audio transport rows form the `telemetry` service, used only by a synth
+declaring `audioTransport`. [Extended drawing](display.md#extended-drawing)
+otherwise needs no edit: its encoder
 activity reads stock's per-frame encoder flags (`8d51f1be`, read only), and the
 last control touched is recorded in the existing encoder press and turn hooks,
 compiled in only when a machine includes `opxy/control_interaction.hpp`, reading

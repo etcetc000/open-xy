@@ -325,6 +325,7 @@ struct ExtendedFrame {
     static const bool extended = true;
     static const bool affine = Affine, cubic = Cubic, quadratic = Quadratic, counted = Counted, rgba = false;
     static const u32 open_paths = OpenPaths, segment_paths = SegmentPaths;
+    static const u32 glyph_count = 0, glyph_definition_count = 0, glyph_start = 0;
     static_assert(Paths <= extended_paths && Points <= extended_points &&
                   (Counted ? Paths * (8 + 8 * Points) <= counted_path_bytes
                            : Paths * Points * (Quadratic ? 2 : 1) <= extended_points),
@@ -371,6 +372,29 @@ template <class Base> struct RgbaFrame : Base {
                   "RGBA needs affine nodes and no palette");
     static const bool rgba = true;
 };
+// A glyph atlas: Instances glyphs, each two owned path nodes from node Start
+// on, each showing one of Definitions immutable outlines from the artwork.
+// The base's layout, then one definition index per instance.
+template <class Base, u32 Instances, u32 Definitions, u32 Start> struct GlyphFrame {
+    static const bool extended = true;
+    static const bool rgba = Base::rgba, affine = Base::affine, cubic = Base::cubic,
+                      quadratic = Base::quadratic, counted = Base::counted;
+    static const u32 open_paths = Base::open_paths, segment_paths = Base::segment_paths;
+    static const u32 path_count = Base::path_count, point_count = Base::point_count,
+                     command_capacity = Base::command_capacity, node_count = Base::node_count,
+                     text_count = Base::text_count, palette_count = Base::palette_count;
+    static const u32 glyph_count = Instances, glyph_definition_count = Definitions, glyph_start = Start;
+    static_assert(Base::extended && Base::glyph_count == 0 && affine && Instances > 0 && Instances <= 64 &&
+                  Definitions > 0 && Definitions <= 16 && Start >= path_count && Start <= node_count &&
+                  2 * Instances <= node_count - Start, "Glyph atlas exceeds the declared nodes");
+    typedef typename Base::path_type path_type;
+    typedef typename Base::node_type node_type;
+    path_type paths[path_count > 0 ? path_count : 1];
+    node_type nodes[node_count];
+    Text texts[text_count > 0 ? text_count : 1];
+    char header[page_controls][header_capacity];
+    u32 glyphs[Instances];
+};
 
 // The extended frames' setters live in their own namespace, which opxy::draw
 // nominates below: draw::affine and calls inside opxy::draw find them, but
@@ -381,6 +405,10 @@ namespace extended_helpers {
 // and paint setters. Extended frames only.
 template <class F> static inline void conceal(F& frame, u32 index) {
     if (index < F::node_count) { frame.nodes[index].paint = hidden; frame.nodes[index].shade = 0; }
+}
+// Shows outline `definition` at glyph instance `instance`.
+template <class F> static inline void glyph(F& frame, u32 instance, u32 definition) {
+    if (instance < F::glyph_count) frame.glyphs[instance] = definition;
 }
 // A packed colour: red, green, blue and alpha bytes.
 static inline u32 color(u8 red, u8 green, u8 blue, u8 alpha = 255) {
@@ -480,4 +508,9 @@ static inline bool valid(const ExtendedFrame<P, Q, N, T, C, A, Cu, O, S, Qu, Co>
     return detail::extended_valid(frame);
 }
 template <class B> static inline bool valid(const RgbaFrame<B>& frame) { return detail::extended_valid(frame); }
+template <class B, u32 N, u32 D, u32 S> static inline bool valid(const GlyphFrame<B, N, D, S>& frame) {
+    for (u32 i = 0; i < N; ++i)
+        if (frame.glyphs[i] >= D) return false;
+    return detail::extended_valid(frame);
+}
 }} // namespace opxy::draw

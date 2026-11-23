@@ -79,9 +79,11 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # renumber it, with the "SDK 1.22" text of docs/api.md.
 IDLE_SDK = (1, 22)
 # 1.23 adds the drum-kit controls (resources.padVolume, padRandom, ampEnvelope) and gives a
-# kit's screen its selected key (draw::Input::selected_key). It takes the next free number
-# when it merges (KIT_CONTROLS_SDK in definitions.py moves with it).
-SDK_VERSION = (1, 23)
+# kit's screen its selected key (draw::Input::selected_key).
+# 1.25 adds a screen's own audio (audio snapshots, for synths and effects), stock's output
+# and input levels on a screen, and glyph atlases (docs/display.md). AUDIO_SDK in
+# definitions.py is the one place to renumber it, with the "SDK 1.25" text of the docs.
+SDK_VERSION = (1, 25)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}

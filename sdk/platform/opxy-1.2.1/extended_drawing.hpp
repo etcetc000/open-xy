@@ -1,5 +1,5 @@
 // Extended drawing renderer (docs/display.md#extended-drawing): applies
-// an extended frame (draw.hpp ExtendedFrame, RgbaFrame) to a synth's or
+// an extended frame (draw.hpp ExtendedFrame, RgbaFrame, GlyphFrame) to a synth's or
 // effect's artwork. Only an extended display's generated screen.cpp includes this,
 // after its display_binding.hpp; plain displays keep screen_drawing.hpp.
 #pragma once
@@ -10,6 +10,7 @@
 #include "drum_send.hpp"
 #include "path_geometry.hpp"
 #include "rgba_palette.hpp"
+#include "glyph_atlas.hpp"
 
 extern "C" opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
 
@@ -23,8 +24,20 @@ binding::Frame extended_frame;
 // The renderer object: the stock screen, then each node's leaf and the
 // visibility byte its artwork gave it, the text leaves and their applied text,
 // the palette, the frame's elapsed time, each path's validated command vector
-// and last applied key (adapters.screen_bytes).
-template <u32 N, u32 T, u32 P, u32 Paths> struct ExtendedObject {
+// and last applied key, then the glyph atlas (adapters.screen_bytes).
+template <u32 N, u32 T, u32 P, u32 Paths, u32 Glyphs, u32 Definitions> struct ExtendedObject {
+    Base base;
+    PathNode* nodes[N];
+    u8 authored_visibility[N];
+    Leaf* texts[T > 0 ? T : 1];
+    char shown[T > 0 ? T : 1][draw::text_capacity];
+    u32 palette[P > 0 ? P : 1];
+    i32 delta;
+    u32 geometry[Paths > 0 ? Paths : 1];
+    u32 keys[Paths > 0 ? Paths : 1];
+    glyph_detail::State<Glyphs, Definitions> glyph_state;
+};
+template <u32 N, u32 T, u32 P, u32 Paths> struct ExtendedObject<N, T, P, Paths, 0, 0> {
     Base base;
     PathNode* nodes[N];
     u8 authored_visibility[N];
@@ -41,7 +54,8 @@ const u32 visibility_byte = 92;
 template <class Frame> struct ExtendedRetained {
     enum { path_count = Frame::path_count, point_count = Frame::point_count, node_count = Frame::node_count,
            text_count = Frame::text_count, palette_count = Frame::palette_count };
-    typedef ExtendedObject<node_count, text_count, palette_count, path_count> Object;
+    typedef ExtendedObject<node_count, text_count, palette_count, path_count, Frame::glyph_count,
+                           Frame::glyph_definition_count> Object;
 
     static PathKind kind(u32 path) {
         return Frame::cubic ? cubic_curve : (Frame::segment_paths & (u32(1) << path)) ? separate_segments :
@@ -143,9 +157,11 @@ template <class Frame> struct ExtendedRetained {
             o->geometry[i] = geometry(o->nodes[i], i, true);
             o->keys[i] = 0;
         }
+        glyph_detail::Binder<Frame>::template init<Machine>(o);
     }
     // The frame was validated by display_valid before this.
     static void apply(Object* o, const Frame& frame) {
+        if (!glyph_detail::Binder<Frame>::apply(o, frame)) return;
         for (u32 p = 0; p < path_count; ++p) apply_path(o, frame, p);
         for (u32 i = 0; i < node_count; ++i) apply_node(o, frame, i);
         for (u32 i = 0; i < text_count; ++i) apply_text(o, frame, i);
@@ -187,7 +203,8 @@ inline bool canvas_controls(Base* o, Controls& controls) {
 }
 
 // Machine: ids[] names the artwork's nodes (the first are the mutable paths),
-// then its text slots, then its palette entries.
+// then its text slots, then its palette entries; glyph_ids[] each glyph
+// definition's two outlines.
 template <class Machine> struct ExtendedDrawing {
     typedef binding::Frame Frame;
     typedef ExtendedRetained<Frame> Renderer;
@@ -198,6 +215,7 @@ template <class Machine> struct ExtendedDrawing {
     static void init(Object* o) {
         clear(o);
         extended_activation = 0;
+        binding::audio_screen_reset();
         binding::display_reset(&extended_state, &extended_frame);
         if (!o->base.svg) return;
         if (!binding::full_canvas) bind_controls(&o->base);
@@ -208,6 +226,7 @@ template <class Machine> struct ExtendedDrawing {
         if (!controls.valid) return;
         const u32 activation = sdk_screen_activation(o->base.page, controls.track);
         if (activation && activation != extended_activation) {
+            binding::audio_screen_reset();
             binding::display_reset(&extended_state, &extended_frame);
             // A reset may reuse earlier nonzero geometry keys with new points.
             for (u32 p = 0; p < Frame::path_count; ++p) o->keys[p] = 0;
@@ -236,8 +255,10 @@ template <class Machine> struct ExtendedDrawing {
         sdk_display_note_activity(controls.track, &input);
         platform::amp_envelope(controls.track, input.amp);
         input.reduced_motion = 0;
+        binding::snapshot_audio(extended_input);
         binding::snapshot_encoders(extended_input);
         binding::display_render(&extended_state, &extended_input, &extended_frame);
+        binding::finish_audio(extended_input);
         if (!binding::display_valid(&extended_frame)) return;
         Renderer::apply(o, extended_frame);
         if (!binding::full_canvas && !controls.choosing) apply_header(&o->base, extended_frame);
