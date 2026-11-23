@@ -611,10 +611,8 @@ the device alone. A host test calls `render` with a context from
 tracks are 0..7; it tests an effect's `process` with an `opxy::AudioContext` it
 builds over its own words, with track 14 or 15.
 
-The browser builder links these machines like any other: the transport's
-registry names each machine's number by its link-time symbol, so one compiled
-registry serves every selection, and its service links only when a selected
-machine declares `audioTransport`.
+The browser builder links these machines like any other; the transport links
+only when a selected machine declares `audioTransport`.
 
 ### Output levels
 

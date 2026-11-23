@@ -36,6 +36,14 @@ def effect(display=DISPLAY):
     return replace(m, definition=dict(m.definition, resources=resources))
 
 
+def scope_synth():
+    """A synth with two audio words (one accumulator) and the reset handshake."""
+    m = fixture('probesynth')
+    display = dict(m.definition['resources'].get('display', {}), audioTransport=1, audioWords=2, audioMode=2,
+                   audioAccumulators=1, audioReset=1)
+    return replace(m, definition=dict(m.definition, resources=dict(m.definition['resources'], display=display)))
+
+
 class EffectAudio(unittest.TestCase):
     def test_an_effect_declares_the_synth_keys(self):
         m = effect()
@@ -76,11 +84,7 @@ class EffectAudio(unittest.TestCase):
             self.assertIn('return platform::telemetry::effect_key | reinterpret_cast<u32>(probefx_fx_id);', header)
             # The registry names numbers by link-time symbol, so one compiled registry serves every
             # selection the browser builder links; a machine without audio snapshots has no row.
-            synth = fixture('probesynth')
-            synth = replace(synth, definition=copy.deepcopy(synth.definition))
-            synth.definition['resources']['display'] = dict(synth.definition['resources'].get('display', {}),
-                                                            audioTransport=1, audioWords=2, audioMode=2,
-                                                            audioAccumulators=1, audioReset=1)
+            synth = scope_synth()
             registry = audio_telemetry.generate_registry(Path(temp), [m, fixture('probefx'), synth]).read_text()
             self.assertIn('extern const char probefx_fx_id[] __asm__("probefx_fx_id");', registry)
             self.assertIn('    {probefx_fx_id, true, probefx_audio_bank, 4, 0, false, 1},', registry)
@@ -101,7 +105,7 @@ class EffectAudio(unittest.TestCase):
             generated = adapters.generate_fx_object(folder, m)
             generated.write_text(generated.read_text().replace('__builtin_offsetof(Object, state) == 4',
                                                                '__builtin_offsetof(Object, state) == sizeof(void*)'))
-            audio_telemetry.generate_registry(folder, [m])
+            audio_telemetry.generate_registry(folder, [m, scope_synth()])
             platform = ROOT / 'sdk/platform/opxy-1.2.1'
             stock = (platform / 'stock.hpp').read_text()
             stock = stock.replace('typedef __UINTPTR_TYPE__ Address;',

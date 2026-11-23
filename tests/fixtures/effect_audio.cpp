@@ -26,9 +26,16 @@ inline void* operator new(decltype(sizeof 0), void* destination) { return destin
 // The effect's number, which the device reads as its link-time symbol's value; a browser
 // selection that leaves the effect out makes it 0.
 extern "C" const char probefx_fx_id[1] __asm__("probefx_fx_id") = {0};
-namespace host { opxy::u32 effect_number = 5; }
+// A synth beside it in the registry, left out until the end (number 0).
+extern "C" const char probesynth_engine_id[1] __asm__("probesynth_engine_id") = {0};
+namespace host { opxy::u32 effect_number = 5, synth_number = 0; }
 namespace opxy { namespace platform { namespace telemetry {
-u32 host_link_number(const char* symbol) { return symbol == probefx_fx_id ? host::effect_number : 0; }
+u32 host_link_number(const char* symbol) {
+    return symbol == probefx_fx_id ? host::effect_number : symbol == probesynth_engine_id ? host::synth_number : 0;
+}
+NativeBank<2, 2, true> synth_audio;
+extern "C" wire::Bank* probesynth_audio_bank(u32 track) __asm__("probesynth_audio_bank");
+extern "C" wire::Bank* probesynth_audio_bank(u32 track) { return synth_audio.resolve(track); }
 u32 enter() { return 0; }
 void leave(u32) {}
 wire::Bank* construct_bank(void* storage, volatile u32* words, u32 count, u32 mode, bool reset, u32 prefix) {
@@ -106,5 +113,16 @@ int main() {
     host::effect_number = 0;
     if (resolve_bank(nullptr, effect_key, 0) || resolve_bank(nullptr, 0, 0) || configuration(effect_key, words, mode, reset, prefix))
         return 16;
+    // The synth, numbered 5 like the effect was: its key is the bare number, its bank its
+    // track's while the track renders it, and the effect's key stays apart.
+    host::synth_number = 5; host::effect_number = 5;
+    if (resolve_bank(nullptr, 5, 2) != synth_audio.resolve(2) || !resolve_bank(nullptr, 5, 2) ||
+        resolve_bank(nullptr, 5, 3) || resolve_bank(nullptr, effect_key | 5, 0) != bank) return 17;
+    if (!configuration(5, words, mode, reset, prefix) || words != 2 || mode != 2 || !reset ||
+        !configuration(effect_key | 5, words, mode, reset, prefix) || words != 4 || reset) return 18;
+    // Left out, the synth answers to nothing; the effect still does.
+    host::synth_number = 0;
+    if (resolve_bank(nullptr, 5, 2) || configuration(5, words, mode, reset, prefix) || !resolve_bank(nullptr, effect_key | 5, 0))
+        return 19;
     return 0;
 }
