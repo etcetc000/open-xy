@@ -4,7 +4,7 @@
 // frame and argument-area stores (harness.s stub_loop); the engine words it reads are
 // stock's own address (0x11b01d48). Freestanding.
 #include "track_stage.hpp"
-typedef unsigned u32; typedef int i32;
+using opxy::u32; using opxy::i32;
 namespace stage = opxy::platform::track_stage;
 
 static u32 seed;
