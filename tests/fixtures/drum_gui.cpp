@@ -590,6 +590,20 @@ void model_edit_checks() {
     dial_answer = 5;
     sdk_drum_edit(53, 1, plus, 0);
     require(publications == before + 1 && values_of(model, raw) && model == 0 && raw[1] == 5 && raw[0] == 127);
+    // A position in a model that does not use the turned control is ignored too: from the
+    // second model's slot 2 into the first, which leaves slot 2 unnamed.
+    const u8 second[8] = {10, 11, 12, 23, 24, 25, 26, 27};
+    require(drum_pack(1, second, regions[0] + 1));
+    before = publications;
+    dial_answer = 9;
+    sdk_drum_edit(53, 2, plus, 0);
+    require(dial_slot == 2 && publications == before && values_of(model, raw) && model == 1 && raw[2] == 12);
+    dial_answer = 2 * 128 + 9;   // the third model uses it
+    sdk_drum_edit(53, 2, plus, 0);
+    require(publications == before + 1 && values_of(model, raw) && model == 2 && raw[2] == 9 && raw[0] == 10);
+    dial_answer = 5;
+    sdk_drum_edit(53, 1, plus, 0);
+    require(values_of(model, raw) && model == 0 && raw[1] == 5);
     dial_override = false;
     // An unnamed slot of the key's model (the first model's slot 2) never asks the editor,
     // and neither does a Shift encoder: Shift's first still turns the model, keeping controls.
@@ -597,7 +611,7 @@ void model_edit_checks() {
     sdk_drum_edit(53, 2, plus, 0);
     shifted = true;
     sdk_drum_edit(53, 4, plus, 0);
-    require(dial_calls == calls && values_of(model, raw) && model == 1 && raw[0] == 127 && raw[1] == 5);
+    require(dial_calls == calls && values_of(model, raw) && model == 1 && raw[0] == 10 && raw[1] == 5);
     shifted = false;
 #if OPXY_KIT_CONTROLS
     // ampEnvelope: a key's amp values stay across a dial turn into another model.

@@ -35,15 +35,17 @@ inline const DrumModelEdit* drum_model_edit(const DrumMachine& machine) {
 // A modelEdit kit's turn of an available control `slot` (the shared editor's checks passed):
 // asks the kit for the key's next position and, when it names another model or value within
 // the kit, sets `model` and controls[slot]; the key's other controls stay, as Shift's MACHINE
-// keeps them. False for no change: the kit's own position back, or one outside
-// 0..model_count * 128 - 1 (ignored, as parameterEdit ignores a value above 127).
+// keeps them. False for no change: the kit's own position back, one outside
+// 0..model_count * 128 - 1 (ignored, as parameterEdit ignores a value above 127), or one in a
+// model that does not use `slot` (whose encoder would then turn nothing, and which a kit of
+// more than 16 models might not store).
 inline bool drum_model_turn(const DrumMachine& machine, const DrumModelEdit& kit, u32 slot, i32 delta,
                             i32 speed, u8& model, u8* controls) {
     if (speed < 0) speed = 0;
     if (speed > 127) speed = 127;
     const u32 now = static_cast<u32>(model) * 128 + controls[slot];
     const u32 next = kit.edit(model, slot, controls[slot], delta, static_cast<u32>(speed));
-    if (next == now || next >= machine.model_count * 128) return false;
+    if (next == now || next >= machine.model_count * 128 || !machine.used(next >> 7, slot)) return false;
     model = static_cast<u8>(next >> 7);
     controls[slot] = static_cast<u8>(next & 127);
     return true;

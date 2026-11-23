@@ -1070,7 +1070,8 @@ opxy::u32 edit_model_parameter(opxy::u32 model, opxy::u32 slot,
 It is called for the same turns, with the same arguments, as `edit_parameter`, and
 returns the key's position after the turn, `model * 128 + value`: the key's model
 and this control's new value. Return `model * 128 + value` of the input for no
-change; a position at or past `modelCount * 128` is ignored. A new model keeps the
+change; a position at or past `modelCount * 128`, or in a model that does not use
+this control (below its count and named), is ignored. A new model keeps the
 key's other controls, as Shift's MACHINE does (in a kit of more than 16 models, those
 the new model stores), and the key is stored and published as any edit is. So one
 encoder can run through every model of the kit: past 127 into the next model and
@@ -2108,8 +2109,8 @@ a drum.
 only in a build with a player declaring SDK 1.27 or later, where every player
 of the build gets it; a build without one keeps the 112-byte `Controls` and
 compiles every player and the SDK's player code exactly as before. A player
-that reads it must declare 1.27: built alone at an older version it does not
-compile. In such a build, building `Controls` takes about 12 instructions more
+that reads it declares 1.27: one declaring an older version that reads it
+compiles only beside a 1.27 player, and reads the kind there. In such a build, building `Controls` takes about 12 instructions more
 on the usual path (a published byte per track), and each GUI frame asks stock
 for eight tracks' engines, counted from the compiler's listing, not timed on a
 device ([firmware](abi-1.2.1.md#players-track-instrument)).

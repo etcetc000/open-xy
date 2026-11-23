@@ -3,6 +3,7 @@ what it generates, and that a build without such a kit generates and compiles wh
 The shared editor's turns run in tests/fixtures/drum_gui.cpp (test_drum_services)."""
 import copy
 import json
+import re
 from pathlib import Path
 import shutil
 import tempfile
@@ -13,6 +14,7 @@ from tooling import adapters, native
 from tooling.definitions import SDK_1_27, validate_definition
 from tooling.machines import machine_at
 from tooling.pipeline import ROOT
+from test_divide import blackfin_compiler
 
 PLATFORM = ROOT / 'sdk/platform/opxy-1.2.1'
 
@@ -107,6 +109,33 @@ class Generation(unittest.TestCase):
         self.assertIn('drum_model_turn(*machine, *across, slot, delta, static_cast<i32>(event[2]), model, controls)',
                       arm)
         self.assertTrue(source.count(arm) == 1 and arm.endswith('            return 0;\n#endif\n'))
+
+
+def without(source, define):
+    """The source with every `#if <define>` block taken out, as before the SDK 1.27 additions."""
+    return re.sub(r'#if %s\n.*?#endif\n' % define, '', source, flags=re.S)
+
+
+class ZeroCost(unittest.TestCase):
+    @unittest.skipUnless(blackfin_compiler(), 'No Blackfin compiler in local/toolchain (set OPXY_TEST_COMPILER)')
+    def test_without_the_defines_the_shared_units_compile_as_without_the_additions(self):
+        # A build without a 1.27 player or a modelEdit kit compiles players.cpp and
+        # drum_synthesis_stock.cpp to the same object as their text with the blocks removed.
+        compiler = blackfin_compiler()
+        assembler = compiler.with_name('bfin-elf-as' + compiler.suffix)
+        for unit, define in (('players.cpp', 'OPXY_PLAYER_INSTRUMENT'), ('drum_synthesis_stock.cpp', 'OPXY_MODEL_EDIT')):
+            text = (PLATFORM / unit).read_text(encoding='utf-8')
+            self.assertIn('#if ' + define, text)
+            objects = []
+            with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+                for folder, source in ((a, text), (b, without(text, define))):
+                    path = Path(folder) / unit
+                    path.write_text(source, encoding='utf-8', newline='\n')
+                    obj = native.compile_cxx(compiler, assembler, path, Path(folder) / 'unit.o', native.includes())
+                    objects.append(obj.read_bytes())
+            with self.subTest(unit=unit):
+                self.assertNotEqual(without(text, define), text)
+                self.assertEqual(objects[0], objects[1])
 
 
 if __name__ == '__main__':
