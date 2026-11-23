@@ -3,6 +3,9 @@
 #include "drum_values.hpp"
 #include "synth_controls.hpp"
 #include "drumline.hpp"
+#if OPXY_MODEL_EDIT
+#include "drum_model_edit.hpp"
+#endif
 
 opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event, opxy::u32 fine) {
     using namespace opxy;
@@ -119,6 +122,17 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
     } else if (control >= page_controls) {
         // A Shift encoder with nothing to choose turns nothing.
         return 0;
+#if OPXY_MODEL_EDIT
+    } else if (const DrumModelEdit* across = drum_model_edit(*machine)) {
+        // A modelEdit kit (SDK 1.25): its editor answers a turn of an available
+        // control with the key's model and that control's value, so the turn may
+        // move the key to another model (drum_model_edit.hpp). Event word two is
+        // the turn's speed, as for parameterEdit below.
+        const u32 slot = shown[control % page_controls];
+        if (slot >= kDrumControlCount || !machine->used(model, slot) ||
+            !drum_model_turn(*machine, *across, slot, delta, static_cast<i32>(event[2]), model, controls))
+            return 0;
+#endif
     } else {
         // A detent edits one raw unit unless the kit maps it to a discrete
         // choice. Publication and storage remain on this existing route.

@@ -1462,7 +1462,11 @@ what `DrumMachine::shift` names: the model (with groups and no `padMix`, the
 group, then the model in it), the choke group, then nothing, or on a `padMix`
 kit pan and level, its second row the key's pad fields. Track modulation is
 applied after decoding. GUI edits repack and use the stock dirty/publication
-calls; no audio callback writes preset state or performs file I/O.
+calls; no audio callback writes preset state or performs file I/O. A
+`modelEdit` kit's control turn (SDK 1.25) takes the same route with the model
+its editor answers: no new hook or stock address. Only a build with such a kit
+compiles that arm of `sdk_drum_edit` (`OPXY_MODEL_EDIT`) and generates its
+table (`sdk_drum_model_edits`, `drum_model_edit.hpp`).
 
 A `padMix` kit's Shift pan and level edit the pad's own bytes as stock's
 editor does: pan (`8d4d60b0`) adds `(event[2] + 1) * event[1]` to the signed
@@ -2293,6 +2297,25 @@ instrument tracks once per GUI frame, including while another page is selected.
 This covers project loads and instrument changes without an octave key press.
 Note callbacks only read the published word; sample-engine GUI lookups
 publish into the same storage. No audio callback uses GUI pattern getters.
+
+### Players: track instrument
+
+SDK 1.25 adds no hook and no stock address for players. In a build with a
+player declaring 1.25 (`OPXY_PLAYER_INSTRUMENT`), the compositor substitute,
+with the Shift word, publishes each instrument track's kind of instrument
+(`Controls.instrument`) into eight bytes of the players service, from stock
+calls on the GUI: the track's engine getter `8d58781c` (`LINK`, `CALL
+8d587708`, `R0 = [P1 + 0x18]`: the engine word of the current pattern's track
+object), which the drum services already call, and stock's drum predicate
+`8d5b79f0` on that engine (1 for engine 3 or 4, else 0). The drums service
+hooks the predicate's entry (`extensions_drum_classify`) to alias an SDK kit
+to 4 first, so in a build with kits it answers for them; a build without that
+service has none. `8d587708` indexes the project at `[0x840a0524]` by track
+(stride `0x53f44`) and checks its indices only with stock's assert
+`8c042f2c`: the publication calls it for tracks 0..7 only, on the GUI, where
+stock calls it too; note callbacks read only the published byte, and any other
+track reads 0. The getter's and the predicate's instructions are checked
+against the authenticated stock image by `tests/test_players.py`.
 
 ## Effect pages and shift rows
 

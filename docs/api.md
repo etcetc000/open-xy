@@ -1059,6 +1059,28 @@ steps. A kit with a per-model discrete selector can use this callback to jump
 directly to the next available option while other controls keep unit steps.
 It does not run during audio rendering or alter saved-value encoding.
 
+From SDK 1.25 a kit can instead declare `resources.modelEdit: 1` and add, in place of
+`edit_parameter`, a callback that may move the key to another model:
+
+```cpp
+opxy::u32 edit_model_parameter(opxy::u32 model, opxy::u32 slot,
+                               opxy::u32 value, opxy::i32 delta, opxy::u32 speed);
+```
+
+It is called for the same turns, with the same arguments, as `edit_parameter`, and
+returns the key's position after the turn, `model * 128 + value`: the key's model
+and this control's new value. Return `model * 128 + value` of the input for no
+change; a position at or past `modelCount * 128`, or in a model that does not use
+this control (below its count and named), is ignored. A new model keeps the
+key's other controls, as Shift's MACHINE does (in a kit of more than 16 models, those
+the new model stores), and the key is stored and published as any edit is. So one
+encoder can run through every model of the kit: past 127 into the next model and
+below 0 into the previous, with that control's 128 values inside each, at whatever
+step and speed the kit chooses. A kit declares `modelEdit` or `parameterEdit`, not
+both; any other option goes with it. Shift's MACHINE and KIT keep choosing the model
+as before, a held step still locks the control instead, and an `ampEnvelope` key
+keeps its amp values across a change of model.
+
 Keys passed to `drum_defaults` are canonical keys 53..76. Controls are
 integers 0..127; the model must be below `modelCount`. In a kit of more than 16
 models, a key on a model of seven or fewer controls stores its first seven, so
@@ -1336,6 +1358,7 @@ means 0. Callbacks are functions in the machine's namespace.
 | `padRandom` | 0 or 1; drum kits without `padMix`, SDK 1.23 | Shift's fourth encoder sets each key's random, which moves each hit's controls by up to ±32 steps ([drum-kit controls](#the-drum-kit-controls)) | |
 | `ampEnvelope` | 0 or 1; drum kits without `padMix`, SDK 1.23 | M2's start, attack, hold and decay kept per key and shaping each note, fading on note-off ([drum-kit controls](#the-drum-kit-controls)) | |
 | `parameterEdit` | 0 or 1; drum kits, SDK 1.21 | A turn of an available control (below the model's count and named), without Shift and with no step held, asks the kit for the control's next stored value instead of moving it one unit a detent ([drum kits](#synthesis-drum-kits)) | `edit_parameter` |
+| `modelEdit` | 0 or 1; drum kits, SDK 1.25; not with `parameterEdit` | The same turns ask the kit for the key's next model and value, so one encoder can run through every model ([drum kits](#synthesis-drum-kits)) | `edit_model_parameter` |
 | `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
 | `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |
@@ -1744,7 +1767,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.24 and builds 1.0 to 1.24 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.25 and builds 1.0 to 1.25 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
@@ -2066,3 +2089,29 @@ turn hook while Shift is held (if it does not, Shift turns do nothing), and
 that stock delivers keyboard notes to the player while Shift is held. Key
 events other than notes (the -/+ keys, Shift + key) and Shift + encoder clicks
 are not available to players; they need a new hook.
+
+### A player's track instrument (SDK 1.25)
+
+A player declaring `"sdk": "1.25"` also receives `Controls.instrument`, the
+kind of instrument its track holds, as stock classifies it:
+`opxy::player::DrumInstrument` for stock's drum sampler, its drum synth or an
+SDK drum kit, `OtherInstrument` for anything else (a synth, the keyboard
+sampler, a sample engine, an empty track) and on a track outside the eight
+instrument tracks. A player can then behave differently on a drum track, for
+example playing fixed pads (keys 53..76) instead of notes of a scale. Like
+`shift`, the GUI publishes it once per frame for every instrument track and
+a callback reads the latest, so after the track's instrument changes, `press`,
+`update` and `display` see the new kind within a frame. A sample engine that
+forks the drum sampler reads `OtherInstrument`: stock does not classify it as
+a drum.
+
+`instrument` follows `clicks` (offset 112; `Controls` is 116 bytes). It exists
+only in a build with a player declaring SDK 1.25 or later, where every player
+of the build gets it; a build without one keeps the 112-byte `Controls` and
+compiles every player and the SDK's player code exactly as before. A player
+that reads it declares 1.25: one declaring an older version that reads it
+compiles only beside a 1.25 player, and reads the kind there. In such a
+build, building `Controls` takes about 12 instructions more on the usual path
+(a published byte per track), and each GUI frame asks stock for eight tracks'
+engines, counted from the compiler's listing, not timed on a device
+([firmware](abi-1.2.1.md#players-track-instrument)).

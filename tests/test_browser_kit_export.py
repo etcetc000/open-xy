@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 
-from off_path_code import FIXTURES, kit_folder, toolchain
+from off_path_code import FIXTURES, kit_folder, player_folder, toolchain
 from tooling.pipeline import ROOT
 
 
@@ -37,6 +37,15 @@ class BrowserKitExport(unittest.TestCase):
             kit = Path(folder) / 'probekit'
             kit_folder(kit, {'padMix': 1})
             self.export(kit, FIXTURES / 'probesynth')
+
+    def test_sdk_1_25_machines_export_beside_older_ones(self):
+        # A player reading Controls.instrument and a modelEdit kit, beside an older player and kit:
+        # the kit's subset check links every selection of them (tools/check_browser_kit.mjs), so
+        # the builder builds each alone or with the others from the one set of objects.
+        with tempfile.TemporaryDirectory(prefix='kit-src-') as folder:
+            player = Path(folder) / 'probeplayer'
+            player_folder(player)
+            self.export(FIXTURES / 'probepads', FIXTURES / 'probekit25', FIXTURES / 'probekit21', player)
 
 
 if __name__ == '__main__':

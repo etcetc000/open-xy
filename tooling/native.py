@@ -19,7 +19,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from . import benchmark, extensions, load_governor, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables, track_stage, voice_heap
-from .adapters import (kit_controls, pad_mix, played_pad, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
+from .adapters import (kit_controls, model_edit, pad_mix, player_instrument, played_pad, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
@@ -211,6 +211,21 @@ def check_sources(machines):
 # (SDK 1.23): the shared drum units' calls into them (drum_kit_controls.hpp). Every
 # other build compiles those units as before.
 KIT_CONTROLS_DEFINE = '-DOPXY_KIT_CONTROLS=1'
+# Defined for every SDK unit, and every player's unit, of a build with a player declaring
+# SDK 1.25 or later: Controls.instrument (opxy/player.hpp) and its publication
+# (players.cpp). Every other build compiles both as before.
+PLAYER_INSTRUMENT_DEFINE = '-DOPXY_PLAYER_INSTRUMENT=1'
+# Defined for every SDK unit of a build with a kit declaring modelEdit (SDK 1.25): the
+# shared editor's call into its editor (drum_model_edit.hpp). Every other build compiles
+# those units as before.
+MODEL_EDIT_DEFINE = '-DOPXY_MODEL_EDIT=1'
+
+
+def sdk_defines(machines):
+    """The SDK 1.25 defines a build's machines ask for, in a fixed order: none for a build
+    without a 1.25 player or a modelEdit kit."""
+    return (((PLAYER_INSTRUMENT_DEFINE,) if any(player_instrument(m) for m in machines) else ()) +
+            ((MODEL_EDIT_DEFINE,) if any(model_edit(m) for m in machines) else ()))
 
 
 def compile_cxx(cxx, assembler, source, obj, includes=(), defines=()):
@@ -461,6 +476,8 @@ def absent_symbols(m):
                 absent.update({'_' + m.prefix + '_vtable': 'kit_absent', m.prefix + '_drum_send': 'kit_absent'})
             if m.definition['resources'].get('parameterEdit', 0):
                 absent[m.prefix + '_drum_edit_value'] = 'kit_absent'
+            if model_edit(m):
+                absent[m.prefix + '_drum_edit_model'] = 'kit_absent'
         if m.kind == 'sample':
             # The shared sample table names these; unselected, its ready check declines first.
             absent.update({symbol: 'kit_absent' for symbol in sample_callbacks(m)})
@@ -661,9 +678,16 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
     # The SDK's units of a build with a kit declaring the drum-kit controls see
     # OPXY_KIT_CONTROLS; a machine's own units never do.
     defines = (KIT_CONTROLS_DEFINE,) if 'kit_controls' in active_services(profile, service_users(machines)) else ()
+    # SDK 1.25: a 1.25 player's Controls.instrument, which every player of its build shares with
+    # the SDK units (a player's own units see that define alone), and a modelEdit kit's editor.
+    defines += sdk_defines(machines)
+    player_defines = tuple(d for d in defines if d == PLAYER_INSTRUMENT_DEFINE)
 
     def cxx(source, obj, m=None):
-        compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m), defines if m is None else ())
+        unit_defines = defines if m is None else ()
+        if m is not None and m.kind == 'player':
+            unit_defines = player_defines
+        compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m), unit_defines)
 
     def build_unit(obj, m, step):
         folder = obj.parent
