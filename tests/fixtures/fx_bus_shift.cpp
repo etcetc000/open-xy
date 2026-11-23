@@ -1,11 +1,16 @@
 // SDK ABI fixture: an effect with a bus shift (send_bus.hpp) sees the block
 // raised by SHIFT bits, saturating, and stock gets its result lowered by
 // SHIFT, rounded to nearest (halves up), through the generated method table.
-// SHIFT 0 is an effect without one.
+// With IDLE (a build with the idle capability) its init records its vtable and
+// the hold HOLD for the send hook. SHIFT 0 is an effect without a shift.
 #include <cstdio>
 #include "fx_object_probefx.cpp"
 // fx.cpp (written by the test) records the block it sees in seen_left/right and
 // writes result_left/right, or leaves the block as it is while pass is set.
+
+#if IDLE
+opxy::platform::send_bus::Slot sdk_send_bus[opxy::platform::send_bus::sends];
+#endif
 
 namespace {
 typedef long long i64;
@@ -37,7 +42,17 @@ int main() {
     typedef void (*Process)(void*, opxy::i32*, opxy::i32*, const opxy::i32*);
     const Init init = reinterpret_cast<Init>(const_cast<void*>(table[5]));
     const Process process = reinterpret_cast<Process>(const_cast<void*>(table[4]));
+#if IDLE
+    init(object, 3);
+    if (sdk_send_bus[0].vtable || sdk_send_bus[1].vtable) return 1;
+    init(object, 15);
+    if (sdk_send_bus[1].vtable != probefx_fx_vtable || sdk_send_bus[1].hold != HOLD || sdk_send_bus[0].vtable)
+        return 2;
     init(object, 14);
+    if (sdk_send_bus[0].vtable != probefx_fx_vtable || sdk_send_bus[0].hold != HOLD) return 3;
+#else
+    init(object, 14);
+#endif
     // Inputs at and around the saturation edge, both signs, and a spread of others.
     const i64 edge = 1LL << (31 - SHIFT);
     const i64 inputs[] = {0, 1, -1, 2, -2, 63, -64, edge - 1, -edge, edge, -edge - 1, kMax, kMin, 0x1234567, -0x7654321,

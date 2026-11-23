@@ -577,6 +577,32 @@ ownership; `release` cannot free a stolen lease. The engine decides how a
 voice behaves after losing a resource. This pool has no locks and requires
 serialized access.
 
+### Idle cut
+
+SDK 1.22. A synth or kit may tell the SDK that a voice can no longer get louder, so the
+project's idle threshold (the `release_floor` setting) can end it once it is
+quiet, as stock's release floor ends a released synth note:
+
+```cpp
+bool settled(const Voice& voice, const Shared& shared);   // optional; in the machine namespace
+```
+
+Return true only when nothing can raise the voice's output again: its note is
+released (or it is a one-shot), nothing is scheduled (a pending note, a ratchet,
+a second stage), and no control or modulation the engine reads per block can
+bring energy back. An LFO that can swell a decaying tail means the voice is not
+settled. While it returns true, the adapter compares each block's peak against
+the note's own peak so far; after 8 blocks in a row at or below the threshold
+times that peak, the voice fades out (a synth over one block, through stock's
+own kill; a kit over two, through the adapter's choke fade) and is freed. A new note on the
+voice starts a new peak. With the setting off, or without `settled`, nothing
+changes, and a machine without it links none of the idle cut. Only a build that
+selects the `idle` capability ([CPU capabilities](cpu-capabilities.md)) asks
+`settled` at all: without it the voice adapters carry none of the idle cut's
+state or calls, whatever the engine defines. A machine declaring an SDK before 1.22
+is never asked, even if its namespace defines a `settled`. The browser preview does
+not model it.
+
 ## Track control
 
 A synth can steer other tracks (SDK 1.9). A build without such a machine (or
@@ -1374,6 +1400,38 @@ No destructor ever runs, so it holds no resources. The generated adapter
 checks both limits at compile time. Effects use the stock FX page, with any controls after the fourth as
 [alternates](#alternate-controls) or a [second page](#effect-pages-and-shift-rows), and have no browser preview.
 
+### Idle sends
+
+With the `idle` capability, a send with nothing to play is not processed.
+Once its input, its effect's output and the send's result have all stayed
+below the idle floor (64 raw, 2^6, in raw bus units: silence on the send bus) for the effect's **hold**, with its controls, the tempo, the
+play state and the send's filter unchanged and no effect change, fade or
+engine reset pending, the send skips `process` and outputs silence. The first
+block that breaks any of those conditions, such as input at the floor, runs
+`process` again on the state as it was. Time an effect counts itself (an LFO
+phase, a sample count) pauses while its send is idle.
+
+The hold is the effect's tail plus 64 blocks (93 ms) of margin, in 64-frame
+blocks. The tail is `"tailFrames"` in `resources` if the effect declares it:
+how many frames it can still sound after its input stops, at most 2^24, or
+`"unbounded"`, which never idles the send (SDK 1.22). Without it, the tail is
+the longest a plain line of 16-bit mono samples in the effect's memory holds,
+half its [`bufferBytes`](#effect-buffers) in frames (262,144 frames, 5.9 s, for
+the largest buffer), but the hold of an effect that declares nothing is never
+shorter than 2,112 blocks (3.07 s).
+
+An effect that can sound without send input **must** declare `"unbounded"`:
+one that self-oscillates or feeds back at a gain of 1 or more, one that makes
+sound of its own (noise, crackle, clicks, an LFO driving a resonant filter, a
+transport-driven generator), or one that plays another source (such as the
+live input). Idling skips `process`, so such an effect would freeze silent
+until send input came back, however long its hold. An effect that keeps audio
+longer than the derived figure in its memory, such as 8-bit samples, a line
+written at a reduced rate, or a looper or freeze, must declare `tailFrames`
+(or `"unbounded"`); an effect that cannot sound on its own after its input
+stops may declare `0` to idle sooner. Stock's delay, reverb and chorus get the hold
+of a 512 KiB request read the same way: 4,160 blocks (6.0 s).
+
 ### Effect pages and shift rows
 
 An effect with five to eight controls may declare `"press": "page"` (SDK 1.7),
@@ -1485,7 +1543,15 @@ raises both channels' 64 words by N bits, saturating at the Q31 limits, before
 halves rounding up, after it. The shift row's words and the effect's
 parameters are not shifted. A word below 2^(31-N) in magnitude comes back
 unchanged through an effect that passes it on; louder input clips at that
-level, N times 6 dB under full scale.
+level, N times 6 dB under full scale. The `idle` capability's floor does not
+follow N: it is 64 raw (2^6) in raw bus units for every effect, so only silence idles a
+send.
+An effect whose output or result rests at 64 raw or more with no input (a DC
+offset, a limit cycle in a truncating feedback path) never idles: it costs its
+whole call every block while it is loaded. The floor is chosen, not derived from what
+the bus can carry: well under the send levels the author read on one OP-XY, and above the
+small residue a stock effect was seen to leave at rest in a simulator outside this
+repository (both observations this repository cannot reproduce).
 
 **Choosing N.** The level the send bus runs at depends on the project: how many
 tracks send, at what send amounts and levels. It is not documented by stock and
@@ -1539,7 +1605,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.21 and builds 1.0 to 1.21 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.22 and builds 1.0 to 1.22 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |

@@ -91,6 +91,25 @@ test('a settings extension links no code, applies only its capability edits and 
   assert.deepEqual(await recoverFirmware(kit, await patchFirmware(kit, off, stock)), {stock, selected:['a'], extensions:[], memory:'standard'});
 });
 
+test('a kit refuses an extension naming a build capability (hooks into SDK code)', async () => {
+  const k = fixture();
+  Object.assign(k, {format:'opxy-browser-kit/1', profileSource:profileBytes.toString('base64'), notices:'SDK',
+    stockCatalog:'', screenTemplate:readFileSync(new URL('../sdk/platform/opxy-1.2.1/screen.svg', import.meta.url), 'utf8')});
+  k.objects = [{name:'a.o', owner:'a', bytes:Buffer.from(elf()).toString('base64'), sha256:await sha256(elf())}];
+  const meta = {name:'Settings', description:'Turns on a capability.', origin:'official', claim_labels:{}, claims:[], actions:[], linked:false};
+  k.extensions = [{...meta, id:'longer', capabilities:['long_samples']}];
+  await openKit(k);
+  // idle: a build capability of this profile (hooks into SDK code). master_filter: a service of this profile
+  // named after itself whose edits are hooks; it passes every other capability rule, so only the limit-only
+  // rule refuses it. load_governor: a build capability of fixed-byte limit edits, each marked "build" in the
+  // profile; only that mark refuses it. fast_helpers: a build capability with no edit at all (it chooses SDK
+  // units' sources); no fixed edit marks it on, so nothing could read it from an image.
+  for (const capability of ['idle', 'master_filter', 'load_governor', 'fast_helpers']) {
+    k.extensions = [{...meta, id:'faster', capabilities:[capability]}];
+    await assert.rejects(openKit(k), /Invalid extension capabilities/, capability);
+  }
+});
+
 test('a capability setting writes the reviewed bytes of its value and is recovered with it', async () => {
   // As release_floor: a setting edit whose minimum is stock's bytes, and a fixed edit
   // (stage 0 -> 5) that marks the capability on.

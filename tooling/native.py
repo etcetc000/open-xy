@@ -18,7 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, extensions, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables, voice_heap
+from . import benchmark, extensions, load_governor, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables, voice_heap
 from .adapters import (pad_mix, played_pad, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
@@ -60,7 +60,6 @@ CXX_FLAGS = ['-mcpu=bf707', '-O2', '-std=gnu++11', '-ffreestanding', '-fno-excep
 from .svg_safety import SVG_ELEMENTS, SVG_NUMERIC, SVG_INHERITED, NUMBER, validate_nodes, validate_xml
 
 
-
 class Collection(list):
     """A build's machines, in firmware order, and the extensions it links, in
     callback order (`extensions`). A subset of its machines keeps its extensions."""
@@ -89,6 +88,32 @@ def build_settings(machines):
     return settings
 
 
+# Build capabilities that choose an SDK unit's source (the registry's "units", docs/cpu-capabilities.md):
+# set to 1, the unit compiles from the file named here; at 0 (the default), and in every build that does
+# not select the capability, from its plain source (RUNTIME_ASM, RUNTIME_CXX). The object keeps its name
+# and its place in the link order. fast_helpers: the hand-written fill and copy (memory) and the divide
+# steps (divide); the plain files are public's, and the host and browser preview never use these.
+UNIT_SOURCES = {'fast_helpers': {'divide': 'sdk/platform/blackfin/divide_fast.s',
+                                 'memory': 'sdk/platform/blackfin/memory_fast.cpp'}}
+
+
+def check_unit_sources():
+    """UNIT_SOURCES names exactly the registry's unit capabilities and their units, each an SDK unit with
+    an existing file."""
+    require({name: set(units) for name, units in extensions.unit_capabilities().items()} ==
+            {name: set(units) for name, units in UNIT_SOURCES.items()} and
+            all(unit in SDK_UNITS and (ROOT / source).is_file() for units in UNIT_SOURCES.values()
+                for unit, source in units.items()), 'The unit capabilities and their sources differ')
+
+
+def unit_sources(machines, profile):
+    """SDK unit -> the source a unit capability chooses for it in this build: only those whose
+    capability the build selects with its setting at 1 (none otherwise)."""
+    services, settings = active_services(profile, service_users(machines)), build_settings(machines)
+    return {unit: source for name, units in UNIT_SOURCES.items() if name in services and settings.get(name, 0) == 1
+            for unit, source in units.items()}
+
+
 def fixed_after(patch, services, profiling, chosen):
     """An edit's bytes in a build when no module symbol decides them: stock for an inactive
     edit, the chosen value's reviewed bytes for a capability setting; else None."""
@@ -114,10 +139,13 @@ def configuration(entries=None, layout=None):
     stock_tables.check_profile(profile)
     stock_limits.check_profile(profile)
     release_floor.check_profile(profile, document(ROOT / extensions.PROFILE)['capabilities'])
+    load_governor.check_profile(profile, document(ROOT / extensions.PROFILE)['capabilities'])
     extensions.check_profile(profile)
+    check_unit_sources()
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
     machines = Collection(collection(entries, layout), extensions.check_collection(
         [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]))
+    extensions.check_coverage(profile, machines.extensions)
     definitions = dict(DEFINITIONS)
     for m in machines:
         if m.kind == 'player':
@@ -257,11 +285,11 @@ def plan(machines, profile=None):
 # The SDK's shared objects, after every machine's. Sources are TEMPLATES/<unit>.cpp
 # or .s, except the generated units and the Blackfin runtime.
 SDK_UNITS = ('divide', 'sample_kernel', 'memory', 'registration', 'registration_stock', 'startup', 'startup_exit', 'startup_label', 'benchmark', 'benchmark_clock', 'voice_clock',
-             'hook', 'sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache', 'sample_cache_stock',
+             'hook', 'send_fx', 'track_hooks', 'floor_hooks', 'idle_cut', 'sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache', 'sample_cache_stock',
              'sample_cache_hooks', 'sample_progress', 'sample_progress_stock', 'pad_assignment',
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
-             'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'stock_browser',
+             'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'dsp_block', 'dsp_block_hooks', 'output_slack', 'output_slack_hooks', 'stock_browser',
              'extension_runtime', 'extension_collection', 'extension_stock', 'usb_host', 'track_control',
              'track_control_table', 'track_control_hooks', 'track_control_project',
              'synth_pages', 'aux_tracks', 'aux_hooks', 'presets',
@@ -310,6 +338,15 @@ UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'tra
 UNIT_SERVICES.update(dict.fromkeys(('aux_tracks', 'aux_hooks'), 'aux'))
 
 UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks','master_filter_panel'), 'master_filter'))
+# CPU capabilities (docs/cpu-capabilities.md). The idle cut's render hook and its
+# registry, and the send hook with the record its effects' inits write (send_bus.hpp:
+# their adapters write it only in builds with idle).
+UNIT_SERVICES['send_fx'] = 'idle'
+UNIT_SERVICES['idle_cut'] = 'idle'
+# Track mixing, the LFO pass check and the idle tape.
+UNIT_SERVICES.update(dict.fromkeys(('track_hooks', 'floor_hooks'), 'block_trims'))
+# The DSP board's per-block hook and the output slack it arms.
+UNIT_SERVICES.update(dict.fromkeys(('dsp_block', 'dsp_block_hooks', 'output_slack', 'output_slack_hooks'), 'output_slack'))
 
 
 def service_users(machines):
@@ -541,6 +578,28 @@ def linked_machines(directory, tools, profile, machines, definitions, runtime_me
     return subset(machines, core)
 
 
+def selected_services(profile, machines):
+    """The build capabilities and services the whole collection selects (idle's adapters follow it)."""
+    return active_services(profile, service_users(machines))
+
+
+def adapter_source(folder, m, step, sweep, services):
+    """Write machine `m`'s generated source for plan step `step` (voice, display, screen, fx_object, registration,
+    control, sample_voice, player_object) into `folder`; `services` as selected_services gives them. Host only:
+    a test compares these sources for a build that selects nothing against the checkout without the CPU
+    capabilities (tests/test_off_unless_asked.py)."""
+    def display_unit():
+        generate_display(folder, machine=m)
+        return folder / 'display_binding.cpp'
+    return {'voice': lambda: generate_voice(folder, m, sweep, idle='idle' in services), 'display': display_unit,
+            'screen': lambda: generate_screen(folder, m),
+            'fx_object': lambda: generate_fx_object(folder, m, benchmark=True, idle='idle' in services),
+            'registration': lambda: generate_registration(folder, m),
+            'control': lambda: generate_control(folder, m),
+            'sample_voice': lambda: generate_sample_voice(folder, m, benchmark=True),
+            'player_object': lambda: generate_player_object(folder, m)}[step]()
+
+
 def compile_collection(directory, toolchain, compiler, profile, machines, definitions, version, profiling=True,
                        sweep=False):
     """Compile every machine and link those that fit (linked_machines), labelled with the
@@ -558,15 +617,15 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
     before = provenance(machines)
     effects, sample_engines = by_kind(machines, 'effect'), by_kind(machines, 'sample')
 
+    data_services = selected_services(profile, machines)
+    # The SDK units whose source a unit capability chooses (fast_helpers); none in most builds.
+    chosen_sources = unit_sources(machines, profile)
+
     def assemble_unit(source, obj):
         execute([tools['as'], '-mcpu=bf707', '-I', ROOT, '-o', obj, source])
 
     def cxx(source, obj, m=None):
         compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m))
-
-    def display_unit(folder, m):
-        generate_display(folder, machine=m)
-        return folder / 'display_binding.cpp'
 
     def build_unit(obj, m, step):
         folder = obj.parent
@@ -604,11 +663,11 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step == 'registration_stock':
                 return cxx(str(generate_registration_stock(folder)), obj)
             if step == 'divide':
-                return assemble_unit(ROOT / RUNTIME_ASM, obj)
+                return assemble_unit(ROOT / chosen_sources.get('divide', RUNTIME_ASM), obj)
             if step == 'sample_kernel':
                 return assemble_unit(ROOT / KERNEL_ASM, obj)
             if step == 'memory':
-                return cxx(RUNTIME_CXX, obj)
+                return cxx(chosen_sources.get('memory', RUNTIME_CXX), obj)
             if step == 'startup_label':
                 return assemble_unit(startup_label.generate(folder, version), obj)
             if step == 'startup':
@@ -631,13 +690,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             unit = next(u for u in m.native if u.name == step.removeprefix('native:'))
             assemble_unit(unit.path, obj)
             return check_native_object(execute([tools['objdump'], '-h', '-t', obj]), unit, f'{m.id}/native/{unit.name}.s')
-        source = {'voice': lambda: generate_voice(folder, m, sweep), 'display': lambda: display_unit(folder, m),
-                  'screen': lambda: generate_screen(folder, m), 'fx_object': lambda: generate_fx_object(folder, m, benchmark=True),
-                  'registration': lambda: generate_registration(folder, m),
-                  'control': lambda: generate_control(folder, m),
-                  'sample_voice': lambda: generate_sample_voice(folder, m, benchmark=True),
-                  'player_object': lambda: generate_player_object(folder, m)}[step]
-        return cxx(str(source()), obj, m)
+        return cxx(str(adapter_source(folder, m, step, sweep, data_services)), obj, m)
 
     for name, m, step in plan(machines, profile):
         obj = directory / name
@@ -667,6 +720,9 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                   hardware_tested=False, cpu_timing_measured=False)
     if runtime_members:
         report['runtime'] = runtime_members
+    if chosen_sources:
+        # No image site says it (sdk.py settings show cannot read it): the report does.
+        report['unit_sources'] = chosen_sources
     # Heap voices: the stock heap each heap synth of the collection reserves at boot, outside
     # the module, over the whole collection as the 1 MiB check counts them.
     heap = {m.id: voice_heap.arena_bytes(m) for m in machines if voice_heap.on_heap(m)}

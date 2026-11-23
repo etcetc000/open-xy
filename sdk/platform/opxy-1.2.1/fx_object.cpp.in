@@ -25,7 +25,7 @@ static void noop() {}
 // stock slot index: the track's, so 14 and 15 are the two sends.
 static void init(void* self, opxy::u32 slot) {
     Object* object = static_cast<Object*>(self);
-@INIT@
+@INIT@@BUS_INIT@
     @NAMESPACE@::initialize(object->state);
 }
 // +0x10: one 64-sample block, left and right processed in place.
