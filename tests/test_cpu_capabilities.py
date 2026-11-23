@@ -295,15 +295,31 @@ class Switches(unittest.TestCase):
             native.configuration([entries[0], {'extension': str(cpu.root), 'other': 1}])
 
     def test_the_sdk_extensions_are_official_without_a_catalog_entry(self):
+        # Independent of this checkout's git state: git's answers are given (tracked, then clean).
+        import subprocess as process
         from tooling import browser_kit
         cpu = extension_at(ROOT / 'extensions' / 'cpu')
         other = extension_at(folder(self, ['long_samples']))
-        self.assertTrue(browser_kit.sdk_extension(cpu))
-        self.assertFalse(browser_kit.sdk_extension(other))
-        self.assertEqual(browser_kit.extension_origins([cpu], personal=False), {'cpu': 'official'})
-        self.assertEqual(browser_kit.extension_origins([cpu, other], personal=True), {'cpu': 'official', 'cpu_test': 'personal'})
-        with self.assertRaisesRegex(ValueError, 'catalog machines and extensions at their pinned commits'):
-            browser_kit.extension_origins([cpu, other], personal=False)
+
+        def git(tracked, changed):
+            def run(command, **_options):
+                out = {'ls-files': 'extensions/cpu/extension.json\n' if tracked else '',
+                       'status': ' M extensions/cpu/extension.json\n' if changed else ''}[command[1]]
+                return process.CompletedProcess(command, 0, out, '')
+            return mock.patch.object(browser_kit.subprocess, 'run', run)
+        with git(True, False):
+            self.assertTrue(browser_kit.sdk_extension(cpu))
+            self.assertFalse(browser_kit.sdk_extension(other))
+            self.assertEqual(browser_kit.extension_origins([cpu], personal=False), {'cpu': 'official'})
+            self.assertEqual(browser_kit.extension_origins([cpu, other], personal=True), {'cpu': 'official', 'cpu_test': 'personal'})
+            with self.assertRaisesRegex(ValueError, 'catalog machines and extensions at their pinned commits'):
+                browser_kit.extension_origins([cpu, other], personal=False)
+        # Untracked or changed, it is a folder like any other: no published kit takes it.
+        for tracked, changed in ((False, False), (True, True)):
+            with self.subTest(tracked=tracked, changed=changed), git(tracked, changed):
+                self.assertFalse(browser_kit.sdk_extension(cpu))
+                with self.assertRaisesRegex(ValueError, 'pinned commits'):
+                    browser_kit.extension_origins([cpu], personal=False)
 
     def test_only_the_registry_mark_changes_generated_adapters(self):
         # For every fixture machine, the generated adapter sources with a build capability's service

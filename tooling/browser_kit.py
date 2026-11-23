@@ -49,8 +49,8 @@ def catalog_sources(machines, personal, entries=None):
 
 def sdk_extension(e):
     """Whether an extension is one of the SDK's own (extensions/ of this checkout, such as cpu),
-    reviewed and released with the SDK itself rather than through the catalog: its folder is
-    tracked by this checkout's git and unchanged."""
+    which ships with the SDK rather than through the catalog: its folder is tracked by this
+    checkout's git and unchanged from HEAD (a release is a published checkout, sdk.py release)."""
     if e.root.parent != (ROOT / 'extensions').resolve():
         return False
     folder = 'extensions/' + e.root.name

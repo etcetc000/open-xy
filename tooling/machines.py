@@ -939,7 +939,7 @@ def read_collection(path=None, extra=(), extensions=()):
         for kind, key in (('machines', 'path'), ('extensions', 'extension')):
             for entry in value.get(kind, []):
                 require(isinstance(entry, dict) and set(entry) == {'path'} and isinstance(entry['path'], str),
-                        'Collection entries are {"path": ...}; name the SDK\'s own extensions (extensions/) with --extension')
+                        'Collection entries are {"path": ...}, an SDK extension\'s too (extensions/cpu)')
                 entries.append({key: str((path.parent / entry['path']).resolve())})
     return (entries + [{'path': str(Path(folder).resolve())} for folder in extra] +
             [{'extension': str(Path(folder).resolve())} for folder in extensions])
