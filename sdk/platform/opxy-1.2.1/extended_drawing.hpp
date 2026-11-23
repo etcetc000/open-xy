@@ -168,7 +168,8 @@ template <class Machine> struct ExtendedDrawing {
         Controls controls;
         if (!(canvas ? canvas_controls(&o->base, controls) : refresh_controls(&o->base, controls))) return;
         if (Machine::kit_controls) kit_cells(&o->base, controls);
-        KitHeader::show(&o->base, controls.choosing);
+        // Guarded so a synth's or an effect's frame compiles exactly as before.
+        if (Machine::kit) KitHeader::show(&o->base, controls.choosing);
         animate(o, controls);
         draw(&o->base);
         // A drum kit's held pad: Drumline's slide-up strip, over the page.
