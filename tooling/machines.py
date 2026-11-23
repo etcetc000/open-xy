@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import (EXTENDED_SDK, extended_display, ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
+from .definitions import (DRUM_KIT_CONTROLS, EXTENDED_SDK, KIT_CONTROLS_SDK, extended_display, ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
@@ -78,7 +78,10 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # (asked only of machines declaring 1.22 or later). IDLE_SDK is the one place to
 # renumber it, with the "SDK 1.22" text of docs/api.md.
 IDLE_SDK = (1, 22)
-SDK_VERSION = (1, 22)
+# 1.23 adds the drum-kit controls (resources.padVolume, padRandom, ampEnvelope) and gives a
+# kit's screen its selected key (draw::Input::selected_key). It takes the next free number
+# when it merges (KIT_CONTROLS_SDK in definitions.py moves with it).
+SDK_VERSION = (1, 23)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -573,6 +576,8 @@ def machine_at(root, identity=None):
     if kind == 'drum' and any(definition['resources'].get(k) for k in ('padMix', 'padControls')):
         # One gate for a kit's per-key mixer: pan, level, pad controls and sends.
         require_sdk(version, (1, 10), "A drum kit's per-key mixer (padMix, padControls)")
+    if kind == 'drum' and any(definition['resources'].get(k) for k in DRUM_KIT_CONTROLS):
+        require_sdk(version, KIT_CONTROLS_SDK, 'The drum-kit controls (padVolume, padRandom, ampEnvelope)')
     if definition['resources'].get('parameterEdit'):
         require_sdk(version, (1, 21), 'Per-model drum value editing (parameterEdit)')
     # Only a set flag needs 1.12: an explicit 0 is the mono, callback-free default.

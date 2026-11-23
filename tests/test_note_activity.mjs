@@ -137,6 +137,18 @@ test('ABI 7 keeps the played drum independent of selection and validates before 
   assert.deepEqual([...display.input.slice(28)],Array(10).fill(0));
 });
 
+test("a 1.23 kit's selected key takes the reserved byte after line, and stays 0 when omitted", () => {
+  const display = new PreviewDisplay(fixture(7));
+  display.tick(input(),17,4,0,false,null,0,0,[0,0,0,0],null,{pan:-3,level:-6},1,null,null,null,23);
+  assert.equal(display.input[26], ((-3 & 255) | (-6 & 255) << 8 | 1 << 16 | 23 << 24) >>> 0);
+  display.tick(input(),17,4,0,false,null,0,0,[0,0,0,0],null,{pan:-3,level:-6},1);
+  assert.equal(display.input[26] >>> 24, 0);
+  const before = new Uint8Array(display.memory).slice();
+  for (const bad of [24, -1, 1.5, '3'])
+    assert.throws(() => display.tick(input(),17,4,0,false,null,0,0,[0,0,0,0],null,{},0,null,null,null,bad), /selected key/);
+  assert.deepEqual(new Uint8Array(display.memory), before);
+});
+
 test('an edit shows its parameter at its position, or its whole page on a paged synth', () => {
   // Macro Osc's shape: page 2 holds FM Depth on position 3, then Bits, Rate and Drift on 0..2.
   const positions = [0, 1, 2, 3, 3, 0, 1, 2];

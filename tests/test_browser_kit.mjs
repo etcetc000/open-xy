@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {KIT_KEYS, kitChoices, kitGroup, kitHeader, kitKey, kitMix, kitModel, kitWord} from '../builder/core.mjs';
+import {KIT_KEYS, kitChoices, kitGroup, kitHeader, kitKey, kitMix, kitModel, kitSelectedKey, kitWord} from '../builder/core.mjs';
 import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readSelection, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, imageSettings, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
@@ -890,6 +890,12 @@ test("a kit's keys, models and header read as the device's adapter reads them", 
     [[0, 0, 2, 0], [0, 12, 2, 0], [1, 0, 2, 0], [1, 7, 2, 0], [2, 0, 2, 0], [3, 2, 2, 0]]);
   assert.deepEqual(kitGroup(kit, 30), {group:3, place:0, label:'GND'});
   assert.deepEqual(kitChoices({models:12}, 7), [7, 0, 0, 0]);
+  // The drum-kit controls (SDK 1.23): a key not set up reads 0 dB (30) and no random; with
+  // groups the volume takes the choke group's place.
+  assert.deepEqual(kitChoices({models:12, padVolume:true, padRandom:true}, 7, 2), [7, 2, 30, 0]);
+  assert.deepEqual(kitChoices({models:5, padVolume:true, groups:[{label:'A', count:2}, {label:'B', count:3}]}, 3, 1),
+    [1, 1, 30, 0]);
+  assert.deepEqual([kitSelectedKey({models:2, selectedKey:true}, 76), kitSelectedKey({models:2}, 76)], [23, 0]);
   assert.equal(kitGroup({models:12}, 7).label, '');
   assert.deepEqual(kitMix(kit), {pan:0, level:0, pad:[0, 0, 0, 0]});
   assert.deepEqual(kitMix({models:12}), {pan:0, level:0});

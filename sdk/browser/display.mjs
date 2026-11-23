@@ -5,7 +5,7 @@ import { inputWords } from './controls.mjs';
 // draw::Input: parameters[4], elapsed, track, note_serial, reduced_motion,
 // shown[4 bytes], slots[8], held_notes, note_off_serial, shift, choices[4 bytes],
 // model, amp (attack, decay, sustain, release), then pan, level, line, a
-// reserved byte and pad[4 bytes]. ABI 1 ends after slots, ABI 2 after
+// kit's selected key (reserved before SDK 1.23) and pad[4 bytes]. ABI 1 ends after slots, ABI 2 after
 // note_off_serial, ABI 3 after choices; ABI 4 adds a drum kit's model, ABI 5 the
 // track's amp envelope, and ABI 6 a padMix kit key's pan, level and pad fields
 // and the row the encoders edit; ABI 7 adds the played drum snapshot.
@@ -157,8 +157,10 @@ export class PreviewDisplay {
   // null when unknown.
   // trigger: a drum kit's latest played pad, {key: 53..76, model: 0..127, controls: eight
   // Q31 words}; null clears it.
+  // selectedKey: a drum kit's selected key, 0..23 (pad 53 + n), for a kit declaring SDK 1.23
+  // or later (its preview's kit.selectedKey); 0 for any other machine.
   tick(input, elapsed, serial, track = 0, reducedMotion = false, activity = null, model = 0, shift = 0, choices = [0, 0, 0, 0],
-       amp = null, mix = {pan: 0, level: 0}, line = 0, shiftRow = null, encoders = null, trigger = null) {
+       amp = null, mix = {pan: 0, level: 0}, line = 0, shiftRow = null, encoders = null, trigger = null, selectedKey = 0) {
     if (typeof reducedMotion !== 'boolean') throw new Error('Invalid display input');
     // Validate the complete snapshot before mutating input/state.
     const [p0, p1, p2, p3, shown, ...slots] = inputWords(input);
@@ -174,7 +176,8 @@ export class PreviewDisplay {
     const envelope = ENVELOPE.map(stage => amp === null ? 0xffffffff : integer(amp[stage], 0, 0x7fffffff, `amp ${stage}`));
     if (mix === null || typeof mix !== 'object') throw new Error('Invalid pad mix');
     const pan = integer(mix.pan ?? 0, -100, 100, 'pad pan'), level = integer(mix.level ?? 0, -30, 0, 'pad level');
-    const mixed = ((pan & 255) | (level & 255) << 8 | integer(line, 0, 1, 'encoder line') << 16) >>> 0;
+    const mixed = ((pan & 255) | (level & 255) << 8 | integer(line, 0, 1, 'encoder line') << 16 |
+                   integer(selectedKey, 0, 23, 'selected key') << 24) >>> 0;
     const pads = mix.pad ?? [];
     if (!Array.isArray(pads) || pads.length > 4) throw new Error('Invalid pad controls');
     const padded = pads.reduce((word, v, i) => (word | (integer(v, -128, 127, 'pad control') & 255) << 8 * i) >>> 0, 0);

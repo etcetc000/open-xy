@@ -539,7 +539,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
             {held:0, line:shown.some(slot => slot >= 4) ? 1 : 0, values:shiftWords}] : [];
           // A kit's selected key: its model, Shift's choices for it, and its pan, level and pad fields.
           const drum = kit ? [selected.model, 0, core.kitChoices(kit, selected.model, selected.choke), null, core.kitMix(kit),
-            shown.some(slot => slot >= 4) ? 1 : 0] : [];
+            shown.some(slot => slot >= 4) ? 1 : 0, null, null, null, core.kitSelectedKey(kit, selected.key)] : [];
           renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity, ...row, ...drum));
           // A whole-screen canvas has no header.
           if (renderer.fullCanvas) { header.innerHTML = ''; return; }
