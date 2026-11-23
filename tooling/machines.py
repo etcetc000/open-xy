@@ -83,8 +83,8 @@ IDLE_SDK = (1, 22)
 # 1.24 adds a synth's track stage (resources.trackStage, track_stage.py): one state per
 # instrument track, processed in place on the track's voice sum once per block.
 # 1.25 adds a screen's own audio (audio snapshots, for synths and effects), stock's output
-# and input levels on a screen, and glyph atlases (docs/display.md). AUDIO_SDK in
-# definitions.py is the one place to renumber it, with the "SDK 1.25" text of the docs.
+# and input levels on a screen, and glyph atlases (docs/display.md). A renumber changes
+# AUDIO_SDK in definitions.py, this line and the "SDK 1.25" text of the docs.
 SDK_VERSION = (1, 25)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.

@@ -636,7 +636,9 @@ aux output and both sends, which all get the processed sum, as from an insert
 before the fader. Stock keeps a synth voice 3 bits below the scale `render`
 writes, so eight voices at half scale sum to about half scale. Keep the stage's
 nominal gain at unity, saturate (the [Q31 helpers](../sdk/include/opxy/q31.hpp)),
-and do not rely on the absolute level.
+and do not rely on the absolute level. A synth's [audio
+snapshots](display.md#audio-snapshots) come from its voices' `render`, before the
+stage.
 
 `track_process` runs once per block on each instrument track that holds the
 synth, in the same block as its voices: the SDK adds no latency. `track_reset`

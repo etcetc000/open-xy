@@ -14,8 +14,8 @@ from .cpu import control_defaults
 from .definitions import ROOT, shift_words
 from .formats import require
 
-# The first SDK version with track stages. A renumber changes this line (and
-# SDK_VERSION in machines.py and the "SDK 1.24" text of docs/api.md).
+# The first SDK version with track stages. A renumber changes this line (and the 1.24
+# line of SDK_VERSION's history in machines.py and the "SDK 1.24" text of docs/api.md).
 TRACK_STAGE_SDK = (1, 24)
 # The hold of a stage that never sleeps (track_stage.hpp kUnbounded).
 UNBOUNDED = 0xffffffff

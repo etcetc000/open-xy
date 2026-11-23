@@ -96,6 +96,18 @@ class EffectAudio(unittest.TestCase):
             self.assertEqual(native.absent_symbols(m)['probefx_audio_bank'], 'kit_absent')
             self.assertNotIn('probefx_audio_bank', native.absent_symbols(fixture('probefx')))
 
+    def test_a_synth_with_a_track_stage_keeps_both_in_its_adapter(self):
+        # Audio snapshots around each voice's render, the stage after the voice loop.
+        m = fixture('probestage')
+        display = dict(m.definition['resources'].get('display', {}), audioTransport=1, audioWords=2, audioMode=0)
+        m = replace(m, definition=dict(m.definition, resources=dict(m.definition['resources'], display=display)))
+        with tempfile.TemporaryDirectory() as temp:
+            text = adapters.generate_voice(Path(temp), m).read_text(encoding='utf-8')
+        self.assertNotIn('@', text.replace('__asm__', ''))
+        self.assertIn('sdk_audio.begin(audio_bank);', text)
+        self.assertIn('probestage::track_process(track_states[track], shared, track, sum, parameters, voices);', text)
+        self.assertLess(text.index('sdk_audio.end(audio_bank);'), text.index('track_process('))
+
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
     def test_each_send_publishes_its_own_words_while_it_holds_the_effect(self):
         m = effect()
