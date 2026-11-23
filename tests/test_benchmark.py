@@ -122,6 +122,27 @@ class Benchmark(unittest.TestCase):
         self.assertIn('    {2, {', source)
         self.assertNotIn('    {1, {', source)
 
+    def test_the_readout_adds_a_synths_stage_once_and_never_as_a_voice(self):
+        from tools.benchmark import readout
+        stage, synth = fixture('probestage'), fixture('probesynth')
+        expected = cases([synth, stage])
+        def frame(average, peak):
+            return dict(command=0x94, route=0x12, payload_hex=(struct.pack('>HHH', peak, average, 1451) * 20).hex())
+        frames = [frame(1000, 2000) for _ in expected]
+        frames[-1] = frame(6000, 9000)     # the stage run: heavier than any voice run alone
+        lines = readout(decode(dict(complete=True, errors=[], frames=frames), expected))
+        text = '\n'.join(lines)
+        self.assertIn('| probestage | track stage callback | track stage | 9.155% | 13.733% |', text)
+        # The voice's heaviest and worst, each with the stage once; the synth without one alone.
+        self.assertIn('- probestage: heaviest 10.681% at midpoint (stock) with its track stage in this run.', text)
+        self.assertIn('- probestage: worst observed block 16.785% at midpoint (stock) with its track stage in this run.', text)
+        self.assertIn('- probesynth: heaviest 1.526% at midpoint (stock) in this run.', text)
+        self.assertNotIn('at track stage', text)
+        # A clipped part makes the sum a lower bound.
+        frames[-1] = frame(6000, 65535)
+        text = '\n'.join(readout(decode(dict(complete=True, errors=[], frames=frames), expected)))
+        self.assertIn('- probestage: worst observed block >=103.052% (clipped; exact peak unavailable)', text)
+
     def test_list_controls_name_their_option(self):
         from tooling.benchmark import position
         self.assertEqual(position(dict(control=1, label='Octave', value=7, option='+2')), 'Octave +2')

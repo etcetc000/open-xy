@@ -643,7 +643,9 @@ that leaves the synth on a track keeps its state. Stock does not mix a MIDI
 track at all, so a track switched to MIDI and back to the synth keeps its state
 without a reset. The callbacks follow `render`'s rules, run serially on
 the audio role and get the same `Shared` as the voices; the voices do not learn
-their track.
+their track. The [CPU diagnostic](profiling.md#what-is-measured) also calls them, as
+track 0 on a state of its own: keep per-track data in `TrackState`, not in
+`Shared` indexed by track.
 
 `trackStage` declares the state and how long the stage can still sound once
 the track's voices stop:

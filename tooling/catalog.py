@@ -233,9 +233,10 @@ def release_controls(before, after, cache=CACHE, allow=False):
 
 
 def stage_records(before, after, cache=CACHE):
-    """A new synth sweep record carries its track stage's run (stage_percent and
-    stage_peak_percent) exactly when the release it measured declares a stage
-    (docs/profiling.md): each such release is fetched at its pinned commit to see."""
+    """A new or changed synth sweep record, or one a moved release carries, has its track
+    stage's run (stage_percent and stage_peak_percent) exactly when the entry's release
+    declares a stage (docs/profiling.md): each such release is fetched at the entry's
+    pinned commit to see."""
     measured = lambda cpu: {k: v for k, v in cpu.items() if k != 'report'} if isinstance(cpu, dict) else cpu
     previous = {e['id']: e for e in before}
     for entry in after:

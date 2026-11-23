@@ -508,6 +508,11 @@ class Measurements(unittest.TestCase):
                 else:
                     with self.assertRaisesRegex(ValueError, 'track stage'):
                         catalog.stage_records([], [dict(entry, cpu=cpu)])
+        # A moved release that keeps its record is fetched too: a stage it adds needs a new run.
+        moved = dict(entry, cpu=measurement('synth'))
+        with patch.object(catalog, 'fetch', lambda entry, cache: staged):
+            with self.assertRaisesRegex(ValueError, 'track stage'):
+                catalog.stage_records([moved], [dict(moved, commit='b' * 40, tag='v2')])
         # An unchanged record, or another kind, is not fetched.
         with patch.object(catalog, 'fetch', side_effect=AssertionError('fetched')):
             catalog.stage_records([dict(entry, cpu=measurement('synth'))],
