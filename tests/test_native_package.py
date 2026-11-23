@@ -119,9 +119,11 @@ class PackageVerification(unittest.TestCase):
             for symbol in undefined:
                 service = services.get(owner_of.get(symbol))
                 if service and name not in services:
-                    # The startup, generated per selection, starts a service it links.
-                    user = (set(native.service_users(self.machines)) if name == 'sdk/startup.o' else
-                            uses.get(owner, set()))
+                    # The startup, generated per selection, starts a service it links; the shared
+                    # SDK units call the drum-kit controls only when a kit selects them, the one
+                    # build they are compiled for them in (native.KIT_CONTROLS_DEFINE).
+                    shared = name == 'sdk/startup.o' or (owner is None and service == 'kit_controls')
+                    user = set(native.service_users(self.machines)) if shared else uses.get(owner, set())
                     self.assertTrue(user & set(users[service]), (name, symbol))
 
     def test_only_curated_engines_are_linked_and_added_to_stock_content(self):
