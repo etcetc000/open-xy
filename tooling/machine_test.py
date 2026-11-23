@@ -203,7 +203,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog='sdk.py test', description=__doc__)
     parser.add_argument('--machine', type=Path, action='append', default=[], help='machine folder; repeatable')
     parser.add_argument('--extension', type=Path, action='append', default=[], help='extension folder; repeatable')
-    parser.add_argument('--cxx', default='clang++', help='Clang++ with wasm32/wasm-ld, for synth and drum previews')
+    parser.add_argument('--cxx', default='clang++', help='Clang++ with wasm32/wasm-ld, for synth, drum and drawing-player previews')
     parser.add_argument('--host-cxx', default='c++', help='host C++11 compiler for tests/*.cpp')
     parser.add_argument('--no-cpu', action='store_true', help='skip the CPU estimate')
     parser.add_argument('--jobs', type=int, default=1,

@@ -84,7 +84,8 @@ directing you to format.
    how to power cycle, check that the menu is gone, and reinstall. After reinstalling,
    **Try again** goes straight to enabling the dev menu for the same computer.
 3. Select machines. Synth and drum kit rows have a playable preview of their C++
-   sound and display code. Open **Preview controls** to adjust parameters, play the
+   sound and display code; a note player that draws its own page has a silent
+   preview of the page, whose keys run the player. Open **Preview controls** to adjust parameters, play the
    keyboard and set its volume. The controls start collapsed; reopening them
    keeps parameter values, and closing them stops preview notes. A kit's keyboard
    is its 24 keys, each set up as the kit sets it up: pressing one selects it and
