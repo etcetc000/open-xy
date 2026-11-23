@@ -76,7 +76,7 @@ template <class Machine> struct PlayerDrawing {
         input.model = 0;
         input.pan = input.level = 0;
         input.line = static_cast<u8>(row ? 1 : 0);
-        input.reserved = 0;
+        input.selected_key = 0;   // a drum kit's only
         for (u32 i = 0; i < 4; ++i) input.pad[i] = 0;
         input.trigger_key = input.trigger_model = 0;
         for (u32 i = 0; i < parameter_slots; ++i) input.trigger_controls[i] = 0;
