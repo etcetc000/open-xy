@@ -2,10 +2,10 @@
 with the CPU capabilities taken out of it.
 
 `without_capabilities` copies this checkout and removes from the copy everything the CPU capabilities
-(CPU_CAPABILITIES: the ones extensions/cpu names, then the opt-in ones it does not) add: their registry entries
-(profiles/extensions.json), their firmware profile services and edits (profiles/opxy-1.2.1.json), the SDK units of
-their services and the sources a unit capability chooses, the template placeholders their code generation fills
-(@IDLE_*@), and the two places tooling/native.py names them (UNIT_SOURCES, the load governor's profile check). Each removal must find what it removes, so a change to the
+(CPU_CAPABILITIES, the ones extensions/cpu names) add: their registry entries (profiles/extensions.json), their firmware profile services and
+edits (profiles/opxy-1.2.1.json), the SDK units of their services and the sources a unit capability chooses, the
+template placeholders their code generation fills (@IDLE_*@), and the two places tooling/native.py names them
+(UNIT_SOURCES, the load governor's profile check). Each removal must find what it removes, so a change to the
 capabilities that this copy no longer matches fails here, naming the step, rather than passing unseen.
 
 Each collection below is compiled and linked with `sdk.py compile` (pinned Blackfin tools) from both trees, with
@@ -48,17 +48,16 @@ FIXTURES = HERE / 'fixtures/machines'
 IGNORED = shutil.ignore_patterns('.git', 'node_modules', 'local', 'tests', 'docs', 'dist', '__pycache__')
 
 
-# The CPU capabilities, in the order extensions/cpu names them, then the opt-in ones it does not name (none now).
+# The CPU capabilities, in the order extensions/cpu names them.
 CPU_CAPABILITIES = ('boot_log_fix', 'idle', 'block_trims', 'output_slack', 'load_governor', 'pitch_constants',
                     'fast_helpers')
-OPT_IN = ()
 
 
 def cpu_capabilities(root):
     """The CPU capabilities the checkout at `root` has: those of CPU_CAPABILITIES in its registry
     (tests/test_off_path_code.py checks that they are what extensions/cpu names, once it exists)."""
     registry = json.loads((Path(root) / 'profiles/extensions.json').read_text(encoding='utf-8'))['capabilities']
-    return [name for name in CPU_CAPABILITIES + OPT_IN if name in registry]
+    return [name for name in CPU_CAPABILITIES if name in registry]
 
 
 def _replace(path, old, new, step):

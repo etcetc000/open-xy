@@ -25,14 +25,14 @@ Firmware coverage: every capability below has addresses for **OP-XY OS 1.2.1 onl
 service fails with "the <name> capability has no firmware sites for OP-XY OS
 <version>".
 
-The SDK's one CPU extension, `extensions/cpu` ("CPU (experimental)"), selects all seven:
-`boot_log_fix`, `idle`, `block_trims`, `output_slack`, `load_governor`,
-`pitch_constants` and `fast_helpers`, the last at its setting 0, off. It needs `sdk.py build`. It
-does not select `release_floor`, whose threshold the idle cut uses: with `cpu` alone, `idle` skips
-silent sends and cuts no voice ([idle](#idle)). A
-collection that wants only some of the capabilities selects them with a settings
-extension of its own that names just those, in place of `cpu` (`sdk.py build`
-takes a settings extension from any folder the collection names).
+The SDK's one CPU extension, `extensions/cpu` ("CPU (experimental)"), selects all
+seven: `boot_log_fix`, `idle`, `block_trims`, `output_slack`, `load_governor`,
+`pitch_constants` and `fast_helpers`, the last at its setting 0, off. It needs
+`sdk.py build`. It does not select `release_floor`, whose threshold the idle cut uses: with
+`cpu` alone, `idle` skips silent sends and cuts no voice ([idle](#idle)). A collection
+that wants only some of the capabilities selects them with a settings extension of its
+own that names just those, in place of `cpu` (`sdk.py build` takes a settings
+extension from any folder the collection names).
 
 **What has run on a device: nothing from this repository.** No build made from this
 repository with any of these capabilities on has run on a device. A capability
@@ -468,16 +468,16 @@ What it saves (BF707 Functional-Sim; no cache, no DDR model; not a device measur
   tracks 0-7, notes 0-127, 24 values of its third argument), 835 against 234 with
   random pitch tables;
 - in the whole audio loop of a built image, booted on the Functional-Sim by a harness
-  outside this repository (a probe synth and the catalog's fm2op, macroosc and karplus,
-  stock's synths on the other tracks): exactly 600 cycles less for every voice start, on each of the
-  four and on stock's synths: 4,800 in a block that starts 8 voices of one machine (a
-  probe synth block of 88,811 becomes 84,011), 14,400 in one that starts 24 voices
-  across the four (2.5 % of a block), nothing in a block without a voice start. The
-  same runs show the audio buffers, stock's audio data regions, the engine block and the
-  first 320 bytes of each of stock's 27 voice slots equal, hash for hash, to the build
-  without it in every block (7 scenarios, 482 blocks, among them a note sweep over every
-  MIDI note on random track words, once with the four SDK synths on half the tracks and
-  once with stock's synths alone).
+  outside this repository (a probe synth and the catalog's fm2op, macroosc and
+  karplus, stock's synths on the other tracks): exactly 600 cycles less for every
+  voice start, on each of the four and on stock's synths: 4,800 in a block that starts
+  8 voices of one machine (a probe synth block of 88,811 becomes 84,011), 14,400 in
+  one that starts 24 voices across the four (2.5 % of a block), nothing in a block
+  without a voice start. The same runs show the audio buffers, stock's audio data
+  regions, the engine block and the first 320 bytes of each of stock's 27 voice slots
+  equal, hash for hash, to the build without it in every block (7 scenarios, 482
+  blocks, among them a note sweep over every MIDI note on random track words, once
+  with the four SDK synths on half the tracks and once with stock's synths alone).
 A device's saving may differ: the conversions run from DDR and ROM, whose fetches the
 simulator does not model.
 
@@ -485,12 +485,13 @@ What it costs: nothing in the module; 24 bytes of stock code.
 
 What it risks: code in `8d5c09d6` after either site that read a scratch register or
 flag the conversion left would see another value (none is known: the compiler's
-convention, and equal results on all 24,576 inputs). Stock synths' voice starts change too, cheaper
-only.
+convention, and equal results on all 24,576 inputs). Stock synths' voice starts change
+too, cheaper only.
 
 Tests: `test_pitch_constants.py`: the edits, their stock bytes and offsets, the calls'
-target, the words against the routine's arithmetic, that it is off unless an extension names it and on with `cpu` (host); on
-the Functional-Sim (needs a stock OS image and CCES, so CI skips it), `8d5bf5ec`'s own
-answers and stock's note pitch on 24,576 inputs with booted and with random tables,
-stock against the edits, equal on every input. The whole-image runs above are not in
-this repository. To print the call's figures: `python tests/sim_cycles.py`.
+target, the words against the routine's arithmetic, that it is off unless an extension
+names it and on with `cpu` (host); on the Functional-Sim (needs a stock OS image and
+CCES, so CI skips it), `8d5bf5ec`'s own answers and stock's note pitch on 24,576
+inputs with booted and with random tables, stock against the edits, equal on every
+input. The whole-image runs above are not in this repository. To print the call's
+figures: `python tests/sim_cycles.py`.

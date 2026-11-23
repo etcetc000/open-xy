@@ -24,6 +24,10 @@ blocks: such a project lags or clicks until its load drops
 capability it is chosen only by `sdk.py build`: `sdk.py settings apply` refuses it
 and browser kits cannot carry it.
 
+`pitch_constants` is a plain switch like `load_governor`: stock's note-to-pitch routine
+loads its two constants ready-made (about 600 cycles less a call in the simulator, one
+call a synth voice start, with every result equal to stock's).
+
 `fast_helpers` has a setting: 0, off (the extension's value and the default),
 or 1, which links hand-written fill, copy and divide routines in place of the
 plain ones. Every native machine calls them; their results are checked against C
@@ -33,10 +37,6 @@ extension.
 
 A collection that wants only some of the capabilities selects them with a settings
 extension of its own that names just those, in place of `cpu`.
-
-`pitch_constants` is a plain switch like `load_governor`: stock's note-to-pitch routine
-loads its two constants ready-made (about 600 cycles less a call in the simulator, one
-call a synth voice start, with every result equal to stock's).
 
 This is the SDK's only extension: others live in repositories of their own and
 reach the builder through `catalog/extensions.json`. `cpu` stays with the SDK
