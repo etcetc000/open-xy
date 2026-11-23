@@ -111,6 +111,16 @@ class Benchmark(unittest.TestCase):
                       source)
         self.assertIn('probestage_stage_benchmark() __asm__("probestage_stage_benchmark");', source)
         self.assertNotIn('stage_benchmark', plain)
+        # A stage synth before a swept one: the stage's row is counted, so the next synth's
+        # settings and defaults name its own row.
+        with tempfile.TemporaryDirectory() as folder:
+            source = generate(folder, [stage, synth], sweep=True).read_text(encoding='utf-8')
+        rows = [line for line in source.split('const Machine machines[] = {\n', 1)[1].split('\n};', 1)[0].splitlines()]
+        self.assertEqual([row.split(',')[0].strip() for row in rows[:-1]], ['{"probestage"', '{"probestage"', '{"probesynth"'])
+        self.assertIn('stage_benchmark', rows[1])
+        self.assertIn('    {0, {', source)
+        self.assertIn('    {2, {', source)
+        self.assertNotIn('    {1, {', source)
 
     def test_list_controls_name_their_option(self):
         from tooling.benchmark import position

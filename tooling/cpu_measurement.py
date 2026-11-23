@@ -53,8 +53,8 @@ HIGH_PERCENT = 4.5
 def track_cost(value, field):
     """A record's figure for one voice with its track's stage: `field` ('block_percent' or
     'peak_percent') plus the stage's mean or worst block, when the synth has a stage."""
-    stage = value.get({'block_percent': 'stage_percent', 'peak_percent': 'stage_peak_percent'}[field], 0)
-    return round(value[field] + stage, 6)
+    stage = value.get({'block_percent': 'stage_percent', 'peak_percent': 'stage_peak_percent'}[field])
+    return value[field] if stage is None else round(value[field] + stage, 6)
 
 
 def worst_case(value):

@@ -218,6 +218,9 @@ class Plan(unittest.TestCase):
                                                  'probestage_record_ready')}, dict.fromkeys(
                          ('probestage_track_reset', 'probestage_track_process', 'probestage_record_ready'), 'kit_absent'))
         self.assertFalse([k for k in native.absent_symbols(fixture('probesynth')) if 'track_' in k])
+        # Nor is its diagnostic run, which the benchmark table names.
+        self.assertEqual(absent['probestage_stage_benchmark'], 'kit_absent')
+        self.assertNotIn('probesynth_stage_benchmark', native.absent_symbols(fixture('probesynth')))
 
 
 class Adapter(unittest.TestCase):
@@ -250,6 +253,12 @@ class Adapter(unittest.TestCase):
         stage = text[text.index('void probe_track_process('):]
         self.assertIn('    shift_words(parameters, controls + opxy::parameter_slots, shift_kept[track]);\n'
                       '    probe::track_process(track_states[track], shared, track, sum, controls, voices);', stage)
+        # The diagnostic's stage run plays the row at its defaults, as a new project does.
+        from tooling.cpu import control_defaults
+        from tooling.definitions import shift_words
+        words = control_defaults(m.definition['parameters'])[:8] + shift_words(m.definition)
+        self.assertNotEqual(shift_words(m.definition), [0] * 8)
+        self.assertIn('parameters[2 * parameter_slots] = {%s};' % ', '.join(map(str, words)), text)
 
     def test_the_table_lists_each_declaring_synth_with_its_hold(self):
         unbounded = synth({'trackStage': dict(stateBytes=4, stateAlignment=4, tailFrames='unbounded')}, prefix='endless')

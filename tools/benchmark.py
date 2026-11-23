@@ -262,12 +262,13 @@ def main(argv=None):
         from tooling.cpu_measurement import recommendation
         from tooling.benchmark import case_label, combined_label, combined_positions
         lines = ['| Machine | Scope | Setting | Mean block budget | Worst observed block |', '| --- | --- | --- | ---: | ---: |']
-        heaviest, peaks, swept = {}, {}, {}
+        heaviest, peaks, swept, stages = {}, {}, {}, {}
         for item in decoded:
             metrics = item['metrics']
             suffix = ' (insufficient activity)' if item['insufficient_voice_activity'] else ''
             case = item['machine']
-            scope = 'whole voice' if case.get('kind', 'synth') == 'synth' else case['kind'] + ' callback'
+            scope = ('track stage callback' if case.get('stage') else
+                     'whole voice' if case.get('kind', 'synth') == 'synth' else case['kind'] + ' callback')
             metric = metrics[case.get('metric', 5)]
             value = metric['average_budget_percent']
             setting = case.get('setting')
@@ -281,6 +282,12 @@ def main(argv=None):
             # A silent run says nothing about cost; a saturated one is the heaviest of all.
             # As profile report: a swept setting counts if it timed anything; others must sound.
             sounded = metric['encoded_average'] > 0 and (setting or not item['insufficient_voice_activity'])
+            # A synth's track stage runs once per track beside its voices: its figures are
+            # added to a voice's below (tooling.cpu_measurement.track_cost), never compared.
+            if case.get('stage'):
+                if case.get('source') == 'sdk' and sounded:
+                    stages[case['name']] = (value, peak)
+                continue
             if case.get('source') == 'sdk' and sounded and peak > peaks.get(case['name'], (0, ''))[0]:
                 peaks[case['name']] = (peak, label)
             # A kit's recommendation is for one voice; its whole-kit runs are listed above.
@@ -289,6 +296,12 @@ def main(argv=None):
                 heaviest[case['name']] = (value, label + (' (saturated: at or above the whole budget)'
                                                           if metric['encoded_average'] >= 65535 else ''))
         lines.append('')
+        for name, (mean, peak) in stages.items():
+            staged = ' with its track stage'
+            if name in heaviest:
+                heaviest[name] = (round(heaviest[name][0] + mean, 6), heaviest[name][1] + staged)
+            if name in peaks:
+                peaks[name] = (min(100, round(peaks[name][0] + peak, 6)), peaks[name][1] + staged)
         for name, (value, label) in heaviest.items():
             warning = recommendation(value, 'at ' + label, 'Mean')
             lines.append(f'- {name}: heaviest {value:.3f}% at {label} in this run.' +

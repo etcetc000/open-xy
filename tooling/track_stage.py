@@ -11,7 +11,7 @@ such a synth links none of it, and its voice adapters carry none of it.
 from pathlib import Path
 
 from .cpu import control_defaults
-from .definitions import ROOT
+from .definitions import ROOT, shift_words
 from .formats import require
 
 # The first SDK version with track stages. A renumber changes this line (and
@@ -53,7 +53,9 @@ def adapter_values(m, shift_row=False):
     else:
         words, given = '', 'parameters'
     source = TEMPLATE.read_text(encoding='utf-8')
-    defaults = ', '.join(map(str, control_defaults(m.definition['parameters'])[:8] + [0] * 8))
+    # The diagnostic's words: the controls at their defaults, then a Shift row's at its own.
+    defaults = ', '.join(map(str, control_defaults(m.definition['parameters'])[:8] +
+                             (shift_words(m.definition) or [0] * 8)))
     for key, value in (('PREFIX', m.prefix), ('NAMESPACE', m.definition['id']), ('STATE_BYTES', stage['stateBytes']),
                        ('STATE_ALIGNMENT', stage['stateAlignment']), ('STAGE_WORDS', words), ('STAGE_PARAMETERS', given),
                        ('STAGE_DEFAULTS', defaults)):

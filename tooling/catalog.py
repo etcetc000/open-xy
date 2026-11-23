@@ -242,7 +242,8 @@ def stage_records(before, after, cache=CACHE):
         cpu = entry.get('cpu')
         if (entry.get('kind') != 'synth' or not isinstance(cpu, dict) or 'commit' not in entry or
                 cpu.get('benchmark') != cpu_measurement.BENCHMARKS['synth'] or
-                measured(cpu) == measured(previous.get(entry['id'], {}).get('cpu'))):
+                (measured(cpu) == measured(previous.get(entry['id'], {}).get('cpu')) and
+                 entry['commit'] == previous.get(entry['id'], {}).get('commit'))):
             continue
         staged = track_stage.track_stage(fetch(entry, cache)) is not None
         require(staged == ('stage_percent' in cpu),
