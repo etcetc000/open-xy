@@ -91,6 +91,10 @@ class ExtendedFixtures(unittest.TestCase):
             report = (Path(temp) / 'package/analysis/compile-report.json').read_text()
             for unit in ('telemetry_protocol', 'telemetry_native', 'telemetry_hooks', 'telemetry_registry'):
                 self.assertIn(unit, report)
+            # The registry still tests each owner's number for 0 (a machine a builder selection
+            # leaves out): the compiler may not assume a symbol's address is never null.
+            registry = (Path(temp) / 'package/analysis/sdk/telemetry_registry.s').read_text()
+            self.assertGreaterEqual(registry.count('==0;'), 2, 'owner numbers are not tested for 0')
 
 
 if __name__ == '__main__':

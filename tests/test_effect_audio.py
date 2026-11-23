@@ -116,7 +116,10 @@ class EffectAudio(unittest.TestCase):
                 (folder / name).write_bytes((platform / name).read_bytes())
             # A link-time number is a symbol's address on the device; the host maps the symbol to it.
             transport = (folder / 'audio_transport_native.hpp').read_text()
-            transport = transport.replace('static_cast<u32>(reinterpret_cast<Address>(symbol))', 'host_link_number(symbol)')
+            for text in ('inline u32 link_number(const char* symbol) {', 'struct Owner {'):
+                self.assertEqual(transport.count(text), 1, text)
+            transport = transport.replace('inline u32 link_number(const char* symbol) {',
+                                          'inline u32 link_number(const char* symbol) {\n    return host_link_number(symbol);')
             transport = transport.replace('struct Owner {', 'u32 host_link_number(const char*);\nstruct Owner {')
             (folder / 'audio_transport_native.hpp').write_text(transport)
             (folder / 'fx.cpp').write_text(FX)
