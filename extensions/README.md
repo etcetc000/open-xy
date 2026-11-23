@@ -32,7 +32,10 @@ A collection that wants them sets `"fast_helpers": 1` in its own copy of this
 extension.
 
 A collection that wants only some of the capabilities selects them with a settings
-extension of its own that names just those, in place of `cpu`. This is the SDK's
+extension of its own that names just those, in place of `cpu`. The same way, a
+collection opts in to `pitch_constants` (stock's note-to-pitch routine loads its two
+constants ready-made: 600 cycles less a synth voice start in the simulator), which
+`cpu` does not name. This is the SDK's
 only extension: others live in repositories of their own and reach the builder
 through `catalog/extensions.json`. `cpu` stays with the SDK because everything it
 names is SDK code chosen when the firmware is built, which the builder cannot

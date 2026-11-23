@@ -34,6 +34,9 @@ collection that wants only some of the capabilities selects them with a settings
 extension of its own that names just those, in place of `cpu` (`sdk.py build`
 takes a settings extension from any folder the collection names).
 
+`pitch_constants` is opt-in: `cpu` does not name it, so a build has it only when a
+settings extension of the collection's own names it.
+
 **What has run on a device: nothing from this repository.** No build made from this
 repository with any of these capabilities on has run on a device. A capability
 off leaves stock's bytes (and, for `fast_helpers`, the plain helpers), which a build
@@ -47,6 +50,7 @@ without it has byte for byte ([Off means off](#off-means-off)).
 | `output_slack` | hook `sdk_dsp_block_audio` at `8c0c6ffe` (and, once armed, a run-time swap of the audio task's block pointer `11b008cc`) | `dsp_block`, `dsp_block_hooks`, `output_slack`, `output_slack_hooks` |
 | `load_governor` (fixed bytes, no code) | limits `8d51c430`, `8d51c48c`, `8d51c492`, `8d51c49a`, `8d51e4f0`, `8d51e4fe` | none |
 | `fast_helpers` (a setting, 0 off or 1 on; default 0) | none: it chooses the source of two units every build links | at 1, `divide` from `divide_fast.s` and `memory` from `memory_fast.cpp`; at 0, the plain `divide.s` and `memory.cpp` |
+| `pitch_constants` (fixed bytes, no code; not in `cpu`) | limits `8d5c0a1e`, `8d5c0a2c` (12 bytes each) | none |
 
 ## Budgets
 
@@ -68,6 +72,7 @@ only that capability on, against the same build with none; RAM is the zeroed mem
 | `output_slack` | per block: `sdk_dsp_block_audio`; until armed, a quiet check of the newest block (256 words, more with USB multichannel); once armed, each period a copy of one block (1,024 words) out of a 4 KB queue | the copy about 2,050 instructions a period (counted from the built code: a hardware loop of two instructions a word over 1,024 words; not timed) | 436; RAM 4,144 zeroed (the 4 KB queue) |
 | `load_governor` | stock's governor, as before, on its edited bytes | 0 (it changes when voices are cut, not the work) | 0 |
 | `fast_helpers` | whenever machine code calls `memset`, `memcpy` or an integer divide | less per call; never measured as a share of a block | 248 |
+| `pitch_constants` | per synth voice start: stock's note pitch, with two conversions fewer | Functional-Sim, this repository's test ([pitch_constants](#pitch_constants)): stock's note pitch 834 against 233 a call; in whole-image runs outside this repository, 600 less every voice start, on every synth run (four SDK synths and stock's), so 14,400 (2.5 % of a block) in a block that starts 24 voices | 0 |
 
 ## Off means off
 
@@ -109,8 +114,9 @@ What it changes in stock:
 - [Idle sends](abi-1.2.1.md#send-idling): both send effects' calls
   (`8d5116a0`, `8d511908`) go to `sdk_send_fx`, which skips a send whose input,
   output and bus stayed below its floor for its effect's hold (its tail, as the
-  effect declares it or as its memory can hold it, plus 64 blocks) with nothing
-  it reads changing.
+  effect declares it or as its memory can hold it, plus 64 blocks; for an effect
+  that declares no tail, never under 2,112 blocks, 3.07 s) with nothing it reads
+  changing.
 - [Idle cut](abi-1.2.1.md#idle-cut): the track voice loop's renderer call
   (`8d51c7a6`) goes to `sdk_idle_render`, which kills (stock's one-block fade) a
   voice that can no longer get louder and has fallen below the project's idle
@@ -433,3 +439,58 @@ operands, `memset` and `memcpy` against byte loops at every alignment and overla
 in a window, and a register check that refuses a helper which changes a
 callee-saved register. A link test shows a build at 0 links the plain objects and
 one at 1 the fast ones, with the sizes above.
+
+## pitch_constants
+
+What it changes in stock: stock's note-to-pitch routine (`8d5c09d6`), which every synth
+voice start runs (stock's note pitch `8d5c0a70` calls it), loads the float constants
+1200.0 and 100.0 and converts each to fixed point by calling `8d5bf5ec` (a floor, two
+float-to-integer, an integer-to-float, a subtract, an add of 0.005 and a multiply by 100,
+all software floating point). The answers never change. The two load-and-call pairs
+(`8d5c0a1e`, `8d5c0a2c`, 12 bytes each) become loads of the words those calls return,
+`0x04b00000` and `0x00640000`, and two 16-bit NOPs where each call was. The rest of the
+routine is stock's. Two fixed-byte edits, marked `"build"`; no code.
+
+Off: both sites hold stock's bytes. `cpu` does not name it.
+
+The words are stock's own: the simulator test below runs `8d5bf5ec` on both constants
+and gets them, twice each, and a host test computes them from the routine's arithmetic
+in single precision.
+
+What the replaced calls did besides returning the word: the conversion's work leaves
+values in scratch registers (the calling convention's R0-R3, P0-P2, the accumulators
+A0 and A1 and the arithmetic flags) that differ with the edits.
+Its stores are to its own stack frame. Both are a reading of its code, not checked
+instruction by instruction here; that nothing after the routine depends on them is the
+calling convention, and the equal results and state below.
+
+What it saves (BF707 Functional-Sim; no cache, no DDR model; not a device measurement):
+- the note pitch call: 834 cycles against 233 with the edits (mean of 24,576 calls,
+  tracks 0-7, notes 0-127, 24 values of its third argument), 835 against 234 with
+  random pitch tables;
+- in the whole audio loop of a built image, booted on the Functional-Sim by a harness
+  outside this repository (a probe synth and the catalog's fm2op, macroosc and karplus,
+  stock's synths on the other tracks): exactly 600 cycles less for every voice start, on each of the
+  four and on stock's synths: 4,800 in a block that starts 8 voices of one machine (a
+  probe synth block of 88,811 becomes 84,011), 14,400 in one that starts 24 voices
+  across the four (2.5 % of a block), nothing in a block without a voice start. The
+  same runs show the audio buffers, stock's audio data regions, the engine block and the
+  first 320 bytes of each of stock's 27 voice slots equal, hash for hash, to the build
+  without it in every block (7 scenarios, 482 blocks, among them a note sweep over every
+  MIDI note on random track words, once with the four SDK synths on half the tracks and
+  once with stock's synths alone).
+A device's saving may differ: the conversions run from DDR and ROM, whose fetches the
+simulator does not model.
+
+What it costs: nothing in the module; 24 bytes of stock code.
+
+What it risks: a caller of `8d5c09d6` that read a scratch register or flag the
+conversion left would see another value (see above; none is known). Stock synths' voice starts change too, cheaper
+only.
+
+Tests: `test_pitch_constants.py`: the edits, their stock bytes and offsets, the calls'
+target, the words against the routine's arithmetic, that `cpu` leaves it off (host); on
+the Functional-Sim (needs a stock OS image and CCES, so CI skips it), `8d5bf5ec`'s own
+answers and stock's note pitch on 24,576 inputs with booted and with random tables,
+stock against the edits, equal on every input. The whole-image runs above are not in
+this repository. To print the call's figures: `python tests/sim_cycles.py`.

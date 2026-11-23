@@ -228,7 +228,7 @@ machines. Every capability site must hold stock or reviewed bytes.
 A **build capability** (`"build": true` in the registry) is switched the same way,
 by a settings extension naming it, but only when the firmware is built
 (`sdk.py build`): its edits are hooks into SDK code its service links (or, for
-`load_governor`, fixed bytes the firmware profile marks as the build's; every
+`load_governor` and `pitch_constants`, fixed bytes the firmware profile marks as the build's; every
 fixed-byte edit of a build capability carries that mark), or, for `fast_helpers`,
 it has no edit and its setting chooses which source two SDK units compile from.
 So it cannot be written into an existing image (`settings apply` refuses it;

@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from off_path_code import compare, cpu_capabilities, object_record, toolchain, without_capabilities
+from off_path_code import OPT_IN, compare, cpu_capabilities, object_record, toolchain, without_capabilities
 from tooling import native
 from tooling.pipeline import ROOT, document
 
@@ -16,7 +16,8 @@ class WithoutCapabilities(unittest.TestCase):
         names = set(cpu_capabilities(ROOT))
         extension = ROOT / 'extensions/cpu/extension.json'
         if extension.is_file():
-            self.assertEqual(cpu_capabilities(ROOT), document(extension)['capabilities'])
+            self.assertEqual([n for n in cpu_capabilities(ROOT) if n not in OPT_IN], document(extension)['capabilities'])
+            self.assertFalse(set(OPT_IN) & set(document(extension)['capabilities']))
         with tempfile.TemporaryDirectory() as work:
             bare = without_capabilities(ROOT, Path(work) / 'bare')
             registry = document(bare / 'profiles/extensions.json')['capabilities']

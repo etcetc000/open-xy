@@ -1,5 +1,6 @@
-"""The block_trims cycle figures docs/cpu-capabilities.md and docs/abi-1.2.1.md quote, printed from the same
-BF707 Functional-Sim runs tests/test_track_hooks.py and tests/test_floor_hooks.py check (no cache, no DDR model;
+"""The block_trims and pitch_constants cycle figures docs/cpu-capabilities.md and docs/abi-1.2.1.md quote, printed
+from the same BF707 Functional-Sim runs tests/test_track_hooks.py, tests/test_floor_hooks.py and
+tests/test_pitch_constants.py check (no cache, no DDR model;
 not a device measurement). Needs what those tests need: CCES's simulator (OPXY_TEST_CCES), a stock OS 1.2.1 image
 (OPXY_TEST_STOCK_OS) and the pinned Blackfin tools.
     python tests/sim_cycles.py
@@ -12,6 +13,7 @@ HERE = Path(__file__).resolve().parent
 sys.path[:0] = [str(HERE.parent), str(HERE)]
 
 import test_floor_hooks  # noqa: E402
+import test_pitch_constants  # noqa: E402
 import test_track_hooks  # noqa: E402
 
 
@@ -27,6 +29,11 @@ def main():
     whole = floor['whole']
     print(f'whole audio loop, mean of the last 16 of 160 blocks (tape idle): stock {whole[3]}, with the tape hooks {whole[4]} cycles '
           f'({whole[3] - whole[4]} saved)')
+    pitch = test_pitch_constants.run_simulator(stock_os)
+    for name in ('booted', 'random'):
+        calls, mismatches, _distinct, stock, edited = pitch[name]
+        print(f'note pitch 8d5c0a70 (mean of {calls} calls, {name} tables, {mismatches} mismatches): stock {stock}, '
+              f'with pitch_constants {edited} cycles ({stock - edited} saved)')
 
 
 if __name__ == '__main__':
