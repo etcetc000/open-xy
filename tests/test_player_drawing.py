@@ -61,7 +61,7 @@ class PlayerDrawnPage(unittest.TestCase):
         self.write_definition(display=DISPLAY)
         for name, text in (('player.cpp', PLAYER), ('display.h', DISPLAY_H), ('display.cpp', DISPLAY_CPP),
                            ('panel.svg.fragment', PANEL)):
-            (self.root / name).write_text(text, encoding='utf-8')
+            (self.root / name).write_text(text, encoding='utf-8', newline='\n')
 
     def write_machine(self, sdk):
         (self.root / 'machine.json').write_text(json.dumps(dict(schema=1, sdk=sdk, kind='player',
@@ -134,6 +134,8 @@ class PlayerDrawnPage(unittest.TestCase):
                 result = subprocess.run([clang, '--target=i686-unknown-elf', '-fsyntax-only', '-O2', '-std=gnu++11',
                                          '-ffreestanding', '-fno-exceptions', '-fno-rtti', '-fno-threadsafe-statics',
                                          '-nostdinc++', '-nostdinc', '-Wall', '-Werror', '-Wno-unused-variable',
+                                         # The unit's optional-callback probes, unused by a player without them.
+                                         '-Wno-unused-template',
                                          *('-I' + path for path in includes), str(unit)],
                                         capture_output=True, text=True, timeout=120, **FLAGS)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -144,7 +146,7 @@ class PlayerDrawnPage(unittest.TestCase):
         # A paged drawn player draws its own two-page header (opxy/page_header.hpp).
         self.assertEqual(native.page_artwork(m), PANEL.encode('utf-8'))
         (self.root / 'panel.svg.fragment').write_text(PANEL.replace('probedraw_node_0', 'probedraw_other'),
-                                                      encoding='utf-8')
+                                                      encoding='utf-8', newline='\n')
         with self.assertRaisesRegex(ValueError, 'missing path/circle probedraw_node_0'):
             native.validate_panel(m)
 
