@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '0f03185fa7587231d362abf8a5a597eb8fcd05b6b92c10f28abe3bcf99648f0e';
+export const PROFILE_SHA256 = '5d5265791ad337af33d3044ff42a03fad6d137b0a28add7dea4f163c7b8fa990';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -905,6 +905,14 @@ const words = (...values) => {
   const bytes = new Uint8Array(values.length * 2);
   values.forEach((word, i) => view(bytes).setUint16(i * 2, word, true)); return bytes;
 };
+// The module symbol a hook enters: services that need one stock site share one
+// handler, which the edit's `symbols` names for the first of them the selection
+// uses; otherwise its `symbol` (tooling.firmware.hook_symbol).
+export function hookSymbol(edit, services) {
+  const shared = Object.entries(edit.symbols ?? {}).find(([service]) => services.has(service));
+  return shared ? shared[1] : edit.symbol;
+}
+
 // Replacement bytes of a profile edit whose destination is a module symbol
 // (tooling.firmware.hook_instruction and tooling.startup_label.jump).
 export function redirect(edit, destination) {
@@ -964,10 +972,14 @@ export async function patchFirmware(kit, linked, stock, {profiling = true, setti
       'Undeclared service: ' + edit.service);
     check(edit.profiling === undefined || (edit.profiling === false && edit.kind === 'hook'),
       'Invalid profiling hook');
+    check(edit.symbols === undefined || (edit.kind === 'hook' && edit.service !== undefined &&
+      Object.keys(edit.symbols).length > 0 && Object.entries(edit.symbols).every(([service, symbol]) =>
+        Object.hasOwn(p.services ?? {}, service) && typeof symbol === 'string' && symbol)),
+      'Invalid shared hook');
     if ((edit.service && !linked.services.has(edit.service)) || (edit.profiling === false && profiling)) {
       after = before;  // inactive hooks leave the corresponding stock code unchanged
     } else if (['hook', 'startup'].includes(edit.kind)) {
-      const destination = linked.globals.get(edit.symbol);
+      const destination = linked.globals.get(edit.kind === 'hook' ? hookSymbol(edit, linked.services) : edit.symbol);
       check(destination >= low && destination < low + linked.module.length, 'Hook destination outside module');
       after = redirect(edit, destination);
     } else {

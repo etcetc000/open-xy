@@ -170,6 +170,14 @@
       "padMix",
       "drumline_page"
     ],
+    "track_stage": [
+      "trackStage"
+    ],
+    "track_call": [
+      "padMix",
+      "drumline_page",
+      "trackStage"
+    ],
     "drum_locks": [
       "padMix",
       "drumline_page",
@@ -2492,14 +2500,17 @@
     },
     {
       "kind": "hook",
-      "name": "Mixer: a track's voice loop starts, per-key send state reset",
+      "name": "Mixer: a track's voice loop, after the per-key send state reset and before the track stage",
       "address": "0x8d510bea",
       "file_offset": "0x147e46",
       "length": 4,
       "before": "00e38f5d",
       "symbol": "sdk_drum_send_track",
       "call": true,
-      "service": "drum_sends"
+      "service": "track_call",
+      "symbols": {
+        "track_stage": "sdk_track_call"
+      }
     },
     {
       "kind": "hook",

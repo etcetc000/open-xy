@@ -19,7 +19,7 @@ from .definitions import (EXTENDED_SDK, extended_display, ANALYSIS_HEAP_LIMIT, R
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
-from . import voice_heap
+from . import track_stage, voice_heap
 from .pipeline import config
 
 KINDS = ('synth', 'drum', 'sample', 'effect', 'player')
@@ -77,8 +77,10 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # (resources.tailFrames) for its send hold, and an engine's settled() for the idle cut
 # (asked only of machines declaring 1.22 or later). IDLE_SDK is the one place to
 # renumber it, with the "SDK 1.22" text of docs/api.md.
+# 1.24 adds a synth's track stage (resources.trackStage, track_stage.py): one state per
+# instrument track, processed in place on the track's voice sum once per block.
 IDLE_SDK = (1, 22)
-SDK_VERSION = (1, 22)
+SDK_VERSION = (1, 24)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -588,6 +590,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 16), "An effect's bus shift (busShift)")
     if 'tailFrames' in definition['resources']:
         require_sdk(version, IDLE_SDK, "An effect's declared tail (tailFrames)")
+    if 'trackStage' in definition['resources']:
+        require_sdk(version, track_stage.TRACK_STAGE_SDK, "A synth's track stage (trackStage)")
     if any(p['display'] == 'division' for p in definition['parameters']):
         require_sdk(version, (1, 2), 'A division control')
     if kind == 'sample' and definition['resources']['voiceCapacity'] < STOCK_VOICES:

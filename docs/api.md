@@ -436,6 +436,7 @@ A synth declares:
 | `releaseCallback` | Optional integer 0/1 (SDK 1.12): receive the [voice release event](synth-release.md) |
 | `display` | The screen's frame budget; see the [display API](display.md) |
 | `trackControl` | Optional: the [track control](#track-control) state's `stateBytes` and `stateAlignment`, and optionally `unique`, `savedBytes`, `aux` and `sharedLfo` |
+| `trackStage` | Optional (SDK 1.24): the [track stage](#track-stage)'s `stateBytes`, `stateAlignment` and `tailFrames` |
 
 The SDK never runs constructors or destructors for `Voice`, `Shared` or
 `DisplayState`: their storage starts zeroed and the callbacks set it up.
@@ -602,6 +603,69 @@ selects the `idle` capability ([CPU capabilities](cpu-capabilities.md)) asks
 state or calls, whatever the engine defines. A machine declaring an SDK before 1.22
 is never asked, even if its namespace defines a `settled`. The browser preview does
 not model it.
+
+### Track stage
+
+SDK 1.24. A synth may process its track's voices together, as one stereo
+signal: a chorus or widener that belongs to the track rather than to
+each voice. It declares `trackStage` in `resources` and defines, in its
+namespace:
+
+```cpp
+struct TrackState { ... };   // one per instrument track; storage starts zeroed
+
+void track_reset(TrackState& state, Shared& shared, opxy::u32 track);
+void track_process(TrackState& state, Shared& shared, opxy::u32 track,
+                   opxy::Output sum, opxy::Parameters parameters, opxy::u32 voices);
+```
+
+| Argument | Contract |
+| --- | --- |
+| `sum` | The track's voice sum, 64 interleaved left/right frames (128 Q31 words), processed in place: write every word. Always stereo, for mono and `stereoOutput` synths alike, since stock pans each voice into it |
+| `parameters` | The track's words as its voices get them in the same block, with parameter locks and LFO modulation as stock applies them: the declared controls in order, then zero; sixteen with a [Shift row](#a-synths-shift-row) |
+| `voices` | How many voices stock rendered on the track this block; with 0 the sum is silent |
+| `track` | The instrument track, 0..7 |
+
+The sum holds every voice of the track after stock's per-voice filter,
+amplitude envelope, pan and gain. Everything else comes after the stage: the
+track's volume, scene mute and group level, its meter, and the main mix, tape,
+aux output and both sends, which all get the processed sum, as from an insert
+before the fader. Stock keeps a synth voice 3 bits below the scale `render`
+writes, so eight voices at half scale sum to about half scale. Keep the stage's
+nominal gain at unity, saturate (the [Q31 helpers](../sdk/include/opxy/q31.hpp)),
+and do not rely on the absolute level.
+
+`track_process` runs once per block on each instrument track that holds the
+synth, in the same block as its voices: the SDK adds no latency. `track_reset`
+runs before it whenever a track's engine changes to this synth, after the SDK
+zeroes that track's state. While a track holds another engine, its state is
+kept and not touched. The callbacks follow `render`'s rules, run serially on
+the audio role and get the same `Shared` as the voices; the voices do not learn
+their track.
+
+`trackStage` declares the state and how long the stage can still sound once
+the track's voices stop:
+
+| Key | Meaning |
+| --- | --- |
+| `stateBytes`, `stateAlignment` | `TrackState` size (whole words) and alignment (4 or 8), checked against the compiled type |
+| `tailFrames` | Frames the stage can sound after its input stops, at most 2^24 (6.3 minutes), or `"unbounded"` |
+
+While the stage sounds after the track's last voice, stock keeps mixing the
+track as if a voice still played. Once the track has had no voice, and the
+stage's output has stayed below the idle floor (64 raw, as for [idle
+sends](#idle-sends)), for its tail plus 64 blocks of margin, the stage
+**sleeps**: `track_process` is not called and the sum stays silent until the
+next block with a voice, which resumes on the state as it was. A stage that
+can sound without voices (noise, an LFO driving a resonance, feedback at a gain
+of 1 or more) must declare `"unbounded"`, which never sleeps. Sleeping is part
+of the stage, not a [CPU capability](cpu-capabilities.md).
+
+Memory is 8 × `stateBytes` of module memory, counted in the synth's share. The
+stage runs once for each track that holds the synth. A build with a stage adds a
+check to every instrument track's block (whether the track holds a stage); a
+build without one is unchanged. A synth's [CPU record](profiling.md) times its
+voices, not its stage. The browser preview does not model the stage.
 
 ## Track control
 
@@ -1605,7 +1669,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.22 and builds 1.0 to 1.22 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.24 and builds 1.0 to 1.24 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |

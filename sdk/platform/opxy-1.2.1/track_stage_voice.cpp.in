@@ -1,0 +1,23 @@
+// The synth's track stage (SDK 1.24, track_stage.hpp): one state per instrument
+// track, which the runtime zeroes before track_reset whenever a track takes this
+// synth, then processes on the track's voice sum once per block.
+#include "track_stage.hpp"
+using TrackState = @NAMESPACE@::TrackState;
+static_assert(sizeof(TrackState) == @STATE_BYTES@, "Declared track stage size differs from the compiled type");
+static_assert(alignof(TrackState) == @STATE_ALIGNMENT@, "Declared track stage alignment differs from the compiled type");
+static TrackState track_states[opxy::platform::track_stage::kTracks];
+extern "C" {
+void @PREFIX@_track_reset(opxy::u32 track) __asm__("@PREFIX@_track_reset");
+void @PREFIX@_track_process(opxy::u32 track, opxy::i32* sum, const opxy::i32* parameters, opxy::u32 voices)
+    __asm__("@PREFIX@_track_process");
+}
+void @PREFIX@_track_reset(opxy::u32 track) {
+    typedef opxy::u32 __attribute__((may_alias)) Word;
+    Word* words = reinterpret_cast<Word*>(&track_states[track]);
+    for (unsigned i = 0; i < sizeof(TrackState) / 4; ++i) words[i] = 0;
+    @NAMESPACE@::track_reset(track_states[track], shared, track);
+}
+// parameters: the track's words, as stock passes them to its voices' render.
+void @PREFIX@_track_process(opxy::u32 track, opxy::i32* sum, const opxy::i32* parameters, opxy::u32 voices) {
+@STAGE_WORDS@    @NAMESPACE@::track_process(track_states[track], shared, track, sum, @STAGE_PARAMETERS@, voices);
+}

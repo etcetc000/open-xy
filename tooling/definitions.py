@@ -115,6 +115,9 @@ EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display', 'busShift', 'tailFrames
 EFFECT_TAIL_LIMIT = 1 << 24
 # The largest busShift: 12 bits (72 dB) lifts a bus 2^-12 under Q31 full scale to it.
 EFFECT_BUS_SHIFT = 12
+# A synth's track stage (SDK 1.24, tooling/track_stage.py): its TrackState's size and
+# alignment, checked against the compiled type, and its tail, as an effect's tailFrames.
+TRACK_STAGE_KEYS = ('stateBytes', 'stateAlignment', 'tailFrames')
 # A drum kit's models in named groups (SDK 1.8), which Shift and the first encoder choose
 # (with padMix, which takes Shift's first row, they only title the models);
 # chokeSameKey 1 for a note to cut the voices still sounding its track's same key;
@@ -203,15 +206,17 @@ def validate_definition(value, kind):
     label(value['name'])
     resources = value['resources']
     options = {'sample': SAMPLE_OPTIONS, 'effect': EFFECT_OPTIONS, 'drum': DRUM_OPTIONS,
-               'synth': ('trackControl', 'stereoOutput', 'releaseCallback')}.get(kind, ())
+               'synth': ('trackControl', 'stereoOutput', 'releaseCallback', 'trackStage')}.get(kind, ())
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
     require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'stockShift', 'padControls',
-                                                                   'tailFrames')),
+                                                                   'tailFrames', 'trackStage')),
             'Numeric resource requirements must be integers')
     if kind == 'synth':
         for flag in ('stereoOutput', 'releaseCallback'):
             require(resources.get(flag, 0) in (0, 1), flag + ' must be 0 or 1')
+        if 'trackStage' in resources:
+            validate_track_stage(resources['trackStage'])
     if 'voiceCapacity' in resources:
         require(1 <= resources['voiceCapacity'] <= 256, 'Voice capacity must be 1..256')
     # A sample engine's voice is bound to its sample when created, so it needs a
@@ -505,6 +510,17 @@ def validate_synth_resources(resources, kind='synth'):
                 set(aux) <= set(AUX_TRACKS),
                 'Track control aux lists the aux tracks to take over: ' + ', '.join(map(str, AUX_TRACKS)))
         require(control.get('unique') is True, 'A track control machine that takes over aux tracks must be unique')
+
+
+def validate_track_stage(stage):
+    """A synth's trackStage: TrackState in whole words aligned to 4 or 8, and its tail in
+    frames (at most 2^24) or "unbounded"."""
+    keys(stage, TRACK_STAGE_KEYS, 'trackStage')
+    size, alignment, tail = stage['stateBytes'], stage['stateAlignment'], stage['tailFrames']
+    require(type(size) is int and type(alignment) is int and 4 <= size and alignment in (4, 8) and
+            size % alignment == 0, 'Track stage state must occupy whole words, aligned to 4 or 8 bytes')
+    require(tail == 'unbounded' or (type(tail) is int and 0 <= tail <= EFFECT_TAIL_LIMIT),
+            'trackStage tailFrames is a whole number of frames, at most %d, or "unbounded"' % EFFECT_TAIL_LIMIT)
 
 
 def extended_display(display):
