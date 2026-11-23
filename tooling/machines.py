@@ -19,7 +19,7 @@ from .definitions import (AUDIO_SDK, AUDIO_SDK_KEYS, DRUM_KIT_CONTROLS, EXTENDED
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
-from . import voice_heap
+from . import track_stage, voice_heap
 from .pipeline import config
 
 KINDS = ('synth', 'drum', 'sample', 'effect', 'player')
@@ -79,14 +79,13 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # renumber it, with the "SDK 1.22" text of docs/api.md.
 IDLE_SDK = (1, 22)
 # 1.23 adds the drum-kit controls (resources.padVolume, padRandom, ampEnvelope) and gives a
-# kit's screen its selected key (draw::Input::selected_key).
+# kit's screen its selected key (draw::Input::selected_key; KIT_CONTROLS_SDK in definitions.py).
+# 1.24 adds a synth's track stage (resources.trackStage, track_stage.py): one state per
+# instrument track, processed in place on the track's voice sum once per block.
 # 1.25 adds a screen's own audio (audio snapshots, for synths and effects), stock's output
 # and input levels on a screen, and glyph atlases (docs/display.md). AUDIO_SDK in
 # definitions.py is the one place to renumber it, with the "SDK 1.25" text of the docs.
-# 1.24 is held by another open change; this takes the next free number when it merges.
 SDK_VERSION = (1, 25)
-# Numbers below SDK_VERSION that no SDK has released, which no machine may target.
-UNRELEASED_SDKS = {(1, 24)}
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -466,7 +465,6 @@ def sdk_version(text):
     current = '%d.%d' % SDK_VERSION
     require(major == SDK_VERSION[0] and minor <= SDK_VERSION[1],
             f'The machine targets SDK {text}; this SDK is {current} and builds {SDK_VERSION[0]}.0 to {current}')
-    require((major, minor) not in UNRELEASED_SDKS, f'SDK {text} is not released; target {current}')
     return major, minor
 
 
@@ -599,6 +597,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 16), "An effect's bus shift (busShift)")
     if 'tailFrames' in definition['resources']:
         require_sdk(version, IDLE_SDK, "An effect's declared tail (tailFrames)")
+    if 'trackStage' in definition['resources']:
+        require_sdk(version, track_stage.TRACK_STAGE_SDK, "A synth's track stage (trackStage)")
     if any(p['display'] == 'division' for p in definition['parameters']):
         require_sdk(version, (1, 2), 'A division control')
     if kind == 'sample' and definition['resources']['voiceCapacity'] < STOCK_VOICES:

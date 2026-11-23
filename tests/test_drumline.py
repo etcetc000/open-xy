@@ -28,7 +28,7 @@ SITES = {'0x8d51b554': ('sdk_dbox_render_select', '48914130', '0x1527b0'),
 # The profile's user of the service: a collection with a drumline_page extension.
 USER = 'drumline_page'
 # The services a page turns on: its own and the drum hooks it extends.
-SERVICES = {'samples', 'octaves', 'drums', 'drum_sends', 'drum_locks', 'drumline'}
+SERVICES = {'samples', 'octaves', 'drums', 'drum_sends', 'track_call', 'drum_locks', 'drumline'}
 # A page as MD KIT's would declare it, which tests/fixtures/drumline.cpp's table mirrors.
 FILTER = ['L%d' % (16 - i) for i in range(16)] + ['OPEN'] + ['H%d' % i for i in range(1, 16)]
 SRR = ['OFF'] + ['S%d' % i for i in range(1, 16)]

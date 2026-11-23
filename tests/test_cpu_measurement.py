@@ -440,6 +440,94 @@ class Measurements(unittest.TestCase):
             cpu_measurement.validate({k: v for k, v in dict(measurement('drum'), voice_peak_percent=5.0).items()
                                       if k != 'peak_percent'}, 'drum')
 
+    def test_a_synths_track_stage_is_published_beside_its_voice_and_added_once(self):
+        expected = cases([fixture('probestage')], sweep=True)
+        own = [i for i, c in enumerate(expected) if c['source'] == 'sdk']
+        stage = own[-1]
+        self.assertTrue(expected[stage]['stage'])
+        identity = dict(firmware_sha256='a'*64)
+        averages = [1000] * len(expected)
+        averages[stage] = 700
+        peaks = [None] * len(expected)
+        peaks[stage] = 9000     # the stage's worst block: above every voice run's, kept apart
+        captures = [dict(mode='benchmark', package=identity, expected_cases=expected, complete=True, errors=[],
+                         collector_sha256='d'*64, frames=[frame(a, p) for a, p in zip(averages, peaks)], utc=str(i))
+                    for i in range(2)]
+        result, _values, _case, runs, _combinations, _silent = aggregate(captures, expected, identity, 'probestage',
+                                                                       'e'*40, None)
+        self.assertAlmostEqual(result['block_percent'], 100000/65535, places=5)
+        self.assertAlmostEqual(result['peak_percent'], 200000/65535, places=5)
+        self.assertAlmostEqual(result['stage_percent'], 70000/65535, places=5)
+        self.assertAlmostEqual(result['stage_peak_percent'], 900000/65535, places=5)
+        self.assertNotIn(expected[stage], [run for run, _median, _peak in runs])
+        cpu_measurement.validate(result, 'synth', 'e'*40, legacy=False)
+        # One voice with its track's stage: the worst case and the recommendation add them.
+        self.assertEqual(cpu_measurement.track_cost(result, 'peak_percent'),
+                         round(result['peak_percent'] + result['stage_peak_percent'], 6))
+        self.assertEqual(cpu_measurement.worst_case(result), (cpu_measurement.track_cost(result, 'peak_percent'), 'peak'))
+        self.assertIn('(a voice with its track stage)', cpu_measurement.high(result))
+        self.assertIn('with its track stage', cpu_measurement.above_recommended(result))
+        light = dict(measurement('synth'), block_percent=2.0, peak_percent=2.5, midpoint_percent=1.0, combined_percent=1.5)
+        self.assertIsNone(cpu_measurement.high(light))
+        self.assertIsNone(cpu_measurement.above_recommended(light))
+        self.assertIn('Mean 3.600%', cpu_measurement.above_recommended(dict(light, stage_percent=1.6, stage_peak_percent=2.1)))
+        self.assertIsNone(cpu_measurement.high(dict(light, stage_percent=1.0, stage_peak_percent=2.0)))
+        self.assertIn('4.600%', cpu_measurement.high(dict(light, stage_percent=1.0, stage_peak_percent=2.1)))
+        # An average-only record adds the stage's mean.
+        average = {k: v for k, v in dict(light, stage_percent=2.6, stage_peak_percent=3.0).items() if k != 'peak_percent'}
+        self.assertEqual(cpu_measurement.worst_case(average), (4.6, 'average'))
+        # A silent or failed stage run is refused, as is a saturated one.
+        for average_value, message in ((0, 'track stage run'), (65535, 'track stage')):
+            broken = [dict(c, frames=[frame(average_value if i == stage else a, p) for i, (a, p) in
+                                      enumerate(zip(averages, peaks))]) for c in captures]
+            with self.subTest(average=average_value), self.assertRaisesRegex(ValueError, message):
+                aggregate(broken, expected, identity, 'probestage', 'e'*40, None)
+        # The fields: both or neither, a synth sweep's only, the worst at least the mean.
+        for change in ({'stage_percent': 1.0}, {'stage_peak_percent': 1.0},
+                       {'stage_percent': 2.0, 'stage_peak_percent': 1.0}, {'stage_percent': 0, 'stage_peak_percent': 1.0},
+                       {'stage_percent': 1.0, 'stage_peak_percent': 100}, {'stage_percent': True, 'stage_peak_percent': 1.0},
+                       {'stage_percent': float('nan'), 'stage_peak_percent': 1.0}):
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, 'cpu:'):
+                cpu_measurement.validate(dict(measurement('synth'), **change), 'synth')
+        for kind in ('effect', 'sample', 'drum'):
+            with self.subTest(kind=kind), self.assertRaisesRegex(ValueError, 'unexpected measurement fields'):
+                cpu_measurement.validate(dict(measurement(kind), stage_percent=1.0, stage_peak_percent=2.0), kind)
+        with self.assertRaisesRegex(ValueError, 'unexpected measurement fields'):
+            cpu_measurement.validate(dict(legacy_synth(), stage_percent=1.0, stage_peak_percent=2.0), 'synth')
+
+    def test_a_new_synth_record_has_stage_fields_exactly_when_its_release_has_a_stage(self):
+        staged, plain = fixture('probestage'), fixture('probesynth')
+        with_stage = dict(measurement('synth'), stage_percent=1.0, stage_peak_percent=2.0)
+        entry = dict(PUBLISHED, kind='synth')
+        for machine, cpu, ok in ((staged, with_stage, True), (plain, measurement('synth'), True),
+                                 (staged, measurement('synth'), False), (plain, with_stage, False)):
+            with self.subTest(machine=machine.id, staged='stage_percent' in cpu), \
+                    patch.object(catalog, 'fetch', lambda entry, cache, machine=machine: machine) as fetched:
+                if ok:
+                    catalog.stage_records([], [dict(entry, cpu=cpu)])
+                else:
+                    with self.assertRaisesRegex(ValueError, 'track stage'):
+                        catalog.stage_records([], [dict(entry, cpu=cpu)])
+        # A moved release that keeps its record is fetched too: a stage it adds needs a new run.
+        moved = dict(entry, cpu=measurement('synth'))
+        with patch.object(catalog, 'fetch', lambda entry, cache: staged):
+            with self.assertRaisesRegex(ValueError, 'track stage'):
+                catalog.stage_records([moved], [dict(moved, commit='b' * 40, tag='v2')])
+            # An older, pre-sweep record carried over cannot hide it either.
+            older = dict(entry, cpu=legacy_synth())
+            with self.assertRaisesRegex(ValueError, 'track stage'):
+                catalog.stage_records([older], [dict(older, commit='b' * 40, tag='v2')])
+        # Without a stage, a moved release keeps its older record.
+        with patch.object(catalog, 'fetch', lambda entry, cache: plain):
+            older = dict(entry, cpu=legacy_synth())
+            catalog.stage_records([older], [dict(older, commit='b' * 40, tag='v2')])
+        # An unchanged record, or another kind, is not fetched.
+        with patch.object(catalog, 'fetch', side_effect=AssertionError('fetched')):
+            catalog.stage_records([dict(entry, cpu=measurement('synth'))],
+                                  [dict(entry, cpu=dict(measurement('synth'), report='https://example.com/x'))])
+            catalog.stage_records([dict(entry, cpu=legacy_synth())],
+                                  [dict(entry, kind='effect', cpu=measurement('effect')), dict(entry, cpu=legacy_synth())])
+
     def test_a_sweep_publishes_its_heaviest_run_beside_the_midpoint(self):
         expected = cases([fixture('probesynth')], sweep=True)
         own = [i for i, c in enumerate(expected) if c['source'] == 'sdk']

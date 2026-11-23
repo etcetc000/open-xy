@@ -24,6 +24,7 @@ SHIFT_SLOT = 8
 from .formats import require
 from .stock_tables import REGISTRATION as RELOCATED
 from .voice_heap import on_heap, placement
+from . import track_stage
 
 TEMPLATES = ROOT / 'sdk/platform/opxy-1.2.1'
 # The init preset's authored settings, shared with builder/core.mjs's defaultPreset
@@ -108,6 +109,8 @@ def generate_voice(directory, m, sweep=False, idle=False):
     values.pop('RELEASE_CALLBACK')
     # Where a synth's voices live: module memory, or a heap arena for a large pool (voice_heap.py).
     values.update(placement(m))
+    # A synth's track stage (track_stage.py): nothing for a synth without one.
+    values.update(track_stage.adapter_values(m, bool(synth_shift(m.definition))))
     release = m.definition['resources'].get('releaseCallback', 0)
     values.update(RELEASE_METHOD=f'{m.prefix}_release' if release else 'noop',
                   RELEASE_FUNCTION=f'''int {m.prefix}_release(void* self) {{
