@@ -18,7 +18,7 @@ from .formats import require
 TRACK_STAGE_SDK = (1, 24)
 # The hold of a stage that never sleeps (track_stage.hpp kUnbounded).
 UNBOUNDED = 0xffffffff
-# Blocks of margin after a stage's tail before it sleeps, as for idle sends (track_stage.hpp kMargin).
+# Blocks of margin after a stage's tail before it sleeps, as for idle sends.
 MARGIN = 64
 # The adapter's stage code (voice.cpp.in's TRACK_STAGE).
 TEMPLATE = ROOT / 'sdk/platform/opxy-1.2.1/track_stage_voice.cpp.in'

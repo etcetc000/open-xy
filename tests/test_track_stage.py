@@ -29,6 +29,7 @@ from tooling.pipeline import ROOT, check_patch_boundaries, config
 from machine_fixtures import FOLDER, fixture
 from test_divide import blackfin_compiler
 from test_sample_services import HOST_CXX
+import test_service_links
 
 PLATFORM = ROOT / 'sdk/platform/opxy-1.2.1'
 HIDDEN = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
@@ -439,6 +440,47 @@ def run_simulator(out=None):
     return dict(blocks=words[i + 1], mismatches=words[i + 2], direct=words[i + 3], handler=words[i + 4],
                 resets=words[i + 5], processes=words[i + 6], stage_cycles=words[k - 4:k],
                 stage_mismatches=words[k + 1], stage_resets=words[k + 2], stage_processes=words[k + 3])
+
+
+@unittest.skipUnless(test_service_links.TOOLS.joinpath('bfin-elf-g++' + ('.exe' if os.name == 'nt' else '')).is_file(),
+                     'No Blackfin toolchain in local/toolchain (python sdk.py toolchain fetch, or set OPXY_TEST_COMPILER)')
+class NativeLink(unittest.TestCase):
+    """The pinned tools build the stage: the hook enters the handler the build's services choose."""
+    compile = test_service_links.ServiceLinks.compile
+
+    def site(self, report):
+        return next(p for p in report['patches'] if p['address'] == SITE)
+
+    def test_a_stage_alone_enters_the_shared_handler_without_the_sends(self):
+        with tempfile.TemporaryDirectory(prefix='stage-alone-') as folder:
+            out, report = self.compile(folder, FOLDER / 'probestage')
+            self.assertTrue({'track_stage', 'track_call'} <= set(report['services']))
+            self.assertNotIn('drum_sends', report['services'])
+            self.assertIn('sdk_track_call', report['hooks'])
+            self.assertNotIn('sdk_drum_send_track', report['hooks'])
+            patch = self.site(report)
+            self.assertEqual(decode_branch(int(SITE, 16), bytes.fromhex(patch['after'])),
+                             (report['hooks']['sdk_track_call'], True))
+            self.assertIn('probestage', report['audio_stack_bytes'])
+            self.assertIn('sdk/track_stage_table.o', report['objects'])
+
+    def test_a_stage_beside_a_pad_mix_kit_runs_both_from_the_shared_handler(self):
+        with tempfile.TemporaryDirectory(prefix='stage-mix-') as folder:
+            kit = test_service_links.kit_folder(Path(folder) / 'probekit', pad_mix=True)
+            _out, report = self.compile(folder, kit, FOLDER / 'probestage')
+            self.assertTrue({'track_stage', 'track_call', 'drum_sends'} <= set(report['services']))
+            self.assertIn('sdk_track_call', report['hooks'])
+            self.assertIn('sdk_drum_send_voice_hook', report['hooks'])
+            self.assertNotIn('sdk_drum_send_track', report['hooks'])
+
+    def test_a_pad_mix_kit_alone_keeps_its_own_handler(self):
+        with tempfile.TemporaryDirectory(prefix='stage-none-') as folder:
+            kit = test_service_links.kit_folder(Path(folder) / 'probekit', pad_mix=True)
+            _out, report = self.compile(folder, kit, FOLDER / 'probesynth')
+            self.assertNotIn('track_stage', report['services'])
+            self.assertIn('sdk_drum_send_track', report['hooks'])
+            self.assertNotIn('sdk_track_call', report['hooks'])
+            self.assertFalse([name for name in report['objects'] if 'track_stage' in name or 'track_call' in name])
 
 
 if __name__ == '__main__':

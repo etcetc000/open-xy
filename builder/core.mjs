@@ -974,7 +974,9 @@ export async function patchFirmware(kit, linked, stock, {profiling = true, setti
       'Invalid profiling hook');
     check(edit.symbols === undefined || (edit.kind === 'hook' && edit.service !== undefined &&
       Object.values(edit.symbols).includes(edit.symbol) && Object.entries(edit.symbols).every(([service, symbol]) =>
-        Object.hasOwn(p.services ?? {}, service) && typeof symbol === 'string' && symbol)),
+        Object.hasOwn(p.services ?? {}, service) && typeof symbol === 'string' && symbol) &&
+      new Set(Object.keys(edit.symbols).flatMap(s => p.services[s])).size === new Set(p.services[edit.service]).size &&
+      Object.keys(edit.symbols).flatMap(s => p.services[s]).every(u => p.services[edit.service].includes(u))),
       'Invalid shared hook');
     if ((edit.service && !linked.services.has(edit.service)) || (edit.profiling === false && profiling)) {
       after = before;  // inactive hooks leave the corresponding stock code unchanged

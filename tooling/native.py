@@ -952,17 +952,33 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines, native=None
         return result
 
     bounds = {}
+    # The shared track call handler, in a build with a track stage: its frame, and its
+    # depth to the stage runtime without the stage it calls through a pointer.
+    handler = symbols['sdk_track_call']['value'] if 'sdk_track_call' in symbols else None
+    require(handler is None or handler in body, 'The track call handler is not a function start')
+    handler_frame = 0
+    if handler is not None:
+        frame = 0
+        for text in body[handler]:
+            frame += _frame_delta(text)
+            handler_frame = max(handler_frame, frame)
     for m in machines:
         table, slot = {'effect': (f'_{m.prefix}_fx_vtable', 0x10),
                        'player': (f'_{m.prefix}_player_vtable', 0x14),
                        'drum': (f'_{m.prefix}_vtable', 12)}.get(m.kind, (f'_{m.prefix}_vtable', 8))
         slots = (0x14, 0x18, 0x1c, 0x28, 0x34) if m.kind == 'player' else (slot,)
         entries = [word(symbols[table]['value'] + offset) for offset in slots]
-        # A synth's track stage, entered from the shared track call handler (track_call.s).
-        if track_stage.track_stage(m) is not None:
-            entries += [symbols[name]['value'] for name in track_stage.stage_symbols(m)]
         require(all(entry in body for entry in entries), 'Audio entry of ' + m.id + ' is not a function start')
         bounds[m.id] = max(depth(entry) for entry in entries)
+        if handler is not None and m.kind in ('synth', 'drum'):
+            # Stock's voice loop runs inside the shared track call handler's frame.
+            bounds[m.id] += handler_frame
+        if track_stage.track_stage(m) is not None:
+            # Its stage, from that handler through the runtime (track_call.s, track_stage.cpp).
+            stage = [symbols[name]['value'] for name in track_stage.stage_symbols(m)]
+            require(handler is not None and all(entry in body for entry in stage),
+                    'Track stage entry of ' + m.id + ' is not a function start')
+            bounds[m.id] = max(bounds[m.id], depth(handler, False) + max(depth(entry) for entry in stage))
     if 'sdk_master_process' in symbols:
         entry = symbols['sdk_master_process']['value']
         require(entry in body, 'Master audio entry is not a function start')

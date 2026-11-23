@@ -1278,7 +1278,9 @@ other, every block, sounding or silent, it clears the track buffer `11903600`
 (`8d510a72`) and calls the voice loop `8d51c708` from `8d510bea`, with R0 the
 voice manager, R1 the track and R2 the buffer. The loop adds each voice it
 renders into the buffer and returns their count in R0 (`8d51c7ac`, `8d51c7e0`):
-with a count of 0 the buffer is still all zero. The loop reads only R0..R2;
+with a count of 0 the buffer is still all zero. After the call the engine reads
+only R0 (`8d510bee`), writing every other register before it reads it. The loop
+reads only R0..R2;
 like any C function it stores R2, P1 and P2 into its caller's 12-byte argument
 area and reads them back from there (`8d51c722`..`8d51c756`, `8d51c7ea`).
 

@@ -19,7 +19,6 @@ namespace opxy { namespace platform { namespace track_stage {
 const u32 kTracks = 8;          // the instrument tracks stock's mixer runs
 const u32 kWords = 128;         // a track's sum: 64 interleaved left/right frames
 const i32 kFloor = 64;          // the idle floor, as for idle sends: silence on a bus
-const u32 kMargin = 64;         // blocks of margin after a stage's tail
 const u32 kUnbounded = 0xffffffffu;  // the hold of a stage that never sleeps
 
 // A track's words on the audio side, 58 Q31 words at 84eab39c + 0xe8 track: the
@@ -36,7 +35,7 @@ struct Stage {
     int (*ready)();       // 1 once the synth is registered (0: not in this build's selection)
     void (*reset)(u32 track);                          // zero the track's state, then track_reset
     void (*process)(u32 track, i32* sum, const i32* words, u32 voices);  // track_process
-    u32 hold;             // quiet blocks before it sleeps: its tail in blocks plus kMargin, or kUnbounded
+    u32 hold;             // quiet blocks before it sleeps: its tail in blocks plus 64, or kUnbounded
                           // (tooling/track_stage.py hold)
 };
 
@@ -45,15 +44,21 @@ struct Track {
     const Stage* stage;  // the stage of `engine`, or null
     u32 engine;          // the engine the track held at its last block
     u32 quiet;           // blocks in a row without voices and with the output below the floor
-    bool known;          // `engine` has been read
+    bool known;          // `stage` is the stage of `engine`
 };
 
-// The stage a track holding `engine` runs, or null. A synth this build's selection
-// leaves out has engine number 0 and a ready check that answers 0.
-inline const Stage* find(const Stage* stages, u32 count, u32 engine) {
-    for (u32 i = 0; i < count; ++i)
-        if (static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(stages[i].engine)) == engine && stages[i].ready() == 1)
-            return &stages[i];
+// The stage a track holding `engine` runs, or null. `settled` is false while the
+// engine's synth has not registered yet, so the track looks again next block. A
+// synth this build's selection leaves out has engine number 0 and a ready check
+// that answers 0: never a stage, and nothing to wait for.
+inline const Stage* find(const Stage* stages, u32 count, u32 engine, bool& settled) {
+    settled = true;
+    for (u32 i = 0; i < count; ++i) {
+        const u32 number = static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(stages[i].engine));
+        if (number != engine || !number) continue;
+        if (stages[i].ready() == 1) return &stages[i];
+        settled = false;
+    }
     return nullptr;
 }
 
@@ -78,9 +83,8 @@ inline i32 peak(const i32* sum) {
 inline u32 block(Track& t, const Stage* stages, u32 count, u32 track, u32 engine, i32* sum, const i32* words,
                  u32 voices) {
     if (!t.known || engine != t.engine) {
-        t.known = true;
         t.engine = engine;
-        t.stage = find(stages, count, engine);
+        t.stage = find(stages, count, engine, t.known);
         t.quiet = 0;
         if (t.stage) t.stage->reset(track);
     }

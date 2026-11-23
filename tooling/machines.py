@@ -77,9 +77,9 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # (resources.tailFrames) for its send hold, and an engine's settled() for the idle cut
 # (asked only of machines declaring 1.22 or later). IDLE_SDK is the one place to
 # renumber it, with the "SDK 1.22" text of docs/api.md.
+IDLE_SDK = (1, 22)
 # 1.24 adds a synth's track stage (resources.trackStage, track_stage.py): one state per
 # instrument track, processed in place on the track's voice sum once per block.
-IDLE_SDK = (1, 22)
 SDK_VERSION = (1, 24)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.

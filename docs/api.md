@@ -621,7 +621,7 @@ void track_process(TrackState& state, Shared& shared, opxy::u32 track,
 
 | Argument | Contract |
 | --- | --- |
-| `sum` | The track's voice sum, 64 interleaved left/right frames (128 Q31 words), processed in place: write every word. Always stereo, for mono and `stereoOutput` synths alike, since stock pans each voice into it |
+| `sum` | The track's voice sum, 64 interleaved left/right frames (128 Q31 words), read and overwritten in place; a word left alone passes as it is. Always stereo, for mono and `stereoOutput` synths alike, since stock pans each voice into it |
 | `parameters` | The track's words as its voices get them in the same block, with parameter locks and LFO modulation as stock applies them: the declared controls in order, then zero; sixteen with a [Shift row](#a-synths-shift-row) |
 | `voices` | How many voices stock rendered on the track this block; with 0 the sum is silent |
 | `track` | The instrument track, 0..7 |
@@ -639,7 +639,8 @@ and do not rely on the absolute level.
 synth, in the same block as its voices: the SDK adds no latency. `track_reset`
 runs before it whenever a track's engine changes to this synth, after the SDK
 zeroes that track's state. While a track holds another engine, its state is
-kept and not touched. The callbacks follow `render`'s rules, run serially on
+kept and not touched; a project load that leaves the synth on a track keeps
+its state too. The callbacks follow `render`'s rules, run serially on
 the audio role and get the same `Shared` as the voices; the voices do not learn
 their track.
 

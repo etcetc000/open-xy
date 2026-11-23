@@ -93,11 +93,20 @@ int main() {
     level = 0;
     for (u32 i = 0; i < 1000; ++i) { fill(0); CHECK(stage::block(tracks[3], stages, 3, 3, 42, sum, host_words, 0) == 0); }
     CHECK(resets[3] == 1 && processes[3] == 1000);
-    // A track holding an engine whose synth is not registered (as an unselected one, whose
-    // engine number is 0) has no stage.
+    // A synth that has not registered yet when its track first holds it is looked for
+    // again each block, and found once it has.
     registered = 0;
-    CHECK(stage::block(tracks[4], stages, 3, 4, 40, sum, host_words, 1) == 1 && resets[4] == 0 && tracks[4].stage == nullptr);
+    CHECK(stage::block(tracks[4], stages, 3, 4, 40, sum, host_words, 1) == 1 && resets[4] == 0 && !tracks[4].known);
+    CHECK(stage::block(tracks[4], stages, 3, 4, 40, sum, host_words, 1) == 1 && resets[4] == 0);
     registered = 1;
+    CHECK(stage::block(tracks[4], stages, 3, 4, 40, sum, host_words, 1) == 1 && resets[4] == 1 && processes[4] == 1);
+    // An unselected synth's entry (engine number 0, never ready) neither matches nor waits.
+    {
+        static const stage::Stage absent_entry[] = {{reinterpret_cast<const char*>(0), absent, reset, process, 3}};
+        stage::Track fresh;
+        std::memset(&fresh, 0, sizeof(fresh));
+        CHECK(stage::block(fresh, absent_entry, 1, 6, 0, sum, host_words, 1) == 1 && fresh.known && fresh.stage == nullptr);
+    }
     // The first engine a track is seen with is a change, even engine 0.
     CHECK(stage::block(tracks[5], stages, 3, 5, 0, sum, host_words, 2) == 2 && tracks[5].known && tracks[5].stage == nullptr);
     if (failures) return 1;
