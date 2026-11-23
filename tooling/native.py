@@ -970,8 +970,9 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines, native=None
         entries = [word(symbols[table]['value'] + offset) for offset in slots]
         require(all(entry in body for entry in entries), 'Audio entry of ' + m.id + ' is not a function start')
         bounds[m.id] = max(depth(entry) for entry in entries)
-        if handler is not None and m.kind in ('synth', 'drum'):
-            # Stock's voice loop runs inside the shared track call handler's frame.
+        if handler is not None and m.kind in ('synth', 'drum', 'sample'):
+            # Stock's voice loop runs inside the shared track call handler's frame (an
+            # instrument track's sample engine too; counted for every sample machine).
             bounds[m.id] += handler_frame
         if track_stage.track_stage(m) is not None:
             # Its stage, from that handler through the runtime (track_call.s, track_stage.cpp).
@@ -987,11 +988,12 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines, native=None
         # Entered from stock's mixer: the voice loop after a voice has rendered
         # (8d51c7b2), after the track gain's in-place loop (8d510ea8), and after
         # the send loops (8d511116), which asks the send effects' dry queries.
-        entries = [symbols[name]['value']
+        # The voice hook runs inside the voice loop, so under the shared handler's frame.
+        entries = [(symbols[name]['value'], handler_frame if name == 'sdk_drum_send_voice_hook' else 0)
                    for name in ('sdk_drum_send_voice_hook', 'sdk_drum_send_gain_hook', 'sdk_drum_send_own')
                    if name in symbols]
-        require(all(entry in body for entry in entries), 'Per-key send entry is not a function start')
-        bounds['sdk:drum_sends'] = max(depth(entry) for entry in entries)
+        require(all(entry in body for entry, _frame in entries), 'Per-key send entry is not a function start')
+        bounds['sdk:drum_sends'] = max(depth(entry) + frame for entry, frame in entries)
     return bounds
 
 

@@ -640,7 +640,8 @@ synth, in the same block as its voices: the SDK adds no latency. `track_reset`
 runs before it whenever a track's engine changes to this synth, after the SDK
 zeroes that track's state. While a track holds another engine, its state is
 kept and not touched; a project load that leaves the synth on a track keeps
-its state too. The callbacks follow `render`'s rules, run serially on
+its state too. Stock does not mix a MIDI track at all, so a track switched to
+MIDI and back to the synth keeps its state without a reset. The callbacks follow `render`'s rules, run serially on
 the audio role and get the same `Shared` as the voices; the voices do not learn
 their track.
 
