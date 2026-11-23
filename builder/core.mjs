@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = 'bf988a65ccdfc8fb89a66dcee539e0a45eb0c478aefbe494286993950a91b6a8';
+export const PROFILE_SHA256 = '961de31df905461dcb5d76f5c688f129e94c09838e7205220ecc178d7d80b6a9';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -419,12 +419,18 @@ export const CPU_HIGH_PERCENT = 4.5;
 // average per block when its record reports no peak; null without a cpu record.
 // A drum kit is judged by its worst single sound, never its whole-kit runs: its
 // single-voice peak (voice_peak_percent), else its heaviest single voice's average.
+// A synth with a track stage adds its stage run's worst block (or mean) once, as a
+// track playing it runs one stage beside its voices (tooling.cpu_measurement.track_cost).
 export function cpuWorstCase(m) {
   const usable = n => typeof n === 'number' && Number.isFinite(n) && n > 0;
   const cpu = m.cpu && typeof m.cpu === 'object' ? m.cpu : {};
-  const peak = m.kind === 'drum' ? cpu.voice_peak_percent : cpu.peak_percent;
-  if (usable(peak)) return {percent: peak, metric: 'peak'};
-  if (usable(cpu.block_percent)) return {percent: cpu.block_percent, metric: 'average'};
+  const drum = m.kind === 'drum';
+  const staged = !drum && usable(cpu.stage_percent) && usable(cpu.stage_peak_percent);
+  const add = (n, stage) => staged ? Math.round((n + stage) * 1e6) / 1e6 : n;
+  const peak = drum ? cpu.voice_peak_percent : cpu.peak_percent;
+  const stage = staged ? {stage: true} : {};
+  if (usable(peak)) return {percent: add(peak, cpu.stage_peak_percent), metric: 'peak', ...stage};
+  if (usable(cpu.block_percent)) return {percent: add(cpu.block_percent, cpu.stage_percent), metric: 'average', ...stage};
   return null;
 }
 // The CPU-high label, derived from the cpu record so it follows the catalog: the worst
@@ -440,7 +446,8 @@ export function cpuHigh(m) {
     : worst.metric === 'peak'
     ? 'worst observed block peak ' + figure + ', above ' + CPU_HIGH_PERCENT + '%'
     : 'average ' + figure + ', above ' + CPU_HIGH_PERCENT + '% (no peak reported)';
-  return {...worst, detail, text: 'CPU-high: ' + detail};
+  const stage = worst.stage ? ' (a voice with its track stage)' : '';
+  return {...worst, detail: detail + stage, text: 'CPU-high: ' + detail + stage};
 }
 // The keywords the machines use, with how many use each, most used first, then by name: the
 // order in which the builder keeps keyword filters when only some fit (builder/app.mjs).
@@ -919,6 +926,29 @@ const words = (...values) => {
   const bytes = new Uint8Array(values.length * 2);
   values.forEach((word, i) => view(bytes).setUint16(i * 2, word, true)); return bytes;
 };
+// The module symbol a hook enters: when several services need one stock site, the
+// edit's `symbols` maps each to the handler a selection with it enters, the first
+// one the selection uses winning; otherwise its `symbol` (tooling.firmware.hook_symbol).
+// Whether an edit's `symbols` map is absent or valid (tooling.pipeline.check_patch_boundaries):
+// a service hook's, naming declared services with a handler each, its own symbol among them,
+// and together used by exactly the users of the record's service. `services` is the profile's.
+export function validSharedHook(edit, services) {
+  const shared = edit.symbols;
+  if (shared === undefined) return true;
+  if (edit.kind !== 'hook' || edit.service === undefined || typeof shared !== 'object' || shared === null ||
+      Array.isArray(shared) || !Object.keys(shared).length || !Object.values(shared).includes(edit.symbol) ||
+      !Object.entries(shared).every(([service, symbol]) => Object.hasOwn(services, service) &&
+        typeof symbol === 'string' && symbol) || !Object.hasOwn(services, edit.service)) return false;
+  const users = new Set(Object.keys(shared).flatMap(s => services[s]));
+  const own = new Set(services[edit.service]);
+  return users.size === own.size && [...users].every(u => own.has(u));
+}
+
+export function hookSymbol(edit, services) {
+  const shared = Object.entries(edit.symbols ?? {}).find(([service]) => services.has(service));
+  return shared ? shared[1] : edit.symbol;
+}
+
 // Replacement bytes of a profile edit whose destination is a module symbol
 // (tooling.firmware.hook_instruction and tooling.startup_label.jump).
 export function redirect(edit, destination) {
@@ -978,10 +1008,11 @@ export async function patchFirmware(kit, linked, stock, {profiling = true, setti
       'Undeclared service: ' + edit.service);
     check(edit.profiling === undefined || (edit.profiling === false && edit.kind === 'hook'),
       'Invalid profiling hook');
+    check(validSharedHook(edit, p.services ?? {}), 'Invalid shared hook');
     if ((edit.service && !linked.services.has(edit.service)) || (edit.profiling === false && profiling)) {
       after = before;  // inactive hooks leave the corresponding stock code unchanged
     } else if (['hook', 'startup'].includes(edit.kind)) {
-      const destination = linked.globals.get(edit.symbol);
+      const destination = linked.globals.get(edit.kind === 'hook' ? hookSymbol(edit, linked.services) : edit.symbol);
       check(destination >= low && destination < low + linked.module.length, 'Hook destination outside module');
       after = redirect(edit, destination);
     } else {

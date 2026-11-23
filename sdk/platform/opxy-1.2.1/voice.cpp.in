@@ -271,4 +271,4 @@ const void* const @PREFIX@_vtable[11] = {
     reinterpret_cast<const void*>(&@STEREO_METHOD@), reinterpret_cast<const void*>(&zero),
     reinterpret_cast<const void*>(opxy::platform::kVoiceDefaultMethod)
 };
-}
+}@TRACK_STAGE@

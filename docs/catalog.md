@@ -80,7 +80,9 @@ The builder labels a machine **CPU-high** when its reported worst case is above
 4.5% of an audio block (`HIGH_PERCENT` in
 [`tooling/cpu_measurement.py`](../tooling/cpu_measurement.py), which
 `builder/core.mjs` repeats as `CPU_HIGH_PERCENT`). The worst case is the record's
-`peak_percent`, or its `block_percent` average when it reports no peak; the
+`peak_percent`, or its `block_percent` average when it reports no peak, and for a
+synth with a [track stage](api.md#track-stage) that figure plus its stage's
+(`stage_peak_percent`, or `stage_percent`): one voice and its track's stage; the
 label immediately explains on hover or keyboard focus that higher CPU usage may reduce the number of simultaneous voices. A drum kit is judged by its
 worst single sound, never its whole-kit, choke or ceiling runs: its
 `voice_peak_percent`, the worst block of its single-voice runs, or, in a record
@@ -110,7 +112,7 @@ show a short notice about support and possible instability or unexpected audio.
 
 | Command | Does |
 | --- | --- |
-| `python sdk.py catalog check [--base <ref>] [--allow-control-changes]` | Validates the catalog. With `--base`, also against an earlier catalog: every entry stays, with its kind, and its status only moves forward, except published back to draft; a published machine whose commit moved is fetched at both commits and its [controls compared](#controls) |
+| `python sdk.py catalog check [--base <ref>] [--allow-control-changes]` | Validates the catalog. With `--base`, also against an earlier catalog: every entry stays, with its kind, and its status only moves forward, except published back to draft; a published machine whose commit moved is fetched at both commits and its [controls compared](#controls); and each new or moved synth release, and each new or changed sweep record's release, is fetched to check that it has [stage fields](profiling.md#add-the-catalog-field) exactly when the release declares a track stage |
 | `python sdk.py catalog fetch [--tags] [--prune]` | Fetches every published machine at exactly its commit into `local/catalog/`, checks it matches its entry and writes `local/catalog/collection.json`: every published machine, in catalog order. `--tags` also confirms each tag still names its commit; `--prune` then deletes fetched folders the catalog no longer pins |
 | `python sdk.py catalog test [--tags] [--changed-from <revision>] [--jobs <n>] [--no-cpu]` | Fetches, then runs [`sdk.py test`](first-machine.md#what-you-own) on every published machine. `--changed-from` tests only the entries that differ from the catalog at that git revision, as CI does for a pull request that changes only the catalog; `--jobs` checks several folders at once |
 
@@ -167,7 +169,9 @@ Updates follow the same checks: tag a new machine revision, remeasure it and
 update `tag`, `commit` and `cpu` together. For a change that cannot affect CPU
 cost, a catalog maintainer can approve keeping the previous `cpu` record unchanged
 (still naming the commit it measured) by adding the `cpu-carried` label; the
-workflow runs again and passes `--allow-carried-cpu`. Preserve the published
+workflow runs again and passes `--allow-carried-cpu`. A release that adds a
+[track stage](api.md#track-stage) can't carry its record: the stage was never
+measured, so it is remeasured. Preserve the published
 [control contract](#controls). Removal marks an entry `retired`; its ID is never
 reused, and retirement needs no new measurement.
 

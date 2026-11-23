@@ -16,6 +16,8 @@ no machines of its own; these are small, valid folders, not copies of published 
 - probeplayer: a note player whose own page uses extended drawing (SDK 1.26); not in NAMES.
 - voiceheap: a sine with a long echo whose voices are too large for module memory
   (SDK 1.19 heap voices); not in NAMES.
+- probestage: a saw whose track stage (SDK 1.24) widens its track's voice sum with a short
+  delay; not in NAMES.
 """
 from pathlib import Path
 import os

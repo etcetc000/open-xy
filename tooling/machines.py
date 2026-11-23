@@ -19,7 +19,7 @@ from .definitions import (DRUM_KIT_CONTROLS, EXTENDED_SCREENS_SDK, EXTENDED_SDK,
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
-from . import voice_heap
+from . import track_stage, voice_heap
 from .pipeline import config
 
 KINDS = ('synth', 'drum', 'sample', 'effect', 'player')
@@ -79,15 +79,17 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # renumber it, with the "SDK 1.22" text of docs/api.md.
 IDLE_SDK = (1, 22)
 # 1.23 adds the drum-kit controls (resources.padVolume, padRandom, ampEnvelope) and gives a
-# kit's screen its selected key (draw::Input::selected_key). It takes the next free number
-# when it merges (KIT_CONTROLS_SDK in definitions.py moves with it).
-# 1.24 lets a note player draw its own page (resources.display): a draw::Frame from its
-# State and Controls each GUI frame, as a synth draws its screen. PLAYER_DRAWING_SDK is
-# the one place to renumber it, with the "SDK 1.24" text of docs/api.md and docs/display.md.
-PLAYER_DRAWING_SDK = (1, 24)
+# kit's screen its selected key (draw::Input::selected_key; KIT_CONTROLS_SDK in definitions.py).
+# 1.24 adds a synth's track stage (resources.trackStage, track_stage.py): one state per
+# instrument track, processed in place on the track's voice sum once per block.
 # 1.26 extends extended drawing to a drum kit's screen, with a whole-screen kit whose
 # header shows only while Shift is held, and to a note player's own page
 # (EXTENDED_SCREENS_SDK in definitions.py).
+# A note player's own drawn page (resources.display: a draw::Frame from its State and
+# Controls each GUI frame, as a synth draws its screen) still declares PLAYER_DRAWING_SDK,
+# which takes a free number when it merges; it is the one place to renumber it, with the
+# "SDK 1.24" text of docs/api.md and docs/display.md.
+PLAYER_DRAWING_SDK = (1, 24)
 SDK_VERSION = (1, 26)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
@@ -600,6 +602,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 16), "An effect's bus shift (busShift)")
     if 'tailFrames' in definition['resources']:
         require_sdk(version, IDLE_SDK, "An effect's declared tail (tailFrames)")
+    if 'trackStage' in definition['resources']:
+        require_sdk(version, track_stage.TRACK_STAGE_SDK, "A synth's track stage (trackStage)")
     if any(p['display'] == 'division' for p in definition['parameters']):
         require_sdk(version, (1, 2), 'A division control')
     if kind == 'sample' and definition['resources']['voiceCapacity'] < STOCK_VOICES:
