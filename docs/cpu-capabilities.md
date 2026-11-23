@@ -383,8 +383,9 @@ Stock's held peaks cut such patterns.
 - The time constant was chosen by the author on synthetic loads in a simulator outside
   this repository, not on a real project's load; what it then does is what the host
   tests check.
-- The edits are fixed bytes at stock sites. The SDK writes them only in `sdk.py
-  build`, but any tool that writes bytes into an image could write them.
+- The edits are fixed bytes at stock sites. The SDK writes them only when it builds
+  the firmware (`sdk.py build` or the builder), but any tool that writes bytes into an
+  image could write them.
 
 Tests: host only. `test_load_governor.py`: the edits and their encodings, the
 smoother's bytes run instruction by instruction off and on against models of stock's

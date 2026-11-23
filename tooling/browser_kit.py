@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 from .adapters import aux_preset_files, catalog_entry
 from .catalog import official
@@ -48,8 +49,17 @@ def catalog_sources(machines, personal, entries=None):
 
 def sdk_extension(e):
     """Whether an extension is one of the SDK's own (extensions/ of this checkout, such as cpu),
-    reviewed and released with the SDK itself rather than through the catalog."""
-    return e.root.parent == (ROOT / 'extensions').resolve()
+    reviewed and released with the SDK itself rather than through the catalog: its folder is
+    tracked by this checkout's git and unchanged."""
+    if e.root.parent != (ROOT / 'extensions').resolve():
+        return False
+    folder = 'extensions/' + e.root.name
+    try:
+        git = lambda *a: subprocess.run(['git', *a], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+        return bool(git('ls-files', '--', folder + '/extension.json').strip()) and \
+            not git('status', '--porcelain', '--ignored', '--', folder).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return False
 
 
 def extension_origins(extensions_, personal):
@@ -202,7 +212,8 @@ def unit_sources(output, tools, compiler, profile, machines, objects):
     require(compiler is not None, 'A kit with a unit capability needs the compiler to build its other sources')
     built = native.unit_sources(machines, profile)
     sources = {}
-    variants = native.unit_variants(output / 'unit-sources', tools, compiler, profile, machines)
+    with tempfile.TemporaryDirectory(prefix='opxy-unit-sources-') as work:
+        variants = native.unit_variants(Path(work), tools, compiler, profile, machines)
     for capability, values in variants.items():
         for value, units in values.items():
             for name, data in units.items():
