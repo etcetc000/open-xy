@@ -801,7 +801,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('extension-note').hidden = !extension.note;
     // What this site leaves out of it (tooling.browser_kit.withheld): sdk.py build has it.
     $('extension-withheld').textContent = extension.withheld ? 'Not on this site: ' + extension.withheld.join(', ') +
-      '. It changes every machine’s code; sdk.py build has it.' : '';
+      (extension.withheld.length > 1 ? '. They change' : '. It changes') + ' every machine’s code; sdk.py build has ' +
+      (extension.withheld.length > 1 ? 'them.' : 'it.') : '';
     $('extension-withheld').hidden = !extension.withheld;
     // Capability settings: one slider each, written into the OS when it is built.
     $('extension-settings').replaceChildren();

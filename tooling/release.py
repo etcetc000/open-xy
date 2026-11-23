@@ -80,8 +80,8 @@ def main(argv=None):
         run([python, 'sdk.py', 'catalog', 'fetch', '--tags'])
         kit = out / 'kit'
         # The SDK's own extensions ship with the SDK, not the catalog (browser_kit.sdk_extension).
-        own = [arg for folder in sorted((ROOT / 'extensions').iterdir()) if (folder / 'extension.json').is_file()
-               for arg in ('--extension', folder)]
+        own = [arg for name in sorted(git('ls-files', 'extensions/*/extension.json').split())
+               for arg in ('--extension', ROOT / Path(name).parent)]
         run([python, 'sdk.py', 'kit', '--collection', ROOT / 'local/catalog/collection.json', *own,
              '--stock-os', args.stock_os.resolve(), '--stock-content', args.stock_content.resolve(),
              '--preview-cxx', args.preview_cxx, '--host-cxx', args.host_cxx, '--out', kit,

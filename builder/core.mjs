@@ -678,8 +678,8 @@ export async function openKit(kit) {
       e.capabilities?.includes(c) && [v.minimum, v.maximum, v.default, v.value].every(Number.isInteger) &&
       v.minimum <= v.value && v.value <= v.maximum && typeof v.label === 'string' && typeof v.unit === 'string' &&
       (kit.profile.patches.some(edit => edit.setting === c && Object.hasOwn(edit.choices ?? {}, String(v.value))) ||
-        Array.from({length: v.maximum - v.minimum + 1}, (_, i) => String(v.minimum + i))
-          .every(value => Object.hasOwn(kit.unitSources?.[c] ?? {}, value)))),
+        // A unit capability is off (0) or on (1), each value with the kit's objects.
+        v.minimum === 0 && v.maximum === 1 && ['0', '1'].every(value => Object.hasOwn(kit.unitSources?.[c] ?? {}, value)))),
       'Invalid extension settings');
     if(processorOf(e)) {
       check(!(e.master_processor && e.master_filter), 'Repeated master processor capability');
@@ -1170,10 +1170,14 @@ const presentExtensions = (kit, payload, input) => (kit.extensions ?? [])
 // with no edit (fast_helpers) cannot be read from an image: it may be on. Only a guess for hooks;
 // recoverFirmware accepts a build only by rebuilding it exactly.
 const siteBytes = (input, edit) => input.subarray(Number(edit.file_offset), Number(edit.file_offset) + edit.length);
-const capabilityApplied = (p, service, input) => p.patches.filter(edit => edit.service === service).every(edit =>
-  edit.choices ? Object.values(edit.choices).some(b => equal(siteBytes(input, edit), unhex(b)))
-    : edit.kind === 'hook' ? edit.profiling === false || !equal(siteBytes(input, edit), unhex(edit.before))
-    : equal(siteBytes(input, edit), unhex(edit.after)));
+const capabilityApplied = (p, service, input) => {
+  const edits = p.patches.filter(edit => edit.service === service);
+  // Only an edit without choices says on or off; a capability with edits has one.
+  return (!edits.length || edits.some(edit => !edit.choices)) && edits.every(edit =>
+    edit.choices ? Object.values(edit.choices).some(b => equal(siteBytes(input, edit), unhex(b)))
+      : edit.kind === 'hook' ? edit.profiling === false || !equal(siteBytes(input, edit), unhex(edit.before))
+      : equal(siteBytes(input, edit), unhex(edit.after)));
+};
 // The setting values an image holds: each applied capability's chosen value, read from
 // its reviewed bytes, including a value whose bytes equal stock's.
 export function imageSettings(kit, input) {

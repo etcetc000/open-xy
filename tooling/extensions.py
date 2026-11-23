@@ -101,8 +101,8 @@ def capabilities():
                     'Invalid build capability: ' + name)
             continue
         if capability.get('build') is not None:
-            # Hooks, and fixed bytes each marked as the build's (the mark is what tells a
-            # browser kit a build capability's limit edit); no setting.
+            # Hooks, and fixed bytes each marked as the build's (the profile's own record
+            # that the edit is a build capability's); no setting.
             require(capability in ({'build': True}, {'build': True, 'adapters': True}) and edits and
                     all((p['kind'] == 'hook' or p['kind'] == 'limit' and p.get('build') is True) and
                         'choices' not in p and 'setting' not in p for p in edits),

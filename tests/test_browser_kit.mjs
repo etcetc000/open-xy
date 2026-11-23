@@ -94,7 +94,7 @@ test('a settings extension links no code, applies only its capability edits and 
 // A helper object as a unit capability's sources make them (tooling.native UNIT_SOURCES): the fixture
 // ELF defining `helpr` with its four code bytes.
 function helper(code) { const bytes = elf(); bytes.set(Buffer.from('helpr'), 89); bytes.set(code, 52); return bytes; }
-const capsule = (name, bytes, fields = {}) => ({name, owner:null, ...fields, bytes:Buffer.from(bytes).toString('base64')});
+const capsule = (name, bytes, extra = {}) => ({name, owner:null, ...extra, bytes:Buffer.from(bytes).toString('base64')});
 
 test('a kit carries a capability only with what the browser needs for it (tooling.extensions.site_needs)', async () => {
   const k = fixture();
@@ -104,8 +104,8 @@ test('a kit carries a capability only with what the browser needs for it (toolin
   for (const o of objects) o.sha256 = await sha256(Buffer.from(o.bytes, 'base64'));
   k.objects = objects;
   const meta = {name:'Settings', description:'Turns on a capability.', origin:'official', claim_labels:{}, claims:[], actions:[], linked:false};
-  const opens = async (capability, kitFields = {}) => {
-    Object.assign(k, {objects, unitSources:undefined}, kitFields);
+  const opens = async (capability, overrides = {}) => {
+    Object.assign(k, {objects, unitSources:undefined}, overrides);
     k.extensions = [{...meta, id:'faster', capabilities:[capability]}];
     return openKit(k);
   };

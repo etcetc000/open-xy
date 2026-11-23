@@ -31,9 +31,9 @@ service fails with "the <name> capability has no firmware sites for OP-XY OS
 The SDK's one CPU extension, `extensions/cpu` ("CPU (experimental)"), selects all
 seven: `boot_log_fix`, `idle`, `block_trims`, `output_slack`, `load_governor`,
 `pitch_constants` and `fast_helpers`, the last at its setting 0, off. The builder
-offers it without `idle` and says so in its details: a build there is byte for byte
-`sdk.py build` of the same machines with a settings extension naming the other six at the
-same fast helpers setting. It does not select `release_floor`, whose threshold the idle cut uses: with
+offers it without `idle` and says so in its details: a build of a kit's whole collection
+there is byte for byte `sdk.py build` of that collection with a settings extension naming the
+other six at the same fast helpers setting and profiling. It does not select `release_floor`, whose threshold the idle cut uses: with
 `cpu` alone, `idle` skips silent sends and cuts no voice ([idle](#idle)). A collection
 that wants only some of the capabilities selects them with a settings extension of its
 own that names just those, in place of `cpu` (`sdk.py build` takes a settings

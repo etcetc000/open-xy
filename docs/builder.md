@@ -405,11 +405,13 @@ firmware profile alone):
   builder names what it left out in the extension's details. `sdk.py build`
   has it.
 
-So the site's `cpu` extension is the SDK's `cpu` without `idle`. A build with it
-is byte for byte the `sdk.py build` of the same selection with a settings
-extension naming the same capabilities and settings, and a build without it is
-the one a kit without it makes. The fast helpers' value has no site in the OS
-image, so restoring a build tries both values.
+So the site's `cpu` extension is the SDK's `cpu` without `idle`. A build of the
+kit's whole collection with it is byte for byte the `sdk.py build` of that
+collection with a settings extension naming the same capabilities and settings,
+at the same profiling (the site's downloads have it off); without it, the
+`sdk.py build` of the machines alone. A smaller selection links the same
+objects, as every kit's selections do. Recovery tries both fast helpers values,
+since no site in the OS image shows which one a build has.
 
 The browser links the normalized ELF32 Blackfin objects itself, supporting the
 LUIMM16, HUIMM16, PCREL24, PCREL24_JUMP_L and BYTE4 relocations. Unsupported

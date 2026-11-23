@@ -407,9 +407,8 @@ def main(argv=None):
         if not args.personal:  # independent rebuild against the reference bytes
             subprocess.run([sys.executable, str(ROOT / 'sdk.py'), 'check', '--native-package', str(package), *options,
                             '--host-cxx', args.host_cxx], cwd=ROOT, check=True)
-        export(package, out, tool_paths(args.toolchain), args.preview_cxx,
-               stock_catalog=read(Path(args.stock_content) / 'op1_factory.json'), personal=args.personal,
-               compiler=Path(args.compiler))
+        export(package, out, tool_paths(args.toolchain), args.preview_cxx, compiler=Path(args.compiler),
+               stock_catalog=read(Path(args.stock_content) / 'op1_factory.json'), personal=args.personal)
         # Validate firmware and content output against the independent Python writer.
         subprocess.run([sys.executable, str(ROOT / 'tools/check_browser_firmware.py'), str(out),
                         args.stock_os, args.stock_content], cwd=ROOT, check=True)

@@ -74,7 +74,7 @@ class Registry(unittest.TestCase):
 
     def test_a_build_capabilitys_limit_edits_are_marked(self):
         """Every fixed-byte (limit) edit of a build capability carries the "build" mark, the
-        one thing the builder's kit check reads. An unmarked one is refused."""
+        profile's record that it is a build capability's. An unmarked one is refused."""
         self.assertTrue(all(p.get('build') is True for p in config()['patches']
                             if p['kind'] == 'limit' and REGISTRY.get(p.get('service'), {}).get('build')))
         for marked in (False, True):

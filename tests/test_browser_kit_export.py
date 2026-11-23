@@ -20,17 +20,17 @@ def stock_os():
 
 
 # Links the kit's whole collection as the builder does, numbered with a native package's layout, with the
-# extensions and settings given, and writes the module and the firmware (profiling on, as sdk.py build's).
+# extensions and settings given, and writes the module and the firmware (profiling on or off).
 LINK = '''
 import {readFileSync, writeFileSync} from 'node:fs';
 import {openKit, linkKit, patchFirmware, readLayout} from './builder/core.mjs';
-const [kitFile, stockFile, layoutFile, extensions, settings, out] = process.argv.slice(1);
+const [kitFile, stockFile, layoutFile, extensions, settings, profiling, out] = process.argv.slice(1);
 const kit = await openKit(JSON.parse(readFileSync(kitFile, 'utf8')));
 const numbers = readLayout(kit, JSON.parse(readFileSync(layoutFile, 'utf8'))).machines;
 const linked = linkKit(kit, kit.machines.map(m => m.id), numbers, JSON.parse(extensions), JSON.parse(settings));
 writeFileSync(out + '.bin', linked.module);
 writeFileSync(out + '.ldr', await patchFirmware(kit, linked, new Uint8Array(readFileSync(stockFile)),
-  {settings: JSON.parse(settings)}));
+  {settings: JSON.parse(settings), profiling: profiling === 'on'}));
 '''
 
 
@@ -55,22 +55,23 @@ class BrowserKitExport(unittest.TestCase):
         self.assertTrue((out / 'kit.json').is_file())
         return out
 
-    def build(self, *machines, extensions=()):
-        """sdk.py build of these folders, as the kit's own native build is made: profiling on, no sweep."""
+    def build(self, *machines, extensions=(), profiling='on'):
+        """sdk.py build of these folders, without the control sweep, as the kit's own native build."""
         out = self.work() / 'build'
         command = [sys.executable, str(ROOT / 'sdk.py'), 'build', '--stock-os', str(stock_os()), '--out', str(out),
                    '--toolchain', str(toolchain() / 'bin'), '--compiler', str(toolchain()), '--sweep', 'off',
+                   '--profiling', profiling,
                    *(a for m in machines for a in ('--machine', str(m))),
                    *(a for e in extensions for a in ('--extension', str(e)))]
         result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
         return out
 
-    def link(self, kit, package, extensions, settings):
+    def link(self, kit, package, extensions, settings, profiling='on'):
         """The builder's module and OS for the kit's collection, numbered as `package` numbers it."""
         out = self.work() / 'site'
         result = subprocess.run(['node', '--input-type=module', '-e', LINK, str(kit / 'kit.json'), str(stock_os()),
-                                 str(package / 'layout.json'), json.dumps(extensions), json.dumps(settings), str(out)],
+                                 str(package / 'layout.json'), json.dumps(extensions), json.dumps(settings), profiling, str(out)],
                                 cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr[-3000:])
         return out.with_suffix('.bin').read_bytes(), out.with_suffix('.ldr').read_bytes()
@@ -117,17 +118,17 @@ class BrowserKitExport(unittest.TestCase):
         self.assertEqual(module, (plain / 'analysis/module.bin').read_bytes())
         self.assertEqual(firmware, (plain / 'candidate/os.ldr').read_bytes())
 
-        # With it and fast_helpers at 1: the same OS as sdk.py build with a settings extension naming
-        # cpu's capabilities but idle, at that setting.
+        # With it and fast_helpers at 1, profiling off as the site's downloads: the same OS as sdk.py build
+        # with a settings extension naming cpu's capabilities but idle, at that setting.
         settings = self.work() / 'cpu-without-idle'
         settings.mkdir()
         (settings / 'extension.json').write_text(json.dumps({
             'id': 'cpu', 'name': 'CPU without idle', 'description': 'Test: cpu without idle, fast helpers on.',
             'claims': [], 'actions': [], 'capabilities': [c for c in declared if c != 'idle'],
             'settings': {'fast_helpers': 1}}), encoding='utf-8')
-        fast = self.build(*machines, extensions=[settings])
+        fast = self.build(*machines, extensions=[settings], profiling='off')
         self.assertIn('unit_sources', json.loads((fast / 'analysis/compile-report.json').read_text(encoding='utf-8')))
-        module, firmware = self.link(kit_dir, fast, ['cpu'], {'fast_helpers': 1})
+        module, firmware = self.link(kit_dir, fast, ['cpu'], {'fast_helpers': 1}, 'off')
         self.assertEqual(module, (fast / 'analysis/module.bin').read_bytes())
         self.assertEqual(firmware, (fast / 'candidate/os.ldr').read_bytes())
 
