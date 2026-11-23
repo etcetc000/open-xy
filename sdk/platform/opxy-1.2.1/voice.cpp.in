@@ -22,7 +22,7 @@
 #include "synth_controls.hpp"
 #include "voice_zero.hpp"
 #include <opxy/q31.hpp>
-@SHIFT_ROW@// Stock assembly imports use explicit names; all other C symbols keep the ABI prefix.
+@IDLE_INCLUDE@@SHIFT_ROW@// Stock assembly imports use explicit names; all other C symbols keep the ABI prefix.
 extern "C" {
 void* @PREFIX@_factory(opxy::u32) __asm__("@PREFIX@_factory");
 const char* @PREFIX@_parameter_name(opxy::u32) __asm__("@PREFIX@_parameter_name");
@@ -31,7 +31,7 @@ extern const char @PREFIX@_name[] __asm__("@PREFIX@_name");
 extern const char @PREFIX@_engine_id[] __asm__("@PREFIX@_engine_id");
 // The adapter's clock (voice_clock.s).
 opxy::u32 sdk_voice_ticks() __asm__("sdk_voice_ticks");
-@SWEEP_DECLARATIONS@}
+@IDLE_DECLARATIONS@@SWEEP_DECLARATIONS@}
 using Voice = @NAMESPACE@::Voice;
 using Shared = @NAMESPACE@::Shared;
 // Stock's voice indices; every one gets a handle.
@@ -44,8 +44,8 @@ struct Handle { const void* const* vtable; opxy::u16 seen, asked; opxy::u8 slot,
 static_assert(sizeof(void*) != 4 || sizeof(Handle) == 12, "Handle layout");
 // owner: a voice ID, or 0 when free. born: the block its note started in,
 // since: the tick. next: the voice ID of a note waiting while this one fades.
-struct Slot { @SLOT_VOICE@opxy::u32 owner, since, next; opxy::u16 born; };
-static Handle handles[kVoiceIndices];
+struct Slot { @SLOT_VOICE@opxy::u32 owner, since, next; opxy::u16 born;@IDLE_SLOT@ };
+@IDLE_DEFINITIONS@static Handle handles[kVoiceIndices];
 // Stock sounds at most 27 notes at once, in its 27 voice slots (8d51c994), so
 // a larger pool would never be used. One voice beyond that or the capacity
 // serves a note that ended just before another starts.
@@ -98,7 +98,7 @@ static void begin(Slot& slot, Handle* handle, opxy::u32 now) {
     slot.since = now;
     handle->slot = static_cast<opxy::u8>(&slot - voices + 1);
     handle->wants = 0;
-    @NAMESPACE@::initialize(@VOICE_OF_SLOT@, shared, id);
+@IDLE_BEGIN@    @NAMESPACE@::initialize(@VOICE_OF_SLOT@, shared, id);
     @NAMESPACE@::start(@VOICE_OF_SLOT@, shared, id);
 @RELEASE_PENDING@
 }
@@ -179,7 +179,7 @@ static void acquire(Handle* handle, opxy::u32 now, bool steal) {
 }
 extern "C" {
 extern const void* const @PREFIX@_vtable[];
-// A note keeps its handle's voice or takes one (see acquire).
+@IDLE_SETTLED@// A note keeps its handle's voice or takes one (see acquire).
 int @PREFIX@_start(void* self) {
 @VOICE_START_GUARD@    Handle* handle = static_cast<Handle*>(self);
 @RELEASE_CLEAR@
@@ -194,7 +194,7 @@ int @PREFIX@_start(void* self) {
         if (!slot->next) {
             slot->born = blocks;
             slot->since = now;
-            @NAMESPACE@::start(@VOICE_OF_HELD@, shared, owner(handle));
+@IDLE_START@            @NAMESPACE@::start(@VOICE_OF_HELD@, shared, owner(handle));
             return 0;
         }
         release(*slot, now);  // its voice is fading for another note: find another
@@ -243,7 +243,7 @@ int @PREFIX@_render(void* self, opxy::i32* output, const opxy::i32* parameters) 
     if (handle->wants && !held(handle) && !pending(handle)) acquire(handle, now, false);
     if (Slot* slot = held(handle)) {
 @SWEEP_CONTROLS@        @NAMESPACE@::render(@VOICE_OF_HELD@, shared, slot->owner, output, controls, increments);
-        // A taken note's last block fades linearly to silence, as stock fades one.
+@IDLE_FOLLOW@        // A taken note's last block fades linearly to silence, as stock fades one.
         if (slot->next) {
             const opxy::i32 frames = static_cast<opxy::i32>(opxy::block_frames), step = 0x7fffffff / (frames - 1);
             @FADE_OUTPUT@

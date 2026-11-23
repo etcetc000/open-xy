@@ -154,8 +154,18 @@ def machine_entry(m, profile, sources, output, preview_cxx):
     return entry
 
 
+def refuse_build_capabilities(extensions_):
+    """A browser kit carries image capabilities only: a build capability's sites and SDK code
+    are chosen when sdk.py builds the firmware, and a selection in the browser could not
+    undo or redo them consistently (docs/cpu-capabilities.md)."""
+    building = sorted({c for e in extensions_ for c in e.capabilities} & set(extensions.build_capabilities()))
+    require(not building, 'Build capabilities are chosen with sdk.py build; a browser kit cannot carry them: ' +
+            ', '.join(building))
+
+
 def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False):
     profile, machines, definitions = native.configuration(native.package_collection(package))
+    refuse_build_capabilities(native.extensions_of(machines))
     sources = catalog_sources(machines, personal)
     require(sha(stock_catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     runtime_members = document(package / 'analysis/compile-report.json').get('runtime', [])

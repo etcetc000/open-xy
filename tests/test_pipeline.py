@@ -60,10 +60,11 @@ class Services(unittest.TestCase):
         from tooling.firmware import patch_active
         profile = config()
         timing = [p for p in profile['patches'] if p.get('profiling') is False]
-        self.assertEqual(len(timing), 10)
+        self.assertEqual(len(timing), 11)  # ten voice-renderer timers, the tap timer
         for p in timing:
             self.assertFalse(patch_active(p, {'samples', 'octaves'}))
-            self.assertTrue(patch_active(p, set(), False))
+            # The tap timer's skip belongs to the block_trims capability too.
+            self.assertTrue(patch_active(p, {p['service']} if 'service' in p else set(), False))
             tagged = dict(p, service='samples')
             self.assertFalse(patch_active(tagged, set(), False))
             self.assertTrue(patch_active(tagged, {'samples'}, False))
@@ -100,16 +101,17 @@ class Services(unittest.TestCase):
                                    if m is None and not step.startswith('extension:')]
         # The fixtures declare no track control, hidden pages, aux tracks, players, per-key
         # sends, a padMix kit's step locks or a synth's Shift row, no extension a
-        # Drumline page, and their kit declares an SDK before 1.21 (no played-pad
-        # snapshot) and none of the drum-kit controls: those services stay off. None includes the sample kernel's
-        # header, so no unit tied to a header is linked either.
+        # Drumline page, no settings extension a CPU capability, and their kit declares
+        # an SDK before 1.21 (no played-pad snapshot) and none of the drum-kit controls:
+        # those services stay off. None includes the sample kernel's header, so no unit
+        # tied to a header is linked either.
         units = [u for u in native.SDK_UNITS if u not in native.UNIT_HEADERS]
         self.assertIn('sample_kernel', native.SDK_UNITS)
         self.assertNotIn('sample_kernel', units)
         self.assertEqual(steps(machines), [u for u in units if native.UNIT_SERVICES.get(u) not in
                                           ('control', 'aux', 'players', 'master_filter', 'drum_sends', 'drum_locks',
-                                           'drumline', 'synth_shift', 'played_pad', 'kit_controls',
-                                           'amp_envelope')])
+                                           'drumline', 'synth_shift', 'played_pad', 'idle', 'block_trims',
+                                           'output_slack', 'kit_controls', 'amp_envelope')])
         self.assertEqual(active_services(profile, ['drum', 'kitControls']), {'samples', 'octaves', 'drums', 'kit_controls'})
         self.assertEqual(active_services(profile, ['drum', 'kitControls', 'ampEnvelope']),
                          {'samples', 'octaves', 'drums', 'kit_controls', 'amp_envelope'})
@@ -125,8 +127,8 @@ class Services(unittest.TestCase):
         self.assertNotIn('drumline_page', native.service_users(machines))
         self.assertIn('drumline_page', native.service_users(paged))
         self.assertEqual(steps(paged), [u for u in units if native.UNIT_SERVICES.get(u) not in
-                                        ('control', 'aux', 'players', 'master_filter', 'synth_shift', 'played_pad',
-                                         'kit_controls', 'amp_envelope')])
+                                        ('control', 'aux', 'players', 'master_filter', 'synth_shift', 'played_pad', 'idle',
+                                         'block_trims', 'output_slack', 'kit_controls', 'amp_envelope')])
         self.assertEqual(native.subset(paged, paged[:1]).extensions, (page,))
         without = [m for m in machines if m.kind not in ('sample', 'drum')]  # nor any extension
         self.assertEqual(steps(without), [u for u in units if u not in native.UNIT_SERVICES])

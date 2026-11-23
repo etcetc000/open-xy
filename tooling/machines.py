@@ -73,6 +73,11 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # paths and larger path budgets; the encoders' activity, and a synth's last control
 # touched (opxy/control_interaction.hpp).
 # 1.21 adds per-model drum value editing, played-pad display snapshots and sample-free kit presets.
+# 1.22 adds the idle capability's machine API: an effect's declared tail
+# (resources.tailFrames) for its send hold, and an engine's settled() for the idle cut
+# (asked only of machines declaring 1.22 or later). IDLE_SDK is the one place to
+# renumber it, with the "SDK 1.22" text of docs/api.md.
+IDLE_SDK = (1, 22)
 # 1.23 adds the drum-kit controls (resources.padVolume, padRandom, ampEnvelope) and gives a
 # kit's screen its selected key (draw::Input::selected_key). It takes the next free number
 # when it merges (KIT_CONTROLS_SDK in definitions.py moves with it).
@@ -586,6 +591,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 2), "An effect's tempo (transport)")
     if definition['resources'].get('busShift'):
         require_sdk(version, (1, 16), "An effect's bus shift (busShift)")
+    if 'tailFrames' in definition['resources']:
+        require_sdk(version, IDLE_SDK, "An effect's declared tail (tailFrames)")
     if any(p['display'] == 'division' for p in definition['parameters']):
         require_sdk(version, (1, 2), 'A division control')
     if kind == 'sample' and definition['resources']['voiceCapacity'] < STOCK_VOICES:

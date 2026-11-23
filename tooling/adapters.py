@@ -54,7 +54,28 @@ def voice_values(definition):
                 RELEASE_CALLBACK=f"{definition['id']}::release(*voice, shared, owner(voice));" if resources.get('releaseCallback') else '')
 
 
-def generate_voice(directory, m, sweep=False):
+def idle_values(m, drum, idle, output_frames='opxy::block_frames', voice_of_held='slot->voice'):
+    """The idle cut's pieces of a voice adapter (voice.cpp.in, drum_voice.cpp.in): only in a
+    build with the idle capability. Without it every placeholder is empty and the adapter is
+    the public one, whether or not its engine defines `settled`."""
+    pieces = DRUM_IDLE if drum else VOICE_IDLE
+    if not idle:
+        return {key: '' for key in pieces}
+    # settled() is SDK 1.22 API (machines.IDLE_SDK): a machine declaring an older SDK is
+    # never asked, whatever its namespace happens to define.
+    from .machines import IDLE_SDK, SDK_VERSION
+    asked = getattr(m, 'sdk', SDK_VERSION) >= IDLE_SDK
+    settles = 'sdk_settles::has<Voice, Shared>::value' if asked else 'false'
+    if not asked:
+        # Not even instantiated: the engine's own settled, whatever it returns, is never named.
+        pieces = {key: text.replace('sdk_settles::query(@VOICE_OF_HELD@, shared)', 'false')
+                  .replace('sdk_settles::query(slot->voice, shared)', 'false') for key, text in pieces.items()}
+    # voice_of_held: the held slot's voice, in module memory or a heap arena (voice_heap.py).
+    return {key: text.replace('@PREFIX@', m.prefix).replace('@OUTPUT_FRAMES@', output_frames)
+            .replace('@VOICE_OF_HELD@', voice_of_held).replace('@SETTLES@', settles) for key, text in pieces.items()}
+
+
+def generate_voice(directory, m, sweep=False, idle=False):
     """The native machine object, method table and voice pool for a synth. In a sweep
     build (benchmark.cpp.in) its voices render with the swept controls while a sweep run
     of this machine is active; other builds' voices never look."""
@@ -118,8 +139,90 @@ def generate_voice(directory, m, sweep=False):
         values['PARAMETER_EDIT'] = m.definition['resources'].get('parameterEdit', 0)
         values['KIT_CONTROLS'] = kit_controls(m)
         values['AMP_DEFAULTS'] = ', '.join(f'{w:#x}' for w in kit_amp_defaults(m))
+    values.update(idle_values(m, m.kind == 'drum', idle, values.get('OUTPUT_FRAMES', 'opxy::block_frames'),
+                              values.get('VOICE_OF_HELD', 'slot->voice')))
     path = expand('drum_voice.cpp.in' if m.kind == 'drum' else 'voice.cpp.in', values, Path(directory) / 'voice.cpp')
     return append_callback(path, m) if m.kind == 'drum' else path
+
+
+# The idle cut's pieces of the synth voice adapter (voice.cpp.in), in builds with idle.
+VOICE_IDLE = {
+    'IDLE_INCLUDE': '#include "idle_cut.hpp"\n#include "settles.hpp"\n',
+    'IDLE_DECLARATIONS': '''// The idle cut's threshold and its registry of machines it asks (idle_cut.cpp).
+opxy::i32 sdk_idle_floor() __asm__("sdk_idle_floor");
+bool sdk_idle_register(const void* methods, int (*settled)(void*)) __asm__("sdk_idle_register");
+''',
+    # follow, idle: the idle cut's follower and its answer (engines with `settled`).
+    'IDLE_SLOT': ' opxy::platform::idle_cut::Follower follow; bool idle;',
+    'IDLE_DEFINITIONS': '''const bool kSettles = @SETTLES@;
+static bool idle_asked;
+// The idle cut's own symbols (idle_cut.cpp), reached only by a machine whose engine
+// settles: the others reference nothing.
+template <bool On> struct IdleLinks {
+    static opxy::i32 floor() { return 0; }
+    static bool add(const void*, int (*)(void*)) { return true; }
+};
+template <> struct IdleLinks<true> {
+    static opxy::i32 floor() { return sdk_idle_floor(); }
+    static bool add(const void* methods, int (*settled)(void*)) { return sdk_idle_register(methods, settled); }
+};
+''',
+    'IDLE_BEGIN': '''    opxy::platform::idle_cut::restart(slot.follow);
+    slot.idle = false;
+''',
+    'IDLE_SETTLED': '''// The idle cut's question (idle_cut.cpp): whether the voice may go.
+static int @PREFIX@_settled(void* self) {
+    const Slot* slot = held(static_cast<Handle*>(self));
+    return slot && !slot->next && slot->idle;
+}
+''',
+    'IDLE_START': '''            opxy::platform::idle_cut::restart(slot->follow);
+            slot->idle = false;
+''',
+    'IDLE_FOLLOW': '''        // The idle cut: the engine's own output, before stock's envelope, against
+        // the note's peak. Stock's kill fades the voice once its note is released
+        // (idle_cut.cpp asks @PREFIX@_settled).
+        if (kSettles) {
+            // Asked once: a full registry (idle_cut.cpp) leaves this machine uncut, not rescanned.
+            if (!idle_asked) {
+                idle_asked = true;
+                IdleLinks<kSettles>::add(@PREFIX@_vtable, &@PREFIX@_settled);
+            }
+            slot->idle = opxy::platform::idle_cut::follow(slot->follow, opxy::platform::idle_cut::peak(output, @OUTPUT_FRAMES@),
+                                                          sdk_settles::query(@VOICE_OF_HELD@, shared), IdleLinks<kSettles>::floor());
+        }
+''',
+}
+# The idle cut's pieces of the kit voice adapter (drum_voice.cpp.in), in builds with idle:
+# a settled voice below the threshold fades out as a choked one does, then is freed.
+DRUM_IDLE = {
+    'IDLE_INCLUDE': '#include "idle_cut.hpp"\n#include "settles.hpp"\n',
+    'IDLE_DECLARATIONS': '''// The idle cut's threshold (idle_cut.cpp).
+opxy::i32 sdk_idle_floor() __asm__("sdk_idle_floor");
+''',
+    'IDLE_SLOT': ' opxy::platform::idle_cut::Follower follow;',
+    'IDLE_DEFINITIONS': '''const bool kSettles = @SETTLES@;
+// The idle cut's own symbols (idle_cut.cpp), reached only by a machine whose engine
+// settles: the others reference nothing.
+template <bool On> struct IdleLinks {
+    static opxy::i32 floor() { return 0; }
+};
+template <> struct IdleLinks<true> {
+    static opxy::i32 floor() { return sdk_idle_floor(); }
+};
+''',
+    'IDLE_START': '    opxy::platform::idle_cut::restart(slot->follow);\n',
+    'IDLE_FOLLOW': '''        // The idle cut: the engine's own output, before any gain, against the hit's
+        // peak; once it may go it fades out as a choked voice does.
+        if (kSettles && !slot->fade &&
+            opxy::platform::idle_cut::follow(slot->follow, opxy::platform::idle_cut::peak(output, opxy::block_frames),
+                                             sdk_settles::query(slot->voice, shared), IdleLinks<kSettles>::floor()))
+            slot->fade = kChokeFrames;
+''',
+    # kChoke | kSettles && slot->fade: | binds before &&, so the condition reads
+    # (kChoke || kSettles) && fade and the text without idle is the plain kit's.
+    'IDLE_FADE': ' | kSettles',
+}
 
 
 # A synth's Shift row in its voice adapter (SDK 1.13): each entry's default field, its
@@ -973,7 +1076,7 @@ SHIFT_PRELUDE = '''    opxy::i32 words[12];
     shift_words(object->slot, parameters, words);'''
 
 
-def generate_fx_object(directory, m, benchmark=False):
+def generate_fx_object(directory, m, benchmark=False, idle=False):
     resources = m.definition['resources']
     bytes_ = resources.get('bufferBytes')
     if bytes_ is None:
@@ -1004,8 +1107,8 @@ def generate_fx_object(directory, m, benchmark=False):
     # The buffer's scratch call, the transport and the shift row use stock addresses.
     if bytes_ is not None or resources.get('transport') or shift:
         values['OBJECT'] = '#include "stock.hpp"\n' + ('#include "shift_row.hpp"\n' if shift else '') + values['OBJECT']
-    values.update(effect_bus_values(m))
-    if resources.get('busShift'):
+    values.update(effect_bus_values(m, idle))
+    if resources.get('busShift') or idle:
         values['OBJECT'] = '#include "send_bus.hpp"\n' + values['OBJECT']
     path = expand('fx_object.cpp.in', dict(values, PREFIX=m.prefix, NAMESPACE=m.definition['id'],
                                            NAME=m.native_name, LABELS=stock_labels(m),
@@ -1015,15 +1118,46 @@ def generate_fx_object(directory, m, benchmark=False):
     return append_callback(path, m) if benchmark else path
 
 
-def effect_bus_values(m):
+def effect_bus_values(m, idle=False):
     """An effect's bus shift (resources.busShift, send_bus.hpp): the block raised by
     N bits, saturating, ahead of the shift row, and the result lowered by N, rounded,
-    after process. Empty, leaving the object's source as it was, without one."""
+    after process. In a build with the idle capability its init also records, per send,
+    its vtable and the hold its tail needs (send_hold) for the send hook
+    (send_fx.cpp). Empty, leaving the object's source as it was, for an effect without a
+    shift in a build without idle."""
     n = m.definition['resources'].get('busShift', 0)
-    if not n:
-        return dict(BUS_RAISE='', BUS_LOWER='')
-    return dict(BUS_RAISE=f'    opxy::platform::send_bus::raise<{n}>(left, right);\n',
-                BUS_LOWER=f'\n    opxy::platform::send_bus::lower<{n}>(left, right);')
+    values = dict(BUS_INIT='', BUS_RAISE='', BUS_LOWER='')
+    if idle:
+        values['BUS_INIT'] = (f'\n    opxy::platform::send_bus::declare(slot, {m.prefix}_fx_vtable, '
+                              f'{send_hold(m.definition):#x}u);')
+    if n:
+        values.update(BUS_RAISE=f'    opxy::platform::send_bus::raise<{n}>(left, right);\n',
+                      BUS_LOWER=f'\n    opxy::platform::send_bus::lower<{n}>(left, right);')
+    return values
+
+
+# The idle capability's send hold (send_fx.cpp), in 64-frame blocks: the effect's
+# tail plus 64 blocks of margin for parameter smoothing. The tail is what the
+# effect declares (resources.tailFrames), or else the longest a plain line in its
+# memory holds: 16-bit mono samples, in bufferBytes or in its state, and for an effect that
+# declares nothing never less than a fixed 3.07 s (SEND_HOLD_UNDECLARED): the derivation
+# may lengthen an undeclared effect's hold, never shorten it below that. "unbounded"
+# (a looper, a freeze, anything that sounds without send input) never idles.
+SEND_HOLD_MARGIN = 64
+SEND_HOLD_UNDECLARED = 2048 + 64   # 3.07 s at 44.1 kHz
+SEND_HOLD_ENDLESS = 0xffffffff
+EFFECT_STATE_BYTES = 476   # opxy/effect.hpp effect_state_bytes
+
+
+def send_hold(definition):
+    resources = definition['resources']
+    tail = resources.get('tailFrames')
+    if tail == 'unbounded':
+        return SEND_HOLD_ENDLESS
+    if tail is None:
+        derived = -(-(resources.get('bufferBytes', EFFECT_STATE_BYTES) // 2) // 64) + SEND_HOLD_MARGIN
+        return max(derived, SEND_HOLD_UNDECLARED)
+    return -(-tail // 64) + SEND_HOLD_MARGIN
 
 
 def stock_labels(m):

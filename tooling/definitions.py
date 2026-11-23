@@ -108,7 +108,11 @@ STOCK_SHIFT = {'': 0, 'start': 1, 'loopStart': 2, 'loopEnd': 3, 'end': 4,
 # An effect's display (SDK 1.7): it draws its own page on the sends, as a synth does.
 # busShift N (SDK 1.16): its adapter raises the send's audio by N bits, saturating,
 # before process and lowers the result by N, rounded, after it (send_bus.hpp).
-EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display', 'busShift')
+# tailFrames: how long, in frames, the effect can still sound once its input stops,
+# or "unbounded"; the idle capability's send hold (adapters.send_hold) follows it.
+EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display', 'busShift', 'tailFrames')
+# The longest tailFrames a number may give: 2^24 frames, 6.3 minutes.
+EFFECT_TAIL_LIMIT = 1 << 24
 # The largest busShift: 12 bits (72 dB) lifts a bus 2^-12 under Q31 full scale to it.
 EFFECT_BUS_SHIFT = 12
 # A drum kit's models in named groups (SDK 1.8), which Shift and the first encoder choose
@@ -211,7 +215,8 @@ def validate_definition(value, kind):
                'synth': ('trackControl', 'stereoOutput', 'releaseCallback')}.get(kind, ())
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
-    require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'stockShift', 'padControls')),
+    require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'stockShift', 'padControls',
+                                                                   'tailFrames')),
             'Numeric resource requirements must be integers')
     if kind == 'synth':
         for flag in ('stereoOutput', 'releaseCallback'):
@@ -246,6 +251,10 @@ def validate_definition(value, kind):
     if kind == 'effect':
         require(resources.get('transport', 0) in (0, 1), 'transport must be 0 or 1')
         require(0 <= resources.get('busShift', 0) <= EFFECT_BUS_SHIFT, 'busShift is 0..%d bits' % EFFECT_BUS_SHIFT)
+        if 'tailFrames' in resources:
+            tail = resources['tailFrames']
+            require(tail == 'unbounded' or (type(tail) is int and 0 <= tail <= EFFECT_TAIL_LIMIT),
+                    'tailFrames is a whole number of frames, at most %d, or "unbounded"' % EFFECT_TAIL_LIMIT)
         if 'display' in resources:
             validate_display(resources['display'], kind)
     if kind in ('synth', 'drum'):

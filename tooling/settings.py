@@ -13,7 +13,8 @@ import json
 from pathlib import Path
 import shutil
 
-from .extensions import capabilities, capability_settings, extension_at
+from .extensions import build_capabilities, capabilities, capability_settings, extension_at, unit_capabilities
+from .firmware import hook_target
 from .formats import ldr, mapped_offset, require
 from .pipeline import ROOT, add_overwrite_argument, config, fresh_output, read
 
@@ -25,7 +26,7 @@ def capability_edits(profile, name):
 def site(image, blocks, patch):
     offset = int(patch['file_offset'], 16)
     require(mapped_offset(blocks, int(patch['address'], 16), patch['length']) == offset,
-            'Capability site is not where OS 1.2.1 holds it: ' + patch['name'])
+            'Capability site is not where OS 1.2.1 holds it: ' + patch.get('name', patch['address']))
     return offset, image[offset:offset + patch['length']].hex()
 
 
@@ -41,6 +42,8 @@ def state(image, profile=None):
     require(len(blocks) >= profile['stock_records'], 'Not OP-XY OS 1.2.1 or an open-xy OS made from it')
     result = {}
     for name in capabilities():
+        if name in build_capabilities():
+            continue  # chosen when the firmware is built (built() reads them)
         held = {}
         for patch in capability_edits(profile, name):
             _, data = site(image, blocks, patch)
@@ -61,16 +64,54 @@ def state(image, profile=None):
     return result
 
 
+def built(image, profile=None):
+    """Build capability -> whether the image was built with it (docs/cpu-capabilities.md),
+    read from its sites: every one stock, or every one holding the capability's bytes (a
+    hook: a reviewed branch of its form, a fixed edit: its bytes; a profiling-only hook is
+    left out). A unit capability (fast_helpers) has no site, so an image cannot say whether
+    it was built with it: it is left out here (the build's analysis/compile-report.json
+    lists the sources it chose under unit_sources)."""
+    profile = profile or config()
+    require(len(image) >= profile['stock_bytes'], 'Not OP-XY OS 1.2.1 or an open-xy OS made from it')
+    blocks = ldr(image)
+    result = {}
+    for name in build_capabilities():
+        if name in unit_capabilities():
+            continue
+        edits = [p for p in capability_edits(profile, name) if 'profiling' not in p]
+        stock = []
+        for patch in edits:
+            _, data = site(image, blocks, patch)
+            if data == patch['before']:
+                stock.append(True)
+                continue
+            if patch['kind'] == 'hook':
+                try:
+                    _target, call = hook_target(patch, bytes.fromhex(data))
+                except ValueError:
+                    call = None
+                require(call == patch['call'], 'Unexpected bytes at a capability site: ' + patch.get('name', patch['address']))
+            else:
+                require(data == patch['after'], 'Unexpected bytes at a capability site: ' + patch.get('name', patch['address']))
+            stock.append(False)
+        require(len(set(stock)) == 1, 'Capability only partly built: ' + name)
+        result[name] = not stock[0]
+    return result
+
+
 def apply(image, extensions, overrides=None, profile=None):
     """A copy of `image` with every capability the extensions declare turned on, each
     setting at its override, else the first extension's value, else its default."""
     profile, overrides = profile or config(), dict(overrides or {})
     specs = capability_settings()
+    declared = [c for e in extensions for c in e.capabilities]
+    require(declared, 'The extensions declare no capabilities')
+    building = sorted(set(declared) & set(build_capabilities()))
+    require(not building, 'Chosen when the firmware is built, not written into an image: ' + ', '.join(building) +
+            ' (build with the extension: sdk.py build --extension <folder>)')
     state(image, profile)  # every site holds stock or reviewed bytes
     require(all(not e.linked for e in extensions),
             'Only settings extensions apply to an image; an extension with code needs a build')
-    declared = [c for e in extensions for c in e.capabilities]
-    require(declared, 'The extensions declare no capabilities')
     require(set(overrides) <= set(declared) & set(specs), 'A setting names a capability the extensions do not declare')
     values = {}
     for e in extensions:
@@ -114,7 +155,7 @@ def main(argv=None):
     try:
         image = read(args.image)
         if args.command == 'show':
-            print(json.dumps(state(image), indent=2))
+            print(json.dumps({**state(image), **built(image)}, indent=2))
             return 0
         out = Path(args.out).resolve()
         require(not out.is_relative_to(ROOT), 'Firmware stays outside the checkout: choose --out elsewhere')
