@@ -54,6 +54,8 @@ EXTENDED_ONLY = {
     'binding::snapshot_encoders(input)',
     # The audio snapshot follows the input (audioTransport).
     'binding::snapshot_audio(input)',
+    # Stock's levels follow them (outputLevels).
+    'binding::snapshot_levels(input)',
 }
 
 

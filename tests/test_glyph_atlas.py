@@ -40,7 +40,7 @@ inline void display(DisplayState& s,const opxy::draw::Input&,Frame& f){
     art+=''.join(f'<path id="probesynth_node_{i}" d="{scaffold}" fill="none" stroke="#ffffff" stroke-width="1.3"/>' for i in range(4))+'</g>'
     (folder/'panel.svg.fragment').write_text(art)
     metadata = folder / 'machine.json'
-    record = json.loads(metadata.read_text()); record['sdk'] = '%d.%d' % definitions.EXTENDED_SDK; record.pop('identity', None)
+    record = json.loads(metadata.read_text()); record['sdk'] = '%d.%d' % definitions.AUDIO_SDK; record.pop('identity', None)
     metadata.write_text(json.dumps(record) + '\n')
     return machine_at(folder)
 

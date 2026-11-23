@@ -1,6 +1,6 @@
 # Glyph atlas
 
-Part of [extended drawing](display.md#extended-drawing). An opt-in glyph frame selects bounded immutable SVG outlines into independently
+Part of [extended drawing](display.md#extended-drawing), from SDK 1.25. An opt-in glyph frame selects bounded immutable SVG outlines into independently
 owned path leaves. It uses no system font, per-frame allocation, or shared
 mutable command buffer. The source artwork remains the machine's input.
 
@@ -38,7 +38,11 @@ Changed definitions copy into the same allocations, adjust end within capacity,
 clear renderer scratch and invalidate stock caches. Empty second parts have
 zero records; unchanged definitions write nothing. Added native storage is
 `1032*definitions + 28*instances + 4` bytes. Sources and destination allocations
-must never alias. Initialization or preflight failure rejects the update.
+must never alias. Initialization or preflight failure rejects the frame's
+paths, nodes and texts with its glyphs, so they never show beside stale glyphs:
+the screen keeps its last drawing (stock's header still updates) until a frame
+passes. The browser has no such failure and keeps
+drawing, so a frozen device screen with a moving preview points here.
 
 The browser snapshots the same source paths into exact Q10 outlines and applies
 selectors to the same pair of leaves. Its affine non-scaling stroke treatment

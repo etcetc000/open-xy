@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import (DRUM_KIT_CONTROLS, EXTENDED_SDK, KIT_CONTROLS_SDK, extended_display, ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
+from .definitions import (AUDIO_SDK, AUDIO_SDK_KEYS, DRUM_KIT_CONTROLS, EXTENDED_SDK, KIT_CONTROLS_SDK, extended_display, ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
@@ -83,7 +83,10 @@ IDLE_SDK = (1, 22)
 # 1.25 adds a screen's own audio (audio snapshots, for synths and effects), stock's output
 # and input levels on a screen, and glyph atlases (docs/display.md). AUDIO_SDK in
 # definitions.py is the one place to renumber it, with the "SDK 1.25" text of the docs.
+# 1.24 is held by another open change; this takes the next free number when it merges.
 SDK_VERSION = (1, 25)
+# Numbers below SDK_VERSION that no SDK has released, which no machine may target.
+UNRELEASED_SDKS = {(1, 24)}
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -463,6 +466,7 @@ def sdk_version(text):
     current = '%d.%d' % SDK_VERSION
     require(major == SDK_VERSION[0] and minor <= SDK_VERSION[1],
             f'The machine targets SDK {text}; this SDK is {current} and builds {SDK_VERSION[0]}.0 to {current}')
+    require((major, minor) not in UNRELEASED_SDKS, f'SDK {text} is not released; target {current}')
     return major, minor
 
 
@@ -627,6 +631,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 7), 'More than %d display text slots' % SDK_1_6_TEXTS)
     if 'display' in definition['resources'] and extended_display(definition['resources']['display']):
         require_sdk(version, EXTENDED_SDK, 'Extended drawing (docs/display.md#extended-drawing)')
+    if any(k in definition['resources'].get('display', {}) for k in AUDIO_SDK_KEYS):
+        require_sdk(version, AUDIO_SDK, "Glyph atlases, a screen's own audio and output levels (docs/display.md)")
     if definition['resources'].get('display', {}).get('nodes', 0) > SDK_1_7_NODES:
         require_sdk(version, (1, 8), 'More than %d display nodes' % SDK_1_7_NODES)
     require(definition['id'] == identity, 'Machine directory and definition identity disagree')

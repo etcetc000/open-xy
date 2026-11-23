@@ -24,8 +24,22 @@ binding::Frame extended_frame;
 // The renderer object: the stock screen, then each node's leaf and the
 // visibility byte its artwork gave it, the text leaves and their applied text,
 // the palette, the frame's elapsed time, each path's validated command vector
-// and last applied key, then the glyph atlas (adapters.screen_bytes).
-template <u32 N, u32 T, u32 P, u32 Paths, u32 Glyphs, u32 Definitions> struct ExtendedObject {
+// and last applied key (adapters.screen_bytes).
+template <u32 N, u32 T, u32 P, u32 Paths> struct ExtendedObject {
+    Base base;
+    PathNode* nodes[N];
+    u8 authored_visibility[N];
+    Leaf* texts[T > 0 ? T : 1];
+    char shown[T > 0 ? T : 1][draw::text_capacity];
+    u32 palette[P > 0 ? P : 1];
+    i32 delta;
+    u32 geometry[Paths > 0 ? Paths : 1];
+    u32 keys[Paths > 0 ? Paths : 1];
+};
+// A glyph atlas's renderer object: the same, then the atlas (standard layout, as
+// OPXY_SCREEN checks). A frame without glyphs keeps ExtendedObject, its type and
+// its code unchanged.
+template <u32 N, u32 T, u32 P, u32 Paths, u32 Glyphs, u32 Definitions> struct ExtendedGlyphObject {
     Base base;
     PathNode* nodes[N];
     u8 authored_visibility[N];
@@ -37,16 +51,11 @@ template <u32 N, u32 T, u32 P, u32 Paths, u32 Glyphs, u32 Definitions> struct Ex
     u32 keys[Paths > 0 ? Paths : 1];
     glyph_detail::State<Glyphs, Definitions> glyph_state;
 };
-template <u32 N, u32 T, u32 P, u32 Paths> struct ExtendedObject<N, T, P, Paths, 0, 0> {
-    Base base;
-    PathNode* nodes[N];
-    u8 authored_visibility[N];
-    Leaf* texts[T > 0 ? T : 1];
-    char shown[T > 0 ? T : 1][draw::text_capacity];
-    u32 palette[P > 0 ? P : 1];
-    i32 delta;
-    u32 geometry[Paths > 0 ? Paths : 1];
-    u32 keys[Paths > 0 ? Paths : 1];
+template <u32 N, u32 T, u32 P, u32 Paths, u32 Glyphs, u32 Definitions> struct ExtendedObjectOf {
+    typedef ExtendedGlyphObject<N, T, P, Paths, Glyphs, Definitions> type;
+};
+template <u32 N, u32 T, u32 P, u32 Paths> struct ExtendedObjectOf<N, T, P, Paths, 0, 0> {
+    typedef ExtendedObject<N, T, P, Paths> type;
 };
 // Stock path_draw reads this byte of a path leaf before it draws the path.
 const u32 visibility_byte = 92;
@@ -54,8 +63,8 @@ const u32 visibility_byte = 92;
 template <class Frame> struct ExtendedRetained {
     enum { path_count = Frame::path_count, point_count = Frame::point_count, node_count = Frame::node_count,
            text_count = Frame::text_count, palette_count = Frame::palette_count };
-    typedef ExtendedObject<node_count, text_count, palette_count, path_count, Frame::glyph_count,
-                           Frame::glyph_definition_count> Object;
+    typedef typename ExtendedObjectOf<node_count, text_count, palette_count, path_count, Frame::glyph_count,
+                                      Frame::glyph_definition_count>::type Object;
 
     static PathKind kind(u32 path) {
         return Frame::cubic ? cubic_curve : (Frame::segment_paths & (u32(1) << path)) ? separate_segments :
@@ -257,6 +266,7 @@ template <class Machine> struct ExtendedDrawing {
         input.reduced_motion = 0;
         binding::snapshot_audio(extended_input);
         binding::snapshot_encoders(extended_input);
+        binding::snapshot_levels(extended_input);
         binding::display_render(&extended_state, &extended_input, &extended_frame);
         binding::finish_audio(extended_input);
         if (!binding::display_valid(&extended_frame)) return;

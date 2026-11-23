@@ -73,6 +73,12 @@ bool encode(const Header& h, const u32* words, Packet& out, unsigned prefix, u32
 }
 void Bank::begin_update() { if (!(update_version & 1u)) ++update_version; }
 void Bank::end_update() { if (update_version & 1u) ++update_version; }
+void Bank::clear() {
+    begin_update();
+    for (unsigned i = 0; i < count; ++i) words[i] = 0;
+    ++clears;
+    end_update();
+}
 void Bank::publish(unsigned index, u32 value) { if (index < count) words[index] = value; }
 void Bank::add(unsigned index, u32 value) {
     if (index < packed_prefix && index < count) words[index] = packed_add(words[index], value);
@@ -86,14 +92,15 @@ void Bank::command_applied(u32 command) {
 }
 AudioEndpoint::AudioEndpoint(Critical c, Resolve resolve, void* registry, Timing timing)
     : critical_(c), resolve_(resolve), registry_(registry), timing_(timing), bank_(0), key_{0, 0, 0},
-      mode_(Mode::Persistent), count_(0), packed_prefix_(0), next_sequence_(0), flight_sequence_(0), flight_command_(0),
+      mode_(Mode::Persistent), count_(0), packed_prefix_(0), next_sequence_(0), flight_sequence_(0), flight_command_(0), flight_clears_(0),
       flight_{}, last_request_(0), next_send_(0), fragment_(0), selected_(false), flying_(false), ever_selected_(false) {}
 bool AudioEndpoint::release_flight() {
     if (flying_ && bank_ && accumulates(mode_)) {
         Guard guard(critical_);
         if (bank_->update_version & 1u) return false;
-        for (unsigned i = 0; i < packed_prefix_; ++i)
-            bank_->words[i] = packed_add(flight_[i], bank_->words[i]);
+        if (bank_->clears == flight_clears_)
+            for (unsigned i = 0; i < packed_prefix_; ++i)
+                bank_->words[i] = packed_add(flight_[i], bank_->words[i]);
     }
     flying_ = false;
     return true;
@@ -125,7 +132,7 @@ bool AudioEndpoint::receive(const u8* bytes, unsigned length, u32 now) {
     if (h.sequence && (!next_sequence_ || newer(h.sequence, next_sequence_))) return false;
     // Request.sequence is the last globally committed audio sequence, retained
     // by GUI across selection changes. It acknowledges the old flight without
-    // requiring the old key/command fields to fit in the new selection request.
+    // requiring the old key and command to fit in the new selection request.
     if (flying_ && h.sequence == flight_sequence_) flying_ = false;
     if (!ever_selected_ || !same(h.key, key_) || bank_ != bank) {
         if (!release_flight()) return false;
@@ -163,6 +170,7 @@ bool AudioEndpoint::service(u32 now, Send send, void* context) {
               if (i < packed_prefix_) bank_->words[i] = 0;
           }
           flight_command_ = bank_->applied_command;
+          flight_clears_ = bank_->clears;
         }
         next_sequence_ = advance(next_sequence_);
         flight_sequence_ = next_sequence_; fragment_ = 0; flying_ = true;

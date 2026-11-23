@@ -61,7 +61,7 @@ def compile_preview(compiler, definition, out, root, sources=(), includes=(), *,
     exports += DRUM_EXPORTS if kind == 'drum' else ()
     exports += EXTENDED_EXPORTS if extended else ()
     if kind == 'synth' and audio_telemetry.words(definition):
-        exports += AUDIO_EXPORTS + (TRANSPORT_EXPORTS if audio_telemetry.enabled(definition) else ())
+        exports += AUDIO_EXPORTS + TRANSPORT_EXPORTS
     command = [compiler, *FLAGS, *('-I' + str(path) for path in paths), *units, '-o', out / 'engine.wasm',
                '-Wl,--no-entry', '-Wl,-z,stack-size=16384', f'-Wl,--initial-memory={memory}',
                f'-Wl,--max-memory={memory}', *('-Wl,--export=' + name for name in exports)]
@@ -114,7 +114,7 @@ def drawing_bindings(ids, display):
         from .native import glyph_ids
         prefix = ids[0].rsplit('_node_', 1)[0]
         bindings.update({key: display[key] for key in EXTENDED_KEYS if key in display and not key.startswith('audio')
-                         and key != 'encoderActivity'})
+                         and key not in ('encoderActivity', 'outputLevels')})
         if display.get('glyphs'):
             bindings['glyphSources'] = glyph_ids(prefix, display)
     return bindings

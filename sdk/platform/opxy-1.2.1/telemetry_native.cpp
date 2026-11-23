@@ -72,7 +72,8 @@ Snapshot capture(u32 engine, u32 track, u32* output, u32 capacity) {
     for (u32 i = 0; i < capacity; ++i) output[i] = 0;
     if (!gui_role()) return result;
     u32 words, mode, prefix; bool reset;
-    if (track >= 8 || track_engine(track) != engine || !configuration(engine, words, mode, reset, prefix) || capacity < words) {
+    track = wire_track(engine, track);
+    if (track >= 8 || !configuration(engine, words, mode, reset, prefix) || capacity < words) {
         if (gui) gui->deselect();
         selected_engine = 0;
         return result;
@@ -91,7 +92,7 @@ Snapshot capture(u32 engine, u32 track, u32* output, u32 capacity) {
     return result;
 }
 void frame_end(u32 engine, u32 track, u32 reset) {
-    if (!gui_role() || !gui || selected_engine != engine || selected_track != track) return;
+    if (!gui_role() || !gui || selected_engine != engine || selected_track != wire_track(engine, track)) return;
     if (reset && (!requested_command || requested_command == gui->applied_command()))
         requested_command = gui->request_reset(reset);
     wire::XYQueue queue;
@@ -109,7 +110,7 @@ void audio_service() {
         if (wire::decode(packet.bytes, packet.size, h) && endpoint.receive(packet.bytes, packet.size, now) &&
             h.kind == wire::Kind::Request) { active_audio_engine = h.key.engine; active_audio_track = h.key.track; }
     }
-    if (active_audio_engine && audio_track_engine(active_audio_track) != active_audio_engine) {
+    if (active_audio_engine && !audio_owner(active_audio_engine, active_audio_track)) {
         endpoint.deactivate(); active_audio_engine = 0;
     }
     wire::XYQueue queue;

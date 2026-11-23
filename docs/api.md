@@ -551,6 +551,9 @@ void render(Voice& voice, Shared& shared, opxy::u32 owner,
             opxy::Output output, opxy::Parameters parameters, opxy::Pitch pitch);
 ```
 
+A synth declaring [`audioTransport`](display.md#audio-snapshots) (SDK 1.25)
+takes a final `const opxy::AudioContext&` in `render`.
+
 Storage begins zeroed; `owner` is a stable nonzero voice ID, the stock voice
 index plus one. A large voice may declare `static constexpr unsigned
 zeroed_bytes` (a multiple of 4 for word stores) to have only that leading
@@ -1591,6 +1594,10 @@ and `opxy::division_sixteenths` the length in sixteenths of a quarter note, and
 the send page shows the length's name in place of the number, as for stock
 delay's Size.
 
+An effect whose page shows its own audio ([audio snapshots](display.md#audio-snapshots),
+SDK 1.25) takes `const opxy::AudioContext&` after `parameters` and publishes
+its send's words there.
+
 `process` writes only the wet return. An effect may declare `dryParameter` in
 `machine.json`, naming a control with a linear 0..1 mapping. The adapter returns
 that control's raw Q31 word to the stock source mixer. Raising it restores dry
@@ -1675,7 +1682,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.23 and builds 1.0 to 1.23 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.25 and builds 1.0 to 1.25 machines; 1.24 is unreleased and refused. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |

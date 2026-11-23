@@ -19,7 +19,8 @@ opxy::u32 sdk_control_copies(opxy::u32) { return 1; }
 opxy::i32 sdk_control_display(opxy::u32) { return 0; }
 opxy::u32 opxy_display_abi() { return 7; }
 // Appended to draw::Input: 1 sixteen audio words, 2 the transport's words and
-// handshake, 4 the encoders' activity (adapters.display_extension).
+// handshake, 4 the encoders' activity, 8 stock's output levels
+// (adapters.display_extension).
 opxy::u32 opxy_display_extension() { return opxy::binding::display_extension; }
 opxy::u32 opxy_display_audio_words() { return opxy::binding::audio_words; }
 opxy::u32 opxy_display_state_bytes() { return sizeof(state); }

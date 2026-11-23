@@ -151,8 +151,8 @@ for (const [name, preset] of Object.entries(presets)) {
   button.addEventListener('click', () => { values = { ...preset }; update(); status(`${name} loaded`); });
   $('presets').append(button);
 }
-// An audio display's snapshot comes from the audio worklet between quanta; frames
-// wait for it, so their elapsed time accumulates meanwhile.
+// An audio display's snapshot and a levels display's levels come from the audio worklet
+// between quanta; frames wait for them, so their elapsed time accumulates meanwhile.
 let snapshotSerial = 0, pendingSnapshot = null, pendingDraw = false, pendingElapsed = 0;
 function takeAudio() {
   if (!processor || !audioBackend || context?.state !== 'running') return Promise.resolve(null);
@@ -167,7 +167,7 @@ function takeAudio() {
 function draw(elapsed = 0) {
   pendingElapsed = Math.min(8192, pendingElapsed + elapsed);
   if (pendingDraw) return;
-  const apply = snapshot => {
+  const apply = taken => {
     const dt = pendingElapsed;
     pendingElapsed = 0;
     if (display) {
@@ -177,7 +177,8 @@ function draw(elapsed = 0) {
       const row = shiftControls.length ? { held: shiftHeld ? 1 : 0, line: shown.some(s => s >= 4) ? 1 : 0, values: words.slice(8) } : null;
       try {
         scene.apply(display.tick(input, dt, visualNotes, 0, reducedMotion.matches, noteActivity, model, 0, [0, 0, 0, 0],
-                                 null, { pan: 0, level: 0 }, 0, row, encoderActivity.snapshot(), null, 0, snapshot));
+                                 null, { pan: 0, level: 0 }, 0, row, encoderActivity.snapshot(), null, 0,
+                                 taken?.snapshot ?? null, taken?.levels ?? null));
         // A gesture's immediate redraw has no elapsed time; the next timed frame still sees it.
         if (dt > 0) encoderActivity.clear();
       }
@@ -185,7 +186,7 @@ function draw(elapsed = 0) {
     }
     $('screen').innerHTML = renderScreen(values, view, samples, scene?.svg() || '');
   };
-  if (display?.audioWords) {
+  if (display?.audioWords || display?.outputLevels) {
     pendingDraw = true;
     takeAudio().then(apply).catch(error => status(error.message)).finally(() => { pendingDraw = false; });
   } else apply(null);
@@ -272,7 +273,7 @@ async function enableAudio() {
               const pending = pendingSnapshot;
               pendingSnapshot = null;
               clearTimeout(pending.timer);
-              pending.resolve(data.snapshot);
+              pending.resolve({ snapshot: data.snapshot, levels: data.levels });
             }
             if (data.error) status(data.error);
           };

@@ -53,7 +53,7 @@ inline u32 project_bpm_x10() {
 // Nonzero on the GUI processor, zero on the audio one.
 inline bool gui_role() { return byte(0x86c05ca4u) != 0; }
 inline u32 audio_frame_index() {
-    return *reinterpret_cast<const volatile u16*>(0x84a50b98u);
+    return *at<const volatile u16>(0x84a50b98u);
 }
 
 inline u32 track_engine(u32 track) { return stock<u32(u32)>(0x8d58781c)(track); }

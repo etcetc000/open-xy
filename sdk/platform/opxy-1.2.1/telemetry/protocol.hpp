@@ -65,13 +65,17 @@ struct Bank {
     volatile u32 requested_command;
     volatile u32 requested_target;
     volatile u32 applied_command;
+    // Counts clear(): an accumulator flight taken before a clear is never added back.
+    volatile u32 clears;
     Bank(volatile u32* storage, u16 n, Mode m, bool reset, unsigned prefix = 1)
         : words(storage), count(n), mode(m), reset_supported(reset), packed_prefix(u8(m == Mode::Persistent ? 0 : m == Mode::AccumulatePacked16 ? 1 : prefix)), update_version(0),
-          requested_command(0), requested_target(1), applied_command(0) {}
+          requested_command(0), requested_target(1), applied_command(0), clears(0) {}
     // Bracket the complete author-render publication transaction. These are
     // single-producer calls, not locks. Background never snapshots odd versions.
     void begin_update();
     void end_update();
+    // Zero every word, as one update; the caller keeps interrupts off across it.
+    void clear();
     void publish(unsigned index, u32 value);
     void add(unsigned index, u32 value);
     // Called only on audio callback owner. Apply the engine mutation first,
@@ -113,6 +117,7 @@ class AudioEndpoint {
     u32 next_sequence_;
     u32 flight_sequence_;
     u32 flight_command_;
+    u32 flight_clears_;
     u32 flight_[max_words];
     u32 last_request_;
     u32 next_send_;

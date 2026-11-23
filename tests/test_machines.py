@@ -417,7 +417,8 @@ class OutsideMachines(unittest.TestCase):
             self.numberless(self.folder, sdk=version)
             self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
         future = '%d.%d' % (machines.SDK_VERSION[0], machines.SDK_VERSION[1] + 1)
-        for version in ('0.9', '2.0', future, '1', 'latest', None):
+        # 1.24 is held by another change and never released.
+        for version in ('0.9', '2.0', future, '1.24', '1', 'latest', None):
             with self.subTest(version=version):
                 self.rename('fmcopy', self.free, version)
                 with self.assertRaises(ValueError):

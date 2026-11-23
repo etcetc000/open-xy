@@ -23,6 +23,10 @@ export class PreviewEngine {
     this.audioCapacity = this.audioWords ? bounded(api.opxy_audio_capacity?.() ?? 16, 16, 256, 'audio snapshot capacity') : 0;
     if (this.audioWords && (![16, 256].includes(this.audioCapacity) || this.audioWords > this.audioCapacity))
       throw new Error('Invalid audio snapshot capacity');
+    // A display reading stock's levels (outputLevels, extension bit 8) gets this preview's own
+    // output peak in their place: the largest sample since the screen last took it.
+    this.levels = Boolean((api.opxy_display_extension?.() ?? 0) & 8);
+    this.peakLeft = 0; this.peakRight = 0;
     this.stateBytes = bounded(api.opxy_state_bytes(), 4, api.memory.buffer.byteLength, 'voice state size');
     // Eight words, or sixteen for a synth with a Shift row (SDK 1.13): its controls, then the row.
     this.parameterCount = bounded(api.opxy_parameter_count(), 1, 16, 'parameter count');
@@ -157,6 +161,20 @@ export class PreviewEngine {
       }
       output[i] = sample;
       if (right) right[i] = this.outputChannels === 2 ? sampleRight : sample;
+      if (this.levels) {
+        this.peakLeft = Math.max(this.peakLeft, Math.abs(sample));
+        this.peakRight = Math.max(this.peakRight, Math.abs(this.outputChannels === 2 ? sampleRight : sample));
+      }
     }
+  }
+
+  // The output levels a display with outputLevels reads in a preview, as Q31 words, taken
+  // between audio quanta like takeAudio; null for other modules. The preview has no input.
+  takeLevels() {
+    if (!this.levels) return null;
+    const q31 = peak => Math.round(Math.min(1, peak) * 0x7fffffff);
+    const levels = {outputLeft: q31(this.peakLeft), outputRight: q31(this.peakRight), input: 0};
+    this.peakLeft = this.peakRight = 0;
+    return levels;
   }
 }

@@ -53,6 +53,15 @@ void old_packet_rejected_before_selection_receipt() {
     CHECK(f.gui.service(1,Pipe::send,&f.up));Packet request=f.up.pop();
     CHECK(f.audio.receive(request.bytes,request.size,1));CHECK(f.registry.accumulator.storage[0]==120);
 }
+void cleared_bank_drops_its_flight() {
+    // A bank cleared while its accumulator flight is out (an effect placed again in its
+    // send) never gets that flight back when the selection moves on.
+    Fixture f;f.select(1,1,Mode::AccumulatePacked16);f.registry.accumulator.bank.add(0,100);
+    Packet old=f.publish(0);f.registry.accumulator.bank.clear();f.registry.accumulator.bank.add(0,20);
+    CHECK(f.gui.select({2,0,2},16,Mode::Persistent));CHECK(!f.gui.receive(old.bytes,old.size));
+    CHECK(f.gui.service(1,Pipe::send,&f.up));Packet request=f.up.pop();
+    CHECK(f.audio.receive(request.bytes,request.size,1));CHECK(f.registry.accumulator.storage[0]==20);
+}
 void receipt_requires_consumer_take() {
     Fixture f;f.select(1,1,Mode::AccumulatePacked16);f.registry.accumulator.bank.add(0,100);
     auto pending=f.publish(0);f.receive(pending);f.registry.accumulator.bank.add(0,20);
@@ -113,5 +122,5 @@ void legacy_wire_bytes_unchanged() {
         for(unsigned i=0;i<30;++i)CHECK(p.bytes[i]==expected[i]);
     }
 }
-int main(){original_protocol_main();mixed_fragment_reset_and_loss();old_packet_rejected_before_selection_receipt();receipt_requires_consumer_take();independent_slots_migration_and_targeted_reset();legacy_wire_bytes_unchanged();
+int main(){original_protocol_main();mixed_fragment_reset_and_loss();old_packet_rejected_before_selection_receipt();cleared_bank_drops_its_flight();receipt_requires_consumer_take();independent_slots_migration_and_targeted_reset();legacy_wire_bytes_unchanged();
     std::puts("mixed telemetry: fragmented snapshot, consume-once prefix, reset and selection boundary passed");}

@@ -13,8 +13,9 @@ const INPUT_BYTES = {1: 68, 2: 76, 3: 84, 4: 88, 5: 104, 6: 112, 7: 152};
 // An extended display (docs/display.md#extended-drawing) appends to its
 // ABI's input what opxy_display_extension says: 1 sixteen audio words and their count,
 // 2 the transport's 256 words, count, sequence, both commands, reset support and its
-// reset request, 4 the encoders' availability and mask (after any audio).
-const AUDIO_EXTENSION = 1, TRANSPORT_EXTENSION = 2, ENCODER_EXTENSION = 4;
+// reset request, 4 the encoders' availability and mask (after any audio), 8 stock's
+// output and input levels: availability, output left and right, input (after the rest).
+const AUDIO_EXTENSION = 1, TRANSPORT_EXTENSION = 2, ENCODER_EXTENSION = 4, LEVELS_EXTENSION = 8;
 const AUDIO_BYTES = {[AUDIO_EXTENSION]: 4 * 17, [TRANSPORT_EXTENSION]: 4 * 262};
 const ENVELOPE = ['attack', 'decay', 'sustain', 'release'];
 const integer = (value, low, high, name) => {
@@ -91,18 +92,21 @@ export class PreviewDisplay {
     this.api = new WebAssembly.Instance(module).exports;
     const e = this.api;
     const abi = e.opxy_display_abi(), inputBytes = e.opxy_display_input_bytes();
-    const extension = e.opxy_display_extension ? integer(e.opxy_display_extension(), 0, 7, 'display extension') : 0;
+    const extension = e.opxy_display_extension ? integer(e.opxy_display_extension(), 0, 15, 'display extension') : 0;
     const audio = extension & (AUDIO_EXTENSION | TRANSPORT_EXTENSION);
     if (audio === (AUDIO_EXTENSION | TRANSPORT_EXTENSION)) throw new Error('Invalid display extension');
     const audioBytes = AUDIO_BYTES[audio] ?? 0, encoderBytes = extension & ENCODER_EXTENSION ? 8 : 0;
-    if (INPUT_BYTES[abi] === undefined || inputBytes !== INPUT_BYTES[abi] + audioBytes + encoderBytes)
+    const levelBytes = extension & LEVELS_EXTENSION ? 16 : 0;
+    if (INPUT_BYTES[abi] === undefined || inputBytes !== INPUT_BYTES[abi] + audioBytes + encoderBytes + levelBytes)
       throw new Error('Unsupported drawing ABI');
-    // Word offsets of the appended audio snapshot and encoder record.
+    // Word offsets of the appended audio snapshot, encoder record and levels.
     this.audioAt = INPUT_BYTES[abi] / 4;
     this.audioCapacity = audio === TRANSPORT_EXTENSION ? 256 : audio ? 16 : 0;
     this.transport = audio === TRANSPORT_EXTENSION;
     this.audioWords = audio ? integer(e.opxy_display_audio_words(), 1, this.audioCapacity, 'display audio words') : 0;
     this.encodersAt = encoderBytes ? (INPUT_BYTES[abi] + audioBytes) / 4 : 0;
+    this.levelsAt = levelBytes ? (INPUT_BYTES[abi] + audioBytes + encoderBytes) / 4 : 0;
+    this.outputLevels = levelBytes !== 0;
     this.noteActivity = abi >= 2;
     this.hasShift = abi >= 3;
     this.hasModel = abi >= 4;
@@ -172,9 +176,11 @@ export class PreviewDisplay {
   // or later (its preview's kit.selectedKey); 0 for any other machine.
   // audio: an audio display's snapshot, {count: 0 or its words, words: its capacity's words,
   // and for the wide input sequence, requested, applied, resetSupported}; null when none was taken.
+  // levels: stock's levels for a display with outputLevels, {outputLeft, outputRight, input},
+  // each a signed Q31 word; null reads silence with available 0.
   tick(input, elapsed, serial, track = 0, reducedMotion = false, activity = null, model = 0, shift = 0, choices = [0, 0, 0, 0],
        amp = null, mix = {pan: 0, level: 0}, line = 0, shiftRow = null, encoders = null, trigger = null, selectedKey = 0,
-       audio = null) {
+       audio = null, levels = null) {
     if (typeof reducedMotion !== 'boolean') throw new Error('Invalid display input');
     // Validate the complete snapshot before mutating input/state.
     const [p0, p1, p2, p3, shown, ...slots] = inputWords(input);
@@ -209,7 +215,7 @@ export class PreviewDisplay {
       row = [integer(shiftRow.held ?? 0, 0, 1, 'shift row held'), integer(shiftRow.line ?? 0, 0, 1, 'shift row line'),
              ...Array.from({length: 8}, (_, i) => integer(values[i] ?? 0, 0, 0x7fffffff, 'shift row value'))];
     }
-    let snapshot = null, encoder = null;
+    let snapshot = null, encoder = null, meters = null;
     if (this.audioWords) {
       const words = audio?.words ?? Array(this.audioCapacity).fill(0);
       const count = audio === null ? 0 : integer(audio.count, 0, this.audioWords, 'audio snapshot count');
@@ -226,6 +232,10 @@ export class PreviewDisplay {
       if (!available && mask) throw new Error('An unavailable encoder record has no activity');
       encoder = [available, mask];
     }
+    if (this.levelsAt) {
+      const word = key => levels === null ? 0 : integer(levels[key] ?? 0, -0x80000000, 0x7fffffff, 'level ' + key) >>> 0;
+      meters = [levels === null ? 0 : 1, word('outputLeft'), word('outputRight'), word('input')];
+    }
     if (this.api.memory.buffer !== this.memory) throw new Error('Display memory changed');
     this.input.set([p0, p1, p2, p3, elapsed >>> 0, track, serial, Number(reducedMotion), shown, ...slots]);
     if (this.noteActivity) this.input.set([held, released], 17);
@@ -237,6 +247,7 @@ export class PreviewDisplay {
     if (row && this.shiftRow) this.shiftRow.set(row);
     if (snapshot) this.input.set(snapshot, this.audioAt);
     if (encoder) this.input.set(encoder, this.encodersAt);
+    if (meters) this.input.set(meters, this.levelsAt);
     this.api.opxy_display_render();
     if (this.api.opxy_display_valid() !== 1) throw new Error('Display emitted an invalid drawing frame');
     return this.frame;
@@ -279,7 +290,7 @@ export function headerSvg(titles, values) {
   return `<g data-opxy-header="" font-family="sans-serif">${bar}${text}</g>`;
 }
 
-// A glyph outline (docs/display.md#glyph-atlases): absolute M, L, C and Z only, at
+// A glyph outline (docs/glyph-atlas.md): absolute M, L, C and Z only, at
 // most 16 commands, as tooling.native.glyph_commands accepts.
 function glyphCommands(data) {
   const token = /[MLCZ]|[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)/g;

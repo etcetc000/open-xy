@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "sdk": "1.25",
+  "kind": "synth",
+  "description": "Test fixture: a scope of its own audio with a glyph readout and stock's output levels."
+}

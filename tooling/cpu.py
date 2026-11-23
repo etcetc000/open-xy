@@ -96,12 +96,12 @@ int main() {
 '''
 
 EFFECT = r'''
-#include "fx.cpp"
+#include "fx.cpp"@AUDIO_INCLUDE@
 ''' + HARNESS + r'''
 // A stereo noise burst through the effect.
 int main() {
     static @NS@::State state;
-@BUFFER_STORAGE@
+@AUDIO_STORAGE@@BUFFER_STORAGE@
     static opxy::i32 noise[opxy::block_frames], left[opxy::block_frames], right[opxy::block_frames];
     opxy::u32 seed = 1;
     for (unsigned i = 0; i < opxy::block_frames; ++i)
@@ -110,7 +110,7 @@ int main() {
     @NS@::initialize(state);
     std::printf("%.1f\n", worst_block([] {}, [&](const opxy::i32* parameters, int b) {
         for (unsigned i = 0; i < opxy::block_frames; ++i) left[i] = right[i] = noise[i];
-        @NS@::process(state, @BUFFER@@TRANSPORT@left, right, parameters);
+        @NS@::process(state, @BUFFER@@TRANSPORT@left, right, parameters@AUDIO_ARGUMENT@);
         sink = sink + left[b & (opxy::block_frames - 1)];
     }));
     return 0;
@@ -199,10 +199,14 @@ def block_cost(m, host_cxx, scratch):
     buffer_argument = f'opxy::Buffer{{words, {words}u}}, ' if words else ''
     # A tempo-aware effect runs at 120 BPM, playing.
     transport_argument = 'opxy::Transport{1200u, 0u, true}, ' if m.definition['resources'].get('transport') else ''
-    # A synth with audio snapshots renders into a host bank of its declared words.
-    audio = m.definition['resources'].get('display', {}).get('audioWords', 0) if m.kind == 'synth' else 0
-    audio_storage = ('    static opxy::HostTelemetryBank<%d, 0, false> audio;\n'
-                     '    const opxy::AudioContext audio_context = audio.context(0);\n' % audio) if audio else ''
+    # A synth or effect with audio snapshots renders into a host bank of its declared words.
+    # Its declared mode and reset handshake, as the device bank has them.
+    display = m.definition['resources'].get('display', {})
+    audio = display.get('audioWords', 0)
+    contract = '%d, %d, %s, %d' % (audio, display.get('audioMode', 0), 'true' if display.get('audioReset') else 'false',
+                                   display.get('audioAccumulators', 1))
+    audio_storage = ('    static opxy::HostTelemetryBank<%s> audio;\n'
+                     '    const opxy::AudioContext audio_context = audio.context(0);\n' % contract) if audio else ''
     audio_argument = ', audio_context' if audio else ''
     positions = [sweep(p) for p in parameters]
     counts = [len(values) for values in positions] + [0] * (8 - len(positions))

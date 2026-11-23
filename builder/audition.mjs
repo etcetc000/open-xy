@@ -18,15 +18,16 @@ export class Audition {
     // An audio display's snapshot requests (takeAudio), by id.
     this.snapshotSerial = 0; this.snapshots = new Map();
   }
-  // The audio snapshot a synth's screen reads (audioWords), or null while
-  // audio is not running; the worklet takes it between quanta.
-  takeAudio() {
+  // What a screen reads from the audio: {snapshot, levels}, its audio snapshot (audioWords) and
+  // the preview's output levels (outputLevels), or null while audio is not running; the worklet
+  // takes them between quanta, with the display's reset request (audioReset).
+  takeAudio(reset = false, resetTarget = 1) {
     if (!this.processor || !this.audioReady || this.context?.state !== 'running') return Promise.resolve(null);
     const id = ++this.snapshotSerial;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { this.snapshots.delete(id); reject(new Error('Audio snapshot timed out')); }, 1000);
       this.snapshots.set(id, {resolve, timer});
-      this.processor.port.postMessage({type:'audioSnapshot', id, track:0});
+      this.processor.port.postMessage({type:'audioSnapshot', id, track:0, reset, resetTarget});
     });
   }
   async start() {
@@ -54,7 +55,7 @@ export class Audition {
       processor.port.onmessage = ({data}) => {
         if (data.ready) { this.audioReady = true; clearTimeout(timer); resolve(); }
         const pending = data.audioSnapshot !== undefined && this.snapshots.get(data.audioSnapshot);
-        if (pending) { clearTimeout(pending.timer); this.snapshots.delete(data.audioSnapshot); pending.resolve(data.snapshot); }
+        if (pending) { clearTimeout(pending.timer); this.snapshots.delete(data.audioSnapshot); pending.resolve({snapshot: data.snapshot, levels: data.levels}); }
         if (data.error) fail(data.error);
       };
     });

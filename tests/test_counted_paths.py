@@ -67,6 +67,8 @@ def write_glyph_fixture(folder):
         for i,d in enumerate(['M0 0 L1 2','M0 0','M3 4 L5 6','M7 8 L9 10']))+'</g>'
     extra+=''.join(f'<path id="probesynth_node_{i}" d="{scaffold}" fill="none" stroke="#ffffff" stroke-width="1.3"/>' for i in range(4,6))
     art=(machine.root/'panel.svg.fragment').read_text();(machine.root/'panel.svg.fragment').write_text(art[:-4]+extra+'</g>')
+    metadata=machine.root/'machine.json';record=json.loads(metadata.read_text());record['sdk']='%d.%d' % definitions.AUDIO_SDK
+    metadata.write_text(json.dumps(record)+'\n')
     return machine_at(machine.root)
 
 class CountedPaths(unittest.TestCase):

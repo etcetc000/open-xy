@@ -58,7 +58,7 @@ def write_fixture(folder):
                             '    context.add_packed16(0, 0x01000001u);')
     path.write_text(source)
     metadata = folder / 'machine.json'
-    record = json.loads(metadata.read_text()); record['sdk'] = '%d.%d' % definitions.EXTENDED_SDK; record.pop('identity', None)
+    record = json.loads(metadata.read_text()); record['sdk'] = '%d.%d' % definitions.AUDIO_SDK; record.pop('identity', None)
     metadata.write_text(json.dumps(record) + '\n')
     return machine_at(folder)
 
