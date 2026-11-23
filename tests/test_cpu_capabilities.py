@@ -355,7 +355,8 @@ class Extensions(unittest.TestCase):
         # A collection's own settings extension in place of cpu: only what it names is on.
         subset = extension_at(folder(self, ('boot_log_fix', 'idle', 'block_trims')))
         services = active_services(config(), native.service_users(Machines(subset)))
-        self.assertEqual(services & (set(CPU) | {'boot_log_fix', 'load_governor'}), {'boot_log_fix', 'idle', 'block_trims'})
+        self.assertEqual(services & (set(CPU) | {'boot_log_fix', 'load_governor', 'fast_helpers', 'pitch_constants'}),
+                         {'boot_log_fix', 'idle', 'block_trims'})
 
     def test_the_boot_log_fix_is_its_own_image_capability(self):
         # One data byte, fixed bytes: an image setting, separate from idle.

@@ -1,6 +1,6 @@
 """pitch_constants (docs/cpu-capabilities.md): stock's note-to-pitch routine (8d5c09d6), which every synth voice
-start runs, converts the float constants 1200.0 and 100.0 to fixed point on every call through 8d5bf5ec (six
-software floating-point routines). The capability loads the two words those calls return. These tests pin the two
+start runs, converts the float constants 1200.0 and 100.0 to fixed point on every call through 8d5bf5ec (software
+floating point). The capability loads the two words those calls return. These tests pin the two
 edits (where they are, the stock bytes they replace, the words they load) and, on the BF707 Functional-Sim, run
 stock's routine with and without them."""
 import json
@@ -13,6 +13,7 @@ import tempfile
 import unittest
 
 from tooling import extensions, native
+from tooling.extensions import extension_at
 from tooling.firmware import active_services, patch_active
 from tooling.formats import ldr, mapped_offset, sha
 from tooling.pipeline import ROOT, config
@@ -55,9 +56,23 @@ class PitchConstants(unittest.TestCase):
         self.assertEqual(profile['services']['pitch_constants'], ['pitch_constants'])
         cpu = json.loads((ROOT / 'extensions/cpu/extension.json').read_text(encoding='utf-8'))
         self.assertNotIn('pitch_constants', cpu['capabilities'])   # off unless a collection names it
-        # Off, both sites keep stock's bytes.
-        off = active_services(profile, native.service_users([]))
-        self.assertFalse([p for p in edits() if patch_active(p, off, False) or patch_active(p, off, True)])
+        # Off, both sites keep stock's bytes, also with everything cpu names; an extension naming it turns both on.
+        class Machines(list):
+            def __init__(self, *extensions_):
+                super().__init__()
+                self.extensions = extensions_
+        off = active_services(profile, native.service_users(Machines()))
+        with_cpu = active_services(profile, native.service_users(Machines(extension_at(ROOT / 'extensions/cpu'))))
+        self.assertNotIn('pitch_constants', with_cpu)
+        for services in (off, with_cpu):
+            self.assertFalse([p for p in edits() if patch_active(p, services, False) or patch_active(p, services, True)])
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / 'extension.json').write_text(json.dumps(
+                {'id': 'pitch_test', 'name': 'Pitch test', 'description': 'Turns on pitch_constants.', 'claims': [],
+                 'actions': [], 'capabilities': ['pitch_constants']}), encoding='utf-8')
+            on = active_services(profile, native.service_users(Machines(extension_at(Path(folder)))))
+        self.assertIn('pitch_constants', on)
+        self.assertEqual(len([p for p in edits() if patch_active(p, on, False) and patch_active(p, on, True)]), 2)
 
     def test_two_edits_at_the_constants(self):
         found = edits()
@@ -109,11 +124,14 @@ class PitchConstants(unittest.TestCase):
             calls, mismatches, distinct, stock, edited = r[name]
             with self.subTest(tables=name):
                 self.assertEqual((calls, mismatches), (24576, 0))
-                # The cut is in the routine's constant part: it saves the two conversions, about 600 cycles a call.
+                # The two conversions, about 600 cycles a call (docs/cpu-capabilities.md quotes 834 and 233).
+                self.assertAlmostEqual(stock, 834, delta=10)
+                self.assertAlmostEqual(stock - edited, 601, delta=5)
                 # The two conversions cost hundreds of cycles; the loads cost none.
                 self.assertGreater(stock - edited, 500)
         # The booted tables give every input one pitch; the random ones make the inputs move the result.
         self.assertGreater(r['random'][2], 1000)
+        self.assertEqual(r['stock'], 1)      # the sites held the profile's stock bytes, which the edits differ from
         self.assertEqual(r['restored'], 1)
 
 
@@ -125,10 +143,14 @@ def run_simulator(stock_os, out=None):
         return compiler.with_name('bfin-elf-' + name + compiler.suffix)
     halves = lambda hex_: ','.join(f'0x{h:04x}' for h in struct.unpack('<6H', bytes.fromhex(hex_)))
     first, second = edits()
+    for p in (first, second):
+        if p['before'] == p['after']:
+            raise AssertionError(p['address'])
     flags = ['-mcpu=bf707', '-O2', '-std=gnu++11', '-ffreestanding', '-fno-exceptions', '-fno-rtti',
              '-fno-threadsafe-statics', '-fno-use-cxa-atexit', '-fno-asynchronous-unwind-tables', '-fno-unwind-tables',
              '-fno-common', '-fno-tree-loop-distribute-patterns', '-fomit-frame-pointer', '-nostdinc++',
-             '-ffunction-sections', '-fdata-sections', f'-DEDIT1={halves(first["after"])}', f'-DEDIT2={halves(second["after"])}']
+             '-ffunction-sections', '-fdata-sections', f'-DEDIT1={halves(first["after"])}', f'-DEDIT2={halves(second["after"])}',
+             f'-DSTOCK1={halves(first["before"])}', f'-DSTOCK2={halves(second["before"])}']
     with tempfile.TemporaryDirectory(prefix='pitch-constants-sim-') as scratch:
         folder = Path(out or scratch)
         folder.mkdir(parents=True, exist_ok=True)
@@ -198,7 +220,8 @@ def run_simulator(stock_os, out=None):
                          ('#define START_ADDR 0x11A00000', '#define START_ADDR 0x080A0000'),
                          ('MEMORY {', 'MEMORY {\n' + '\n'.join(mem) + '\n'),
                          ('  SECTIONS {', '  SECTIONS {\n' + '\n'.join(sec) + '\n')):
-            assert old in ldf, old
+            if old not in ldf:
+                raise AssertionError(old)
             ldf = ldf.replace(old, new, 1)
         ldf = re.sub(r'>\s*MEM_L1_\w+', '>MEM_L2_SRAM', ldf)
         (folder / 'probe.ldf').write_text(ldf)
@@ -213,7 +236,8 @@ def run_simulator(stock_os, out=None):
             raise AssertionError('No probe output:\n' + log.decode(errors='replace')[-2000:])
         words = [int(v, 16) for v in found[1].split()]
     i, j, k, m = (words.index(t) for t in (0xf2000001, 0xf2000002, 0xf2000003, 0xf2000004))
-    return dict(words=words[i + 1:i + 5], booted=words[j + 1:j + 6], random=words[k + 1:k + 6], restored=words[m + 1])
+    return dict(words=words[i + 1:i + 5], booted=words[j + 1:j + 6], random=words[k + 1:k + 6], restored=words[m + 1],
+                stock=words[m + 2])
 
 
 if __name__ == '__main__':

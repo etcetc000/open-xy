@@ -2729,8 +2729,7 @@
       "after": "ffe39def",
       "service": "load_governor",
       "build": true
-    }
-,
+    },
     {
       "kind": "limit",
       "name": "Pitch constants: the note-to-pitch routine (8d5c09d6) loads 1200.0f and calls 8d5bf5ec, stock's float-to-fixed conversion; the load becomes R0 = 0x04b00000, the word that call returns, and the call two NOPs (pitch_constants)",

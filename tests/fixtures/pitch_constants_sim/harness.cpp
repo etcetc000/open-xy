@@ -1,10 +1,11 @@
 // pitch_constants against stock's own code on the BF707 Functional-Sim, stock OS 1.2.1 loaded at its own
-// addresses (tests/test_pitch_constants.py). EDIT1 and EDIT2 are the profile's two edits, six halfwords each.
+// addresses (tests/test_pitch_constants.py). EDIT1 and EDIT2 are the profile's two edits, STOCK1 and STOCK2 the
+// stock bytes it says they replace, six halfwords each.
 // Output, in order:
 //   0xf2000001 w1 w2 w1 w2           stock's float-to-fixed 8d5bf5ec on 1200.0f and 100.0f, twice each
 //   0xf2000002 calls mismatches distinct stock_cycles edited_cycles     (booted tables)
 //   0xf2000003 calls mismatches distinct stock_cycles edited_cycles     (random pitch tables)
-//   0xf2000004 restored                                                   the sites hold stock's bytes again
+//   0xf2000004 restored stock   the sites hold stock's bytes again; they held the profile's stock bytes
 // Each pass calls stock's note pitch 8d5c0a70(track, note, x) (the voice start's call of the routine the edits
 // change, 8d5c09d6) for tracks 0-7, notes 0-127 and x in 0-11 and 244-255, with stock's bytes at the two sites,
 // then with the edits written there.
@@ -13,7 +14,7 @@
 typedef u32 (*Convert)(u32);
 typedef u32 (*Pitch)(u32, u32, u32);
 static const u32 SITE1 = 0x8d5c0a1e, SITE2 = 0x8d5c0a2c;
-static const u16 edit1[6] = { EDIT1 }, edit2[6] = { EDIT2 };
+static const u16 edit1[6] = { EDIT1 }, edit2[6] = { EDIT2 }, profile1[6] = { STOCK1 }, profile2[6] = { STOCK2 };
 static u16 stock1[6], stock2[6];
 static void put(u32 site, const u16* h) { for (u32 k = 0; k < 6; ++k) ((volatile u16*)site)[k] = h[k]; }
 static void get(u32 site, u16* h) { for (u32 k = 0; k < 6; ++k) h[k] = ((volatile u16*)site)[k]; }
@@ -65,5 +66,6 @@ PROBE {
     u16 now1[6], now2[6];
     get(SITE1, now1); get(SITE2, now2);
     out[w++] = 0xf2000004; out[w++] = sameb(now1, stock1, sizeof now1) && sameb(now2, stock2, sizeof now2);
+    out[w++] = sameb(stock1, profile1, sizeof stock1) && sameb(stock2, profile2, sizeof stock2);
     return w;
 }

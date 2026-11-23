@@ -1,6 +1,6 @@
-"""The block_trims and pitch_constants cycle figures docs/cpu-capabilities.md and docs/abi-1.2.1.md quote, printed
-from the same BF707 Functional-Sim runs tests/test_track_hooks.py, tests/test_floor_hooks.py and
-tests/test_pitch_constants.py check (no cache, no DDR model;
+"""The block_trims cycle figures docs/cpu-capabilities.md and docs/abi-1.2.1.md quote, and the pitch_constants ones
+docs/cpu-capabilities.md quotes, printed from the same BF707 Functional-Sim runs tests/test_track_hooks.py,
+tests/test_floor_hooks.py and tests/test_pitch_constants.py check (no cache, no DDR model;
 not a device measurement). Needs what those tests need: CCES's simulator (OPXY_TEST_CCES), a stock OS 1.2.1 image
 (OPXY_TEST_STOCK_OS) and the pinned Blackfin tools.
     python tests/sim_cycles.py

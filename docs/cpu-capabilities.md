@@ -58,7 +58,8 @@ A block is 64 frames, 580,352 cycles at the OP-XY's clock (1.45 ms). No figure h
 measured on a device. Each cycle figure comes from the BF707 Functional-Sim (no cache, no
 DDR model) run by a test in this repository, with the command that prints it; an
 instruction count is read from the built code (the loop and its count are named, so a
-disassembly of the build shows it); anything else is said not to be measured here. Code
+disassembly of the build shows it); a figure from a run outside this repository says
+so; anything else is said not to be measured here. Code
 and data are the bytes the capability adds to the linked module, measured on a build of Open-XY's own catalog
 machines (fm2op, macroosc, karplus, timestretch, ringmod, pingpong, chords) with
 only that capability on, against the same build with none; RAM is the zeroed memory
@@ -484,8 +485,9 @@ simulator does not model.
 
 What it costs: nothing in the module; 24 bytes of stock code.
 
-What it risks: a caller of `8d5c09d6` that read a scratch register or flag the
-conversion left would see another value (see above; none is known). Stock synths' voice starts change too, cheaper
+What it risks: code in `8d5c09d6` after either site that read a scratch register or
+flag the conversion left would see another value (none is known: the compiler's
+convention, and equal results on all 24,576 inputs). Stock synths' voice starts change too, cheaper
 only.
 
 Tests: `test_pitch_constants.py`: the edits, their stock bytes and offsets, the calls'
