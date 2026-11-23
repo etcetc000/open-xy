@@ -138,8 +138,10 @@ and everything that judges the record adds them for one voice and its stage:
 the recommendation below checks `block_percent + stage_percent` and
 `peak_percent + stage_peak_percent`, and the builder's CPU-high label uses the
 second (or the first, without a peak). With `--base`, `catalog check` fetches
-the release of each new or changed synth sweep record, or of a moved release,
-and requires the stage fields exactly when that release declares a stage. Records of synths without a stage, and earlier records, have none.
+each new or moved synth release, and the release of each new or changed sweep
+record, and requires the stage fields exactly when that release declares a
+stage: a record carried onto a release that adds a stage, an older one included,
+is refused. Records of synths without a stage, and earlier records, have none.
 
 Keep both `block_percent` (average) and `peak_percent` (worst observed block)
 at or below the **recommended 3.5% each**. A higher result is

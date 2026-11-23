@@ -233,18 +233,21 @@ def release_controls(before, after, cache=CACHE, allow=False):
 
 
 def stage_records(before, after, cache=CACHE):
-    """A new or changed synth sweep record, or one a moved release carries, has its track
-    stage's run (stage_percent and stage_peak_percent) exactly when the entry's release
-    declares a stage (docs/profiling.md): each such release is fetched at the entry's
-    pinned commit to see."""
+    """A synth record of a new or moved release, or a new or changed sweep record, has its
+    track stage's run (stage_percent and stage_peak_percent) exactly when the entry's
+    release declares a stage (docs/profiling.md): each such release is fetched at the
+    entry's pinned commit to see. A record carried onto a release that adds a stage, an
+    older one included, is refused: the stage's cost was never measured."""
     measured = lambda cpu: {k: v for k, v in cpu.items() if k != 'report'} if isinstance(cpu, dict) else cpu
     previous = {e['id']: e for e in before}
     for entry in after:
         cpu = entry.get('cpu')
-        if (entry.get('kind') != 'synth' or not isinstance(cpu, dict) or 'commit' not in entry or
-                cpu.get('benchmark') != cpu_measurement.BENCHMARKS['synth'] or
-                (measured(cpu) == measured(previous.get(entry['id'], {}).get('cpu')) and
-                 entry['commit'] == previous.get(entry['id'], {}).get('commit'))):
+        if entry.get('kind') != 'synth' or not isinstance(cpu, dict) or 'commit' not in entry:
+            continue
+        old = previous.get(entry['id'], {})
+        moved = entry['commit'] != old.get('commit')
+        sweep = cpu.get('benchmark') == cpu_measurement.BENCHMARKS['synth']
+        if not moved and (not sweep or measured(cpu) == measured(old.get('cpu'))):
             continue
         staged = track_stage.track_stage(fetch(entry, cache)) is not None
         require(staged == ('stage_percent' in cpu),

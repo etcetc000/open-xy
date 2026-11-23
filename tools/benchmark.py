@@ -122,8 +122,8 @@ def readout(decoded):
         # A synth's track stage runs once per track beside its voices: its figures are
         # added to a voice's below (tooling.cpu_measurement.track_cost), never compared.
         if case.get('stage'):
-            if case.get('source') == 'sdk' and sounded:
-                stages[case['name']] = (value, peak, metric['maximum_clipped'])
+            if case.get('source') == 'sdk':
+                stages[case['name']] = (value, peak, metric['maximum_clipped']) if sounded else None
             continue
         if case.get('source') == 'sdk' and sounded and peak > peaks.get(case['name'], (0, ''))[0]:
             peaks[case['name']] = (peak, label, metric['maximum_clipped'])
@@ -133,7 +133,11 @@ def readout(decoded):
             heaviest[case['name']] = (value, label + (' (saturated: at or above the whole budget)'
                                                       if metric['encoded_average'] >= 65535 else ''))
     lines.append('')
-    for name, (mean, peak, clipped) in stages.items():
+    for name, stage in stages.items():
+        if stage is None:
+            lines.append(f'- {name}: its track stage run failed or was silent; the figures below leave it out.')
+            continue
+        mean, peak, clipped = stage
         staged = ' with its track stage'
         if name in heaviest:
             heaviest[name] = (round(heaviest[name][0] + mean, 6), heaviest[name][1] + staged)

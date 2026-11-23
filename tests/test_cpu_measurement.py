@@ -513,11 +513,20 @@ class Measurements(unittest.TestCase):
         with patch.object(catalog, 'fetch', lambda entry, cache: staged):
             with self.assertRaisesRegex(ValueError, 'track stage'):
                 catalog.stage_records([moved], [dict(moved, commit='b' * 40, tag='v2')])
+            # An older, pre-sweep record carried over cannot hide it either.
+            older = dict(entry, cpu=legacy_synth())
+            with self.assertRaisesRegex(ValueError, 'track stage'):
+                catalog.stage_records([older], [dict(older, commit='b' * 40, tag='v2')])
+        # Without a stage, a moved release keeps its older record.
+        with patch.object(catalog, 'fetch', lambda entry, cache: plain):
+            older = dict(entry, cpu=legacy_synth())
+            catalog.stage_records([older], [dict(older, commit='b' * 40, tag='v2')])
         # An unchanged record, or another kind, is not fetched.
         with patch.object(catalog, 'fetch', side_effect=AssertionError('fetched')):
             catalog.stage_records([dict(entry, cpu=measurement('synth'))],
                                   [dict(entry, cpu=dict(measurement('synth'), report='https://example.com/x'))])
-            catalog.stage_records([], [dict(entry, kind='effect', cpu=measurement('effect')), dict(entry, cpu=legacy_synth())])
+            catalog.stage_records([dict(entry, cpu=legacy_synth())],
+                                  [dict(entry, kind='effect', cpu=measurement('effect')), dict(entry, cpu=legacy_synth())])
 
     def test_a_sweep_publishes_its_heaviest_run_beside_the_midpoint(self):
         expected = cases([fixture('probesynth')], sweep=True)

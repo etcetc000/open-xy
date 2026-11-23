@@ -142,6 +142,11 @@ class Benchmark(unittest.TestCase):
         frames[-1] = frame(6000, 65535)
         text = '\n'.join(readout(decode(dict(complete=True, errors=[], frames=frames), expected)))
         self.assertIn('- probestage: worst observed block >=103.052% (clipped; exact peak unavailable)', text)
+        # A silent stage run is named, and left out of the figures.
+        frames[-1] = frame(0, 0)
+        text = '\n'.join(readout(decode(dict(complete=True, errors=[], frames=frames), expected)))
+        self.assertIn('- probestage: its track stage run failed or was silent', text)
+        self.assertIn('- probestage: heaviest 1.526% at midpoint (stock) in this run.', text)
 
     def test_list_controls_name_their_option(self):
         from tooling.benchmark import position
