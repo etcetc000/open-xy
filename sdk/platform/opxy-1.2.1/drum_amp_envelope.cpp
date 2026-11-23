@@ -13,7 +13,7 @@
 #include "stock.hpp"
 
 extern "C" {
-volatile unsigned char sdk_drum_released __asm__("sdk_drum_released");
+extern volatile unsigned char sdk_drum_released __asm__("sdk_drum_released");
 opxy::i32 sdk_drum_envelope_setup(void* envelope, opxy::i32 attack, opxy::i32 decay, opxy::i32 sustain,
                                   opxy::i32 release) __asm__("sdk_drum_envelope_setup");
 }
