@@ -8,9 +8,11 @@
 #include "note_activity.hpp"
 #include "amp_envelope.hpp"
 #include "drum_send.hpp"
-#include "drum_kit_controls.hpp"
 
 extern "C" opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
+// A drum-kit control's Shift cell (drum_kit_controls.hpp; reached only by a kit declaring one).
+extern "C" bool sdk_drum_kit_readout(opxy::u32 track, opxy::u32 position, opxy::u8* choice, const char** title,
+                                     char* value) __asm__("sdk_drum_kit_readout");
 // Refreshes opxy_sample_overview for a sample engine's own screen (sample_overview.cpp).
 extern "C" void sdk_sample_overview_update(opxy::u32) __asm__("sdk_sample_overview_update");
 
