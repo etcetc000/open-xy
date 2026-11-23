@@ -10,6 +10,10 @@
 #include <cstring>
 #include <initializer_list>
 #include "drumline.hpp"
+#if OPXY_KIT_CONTROLS
+#include "drum_kit_controls.hpp"
+#include "drum_values.hpp"
+#endif
 // Built without a drumline_page extension: the generated startup's accessor answers null.
 const void* sdk_drumline_get() { return nullptr; }
 
@@ -208,9 +212,25 @@ const opxy::platform::DrumMachine sdk_drum_machines[] = {
     {reinterpret_cast<const char*>(41), ready, 5, defaults, label, name, count, 2, group_sizes, group_names, 1,
      2, pad_bits, 1, pad_labels, pad_text},
     {reinterpret_cast<const char*>(42), ready, 2, defaults, label, name, count, 0, nullptr, nullptr,
-     0, 0, nullptr, 0, nullptr, nullptr, nullptr, custom_edit}
+     0, 0, nullptr, 0, nullptr, nullptr, nullptr, custom_edit},
+#if OPXY_KIT_CONTROLS
+    // The drum-kit controls (drum_kit_controls.hpp): engine 43 with padVolume and
+    // padRandom, engine 44 with all three and groups.
+    {reinterpret_cast<const char*>(43), ready, 2, defaults, label, name, count},
+    {reinterpret_cast<const char*>(44), ready, 5, defaults, label, name, count, 2, group_sizes, group_names},
+#endif
 };
+#if OPXY_KIT_CONTROLS
+const opxy::u32 sdk_drum_machine_count = 9;
+static const opxy::i32 kit_amp_words[] = {128 << 16, 8192 << 16, 0x7fff0000, 0x7fff0000};
+const opxy::platform::DrumKit sdk_drum_kits[] = {
+    {reinterpret_cast<const char*>(43), 3, nullptr},
+    {reinterpret_cast<const char*>(44), 7, kit_amp_words},
+};
+const opxy::u32 sdk_drum_kit_count = 2;
+#else
 const opxy::u32 sdk_drum_machine_count = 7;
+#endif
 // Engine 50: a paged synth with a Shift row of eight amounts (SDK 1.13); engine 51
 // the same synth without one.
 static const char* const probe_shift_titles[] = {"s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7"};
@@ -225,9 +245,13 @@ const opxy::platform::SynthControls sdk_synth_controls[] = {
     {reinterpret_cast<const char*>(42), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
     {reinterpret_cast<const char*>(50), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true, 0, 0,
      0, {1, 1, 1, 1}, nullptr, {0, 0, 0, 0}, &probe_shift},
-    {reinterpret_cast<const char*>(51), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true}
+    {reinterpret_cast<const char*>(51), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
+#if OPXY_KIT_CONTROLS
+    {reinterpret_cast<const char*>(43), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
+    {reinterpret_cast<const char*>(44), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
+#endif
 };
-const opxy::u32 sdk_synth_control_count = 9;
+const opxy::u32 sdk_synth_control_count = sizeof(sdk_synth_controls) / sizeof(sdk_synth_controls[0]);
 }
 
 namespace {
@@ -319,6 +343,143 @@ opxy::platform::Address opxy::platform::host_stock_address(Address address) {
         std::abort();
     }
 }
+
+#if OPXY_KIT_CONTROLS
+// The drum-kit controls in a build with such a kit: every check in main runs on kits
+// without them, unchanged; these run on engines 43 and 44.
+namespace {
+using namespace opxy;
+using namespace opxy::platform;
+u8* pad_bytes(u32 note) { return reinterpret_cast<u8*>(regions[note - 53]); }
+bool cell(u32 position, u32 choice, const char* title, const char* value) {
+    u8 got = 99;
+    const char* named = nullptr;
+    char text[16] = {};
+    return sdk_drum_kit_readout(0, position, &got, &named, text) && got == choice && !std::strcmp(named, title) &&
+           !std::strcmp(text, value);
+}
+bool no_cell(u32 position) {
+    u8 got = 99;
+    const char* named = nullptr;
+    char text[16] = {};
+    return !sdk_drum_kit_readout(0, position, &got, &named, text) && got == 99;
+}
+void turn_shift(u32 note, u32 position, i32 detents) {
+    const u32 event[3] = {0, static_cast<u32>(detents), 0};
+    sdk_drum_edit(note, 4 + position, event, 0);
+}
+i32& m2(u32 word) { return object[0x3864 / 4 + word]; }
+void kit_controls_checks() {
+    const u32 saved_engine = engine, saved_key = key;
+    const bool saved_shift = shifted;
+    shifted = true;
+    // A kit without them: no cell, and M2's words stay stock's.
+    engine = 34; key = 53;
+    require(no_cell(2) && no_cell(3) && !sdk_drum_kit(34));
+    m2(9) = 77;
+    sdk_drum_amp_tick();
+    require(m2(9) == 77);
+    // Engine 43, key 60: unmarked, its level byte and pad word as stock left them. It
+    // reads 0 dB and no random, as it plays.
+    engine = 43; key = 60;
+    pad_bytes(60)[24] = 0x10;   // stock's model byte: not the kit's
+    pad_bytes(60)[kDrumLevel] = 5;
+    regions[7][5] = 987654;
+    require(cell(2, 30, "VOLUME", "0dB") && cell(3, 0, "RANDOM", "0%") && no_cell(0) && no_cell(1));
+    u32 before = publications;
+    turn_shift(60, 2, 3);   // its first edit sets it up: 0 dB, no random, then +3 dB
+    require(publications == before + 1 && drum_marked(pad_bytes(60)[24]) && regions[7][5] == 0);
+    require(static_cast<signed char>(pad_bytes(60)[kDrumLevel]) == 3 && cell(2, 33, "VOLUME", "+3dB"));
+    turn_shift(60, 2, -40);
+    require(cell(2, 0, "VOLUME", "-30dB") && static_cast<signed char>(pad_bytes(60)[kDrumLevel]) == -30);
+    before = publications;
+    turn_shift(60, 2, -1);   // at its floor: nothing
+    require(publications == before);
+    turn_shift(60, 2, 60);
+    require(cell(2, 50, "VOLUME", "+20dB"));
+    turn_shift(60, 3, 5);
+    require(regions[7][5] == 5 * kKitRandomStep && cell(3, 5, "RANDOM", "5%"));
+    turn_shift(60, 3, -10);
+    require(regions[7][5] == 0 && cell(3, 0, "RANDOM", "0%"));
+    turn_shift(60, 3, 127);
+    turn_shift(60, 3, 1);
+    require(regions[7][5] == 0x7fffffff && cell(3, 100, "RANDOM", "100%"));
+    // The key's model and controls stay its defaults through those edits.
+    u8 model = 99, raw[8];
+    require(sdk_drum_values(0, &model, raw) && model == 1 && raw[0] == 20 && raw[7] == 60);
+    // Shift's first two encoders stay the model and the choke group.
+    turn_shift(60, 1, 2);
+    require(drum_choke(pad_bytes(60)[24]) == 2 && static_cast<signed char>(pad_bytes(60)[kDrumLevel]) == 20);
+    // A control turn on another unmarked key sets it up as well.
+    key = 61;
+    pad_bytes(61)[24] = 0x10;
+    pad_bytes(61)[kDrumLevel] = 9;
+    regions[8][5] = 987654;
+    shifted = false;
+    const u32 up[3] = {0, 1, 0};
+    sdk_drum_edit(61, 0, up, 0);
+    require(drum_marked(pad_bytes(61)[24]) && regions[8][5] == 0 && pad_bytes(61)[kDrumLevel] == 0);
+    shifted = true;
+    // Engine 44 groups its models: Shift's third encoder is its volume, and the key's
+    // choke group stays as it is.
+    engine = 44; key = 62;
+    pad_bytes(62)[24] = 0x47;   // marked, choke group 4 (mute2)
+    regions[9][5] = 0;
+    pad_bytes(62)[kDrumLevel] = 0;
+    {
+        const u8 c[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+        require(drum_pack(0, c, regions[9] + 1));
+    }
+    turn_shift(62, 2, -6);
+    require(cell(2, 24, "VOLUME", "-6dB") && pad_bytes(62)[24] == 0x47);
+    // ampEnvelope: a key's amp values in its words' low halves are read past, and kept
+    // across a Shift edit, a control edit and a held pad's scramble.
+    const i32 amp[4] = {5 << 16, 1000 << 16, 20000 << 16, 300 << 16};
+    for (u32 i = 0; i < 4; ++i) regions[9][1 + i] = kit_amp_store(regions[9][1 + i], amp[i]);
+    require(sdk_drum_values(0, &model, raw) && model == 0 && raw[0] == 1 && raw[7] == 8);
+    turn_shift(62, 3, 7);
+    for (u32 i = 0; i < 4; ++i) require(kit_amp(regions[9][1 + i], -1) == amp[i]);
+    shifted = false;
+    sdk_drum_edit(62, 1, up, 0);
+    require(sdk_drum_values(0, &model, raw) && raw[1] == 3);
+    for (u32 i = 0; i < 4; ++i) require(kit_amp(regions[9][1 + i], -1) == amp[i]);
+    rolling = true;
+    sdk_drum_pad_scramble(62);
+    rolling = false;
+    for (u32 i = 0; i < 4; ++i) require(kit_amp(regions[9][1 + i], -1) == amp[i]);
+    require(regions[9][5] == 7 * kKitRandomStep && sdk_drum_values(0, &model, raw));
+    // M2 follows the selected key: its values go to words 8..11 ...
+    for (u32 i = 0; i < 4; ++i) m2(8 + i) = 0;
+    sdk_drum_amp_tick();
+    for (u32 i = 0; i < 4; ++i) require(m2(8 + i) == amp[i]);
+    before = publications;
+    sdk_drum_amp_tick();
+    require(publications == before);
+    // ... and an M2 turn goes to the key.
+    m2(9) = 2000 << 16;
+    sdk_drum_amp_tick();
+    require(publications == before + 1 && kit_amp(regions[9][2], -1) == (2000 << 16) && kit_amp(regions[9][1], -1) == amp[0]);
+    // A key the kit has not stored shows the kit's defaults, and an M2 turn marks it,
+    // set up as an edit sets a key up.
+    key = 63;
+    pad_bytes(63)[24] = 0x10;
+    regions[10][5] = 987654;
+    sdk_drum_amp_tick();
+    for (u32 i = 0; i < 4; ++i) require(m2(8 + i) == kit_amp_words[i]);
+    m2(11) = 100 << 16;
+    sdk_drum_amp_tick();
+    require(drum_marked(pad_bytes(63)[24]) && kit_amp(regions[10][4], -1) == (100 << 16) && regions[10][5] == 0);
+    require(kit_amp(regions[10][2], -1) == kit_amp_words[1]);
+    require(sdk_drum_values(0, &model, raw) && model == 0 && raw[7] == 63);
+    // Engine 43 has no amp envelope: M2 stays stock's.
+    engine = 43; key = 60;
+    m2(9) = 55;
+    sdk_drum_amp_tick();
+    require(m2(9) == 55);
+    engine = saved_engine; key = saved_key; shifted = saved_shift;
+}
+}
+#endif
 
 int main() {
     using namespace opxy;
@@ -1343,6 +1504,9 @@ int main() {
         engine = saved_engine; key = saved_key; shifted = false;
     }
 
+#if OPXY_KIT_CONTROLS
+    kit_controls_checks();
+#endif
     ownership = 0;
     require(sdk_drum_edit(53, 0, one, 0) == 1234 && fallback == 1);
     require(!sdk_drum_values(0, &model, raw));

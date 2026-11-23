@@ -14,7 +14,7 @@ import math
 from pathlib import Path
 
 from .benchmark import append_callback
-from .definitions import (extended_display, ROOT, STOCK_VOICES, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
+from .definitions import (KIT_CONTROLS_SDK, extended_display, ROOT, STOCK_VOICES, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
                           shift_choices, shift_field, shift_parameters, stock_shift_codes, synth_shift,
                           validate_definition)
 
@@ -140,6 +140,8 @@ def generate_voice(directory, m, sweep=False, idle=False):
         values['PAD_SIGNS'] = sum(1 << i for i, f in enumerate(pads) if f.get('signed'))
         values['TRANSPORT'] = 'true' if drum_transport(m) else 'false'
         values['PARAMETER_EDIT'] = m.definition['resources'].get('parameterEdit', 0)
+        values['KIT_CONTROLS'] = kit_controls(m)
+        values['AMP_DEFAULTS'] = ', '.join(f'{w:#x}' for w in kit_amp_defaults(m))
     values.update(idle_values(m, m.kind == 'drum', idle, values.get('OUTPUT_FRAMES', 'opxy::block_frames'),
                               values.get('VOICE_OF_HELD', 'slot->voice')))
     path = expand('drum_voice.cpp.in' if m.kind == 'drum' else 'voice.cpp.in', values, Path(directory) / 'voice.cpp')
@@ -285,6 +287,29 @@ def played_pad(m):
     return getattr(m, 'kind', 'synth') == 'drum' and getattr(m, 'sdk', (1, 0)) >= PLAYED_PAD_SDK
 
 
+def kit_controls(m):
+    """A drum kit's drum-kit controls (SDK 1.23) as drum_kit_controls.hpp's bits: padVolume 1,
+    padRandom 2, ampEnvelope 4; 0 for a kit declaring none, whose generated code is as before."""
+    if getattr(m, 'kind', 'synth') != 'drum':
+        return 0
+    resources = m.definition['resources']
+    return sum(bit for bit, key in ((1, 'padVolume'), (2, 'padRandom'), (4, 'ampEnvelope')) if resources.get(key, 0))
+
+
+def kit_amp_defaults(m):
+    """The amp words 8..11 an ampEnvelope kit's key plays when it keeps none: its init preset's amp
+    attack, decay, sustain and release (the shared template's, under the kit's presetDefaults), << 16.
+    A kit's M2 page (the drum sampler's) names those words start, attack, hold and decay."""
+    amp = dict(DEFAULT_PRESET_TEMPLATE['envelope']['amp'])
+    amp.update((getattr(m, 'preset_defaults', None) or {}).get('amp', {}))
+    return [amp[key] << 16 for key in ('attack', 'decay', 'sustain', 'release')]
+
+
+def selected_key(m):
+    """Whether a drum kit's screen fills draw::Input::selected_key: a kit declaring SDK 1.23 or later."""
+    return getattr(m, 'kind', 'synth') == 'drum' and getattr(m, 'sdk', (1, 0)) >= KIT_CONTROLS_SDK
+
+
 def pad_mix(m):
     """Whether a drum kit's Shift row is each key's mixer channel (resources.padMix), whose
     pan, level, pad controls and sends also lock per hit (drum_locks.hpp)."""
@@ -295,6 +320,23 @@ def sends_per_key(m):
     """Whether a drum kit's keys keep their own share of the track's sends: padMix, whose
     Shift row edits FX I and FX II."""
     return m.kind == 'drum' and bool(m.definition['resources'].get('padMix', 0))
+
+
+def kit_table(machines):
+    """drum_callbacks.cpp's table of kits declaring the drum-kit controls (drum_kit_controls.hpp
+    sdk_drum_kits); empty for a build without one, whose source is then as before."""
+    kits = [m for m in machines if kit_controls(m)]
+    if not kits:
+        return ''
+    declarations, rows = [], []
+    for m in kits:
+        amp = kit_controls(m) & 4
+        if amp:
+            declarations.append(f'static const opxy::i32 {m.prefix}_amp[] = {{{", ".join(f"{w:#x}" for w in kit_amp_defaults(m))}}};')
+        rows.append(f'    {{{m.prefix}_engine_id, {kit_controls(m)}, {m.prefix + "_amp" if amp else "nullptr"}}},')
+    return ('#include "drum_kit_controls.hpp"\n' + ''.join(d + '\n' for d in declarations) +
+            'const opxy::platform::DrumKit sdk_drum_kits[] = {\n' + '\n'.join(rows) + '\n};\n'
+            f'const opxy::u32 sdk_drum_kit_count = {len(kits)};\n')
 
 
 def generate_drum_callbacks(directory, machines):
@@ -340,6 +382,7 @@ def generate_drum_callbacks(directory, machines):
     source = '#include "drum_machines.hpp"\n#include "drum_send.hpp"\nextern "C" {\n' + '\n'.join(declarations) + '\n}\n'
     source += 'const opxy::platform::DrumMachine sdk_drum_machines[] = {\n' + ('\n'.join(rows) or '    {},') + '\n};\n'
     source += f'const opxy::u32 sdk_drum_machine_count = {len(rows)};\n'
+    source += kit_table(machines)
     source += 'const opxy::platform::DrumSendKit sdk_drum_send_kits[] = {\n' + ('\n'.join(sends) or '    {},') + '\n};\n'
     source += f'const opxy::u32 sdk_drum_send_kit_count = {len(sends)};\n'
     destination = Path(directory) / 'drum_callbacks.cpp'
@@ -685,6 +728,9 @@ struct Machine {{
     static const bool selected_pad = {'true' if drum and not played_pad(m) else 'false'};
     static const bool sample = {'true' if getattr(m, 'kind', 'synth') == 'sample' else 'false'};   // reads its sample's overview
     static const bool percent_sends = {'true' if getattr(m, 'sdk', (1, 0)) >= (1, 15) else 'false'};   // pad[2..3] as percent + 1 (SDK 1.15)
+    // A drum kit's Shift cells and choices of the drum-kit controls, and its selected key (SDK 1.23).
+    static const bool kit_controls = {'true' if kit_controls(m) & 3 else 'false'};
+    static const bool selected_key = {'true' if selected_key(m) else 'false'};
 }};
 const char* const Machine::ids[{len(ids)}] = {{
 {table}}};

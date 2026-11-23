@@ -102,17 +102,20 @@ class Services(unittest.TestCase):
         # The fixtures declare no track control, hidden pages, aux tracks, players, per-key
         # sends, a padMix kit's step locks, a synth's Shift row or track stage, no extension a
         # Drumline page, no settings extension a CPU capability, and their kit declares
-        # an SDK before 1.21 (no played-pad snapshot): those services stay off. None
-        # includes the sample kernel's header, so no unit tied to a header is linked either.
+        # an SDK before 1.21 (no played-pad snapshot) and none of the drum-kit controls:
+        # those services stay off. None includes the sample kernel's header, so no unit
+        # tied to a header is linked either.
         units = [u for u in native.SDK_UNITS if u not in native.UNIT_HEADERS]
         self.assertIn('sample_kernel', native.SDK_UNITS)
         self.assertNotIn('sample_kernel', units)
         self.assertEqual(steps(machines), [u for u in units if native.UNIT_SERVICES.get(u) not in
                                           ('control', 'aux', 'players', 'master_filter', 'drum_sends', 'track_stage', 'drum_locks',
                                            'drumline', 'synth_shift', 'played_pad', 'idle', 'block_trims',
-                                           'output_slack')])
-        self.assertEqual(active_services(profile, ['drum', 'padMix']),
-                         {'samples', 'octaves', 'drums', 'drum_sends', 'track_call', 'drum_locks'})
+                                           'output_slack', 'kit_controls', 'amp_envelope')])
+        self.assertEqual(active_services(profile, ['drum', 'kitControls']), {'samples', 'octaves', 'drums', 'kit_controls'})
+        self.assertEqual(active_services(profile, ['drum', 'kitControls', 'ampEnvelope']),
+                         {'samples', 'octaves', 'drums', 'kit_controls', 'amp_envelope'})
+        self.assertEqual(active_services(profile, ['drum', 'padMix']), {'samples', 'octaves', 'drums', 'drum_sends', 'track_call', 'drum_locks'})
         self.assertEqual(active_services(profile, ['drum', 'hidePages', 'padMix']),
                          {'samples', 'octaves', 'drums', 'drum_sends', 'track_call', 'drum_locks', 'control'})
         self.assertEqual(active_services(profile, ['master_filter']), {'master_filter'})
@@ -125,7 +128,7 @@ class Services(unittest.TestCase):
         self.assertIn('drumline_page', native.service_users(paged))
         self.assertEqual(steps(paged), [u for u in units if native.UNIT_SERVICES.get(u) not in
                                         ('control', 'aux', 'players', 'master_filter', 'track_stage', 'synth_shift', 'played_pad',
-                                         'idle', 'block_trims', 'output_slack')])
+                                         'idle', 'block_trims', 'output_slack', 'kit_controls', 'amp_envelope')])
         self.assertEqual(native.subset(paged, paged[:1]).extensions, (page,))
         without = [m for m in machines if m.kind not in ('sample', 'drum')]  # nor any extension
         self.assertEqual(steps(without), [u for u in units if u not in native.UNIT_SERVICES])

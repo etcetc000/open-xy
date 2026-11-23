@@ -123,8 +123,17 @@ TRACK_STAGE_KEYS = ('stateBytes', 'stateAlignment', 'tailFrames')
 # chokeSameKey 1 for a note to cut the voices still sounding its track's same key;
 # padMix 1 (SDK 1.10) for Shift to turn each key's stock pan and level and its own FX I
 # and FX II sends; and padControls (SDK 1.10, with padMix), up to two small fields of
-# each key's own on Shift's second row.
-DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls', 'parameterEdit')
+# each key's own on Shift's second row. The drum-kit controls (SDK 1.23), each 0 or 1 and
+# asked for on its own, for a kit without padMix: padVolume, each key's level, -30..+20 dB,
+# on Shift's third encoder (with modelGroups in place of the choke group); padRandom, each
+# key's random, which moves its controls on every hit, on Shift's fourth; ampEnvelope, M2's
+# start, attack, hold and decay kept per key and played by the adapter.
+DRUM_KIT_CONTROLS = ('padVolume', 'padRandom', 'ampEnvelope')
+# The SDK of the drum-kit controls and of a kit screen's selected key. A renumber changes
+# this line, SDK_VERSION and its history (tooling/machines.py) and the "1.23" text in the
+# docs and fixtures.
+KIT_CONTROLS_SDK = (1, 23)
+DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls', 'parameterEdit', *DRUM_KIT_CONTROLS)
 # Pad controls share 9 bits of stock's pad word +0x14; its sends take 6 more (drum_storage.hpp).
 PAD_CONTROL_FIELDS, PAD_CONTROL_BITS = 2, 9
 EFFECT_BUFFER_LIMIT = 524288
@@ -280,6 +289,12 @@ def validate_definition(value, kind):
             require(sum(f['bits'] for f in fields) <= PAD_CONTROL_BITS,
                     'Pad controls share at most %d bits' % PAD_CONTROL_BITS)
         require(resources.get('parameterEdit', 0) in (0, 1), 'parameterEdit must be 0 or 1')
+        for flag in DRUM_KIT_CONTROLS:
+            require(resources.get(flag, 0) in (0, 1), flag + ' must be 0 or 1')
+        # padMix's Shift row already holds each key's level and its pad word the kit's pad
+        # controls and sends: the drum-kit controls are for a kit without it.
+        require(not (resources.get('padMix', 0) and any(resources.get(k, 0) for k in DRUM_KIT_CONTROLS)),
+                'padVolume, padRandom and ampEnvelope are for a kit without padMix')
         if 'modelGroups' in resources:
             groups = resources['modelGroups']
             require(isinstance(groups, list) and 2 <= len(groups) <= 16, 'modelGroups lists 2..16 groups')

@@ -34,6 +34,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Per-key sends | 6, one the track call | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padMix` kit or a `drumline_page` extension |
 | Track stages | the track call | Runs a synth's [track stage](api.md#track-stage) on its tracks' voice sums ([track stage](#track-stage)); linked only with a synth declaring `trackStage` |
 | Step locks of a kit's Shift fields | 3 | Notes the [step-lock handle](#step-lock-handles) the sequencer's lock pass applied, and adds that step's locks for the played key to its pan, level, pad controls and sends when its note starts, or a synth's [Shift row](#a-synths-shift-row) locks to its live words; linked only with a `padMix` kit, a Shift-row synth or a `drumline_page` extension |
+| A kit's amp envelope | 1 | Wraps the drum renderer's filter-envelope step for each voice to publish the voice's note-off to its adapter; linked only with a kit declaring [`ampEnvelope`](#the-drum-kit-controls) |
 | Drumline's second page | 2 | Shows stock Drumline's second page and wraps its voices' render for an extension's per-hit processor and settings; linked only with a [`drumline_page` extension](drumline-page.md) |
 | Keyboard octaves | 1 | Publishes the track keyboard octave for sample engines, drum kits and note players |
 | Note players | 8 | Routes owned player construction, project loading, controllers, enum editing, a paged player's encoder 4 click and names |
@@ -76,7 +77,11 @@ The step locks of a kit's Shift fields are the `drum_locks` service, used by a
 `padMix` kit, by a synth with a Shift row and by a `drumline_page` extension.
 The `played_pad` service has no edit: it links the [drum trigger](#screens)
 snapshot (`drum_trigger.cpp`) only with a kit declaring SDK 1.21 or later,
-whose screen reads it. The [track filter](#the-track-filter-on-kit-voices) on
+whose screen reads it. The [drum-kit controls](#the-drum-kit-controls) are the
+`kit_controls` service, which has no edit and links their GUI unit only with a
+kit declaring `padVolume`, `padRandom` or `ampEnvelope`, and the
+`amp_envelope` service, the amp envelope's one hook, only with a kit
+declaring `ampEnvelope`. The [track filter](#the-track-filter-on-kit-voices) on
 kit voices needs no hook: it is in every kit's adapter.
 A [`drumline_page` extension](drumline-page.md) uses the `drumline` service and
 also those of samples, octaves, drum transport, sends and the note-start hooks,
@@ -1702,6 +1707,57 @@ Stock's loops do the followers' mixing, and the main mix always reads stock's
 sum. A send every voice follows, every stock track and every block of a kit
 whose keys all follow are mixed bit for bit as stock mixes them: the dry
 correction runs only on a track with an own-amount key.
+
+### The drum-kit controls
+
+A kit's [drum-kit controls](api.md#the-drum-kit-controls) (SDK 1.23) keep
+everything in the key's pad record, which projects save byte for byte
+(`8d598e68`) and stock's pad and track copies move whole (`8d581e50`), and
+reach the voice through stock's own note payload:
+
+- `padVolume`: stock's signed level byte at `+0x1d`, whole dB, which its own
+  per-key editor steps from -30 to +20 (`8d4d60d8`) and presets export as the
+  region's `gain`. The payload builder puts it in word 7 as Q27 with 0 dB unity,
+  10^(dB / 20) / 16 × 2^31 (`8d5ad604`). Stock's drum renderer applies a pad's pan
+  to a kit's voices but leaves its gain to the voice (Drumline applies it in its
+  own DSP), so the adapter applies it.
+- `padRandom`: stock Drumline's pad word at `+0x14`, Q31, which presets export as
+  the region's `random` (the word >> 16) and import as max(random << 16, 0); the
+  payload carries max(word, 0) as word 6 (`8d5ad738`). The SDK writes it in 1%
+  steps.
+- `ampEnvelope`: each of M2's four values in the low half of one of the key's four
+  parameter words, as its top 15 bits plus one (0 is unset). The SDK's own
+  packing (`drum_storage.hpp`) uses only the top halves, which presets keep (>> 16
+  out, << 16 in), so a preset carries no amp values. Publication copies the four
+  words whole into payload words 1..4 (`8d5ad70a`..`718`).
+
+The first time a kit with these controls marks a key (model byte type 7), the SDK
+clears its level byte and pad word, which a key the kit never marked holds from
+stock (its default kit gives the last key a pad word of `0x26660000`). Only a
+marked key's payload words 6 and 7 play.
+
+M2 on a kit is the drum sampler's amp page (`0x19`), whose knobs write track words
+8..11 through stock's set (`8d5acf28`); stock's drum renderer applies none of
+them (it runs only a declick on the voice's amp state, `8d50e2dc`). Once a GUI
+frame (the samples service's frame hook, `sdk_sample_gui_tick`) the SDK puts the
+selected key's values on those words when the selection changes, and stores them
+to the key when M2 has changed them since, then publishes the key as an edit does
+(`8d585ee8`, `8d4d5f18`). The adapter shapes the gain as the drum sampler's render
+does (`11a07c2c`, which keeps its envelope inline with its sample playback and
+cannot be called): its attack and fade step tables at `8404650c` and `840512e4`,
+indexed by (1 - (1 - word)^2) >> 25 (`11a07dea`..`e56`, `11a07e1c`..`e60`), read in
+place. For the note-off the `amp_envelope` service hooks the drum renderer's call
+of stock's ADSR stepper (`8d50e358`) at `8d51b38a`, made for every drum voice just
+before its render (`8d51b55a`), with the voice's filter envelope at `+0x2c` and
+track words 32..35: the wrapper publishes the voice's amp release request (voice
+`+0x29`, set by the note-off at `8d51a928`, or at the note's start when its gate
+has already closed, `8d51afc4`) for the render that follows (whose adapter takes and clears it), then calls the
+stepper unchanged, so the filter envelope is stock's for every kit.
+
+The shared GUI units reach the controls' unit (`drum_kit_controls.cpp`) only in a
+build with such a kit, which compiles every SDK unit with `OPXY_KIT_CONTROLS`.
+In a browser selection of such a build that leaves those kits out, the calls
+resolve to `kit_absent`, a kit without the controls.
 
 ### The track filter on kit voices
 
