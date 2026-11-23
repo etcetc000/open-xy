@@ -1056,7 +1056,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         ? `This layout used ${mib(loaded.memoryUnavailable)} experimental memory, which this site doesn’t offer. ` : '';
       let wanted = loaded.selected && !loaded.memoryUnavailable ? loaded.expanded === true : expandedMemory(), grown = false;
       if (loaded.selected) {
-        const link = memory => core.linkKit(kitFor(memory), loaded.selected, loaded.machines, extensions);
+        const link = memory => core.linkKit(kitFor(memory), loaded.selected, loaded.machines, extensions,
+          capabilitySettings(extensions));
         try { link(wanted); }
         catch (error) {
           if (error.capacity !== true) throw error;

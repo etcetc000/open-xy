@@ -224,8 +224,10 @@ def provenance(machines):
         hashes.update({name: sha(read(path)) for name, path in m.files().items()})
     for e in extensions_of(machines):
         hashes.update({f'extension:{e.id}/{name}': sha(read(path)) for name, path in e.sources().items()})
+    # An extension built without some capabilities (the browser kit's cpu) names them.
     hashes['collection'] = sha(json.dumps([m.id for m in machines] +
-                                          ['extension:' + e.id for e in extensions_of(machines)]).encode('utf-8'))
+                                          ['extension:' + e.id + ''.join(' -' + c for c in e.withheld)
+                                           for e in extensions_of(machines)]).encode('utf-8'))
     return dict(sorted(hashes.items()))
 
 
