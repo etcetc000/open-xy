@@ -497,8 +497,8 @@ def written(data, profile):
     return bytes(out)
 
 
-class OnlySdkBuild(unittest.TestCase):
-    """Chosen only when sdk.py build builds the firmware from a collection that names it."""
+class OnlyWhenBuilt(unittest.TestCase):
+    """Chosen only when the firmware is built (sdk.py build or the builder) from a collection that names it."""
 
     def test_settings_apply_refuses_it(self):
         data, profile = image(config())
@@ -509,14 +509,16 @@ class OnlySdkBuild(unittest.TestCase):
         with self.assertRaises(ValueError):
             image_settings.apply(data, [e], {'load_governor': 1}, profile)
 
-    def test_a_browser_kit_cannot_carry_it(self):
+    def test_a_browser_kit_carries_it_as_image_edits(self):
+        # Fixed bytes and no code: the builder writes them when its extension is selected.
         e = extension_at(folder(self))
-        with self.assertRaisesRegex(ValueError, 'a browser kit cannot carry them: load_governor'):
-            browser_kit.refuse_build_capabilities([e])
+        self.assertEqual(extensions.site_needs('load_governor'), 'image')
+        self.assertEqual(browser_kit.withheld(e), [])
+        browser_kit.refuse_adapter_capabilities([e])
 
     def test_each_edit_is_marked_as_the_builds(self):
-        # The mark is what the browser builder's kit check refuses (tests/test_browser_kit.mjs); the registry
-        # refuses the capability with an edit unmarked, and a mark on an image capability's edit.
+        # The mark says in the profile that the edit is a build capability's; the registry refuses the
+        # capability with an edit unmarked, and a mark on an image capability's edit.
         self.assertEqual({p.get('build') for p in edits(config())}, {True})
         real = extensions.document
         for change in ('unmarked', 'marked image capability'):

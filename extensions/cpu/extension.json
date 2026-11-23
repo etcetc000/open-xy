@@ -2,7 +2,7 @@
   "id": "cpu",
   "name": "CPU (experimental)",
   "description": "Experimental: idle sends (voices with release_floor), block trims, output slack, boot fix, governor, pitch constants, fast helpers (off).",
-  "note": "Experimental; needs sdk.py build. Governor on: cuts later, misses bursts. Fast helpers off, 1 on.",
+  "note": "Experimental. Idle: sdk.py build. Governor on: cuts later, misses bursts. Fast helpers off, 1 on.",
   "claims": [],
   "actions": [],
   "capabilities": [

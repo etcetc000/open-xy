@@ -2,8 +2,9 @@
 
 1. Fetch every published catalog machine at its pinned commit, confirming
    its tag (sdk.py catalog fetch --tags).
-2. Export the release kit from the bundled machines plus those (sdk.py kit, with
-   release verification on the release host).
+2. Export the release kit from the bundled machines plus those, and the SDK's own
+   extensions (extensions/, such as cpu), with release verification on the release host
+   (sdk.py kit).
 3. Build the site around the kit and deploy it to Cloudflare: --deploy beta
    from staging (beta.open-xy.com), --deploy production from main
    (open-xy.com). --dry-run builds and checks everything without publishing.
@@ -78,7 +79,10 @@ def main(argv=None):
         python = sys.executable
         run([python, 'sdk.py', 'catalog', 'fetch', '--tags'])
         kit = out / 'kit'
-        run([python, 'sdk.py', 'kit', '--collection', ROOT / 'local/catalog/collection.json',
+        # The SDK's own extensions ship with the SDK, not the catalog (browser_kit.sdk_extension).
+        own = [arg for folder in sorted((ROOT / 'extensions').iterdir()) if (folder / 'extension.json').is_file()
+               for arg in ('--extension', folder)]
+        run([python, 'sdk.py', 'kit', '--collection', ROOT / 'local/catalog/collection.json', *own,
              '--stock-os', args.stock_os.resolve(), '--stock-content', args.stock_content.resolve(),
              '--preview-cxx', args.preview_cxx, '--host-cxx', args.host_cxx, '--out', kit,
              *(['--toolchain', args.toolchain] if args.toolchain else []),

@@ -12,9 +12,12 @@ differs (`tooling/firmware.py` `assemble`). `fast_helpers` is the exception: it
 has no site and no unit of its own, and its two units are linked either way, from
 the plain sources when it is off ([below](#fast_helpers)).
 
-The build capabilities are chosen only by `sdk.py build`: `sdk.py settings apply` refuses them and
-browser kits cannot carry them. `boot_log_fix`, one fixed data byte, is an image
-capability: `sdk.py settings apply` can write it into an existing image and a browser kit can carry it.
+The build capabilities are chosen when the firmware is built, by `sdk.py build` or the
+builder: `sdk.py settings apply` refuses them. The builder offers every one but `idle`, which
+changes every machine's generated voice and effect code (`"adapters": true` in the registry),
+so a kit, whose objects serve every selection, leaves it out ([builder](builder.md#capabilities)).
+`boot_log_fix`, one fixed data byte, is an image
+capability: `sdk.py settings apply` can write it into an existing image.
 `sdk.py settings show --image os.ldr` reports
 whether an image was built with each, except `fast_helpers`, which has no site in
 the image: a build's `analysis/compile-report.json` names the sources it chose
@@ -27,8 +30,10 @@ service fails with "the <name> capability has no firmware sites for OP-XY OS
 
 The SDK's one CPU extension, `extensions/cpu` ("CPU (experimental)"), selects all
 seven: `boot_log_fix`, `idle`, `block_trims`, `output_slack`, `load_governor`,
-`pitch_constants` and `fast_helpers`, the last at its setting 0, off. It needs
-`sdk.py build`. It does not select `release_floor`, whose threshold the idle cut uses: with
+`pitch_constants` and `fast_helpers`, the last at its setting 0, off. The builder
+offers it without `idle` and says so in its details: a build there is byte for byte
+`sdk.py build` of the same machines with a settings extension naming the other six at the
+same fast helpers setting. It does not select `release_floor`, whose threshold the idle cut uses: with
 `cpu` alone, `idle` skips silent sends and cuts no voice ([idle](#idle)). A collection
 that wants only some of the capabilities selects them with a settings extension of its
 own that names just those, in place of `cpu` (`sdk.py build` takes a settings

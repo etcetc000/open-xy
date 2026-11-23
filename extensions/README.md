@@ -7,6 +7,8 @@ the last one off (setting 0). It is experimental, always.
 Like every settings extension it holds only `extension.json`: the SDK owns every
 patch site, and the extension only names capabilities. Add it to a collection's
 `extensions` (`{"path": ".../extensions/cpu"}`) and build with `sdk.py build`.
+The builder offers it without `idle`, which changes every machine's generated code
+([docs/builder.md](../docs/builder.md#capabilities)), and says so in its details.
 A build without it has none of them.
 
 `idle` cuts voices only with a threshold, which is the `release_floor` setting's, and
@@ -21,8 +23,8 @@ block) instead of 94.5 % (89.6 %), and gives them back under 93 % (88.1 %) inste
 of 84.8 % (80.3 %). It never sheds overload that comes in bursts between lighter
 blocks: such a project lags or clicks until its load drops
 (docs/cpu-capabilities.md lists what it misses). Like every build
-capability it is chosen only by `sdk.py build`: `sdk.py settings apply` refuses it
-and browser kits cannot carry it.
+capability it is chosen when the firmware is built, by `sdk.py build` or the builder:
+`sdk.py settings apply` refuses it.
 
 `pitch_constants` is a plain switch like `load_governor`: stock's note-to-pitch routine
 loads its two constants ready-made (about 600 cycles less a call in the simulator, one
@@ -40,5 +42,5 @@ extension of its own that names just those, in place of `cpu`.
 
 This is the SDK's only extension: others live in repositories of their own and
 reach the builder through `catalog/extensions.json`. `cpu` stays with the SDK
-because everything it names is SDK code chosen when the firmware is built, which the
-builder cannot offer.
+because everything it names is SDK code chosen when the firmware is built; the
+release kit carries it as one of the SDK's own (`sdk.py release`).

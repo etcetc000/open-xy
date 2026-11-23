@@ -216,8 +216,8 @@ value (one without a value chooses the default); a capability without a setting,
 | Capability | Setting | Effect |
 | --- | --- | --- |
 | `long_samples` | | A file loads up to 1,048,575 frames (2^20 - 1, 23.78 s at 44.1 kHz), the most a stock sample object holds, instead of stock's 882,000 (20 s). Recording still stops at 20 s. |
-| `release_floor` | Idle threshold, -66..-20 dB (default -48) | A released note stops, and frees its voice, once its amplitude envelope falls below the threshold, fading over one block; stock stops at -66 dB. The level is the envelope's own, before velocity, filter and track volume. Held notes, stolen-voice fades and drum kits are unchanged; the filter envelope's release stops at the same level. |
-| `fast_helpers` | Fast helpers, 0 off or 1 on (default 0) | The faster fill, copy and divide routines every native machine calls ([CPU capabilities](cpu-capabilities.md#fast_helpers)): at 1 the build links hand-written versions in place of the plain ones. Experimental; a build capability with no image site: chosen only by `sdk.py build`, never by the builder or `settings apply`, and `settings show` cannot read it. |
+| `release_floor` | Idle threshold, -66..-20 dB (default -48) | A released note stops, and frees its voice, once its amplitude envelope falls below the threshold, fading over one block; stock stops at -66 dB. The level is the envelope's own, before velocity, filter and track volume. Held notes, stolen-voice fades and drum kits are unchanged; the filter envelope's release stops at the same level. It works on its own; [`idle`](cpu-capabilities.md#idle) also cuts other voices at this threshold and skips quiet sends, so without `idle` (the builder's `cpu`) released notes still stop but sends are not skipped. |
+| `fast_helpers` | Fast helpers, 0 off or 1 on (default 0) | The faster fill, copy and divide routines every native machine calls ([CPU capabilities](cpu-capabilities.md#fast_helpers)): at 1 the build links hand-written versions in place of the plain ones. Experimental; a build capability with no image site: chosen by `sdk.py build` or the builder, never by `settings apply`, and `settings show` cannot read it. |
 
 `python sdk.py settings show --image os.ldr` lists the capabilities an OS image
 has on; `python sdk.py settings apply --image os.ldr --extension <folder>
@@ -234,7 +234,10 @@ for `fast_helpers`,
 it has no edit and its setting chooses which source two SDK units compile from.
 So it cannot be written into an existing image (`settings apply` refuses it;
 `settings show` reports whether an image was built with it, except for
-`fast_helpers`, which no image site shows), and browser kits do not offer it.
+`fast_helpers`, which no image site shows). The builder offers every build
+capability but those that change every machine's generated code (`"adapters":
+true`, `idle`), which a kit leaves out of its extensions
+([builder](builder.md#capabilities)).
 Off, every one of its sites stays stock and the SDK units of its service are not
 linked (`load_governor` and `pitch_constants` have none). `fast_helpers` has no site and no unit of its
 own: its two units, `divide` and `memory`, are linked in every native build, off
@@ -304,7 +307,11 @@ least one has no `choices` and differs from stock: that edit tells the builder a
 `sdk.py settings` from an image whether the capability is on, even when a setting's
 bytes equal stock's. Each capability also brings an audit module (like
 [`tooling/release_floor.py`](../tooling/release_floor.py)) that checks its sites and
-encodings, called from `configuration()` in `tooling/native.py`.
+encodings, called from `configuration()` in `tooling/native.py`. A build capability
+whose service changes the code generated for every machine (as `idle` changes the
+voice and effect adapters) says so with `"adapters": true`: a test compares every
+fixture machine's generated sources with and without each build capability against
+that mark, and browser kits leave such a capability out ([builder](builder.md#capabilities)).
 
 **Add an action** with a registry entry (and its `requires`, if one claim must
 grant it), a bit in

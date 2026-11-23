@@ -1,8 +1,10 @@
 """The browser builder export (`sdk.py kit`) run end to end: the native package, the kit's objects and
 fallbacks, the subset check against GNU ld (tools/check_browser_kit.mjs) and the builder page: without it a
 broken export could pass every other test, since none runs it past its refusals."""
+import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -17,20 +19,61 @@ def stock_os():
     return Path(path) if path and Path(path).is_file() else None
 
 
+# Links the kit's whole collection as the builder does, numbered with a native package's layout, with the
+# extensions and settings given, and writes the module and the firmware (profiling on, as sdk.py build's).
+LINK = '''
+import {readFileSync, writeFileSync} from 'node:fs';
+import {openKit, linkKit, patchFirmware, readLayout} from './builder/core.mjs';
+const [kitFile, stockFile, layoutFile, extensions, settings, out] = process.argv.slice(1);
+const kit = await openKit(JSON.parse(readFileSync(kitFile, 'utf8')));
+const numbers = readLayout(kit, JSON.parse(readFileSync(layoutFile, 'utf8'))).machines;
+const linked = linkKit(kit, kit.machines.map(m => m.id), numbers, JSON.parse(extensions), JSON.parse(settings));
+writeFileSync(out + '.bin', linked.module);
+writeFileSync(out + '.ldr', await patchFirmware(kit, linked, new Uint8Array(readFileSync(stockFile)),
+  {settings: JSON.parse(settings)}));
+'''
+
+
 @unittest.skipUnless(toolchain() and stock_os(), 'needs the pinned Blackfin tools (OPXY_TEST_COMPILER) and the '
                                                  'stock OS (OPXY_TEST_STOCK_OS)')
 class BrowserKitExport(unittest.TestCase):
-    def export(self, *machines):
-        with tempfile.TemporaryDirectory(prefix='kit-export-') as work:
-            out = Path(work) / 'kit'
-            command = [sys.executable, str(ROOT / 'sdk.py'), 'kit', '--personal', '--stock-os', str(stock_os()),
-                       '--out', str(out), '--toolchain', str(toolchain() / 'bin'), '--compiler', str(toolchain()),
-                       '--host-cxx', os.environ.get('OPXY_TEST_HOST_CXX', 'g++'),
-                       *(a for m in machines for a in ('--machine', str(m)))]
-            result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
-            self.assertTrue((out / 'opxy-builder.html').is_file(), 'no builder page written')
-            self.assertTrue((out / 'kit.json').is_file())
+    def work(self):
+        folder = Path(tempfile.mkdtemp(prefix='kit-export-'))
+        self.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+        return folder
+
+    def export(self, *machines, extensions=()):
+        out = self.work() / 'kit'
+        command = [sys.executable, str(ROOT / 'sdk.py'), 'kit', '--personal', '--stock-os', str(stock_os()),
+                   '--out', str(out), '--toolchain', str(toolchain() / 'bin'), '--compiler', str(toolchain()),
+                   '--host-cxx', os.environ.get('OPXY_TEST_HOST_CXX', 'g++'),
+                   *(a for m in machines for a in ('--machine', str(m))),
+                   *(a for e in extensions for a in ('--extension', str(e)))]
+        result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
+        self.assertTrue((out / 'opxy-builder.html').is_file(), 'no builder page written')
+        self.assertTrue((out / 'kit.json').is_file())
+        return out
+
+    def build(self, *machines, extensions=()):
+        """sdk.py build of these folders, as the kit's own native build is made: profiling on, no sweep."""
+        out = self.work() / 'build'
+        command = [sys.executable, str(ROOT / 'sdk.py'), 'build', '--stock-os', str(stock_os()), '--out', str(out),
+                   '--toolchain', str(toolchain() / 'bin'), '--compiler', str(toolchain()), '--sweep', 'off',
+                   *(a for m in machines for a in ('--machine', str(m))),
+                   *(a for e in extensions for a in ('--extension', str(e)))]
+        result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
+        return out
+
+    def link(self, kit, package, extensions, settings):
+        """The builder's module and OS for the kit's collection, numbered as `package` numbers it."""
+        out = self.work() / 'site'
+        result = subprocess.run(['node', '--input-type=module', '-e', LINK, str(kit / 'kit.json'), str(stock_os()),
+                                 str(package / 'layout.json'), json.dumps(extensions), json.dumps(settings), str(out)],
+                                cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        return out.with_suffix('.bin').read_bytes(), out.with_suffix('.ldr').read_bytes()
 
     def test_a_public_kit_collection_exports(self):
         with tempfile.TemporaryDirectory(prefix='kit-src-') as folder:
@@ -46,6 +89,47 @@ class BrowserKitExport(unittest.TestCase):
             player = Path(folder) / 'probeplayer'
             player_folder(player)
             self.export(FIXTURES / 'probepads', FIXTURES / 'probekit25', FIXTURES / 'probekit21', player)
+
+    def test_the_cpu_extension_on_the_site_is_sdk_py_build_without_idle(self):
+        # The SDK's cpu extension in a kit: everything but idle, which changes every machine's generated code.
+        # The export's own checks link every checked selection with and without it, and with fast_helpers at
+        # 1, against GNU ld, and the whole collection with it against the kit's native package.
+        machines = (FIXTURES / 'probesynth', FIXTURES / 'probefx')
+        cpu = ROOT / 'extensions/cpu'
+        kit_dir = self.export(*machines, extensions=[cpu])
+        kit = json.loads((kit_dir / 'kit.json').read_text(encoding='utf-8'))
+        declared = json.loads((cpu / 'extension.json').read_text(encoding='utf-8'))['capabilities']
+        entry = next(e for e in kit['extensions'] if e['id'] == 'cpu')
+        self.assertEqual((entry['capabilities'], entry['withheld'], entry['origin']),
+                         ([c for c in declared if c != 'idle'], ['idle'], 'official'))
+        self.assertEqual(sorted(o.get('service') for o in kit['objects'] if o.get('service') in
+                                ('idle', 'block_trims', 'output_slack')),
+                         ['block_trims'] * 2 + ['output_slack'] * 4)
+        self.assertEqual({c: sorted(o['name'] for o in v['1']) for c, v in kit['unitSources'].items()},
+                         {'fast_helpers': ['sdk/divide.o', 'sdk/memory.o']})
+        manifest = json.loads((kit_dir / 'source/manifest.json').read_text(encoding='utf-8'))
+        self.assertIn({'extension': str(cpu.resolve()), 'without': ['idle']}, manifest['collection'])
+
+        # Without the extension: the same OS as sdk.py build of the machines alone, so a kit that offers
+        # cpu costs a build that leaves it out nothing.
+        plain = self.build(*machines)
+        module, firmware = self.link(kit_dir, plain, [], {})
+        self.assertEqual(module, (plain / 'analysis/module.bin').read_bytes())
+        self.assertEqual(firmware, (plain / 'candidate/os.ldr').read_bytes())
+
+        # With it and fast_helpers at 1: the same OS as sdk.py build with a settings extension naming
+        # cpu's capabilities but idle, at that setting.
+        settings = self.work() / 'cpu-without-idle'
+        settings.mkdir()
+        (settings / 'extension.json').write_text(json.dumps({
+            'id': 'cpu', 'name': 'CPU without idle', 'description': 'Test: cpu without idle, fast helpers on.',
+            'claims': [], 'actions': [], 'capabilities': [c for c in declared if c != 'idle'],
+            'settings': {'fast_helpers': 1}}), encoding='utf-8')
+        fast = self.build(*machines, extensions=[settings])
+        self.assertIn('unit_sources', json.loads((fast / 'analysis/compile-report.json').read_text(encoding='utf-8')))
+        module, firmware = self.link(kit_dir, fast, ['cpu'], {'fast_helpers': 1})
+        self.assertEqual(module, (fast / 'analysis/module.bin').read_bytes())
+        self.assertEqual(firmware, (fast / 'candidate/os.ldr').read_bytes())
 
 
 if __name__ == '__main__':
