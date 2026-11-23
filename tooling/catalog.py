@@ -55,7 +55,7 @@ MAINTAINER = r'[A-Za-z0-9-]{1,39}'
 # ID. Maintainers keep this list; a catalog entry has no field to claim it, and
 # who hosts the repository does not decide it.
 OFFICIAL = ('fm2op', 'macroosc', 'karplus', 'timestretch', 'ringmod', 'pingpong', 'chords')
-OFFICIAL_EXTENSIONS = ('capture',)
+OFFICIAL_EXTENSIONS = ('capture', 'long_samples')
 
 
 def official(entry):
