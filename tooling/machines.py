@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import (DRUM_KIT_CONTROLS, EXTENDED_SDK, KIT_CONTROLS_SDK, extended_display, ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
+from .definitions import (DRUM_KIT_CONTROLS, EXTENDED_SCREENS_SDK, EXTENDED_SDK, KIT_CONTROLS_SDK, extended_display, ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
@@ -85,7 +85,10 @@ IDLE_SDK = (1, 22)
 # State and Controls each GUI frame, as a synth draws its screen. PLAYER_DRAWING_SDK is
 # the one place to renumber it, with the "SDK 1.24" text of docs/api.md and docs/display.md.
 PLAYER_DRAWING_SDK = (1, 24)
-SDK_VERSION = (1, 24)
+# 1.26 extends extended drawing to a drum kit's screen, with a whole-screen kit whose
+# header shows only while Shift is held, and to a note player's own page
+# (EXTENDED_SCREENS_SDK in definitions.py).
+SDK_VERSION = (1, 26)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -629,6 +632,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 7), 'More than %d display text slots' % SDK_1_6_TEXTS)
     if 'display' in definition['resources'] and extended_display(definition['resources']['display']):
         require_sdk(version, EXTENDED_SDK, 'Extended drawing (docs/display.md#extended-drawing)')
+        if kind in ('drum', 'player'):
+            require_sdk(version, EXTENDED_SCREENS_SDK, "Extended drawing on a drum kit's screen or a note player's page")
     if definition['resources'].get('display', {}).get('nodes', 0) > SDK_1_7_NODES:
         require_sdk(version, (1, 8), 'More than %d display nodes' % SDK_1_7_NODES)
     require(definition['id'] == identity, 'Machine directory and definition identity disagree')

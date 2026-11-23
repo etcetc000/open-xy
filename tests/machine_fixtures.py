@@ -11,6 +11,9 @@ no machines of its own; these are small, valid folders, not copies of published 
   played-pad snapshot build them.
 - probekit23: probekit21 declaring SDK 1.23 and the drum-kit controls (padVolume, padRandom,
   ampEnvelope, with chokeSameKey); its screen reads the selected key and the Shift choices.
+- probekitcanvas: probekit23 declaring SDK 1.26 with an extended whole-screen display, whose
+  header shows only while Shift is held; not in NAMES.
+- probeplayer: a note player whose own page uses extended drawing (SDK 1.26); not in NAMES.
 - voiceheap: a sine with a long echo whose voices are too large for module memory
   (SDK 1.19 heap voices); not in NAMES.
 """

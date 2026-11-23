@@ -53,9 +53,29 @@ def page_header(identity, first_node):
 CANVAS = b'<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220"></svg>'
 
 
-def compose(fragment, full_canvas=False):
+def kit_header(data):
+    """The template's header as a whole-screen drum kit's screen carries it, over the kit's
+    drawing (extended_drawing.hpp CanvasKitHeader shows it only while Shift is held): the bar's
+    eight blocks as paths bar_0..bar_7, which the renderer can hide, in the same place and
+    paint, then the template's values and titles groups as they are."""
+    root = ET.fromstring(data)
+    bar = next(n for n in root if n.get('id') == 'bar')
+    blocks = []
+    for i, block in enumerate(bar):
+        x, width, height = (int(block.get(key, '0')) for key in ('x', 'width', 'height'))
+        blocks.append(f'<path id="bar_{i}" d="M{x} 0H{x + width}V{height}H{x}Z" fill="{block.get("fill")}"/>')
+    start, end = data.index(b'<g id="values">'), data.rindex(b'</svg>')
+    require(len(blocks) == 8 and all(block.tag == NS + 'rect' for block in bar), 'Unexpected screen template header')
+    return ('<g id="bar">' + ''.join(blocks) + '</g>\n  ').encode('ascii') + data[start:end]
+
+
+def compose(fragment, full_canvas=False, kit=False):
+    """A machine's display file: the template's header, then the machine's artwork; with
+    full_canvas the artwork alone on a bare canvas, and for a drum kit (kit) the header's
+    bar, values and titles after it (kit_header)."""
     data = template()  # authenticated even when the canvas leaves it out
-    data = (CANVAS if full_canvas else data).replace(b'</svg>', fragment + b'</svg>')
+    header = kit_header(data) if full_canvas and kit else b''
+    data = (CANVAS if full_canvas else data).replace(b'</svg>', fragment + header + b'</svg>')
     root = ET.fromstring(data)
     ids = [n.attrib['id'] for n in root.iter() if 'id' in n.attrib]
     require(len(ids) == len(set(ids)), 'Duplicate SVG binding IDs')

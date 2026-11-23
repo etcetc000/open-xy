@@ -1,7 +1,8 @@
-"""The extended-drawing fixtures (tests/fixtures/machines/probecanvas, probecurves, probelarge):
-counted, open, segment, quadratic and cubic paths, RGBA and palette nodes, encoder activity on a
-synth and an effect, and the last control touched. Release verification builds them for the device,
-so the extended renderer and the control capture keep compiling and linking there."""
+"""The extended-drawing fixtures (tests/fixtures/machines/probecanvas, probecurves, probelarge,
+probekitcanvas, probeplayer): counted, open, segment, quadratic and cubic paths, RGBA and palette
+nodes, encoder activity on a synth, an effect, a drum kit and a note player, a whole-screen kit, and
+the last control touched. Release verification builds them for the device, so the extended renderer,
+the player's page and the control capture keep compiling and linking there."""
 import os
 from pathlib import Path
 import shutil
@@ -15,7 +16,9 @@ from tooling.pipeline import ROOT
 from machine_fixtures import FOLDER, fixture
 from test_divide import blackfin_compiler
 
-EXTENDED = ('probecanvas', 'probecurves', 'probelarge')
+EXTENDED = ('probecanvas', 'probecurves', 'probelarge', 'probekitcanvas', 'probeplayer')
+# The unit each draws in: a player's page is in its one unit.
+SCREEN_UNIT = dict(probeplayer='player_object.o')
 HIDDEN = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
 
 
@@ -29,18 +32,26 @@ class ExtendedFixtures(unittest.TestCase):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as temp:
                 self.assertTrue(extended_display(display))
                 native.validate_panel(m)
+                if m.kind == 'player':
+                    unit = adapters.generate_player_object(Path(temp), m).read_text(encoding='utf-8')
+                    self.assertIn('ExtendedRetained', unit)
+                    continue
                 adapters.generate_display(Path(temp), machine=m)
                 binding = (Path(temp) / 'display_binding.hpp').read_text(encoding='utf-8')
                 self.assertIn('ExtendedFrame', binding)
                 screen = adapters.generate_screen(Path(temp), m).read_text(encoding='utf-8')
                 self.assertIn('extended_drawing', screen)
-        self.assertEqual(kinds, dict(probecanvas='synth', probecurves='effect', probelarge='synth'))
+        self.assertEqual(kinds, dict(probecanvas='synth', probecurves='effect', probelarge='synth',
+                                     probekitcanvas='drum', probeplayer='player'))
         # Between them: every path kind the renderer retains, both node kinds, and both inputs.
         displays = {name: fixture(name).definition['resources']['display'] for name in EXTENDED}
         self.assertTrue(displays['probecanvas']['countedPaths'] and displays['probecanvas']['openPaths']
                         and displays['probecanvas']['segmentPaths'] and displays['probecanvas']['rgba'])
         self.assertTrue(displays['probecurves']['quadratic'] and displays['probecurves']['encoderActivity'])
         self.assertTrue(displays['probelarge']['cubic'] and not displays['probelarge'].get('affine'))
+        self.assertTrue(displays['probekitcanvas']['fullCanvas'] and displays['probekitcanvas']['encoderActivity'])
+        self.assertTrue(displays['probeplayer']['cubic'] and displays['probeplayer']['rgba']
+                        and displays['probeplayer']['encoderActivity'] and not displays['probeplayer'].get('fullCanvas'))
         self.assertTrue(native.includes_header([fixture('probecanvas')], 'control_interaction'))
 
     @unittest.skipUnless(shutil.which('clang++'), 'WASM compiler required')
@@ -65,7 +76,7 @@ class ExtendedFixtures(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout[-4000:] + result.stderr[-4000:])
             for name in EXTENDED:
                 self.assertIn(f'"{name}"', result.stdout)
-                self.assertTrue((Path(temp) / 'package/analysis' / name / 'screen.o').is_file(), name)
+                self.assertTrue((Path(temp) / 'package/analysis' / name / SCREEN_UNIT.get(name, 'screen.o')).is_file(), name)
 
 
 if __name__ == '__main__':

@@ -1291,7 +1291,8 @@ def prepare_assets(catalog, profile, machines):
     for m in machines:
         if m.display != 'stock':
             outputs[f'content/display/{m.native_name}.svg'] = screen.compose(
-                page_artwork(m), full_canvas=bool(m.definition['resources'].get('display', {}).get('fullCanvas')))
+                page_artwork(m), full_canvas=bool(m.definition['resources'].get('display', {}).get('fullCanvas')),
+                kit=m.kind == 'drum')
         for path, preset in preset_files(m).items():
             outputs[path] = (json.dumps(preset, indent=2) + '\n').encode('utf-8')
         # A sample engine's own samples (SDK 1.10), installed as they are.

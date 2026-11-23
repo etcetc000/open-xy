@@ -783,10 +783,11 @@ audio side but the silenced CV output.
 
 SDK 1.8 adds `"kind": "drum"`: one registered instrument with independent
 model selection and sound controls on 24 keys. It supplies the synth
-lifecycle, a drawing display, and the same resources plus `modelCount`
-(2..64). Each key holds a model and eight 7-bit controls. A kit of more than
-16 models stores them in a prefix code, which holds at most 15 models that use
-all eight controls (`parameter_count` 8); `sdk.py test --machine` counts them
+lifecycle, a drawing display (from SDK 1.26 an [extended](display.md#extended-drawing)
+one, which may [take the whole screen](display.md#a-whole-screen-drum-kit)), and the
+same resources plus `modelCount` (2..64). Each key holds a model and eight 7-bit
+controls. A kit of more than 16 models stores them in a prefix code, which
+holds at most 15 models that use all eight controls (`parameter_count` 8); `sdk.py test --machine` counts them
 and fails a kit with more; on the device such a kit's keys play their defaults
 and turn nothing. The definition declares
 the eight controls: slots 0..3 on the four encoders and slots 4..7 their
@@ -1675,7 +1676,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.24 and builds 1.0 to 1.24 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.26 and builds 1.0 to 1.26 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
@@ -1934,9 +1935,9 @@ octaves. Hidden nodes move beyond the display.
 
 A player may instead draw its page as a synth draws its screen: declare
 `"resources": {"display": {...}}` with the [display fields](display.md#declaration)
-(plain drawing; the [extended](display.md#extended-drawing) keys are for synths and
-effects), `"sdk": "1.24"`, and supply `display.h` (the `DisplayState` and `Frame`
-types, as a synth's) and `display.cpp`:
+(from SDK 1.26 also the [extended](display.md#extended-drawing) keys), `"sdk": "1.24"`
+(`"1.26"` for an extended display), and supply `display.h` (the `DisplayState` and
+`Frame` types, as a synth's) and `display.cpp`:
 
 ```cpp
 void display_reset(DisplayState&);
@@ -1956,14 +1957,16 @@ player's second page, `line` 1 there), `elapsed`, `track`, the track's
 [amp envelope](display.md#amp-envelope-sdk-110), and `shift` as `Controls.shift`;
 the shift row's values and turns are in `Controls`. `reduced_motion` is 0, the
 drum fields 0. The display resets when its page is shown again or the track
-changes, as a synth's does.
+changes, as a synth's does. With `encoderActivity` the input is
+`draw::EncoderInput`, which `display` takes in place of `draw::Input`.
 
 A one-page player keeps the stock header: its labels, and each value the frame's
 `header` caption or else the amount 0..100. A paged player draws the
 [two-page header](display.md#two-page-header) itself, in its own frame and
-artwork, as a paged synth does; the SDK adds none. `sdk.py test` checks the
-artwork against the declared display and runs the display on the host with
-`player.cpp` over a held key's frames, refusing invalid ones.
+artwork, as a paged synth does; the SDK adds none. A `fullCanvas` page has no
+header. `sdk.py test` checks the artwork against the declared display and runs
+the display on the host with `player.cpp` over a held key's frames, refusing
+invalid ones; it also builds the page's browser preview, which the builder shows.
 
 Not yet run on a device: the renderer is the dot page's registration and
 compositor path with the synth renderer's frame application, compiled into the

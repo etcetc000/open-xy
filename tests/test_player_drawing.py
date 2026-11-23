@@ -100,10 +100,12 @@ class PlayerDrawnPage(unittest.TestCase):
         self.assertIn('opxy::screen::PlayerPage<Page>', text)
         self.assertNotIn('display.cpp', text)
 
-    def test_only_plain_drawing(self):
+    def test_extended_drawing_from_sdk_1_26(self):
         self.write_definition(display=dict(DISPLAY, affine=1))
-        with self.assertRaisesRegex(ValueError, 'Extended drawing is for synth and effect screens'):
+        with self.assertRaisesRegex(ValueError, r"Extended drawing on a drum kit's screen or a note player's page.*1\.26"):
             machine_at(self.root)
+        self.write_machine('1.26')
+        self.assertEqual(self.machine().display, 'drawing')
 
     def test_generated_unit_draws_with_state(self):
         m = self.machine()

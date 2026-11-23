@@ -33,21 +33,16 @@ def input_fill(text):
 
 # What the extended renderer does differently, and why:
 PLAIN_ONLY = {
-    'input.selected_key = Machine::selected_key && controls.pad >= 53 && controls.pad < 77 ? '
-    'static_cast<u8>(controls.pad - 53) : 0',
     # A sample engine's screen reads its sample; sample engines have no extended screen.
     'if (Machine::sample) sdk_sample_overview_update(controls.track)',
-    # A kit's selected pad and played-pad snapshot never apply to a synth's or an effect's screen,
+    # A kit before SDK 1.21 is struck by its selected pad only; an extended kit declares 1.26,
     # whose serial is the track's (track_note_serial, as the extended renderer's own line).
     'if (Machine::selected_pad)',
     'input.note_serial = selected_pad_serial(controls)',
     'else',
     'input.note_serial = track_note_serial(controls)',
-    'if (Machine::played_pad) played_pad_snapshot(controls, input.note_serial, input)',
 }
 EXTENDED_ONLY = {
-    # A kit's selected key (SDK 1.23); extended screens are synths' and effects', which read 0.
-    'input.selected_key = 0',
     'input.note_serial = controls.track < 8 ? note_serial(controls.track) : 0',
     # The encoder record follows the input (encoderActivity).
     'binding::snapshot_encoders(input)',

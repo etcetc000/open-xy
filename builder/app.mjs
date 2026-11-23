@@ -420,6 +420,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     if (m.preview) {
       $('art-caption').textContent = m.preview.kit
         ? 'Play the kit’s keys: each plays its own machine, one hit at a time, and shows it on the screen. The OP–XY’s own effects aren’t included.'
+        : m.preview.player ? 'Play keys to see the player’s page. The preview plays no sound.'
         : 'Audition the sound and screen. The OP–XY’s own envelopes and effects aren’t included.';
     } else {
       $('art-preview').append(node('span', 'No browser preview for this machine yet.', 'art-placeholder'));
@@ -456,6 +457,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         // A drum kit (SDK kits): each key keeps its own model and controls, set up as the kit's
         // drum_defaults sets them; pressing a key selects it, as on the device. Controls are 0..127.
         const kit = m.preview.kit, keys = new Map();
+        // A note player's page (SDK 1.24): its keys run the player itself; nothing sounds.
+        const player = m.preview.player === true;
         let selected = null, names = null;
         const selectKey = key => {
           if (!keys.has(key)) keys.set(key, core.kitKey(display.api, kit, key));
@@ -463,7 +466,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           parameters.splice(0, 8, ...selected.controls.map(core.kitWord));
         };
         if (kit) selectKey(53);
-        let serial = 0, previous = 0, handle, cancelled = false;
+        let serial = 0, previous = 0, handle, cancelled = false, steps = 0;
         const noteActivity = new retained.NoteActivity();
         // A small keyboard from middle C: a key plays its note while held. The preview plays
         // one note at a time, the newest held key; letting it go returns to the one before.
@@ -478,13 +481,16 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           const press = () => {
             if (key.dataset.down === 'true') return;
             if (kit && selected.key !== note) chooseKey(note);
-            key.dataset.down = 'true'; held.push(note); noteActivity.noteOn(note); trigger(); audio.play(note);
+            key.dataset.down = 'true'; held.push(note); noteActivity.noteOn(note);
+            if (player) display.api.opxy_player_press(note, 100);
+            trigger(); audio.play(note);
           };
           const lift = () => {
             if (key.dataset.down !== 'true') return;
             key.dataset.down = 'false';
             const sounding = held.at(-1) === note;
             held.splice(held.indexOf(note), 1);
+            if (player) display.api.opxy_player_release(note);
             noteActivity.noteOff(note); frame(0);
             // A kit's hit plays out, as a kit's voices on the device ignore the key's release.
             if (kit) return;
@@ -501,7 +507,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         const volume = node('label', 'Volume', 'audition-volume'), level = node('input');
         level.type = 'range'; level.min = '0'; level.max = '100'; level.value = '50'; level.setAttribute('aria-label', 'Preview volume');
         volume.append(level);
-        const audio = new audition(compiled, voiceWords(), (playing, error) => {
+        const silent = {play() {}, release() {}, stop() {}, destroy() {}, setVolume() {}, setParameters() {}, setModel() {}};
+        const audio = player ? silent : new audition(compiled, voiceWords(), (playing, error) => {
           if (!cancelled) frame(0);
           if (error && ticket === previewRevision) $('art-caption').textContent = 'Audio unavailable: ' + error;
         });
@@ -524,15 +531,23 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           };
         }
         stopAudio = () => {
+          // A player lets go of every key it holds, as the device's keys would.
+          if (player) for (const note of held) display.api.opxy_player_release(note);
           held.length = 0;
           for (const key of keyboard.children) key.dataset.down = 'false';
           noteActivity.panic(); frame(0); audio.stop();
         };
         level.oninput = () => audio.setVolume(Number(level.value) / 100);
         $('audition-controls').classList.toggle('kit', Boolean(kit));
-        $('audition-controls').append(keyboard, ...(kit ? [model] : []), volume);
+        $('audition-controls').append(keyboard, ...(kit ? [model] : []), ...(player ? [] : [volume]));
         const reduced = matchMedia('(prefers-reduced-motion: reduce)');
         function frame(dt = 34) {
+          // A player's steps since the last frame, at 480 a second as sdk.py test runs them; the
+          // fraction carries to the next frame. With reduced motion only key presses draw.
+          if (player) {
+            steps = Math.min(64, steps + dt * 480 / 1024);
+            for (; steps >= 1; --steps) display.api.opxy_player_step();
+          }
           const input = shownControls(parameters, shown);
           // The preview is one track: a changing track would tell the machine to start over.
           const row = shiftWords.length ? [0, 0, [0, 0, 0, 0], null, {pan:0, level:0}, 0,
@@ -541,8 +556,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           const drum = kit ? [selected.model, 0, core.kitChoices(kit, selected.model, selected.choke), null, core.kitMix(kit),
             shown.some(slot => slot >= 4) ? 1 : 0, null, null, null, core.kitSelectedKey(kit, selected.key)] : [];
           renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity, ...row, ...drum));
-          // A whole-screen canvas has no header.
-          if (renderer.fullCanvas) { header.innerHTML = ''; return; }
+          // A whole-screen canvas has no header, nor a paged player's page, which draws its own.
+          if (renderer.fullCanvas || player && m.pages) { header.innerHTML = ''; return; }
           // The machine's header text, or the stock header: a synth's percentage of the shown
           // parameter, a kit's model's label and 0..127 value.
           const [titles, values] = kit ? core.kitHeader(names, selected.controls, shown)

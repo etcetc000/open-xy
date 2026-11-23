@@ -91,6 +91,25 @@ test('full-canvas effect assets match native composition without synth preview m
   await assert.rejects(buildAssets(kit, ['probefx'], catalog, numbers), /full canvas/);
 });
 
+test("a whole-screen drum kit's display file carries the header after its drawing, as native composition", async () => {
+  // tooling.screen.compose(fragment, full_canvas=True, kit=True); test_extended_screens checks the header itself.
+  const drum = {...machines[0], id:'probekit', kind:'drum', catalog:entry('probekit', [0, 0, 0, 0, 0, 0, 0, 0]),
+    artwork:'<g id="probekit_panel"/>', asset:'probekit.svg', fullCanvas:1};
+  const {kit, catalog} = await fixture([drum]);
+  kit.screenTemplate = read('sdk/platform/opxy-1.2.1/screen.svg');
+  kit.profile.screen_template_sha256 = JSON.parse(read('profiles/opxy-1.2.1.json')).screen_template_sha256;
+  const svg = new TextDecoder().decode((await buildAssets(kit, ['probekit'], catalog, numbers))['content/display/probekit.svg']);
+  const values = kit.screenTemplate.indexOf('<g id="values">');
+  assert.equal(svg, '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220"><g id="probekit_panel"/>' +
+    '<g id="bar">' + Array.from({length:8}, (_, i) => `<path id="bar_${i}" d="M${60 * i} 0H${60 * i + 60}V20H${60 * i}Z" fill="` +
+      ['#000000', '#323232', '#4B4B4B', '#646464', '#7D7D7D', '#969696', '#AFAFAF', '#CDCDCD'][i] + '"/>').join('') + '</g>\n  ' +
+    kit.screenTemplate.slice(values, kit.screenTemplate.lastIndexOf('</svg>')) + '</svg>');
+  // Without fullCanvas a kit's file is the template's, as any machine's.
+  drum.fullCanvas = 0;
+  assert.equal(new TextDecoder().decode((await buildAssets(kit, ['probekit'], catalog, numbers))['content/display/probekit.svg']),
+    kit.screenTemplate.replace('</svg>', '<g id="probekit_panel"/></svg>'));
+});
+
 test("a machine's own presets install beside its init preset, unchanged", async () => {
   const synth = {...machines[0], presets: {'warm-pad': own(), bass_2: own({octave: -1})}};
   const {kit, catalog} = await fixture([synth, ...machines.slice(1)]);

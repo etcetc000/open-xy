@@ -1,6 +1,7 @@
 // A note player's own drawn page (SDK 1.24): the player declares a display
 // (resources.display) and draws its page as a synth draws its screen, a
-// draw::Frame each GUI frame, here from its State and Controls, in place of the
+// draw::Frame (from SDK 1.26 an extended one, which an extended renderer applies,
+// extended_retained.hpp) each GUI frame, here from its State and Controls, in place of the
 // SDK's dot page (screen_player.hpp). It paints in place of the stock Maestro
 // page while the selected track plays the player (players.cpp). Include once,
 // from the player's generated unit (player_drawing.cpp.in).
@@ -14,15 +15,18 @@
 extern "C" opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
 
 namespace opxy { namespace screen { namespace {
-// Machine: Frame and DisplayState, the display's types; ids[] names its nodes,
-// text slots and palette entries (native.display_ids); titles[8] its lowercase
-// labels; paged whether a press switches between its two pages; vtable() its
-// player method table; reset(state, frame) and render(object, state, controls,
-// input, frame), which call the player's display_reset and display.
+// Machine: Frame, DisplayState and Input, the display's types; Retained the
+// renderer of its frame; ids[] names its nodes, text slots and palette entries
+// (native.display_ids); titles[8] its lowercase labels; paged whether a press
+// switches between its two pages; full_canvas whether it owns the whole screen,
+// without the stock header; vtable() its player method table; bind(object), which
+// binds its artwork to the renderer; reset(state, frame),
+// snapshot(input), which fills what an extended input appends, and render(object,
+// state, controls, input, frame), which call the player's display_reset and display.
 template <class Machine> struct PlayerDrawing {
     typedef typename Machine::Frame Frame;
     typedef typename Machine::DisplayState DisplayState;
-    typedef RetainedDrawing<Frame> Renderer;
+    typedef typename Machine::Retained Renderer;
     typedef typename Renderer::Object Object;
     static_assert(sizeof(Machine::ids) / sizeof(Machine::ids[0]) ==
                   Frame::node_count + Frame::text_count + Frame::palette_count, "Drawing artwork IDs");
@@ -31,7 +35,7 @@ template <class Machine> struct PlayerDrawing {
     // touched by note callbacks, which own State.
     struct Shared {
         DisplayState state;
-        draw::Input input;
+        typename Machine::Input input;
         Frame frame;
         u32 activation;
         u32 track;      // the track whose header titles are shown, + 1; 0 before the first
@@ -50,8 +54,8 @@ template <class Machine> struct PlayerDrawing {
         shared.activation = 0;
         reset();
         if (!o->base.svg) return;
-        bind_controls(&o->base);
-        Renderer::bind(o, Machine::ids);
+        if (!Machine::full_canvas) bind_controls(&o->base);
+        Machine::bind(o);
     }
 
     // The input a synth's display gets, from the player: its eight controls as the
@@ -84,9 +88,10 @@ template <class Machine> struct PlayerDrawing {
 
     // A one-page player keeps the stock header: its labels, and each value the
     // frame's header caption or else the amount 0..100, as a synth's. A paged
-    // player draws the two-page header in its own frame (opxy/page_header.hpp).
+    // player draws the two-page header in its own frame (opxy/page_header.hpp),
+    // and a whole-screen one has none.
     static void header(Object* o, const draw::Input& input) {
-        if (Machine::paged) return;
+        if (Machine::paged || Machine::full_canvas) return;
         if (shared.track != input.track + 1) {
             for (u32 i = 0; i < page_controls; ++i)
                 if (Leaf* title = text_node(o->base.titles[i])) set_text(title, Machine::titles[i]);
@@ -124,6 +129,7 @@ template <class Machine> struct PlayerDrawing {
             }
             const player::Controls controls = Machine::controls(object);
             fill(shared.input, controls, track, elapsed);
+            Machine::snapshot(shared.input);
             Machine::render(object, shared.state, controls, shared.input, shared.frame);
             if (draw::valid(shared.frame)) {
                 Renderer::apply(o, shared.frame);

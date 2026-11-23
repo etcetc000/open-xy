@@ -549,6 +549,21 @@ resolved on the loaded kit. Only the screen of a kit declaring SDK 1.21 or later
 (`drum_trigger.cpp`) is the `played_pad` service's, which a build links only
 with such a kit.
 
+A drum kit's [extended](display.md#extended-drawing) screen (SDK 1.26) is drawn by
+the extended renderer
+([`extended_drawing.hpp`](../sdk/platform/opxy-1.2.1/extended_drawing.hpp)) with the
+same kit input as the plain one, from the same calls
+([`kit_screen.hpp`](../sdk/platform/opxy-1.2.1/kit_screen.hpp)). A whole-screen
+kit's display file carries the template's header after the kit's drawing, its
+bar as eight paths `bar_0`..`bar_7`; stock's control binder `8d521704` finds its
+values and titles as on any kit's page. While Shift is not held, the renderer
+clears each bar path's visibility byte (+92, which stock's path draw reads, as
+for an extended display's hidden node) and blanks the eight texts each frame
+after the kit's page has written them. A note player's extended page applies
+its frame with the same renderer
+([`extended_retained.hpp`](../sdk/platform/opxy-1.2.1/extended_retained.hpp)) in
+the player's own unit. Neither adds an edit.
+
 Stock paints the screen slots in ascending page order each frame, so page
 numbers are layers. The compositor's loop advance is hooked: when the selected
 page is an owned synth's, it is painted right after slot 0, beneath stock

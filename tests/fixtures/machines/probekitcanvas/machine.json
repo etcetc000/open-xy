@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "sdk": "1.26",
+  "kind": "drum",
+  "description": "Test fixture: a whole-screen drum kit with extended drawing; its header shows while Shift is held."
+}
