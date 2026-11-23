@@ -228,14 +228,15 @@ machines. Every capability site must hold stock or reviewed bytes.
 A **build capability** (`"build": true` in the registry) is switched the same way,
 by a settings extension naming it, but only when the firmware is built
 (`sdk.py build`): its edits are hooks into SDK code its service links (or, for
-`load_governor`, fixed bytes the firmware profile marks as the build's; every
-fixed-byte edit of a build capability carries that mark), or, for `fast_helpers`,
+`load_governor` and `pitch_constants`, fixed bytes the firmware profile marks as
+the build's; every fixed-byte edit of a build capability carries that mark), or,
+for `fast_helpers`,
 it has no edit and its setting chooses which source two SDK units compile from.
 So it cannot be written into an existing image (`settings apply` refuses it;
 `settings show` reports whether an image was built with it, except for
 `fast_helpers`, which no image site shows), and browser kits do not offer it.
 Off, every one of its sites stays stock and the SDK units of its service are not
-linked (`load_governor` has none). `fast_helpers` has no site and no unit of its
+linked (`load_governor` and `pitch_constants` have none). `fast_helpers` has no site and no unit of its
 own: its two units, `divide` and `memory`, are linked in every native build, off
 (0, the default) from the plain `divide.s` and `memory.cpp` and on (1) from
 `divide_fast.s` and `memory_fast.cpp`, under the same object names. Each

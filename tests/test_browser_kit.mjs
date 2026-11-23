@@ -103,8 +103,9 @@ test('a kit refuses an extension naming a build capability (hooks into SDK code)
   // named after itself whose edits are hooks; it passes every other capability rule, so only the limit-only
   // rule refuses it. load_governor: a build capability of fixed-byte limit edits, each marked "build" in the
   // profile; only that mark refuses it. fast_helpers: a build capability with no edit at all (it chooses SDK
-  // units' sources); no fixed edit marks it on, so nothing could read it from an image.
-  for (const capability of ['idle', 'master_filter', 'load_governor', 'fast_helpers']) {
+  // units' sources); no fixed edit marks it on, so nothing could read it from an image. pitch_constants: as
+  // load_governor, two fixed-byte edits marked "build" (the cpu extension names it).
+  for (const capability of ['idle', 'master_filter', 'load_governor', 'fast_helpers', 'pitch_constants']) {
     k.extensions = [{...meta, id:'faster', capabilities:[capability]}];
     await assert.rejects(openKit(k), /Invalid extension capabilities/, capability);
   }

@@ -49,7 +49,8 @@ IGNORED = shutil.ignore_patterns('.git', 'node_modules', 'local', 'tests', 'docs
 
 
 # The CPU capabilities, in the order extensions/cpu names them.
-CPU_CAPABILITIES = ('boot_log_fix', 'idle', 'block_trims', 'output_slack', 'load_governor', 'fast_helpers')
+CPU_CAPABILITIES = ('boot_log_fix', 'idle', 'block_trims', 'output_slack', 'load_governor', 'pitch_constants',
+                    'fast_helpers')
 
 
 def cpu_capabilities(root):

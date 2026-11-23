@@ -337,7 +337,8 @@ class Extensions(unittest.TestCase):
         cpu = extension_at(ROOT / 'extensions' / 'cpu')
         self.assertEqual((cpu.id, cpu.text['name'], cpu.capabilities, cpu.linked, cpu.settings),
                          ('cpu', 'CPU (experimental)',
-                          ('boot_log_fix', 'idle', 'block_trims', 'output_slack', 'load_governor', 'fast_helpers'),
+                          ('boot_log_fix', 'idle', 'block_trims', 'output_slack', 'load_governor', 'pitch_constants',
+                           'fast_helpers'),
                           False, {'fast_helpers': 0}))
         for key in ('description', 'note'):
             self.assertIn('experimental', cpu.text[key].lower(), key)
@@ -349,13 +350,14 @@ class Extensions(unittest.TestCase):
             self.assertIn(words, cpu.text['description'])
         self.assertNotIn('release_floor', cpu.capabilities)
         services = active_services(config(), native.service_users(Machines(cpu)))
-        self.assertEqual(services, set(CPU) | {'boot_log_fix', 'load_governor', 'fast_helpers'})
+        self.assertEqual(services, set(CPU) | {'boot_log_fix', 'load_governor', 'pitch_constants', 'fast_helpers'})
 
     def test_a_collection_may_select_a_subset_with_its_own_extension(self):
         # A collection's own settings extension in place of cpu: only what it names is on.
         subset = extension_at(folder(self, ('boot_log_fix', 'idle', 'block_trims')))
         services = active_services(config(), native.service_users(Machines(subset)))
-        self.assertEqual(services & (set(CPU) | {'boot_log_fix', 'load_governor'}), {'boot_log_fix', 'idle', 'block_trims'})
+        self.assertEqual(services & (set(CPU) | {'boot_log_fix', 'load_governor', 'fast_helpers', 'pitch_constants'}),
+                         {'boot_log_fix', 'idle', 'block_trims'})
 
     def test_the_boot_log_fix_is_its_own_image_capability(self):
         # One data byte, fixed bytes: an image setting, separate from idle.
@@ -477,7 +479,7 @@ class StockAddresses(unittest.TestCase):
     @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Stock OS image not supplied')
     def test_every_edit_replaces_the_stock_image_bytes(self):
         data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
-        names = set(CPU) | {'boot_log_fix', 'load_governor'}
+        names = set(CPU) | {'boot_log_fix', 'load_governor', 'pitch_constants'}
         edits = [p for p in config()['patches'] if p.get('service') in names]
         self.assertGreaterEqual(len(edits), 10)
         for p in edits:
