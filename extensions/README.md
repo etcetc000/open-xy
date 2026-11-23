@@ -1,9 +1,9 @@
 # Settings extensions of this SDK
 
-`cpu` ("CPU (experimental)") names six of the CPU capabilities
+`cpu` ("CPU (experimental)") names the seven CPU capabilities
 ([docs/cpu-capabilities.md](../docs/cpu-capabilities.md)): `boot_log_fix`, `idle`,
-`block_trims`, `output_slack`, `load_governor` and `fast_helpers`, the last one off
-(setting 0). It is experimental, always.
+`block_trims`, `output_slack`, `load_governor`, `pitch_constants` and `fast_helpers`,
+the last one off (setting 0). It is experimental, always.
 Like every settings extension it holds only `extension.json`: the SDK owns every
 patch site, and the extension only names capabilities. Add it to a collection's
 `extensions` (`{"path": ".../extensions/cpu"}`) and build with `sdk.py build`.
@@ -32,11 +32,13 @@ A collection that wants them sets `"fast_helpers": 1` in its own copy of this
 extension.
 
 A collection that wants only some of the capabilities selects them with a settings
-extension of its own that names just those, in place of `cpu`. The same way, a
-collection opts in to `pitch_constants` (stock's note-to-pitch routine loads its two
-constants ready-made: about 600 cycles less a call in the simulator, one call a synth
-voice start), which `cpu` does not name. This is the SDK's
-only extension: others live in repositories of their own and reach the builder
-through `catalog/extensions.json`. `cpu` stays with the SDK because everything it
-names is SDK code chosen when the firmware is built, which the builder cannot
-offer.
+extension of its own that names just those, in place of `cpu`.
+
+`pitch_constants` is a plain switch like `load_governor`: stock's note-to-pitch routine
+loads its two constants ready-made (about 600 cycles less a call in the simulator, one
+call a synth voice start, with every result equal to stock's).
+
+This is the SDK's only extension: others live in repositories of their own and
+reach the builder through `catalog/extensions.json`. `cpu` stays with the SDK
+because everything it names is SDK code chosen when the firmware is built, which the
+builder cannot offer.

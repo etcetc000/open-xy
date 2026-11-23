@@ -48,9 +48,10 @@ FIXTURES = HERE / 'fixtures/machines'
 IGNORED = shutil.ignore_patterns('.git', 'node_modules', 'local', 'tests', 'docs', 'dist', '__pycache__')
 
 
-# The CPU capabilities, in the order extensions/cpu names them, then the opt-in ones it does not name.
-CPU_CAPABILITIES = ('boot_log_fix', 'idle', 'block_trims', 'output_slack', 'load_governor', 'fast_helpers')
-OPT_IN = ('pitch_constants',)
+# The CPU capabilities, in the order extensions/cpu names them, then the opt-in ones it does not name (none now).
+CPU_CAPABILITIES = ('boot_log_fix', 'idle', 'block_trims', 'output_slack', 'load_governor', 'pitch_constants',
+                    'fast_helpers')
+OPT_IN = ()
 
 
 def cpu_capabilities(root):

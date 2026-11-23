@@ -25,17 +25,14 @@ Firmware coverage: every capability below has addresses for **OP-XY OS 1.2.1 onl
 service fails with "the <name> capability has no firmware sites for OP-XY OS
 <version>".
 
-The SDK's one CPU extension, `extensions/cpu` ("CPU (experimental)"), selects six of them:
-`boot_log_fix`, `idle`, `block_trims`, `output_slack`, `load_governor` and
-`fast_helpers`, the last at its setting 0, off. It needs `sdk.py build`. It
+The SDK's one CPU extension, `extensions/cpu` ("CPU (experimental)"), selects all seven:
+`boot_log_fix`, `idle`, `block_trims`, `output_slack`, `load_governor`,
+`pitch_constants` and `fast_helpers`, the last at its setting 0, off. It needs `sdk.py build`. It
 does not select `release_floor`, whose threshold the idle cut uses: with `cpu` alone, `idle` skips
 silent sends and cuts no voice ([idle](#idle)). A
 collection that wants only some of the capabilities selects them with a settings
 extension of its own that names just those, in place of `cpu` (`sdk.py build`
 takes a settings extension from any folder the collection names).
-
-`pitch_constants` is opt-in: `cpu` does not name it, so a build has it only when a
-settings extension of the collection's own names it.
 
 **What has run on a device: nothing from this repository.** No build made from this
 repository with any of these capabilities on has run on a device. A capability
@@ -50,7 +47,7 @@ without it has byte for byte ([Off means off](#off-means-off)).
 | `output_slack` | hook `sdk_dsp_block_audio` at `8c0c6ffe` (and, once armed, a run-time swap of the audio task's block pointer `11b008cc`) | `dsp_block`, `dsp_block_hooks`, `output_slack`, `output_slack_hooks` |
 | `load_governor` (fixed bytes, no code) | limits `8d51c430`, `8d51c48c`, `8d51c492`, `8d51c49a`, `8d51e4f0`, `8d51e4fe` | none |
 | `fast_helpers` (a setting, 0 off or 1 on; default 0) | none: it chooses the source of two units every build links | at 1, `divide` from `divide_fast.s` and `memory` from `memory_fast.cpp`; at 0, the plain `divide.s` and `memory.cpp` |
-| `pitch_constants` (fixed bytes, no code; not in `cpu`) | limits `8d5c0a1e`, `8d5c0a2c` (12 bytes each) | none |
+| `pitch_constants` (fixed bytes, no code) | limits `8d5c0a1e`, `8d5c0a2c` (12 bytes each) | none |
 
 ## Budgets
 
@@ -453,7 +450,7 @@ all software floating point). The answers never change. The two load-and-call pa
 `0x04b00000` and `0x00640000`, and two 16-bit NOPs where each call was. The rest of the
 routine is stock's. Two fixed-byte edits, marked `"build"`; no code.
 
-Off: both sites hold stock's bytes. `cpu` does not name it.
+Off: both sites hold stock's bytes. The `cpu` extension turns it on.
 
 The words are stock's own: the simulator test below runs `8d5bf5ec` on both constants
 and gets them, twice each, and a host test computes them from the routine's arithmetic
@@ -492,7 +489,7 @@ convention, and equal results on all 24,576 inputs). Stock synths' voice starts 
 only.
 
 Tests: `test_pitch_constants.py`: the edits, their stock bytes and offsets, the calls'
-target, the words against the routine's arithmetic, that `cpu` leaves it off (host); on
+target, the words against the routine's arithmetic, that it is off unless an extension names it and on with `cpu` (host); on
 the Functional-Sim (needs a stock OS image and CCES, so CI skips it), `8d5bf5ec`'s own
 answers and stock's note pitch on 24,576 inputs with booted and with random tables,
 stock against the edits, equal on every input. The whole-image runs above are not in

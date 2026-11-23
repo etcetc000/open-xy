@@ -55,17 +55,17 @@ class PitchConstants(unittest.TestCase):
         profile = config()
         self.assertEqual(profile['services']['pitch_constants'], ['pitch_constants'])
         cpu = json.loads((ROOT / 'extensions/cpu/extension.json').read_text(encoding='utf-8'))
-        self.assertNotIn('pitch_constants', cpu['capabilities'])   # off unless a collection names it
-        # Off, both sites keep stock's bytes, also with everything cpu names; an extension naming it turns both on.
+        self.assertIn('pitch_constants', cpu['capabilities'])   # the cpu extension names it, with no setting
+        self.assertNotIn('pitch_constants', cpu.get('settings', {}))
+        # Off, both sites keep stock's bytes; the cpu extension, or any extension naming it, turns both on.
         class Machines(list):
             def __init__(self, *extensions_):
                 super().__init__()
                 self.extensions = extensions_
         off = active_services(profile, native.service_users(Machines()))
+        self.assertFalse([p for p in edits() if patch_active(p, off, False) or patch_active(p, off, True)])
         with_cpu = active_services(profile, native.service_users(Machines(extension_at(ROOT / 'extensions/cpu'))))
-        self.assertNotIn('pitch_constants', with_cpu)
-        for services in (off, with_cpu):
-            self.assertFalse([p for p in edits() if patch_active(p, services, False) or patch_active(p, services, True)])
+        self.assertEqual(len([p for p in edits() if patch_active(p, with_cpu, False) and patch_active(p, with_cpu, True)]), 2)
         with tempfile.TemporaryDirectory() as folder:
             (Path(folder) / 'extension.json').write_text(json.dumps(
                 {'id': 'pitch_test', 'name': 'Pitch test', 'description': 'Turns on pitch_constants.', 'claims': [],

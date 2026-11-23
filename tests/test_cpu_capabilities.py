@@ -337,7 +337,8 @@ class Extensions(unittest.TestCase):
         cpu = extension_at(ROOT / 'extensions' / 'cpu')
         self.assertEqual((cpu.id, cpu.text['name'], cpu.capabilities, cpu.linked, cpu.settings),
                          ('cpu', 'CPU (experimental)',
-                          ('boot_log_fix', 'idle', 'block_trims', 'output_slack', 'load_governor', 'fast_helpers'),
+                          ('boot_log_fix', 'idle', 'block_trims', 'output_slack', 'load_governor', 'pitch_constants',
+                           'fast_helpers'),
                           False, {'fast_helpers': 0}))
         for key in ('description', 'note'):
             self.assertIn('experimental', cpu.text[key].lower(), key)
@@ -349,7 +350,7 @@ class Extensions(unittest.TestCase):
             self.assertIn(words, cpu.text['description'])
         self.assertNotIn('release_floor', cpu.capabilities)
         services = active_services(config(), native.service_users(Machines(cpu)))
-        self.assertEqual(services, set(CPU) | {'boot_log_fix', 'load_governor', 'fast_helpers'})
+        self.assertEqual(services, set(CPU) | {'boot_log_fix', 'load_governor', 'pitch_constants', 'fast_helpers'})
 
     def test_a_collection_may_select_a_subset_with_its_own_extension(self):
         # A collection's own settings extension in place of cpu: only what it names is on.
