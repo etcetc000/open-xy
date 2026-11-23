@@ -42,7 +42,7 @@ class BrowserKitExport(unittest.TestCase):
 
     def test_audio_snapshot_machines_export_and_link_in_any_selection(self):
         # A synth and an effect showing their own audio, beside a machine without: the export's
-        # GNU ld parity check links each selection, with each left out in turn.
+        # GNU ld parity check links the whole selection and each machine alone, so each owner is also linked left out.
         kit = self.export(FIXTURES / 'probescope', FIXTURES / 'probemeter', FIXTURES / 'probesynth')
         machines = {m['id']: m for m in kit['machines']}
         for owner in ('probescope', 'probemeter'):
