@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import (EXTENDED_SDK, extended_display, ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
+from .definitions import (DRUM_KIT_CONTROLS, EXTENDED_SDK, KIT_CONTROLS_SDK, extended_display, ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
@@ -73,9 +73,19 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # paths and larger path budgets; the encoders' activity, and a synth's last control
 # touched (opxy/control_interaction.hpp).
 # 1.21 adds per-model drum value editing, played-pad display snapshots and sample-free kit presets.
-# 1.22 lets a note player draw its own page (resources.display): a draw::Frame from its
-# State and Controls each GUI frame, as a synth draws its screen.
-SDK_VERSION = (1, 22)
+# 1.22 adds the idle capability's machine API: an effect's declared tail
+# (resources.tailFrames) for its send hold, and an engine's settled() for the idle cut
+# (asked only of machines declaring 1.22 or later). IDLE_SDK is the one place to
+# renumber it, with the "SDK 1.22" text of docs/api.md.
+IDLE_SDK = (1, 22)
+# 1.23 adds the drum-kit controls (resources.padVolume, padRandom, ampEnvelope) and gives a
+# kit's screen its selected key (draw::Input::selected_key). It takes the next free number
+# when it merges (KIT_CONTROLS_SDK in definitions.py moves with it).
+# 1.24 lets a note player draw its own page (resources.display): a draw::Frame from its
+# State and Controls each GUI frame, as a synth draws its screen. PLAYER_DRAWING_SDK is
+# the one place to renumber it, with the "SDK 1.24" text of docs/api.md and docs/display.md.
+PLAYER_DRAWING_SDK = (1, 24)
+SDK_VERSION = (1, 24)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -570,6 +580,8 @@ def machine_at(root, identity=None):
     if kind == 'drum' and any(definition['resources'].get(k) for k in ('padMix', 'padControls')):
         # One gate for a kit's per-key mixer: pan, level, pad controls and sends.
         require_sdk(version, (1, 10), "A drum kit's per-key mixer (padMix, padControls)")
+    if kind == 'drum' and any(definition['resources'].get(k) for k in DRUM_KIT_CONTROLS):
+        require_sdk(version, KIT_CONTROLS_SDK, 'The drum-kit controls (padVolume, padRandom, ampEnvelope)')
     if definition['resources'].get('parameterEdit'):
         require_sdk(version, (1, 21), 'Per-model drum value editing (parameterEdit)')
     # Only a set flag needs 1.12: an explicit 0 is the mono, callback-free default.
@@ -583,6 +595,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 2), "An effect's tempo (transport)")
     if definition['resources'].get('busShift'):
         require_sdk(version, (1, 16), "An effect's bus shift (busShift)")
+    if 'tailFrames' in definition['resources']:
+        require_sdk(version, IDLE_SDK, "An effect's declared tail (tailFrames)")
     if any(p['display'] == 'division' for p in definition['parameters']):
         require_sdk(version, (1, 2), 'A division control')
     if kind == 'sample' and definition['resources']['voiceCapacity'] < STOCK_VOICES:
@@ -643,14 +657,14 @@ def machine_at(root, identity=None):
                 'dryLevel is a number from 0 to 1 on an effect without dryParameter')
         dry_level = round(level * 0x7fffffff)
     # A synth or drum kit draws its own screen, and so may an effect (SDK 1.7), a sample
-    # engine (SDK 1.8) or a note player (SDK 1.22); other sample engines and effects use
+    # engine (SDK 1.8) or a note player (SDK 1.24); other sample engines and effects use
     # a stock page, and other players the SDK's dot page.
     drawn = kind in ('synth', 'drum') or 'display' in definition['resources']
     display = 'drawing' if drawn else 'player' if kind == 'player' else 'stock'
     if kind == 'effect' and display == 'drawing':
         require_sdk(version, (1, 7), "An effect's own page (resources.display)")
     if kind == 'player' and display == 'drawing':
-        require_sdk(version, (1, 22), "A note player's own drawn page (resources.display)")
+        require_sdk(version, PLAYER_DRAWING_SDK, "A note player's own drawn page (resources.display)")
         require((root / 'display.cpp').is_file() and (root / 'display.h').is_file(),
                 'A player that draws its own page supplies display.h and display.cpp')
     if reads_sample_overview(root):

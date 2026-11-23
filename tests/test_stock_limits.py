@@ -130,7 +130,8 @@ class Service(unittest.TestCase):
             extension_at(without)
 
     def test_capabilities_are_fixed_edit_services(self):
-        self.assertEqual(capabilities(), (limits.SERVICE, 'release_floor'))
+        # The image capabilities (fixed bytes) first; the CPU build capabilities follow (test_cpu_capabilities).
+        self.assertEqual(capabilities()[:2], (limits.SERVICE, 'release_floor'))
 
     def test_an_inactive_build_leaves_the_sites_stock(self):
         profile = copy.deepcopy(config())

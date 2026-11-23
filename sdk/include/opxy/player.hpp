@@ -121,7 +121,7 @@ inline u32 choice(i32 value, u32 choices) {
 // text replaces the artwork's <name>_text line; values are the encoder
 // values under the definition's labels, of which the header shows the current
 // page's four. Strings are terminated.
-// A player may instead draw its own page (SDK 1.22, resources.display): in
+// A player may instead draw its own page (SDK 1.24, resources.display): in
 // display.cpp, compiled after player.cpp in the player's one unit,
 //   void display_reset(DisplayState& display);
 //   void display(DisplayState& display, const State& state, const Controls& controls,

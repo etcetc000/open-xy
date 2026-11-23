@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = 'd5d1563fdb2b1260c0bf6aa0d8b638f957e2320184e2ce98d647c1eb44cf9623';
+export const PROFILE_SHA256 = 'bf988a65ccdfc8fb89a66dcee539e0a45eb0c478aefbe494286993950a91b6a8';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -657,7 +657,11 @@ export async function openKit(kit) {
     check((e.capabilities === undefined || Array.isArray(e.capabilities) && e.capabilities.length > 0 &&
       new Set(e.capabilities).size === e.capabilities.length &&
       e.capabilities.every(c => /^[a-z][a-z0-9_]{0,31}$/.test(c) && kit.profile.services?.[c]?.join() === c &&
-        kit.profile.patches.some(edit => edit.service === c && !edit.choices && edit.before !== edit.after))) &&
+        kit.profile.patches.some(edit => edit.service === c && !edit.choices && edit.before !== edit.after) &&
+        // Image capabilities only: fixed-byte limit edits. A build capability (hooks into SDK
+        // code, or fixed bytes the profile marks as the build's) is chosen by sdk.py build; a
+        // kit cannot carry it.
+        kit.profile.patches.every(edit => edit.service !== c || edit.kind === 'limit' && !edit.build))) &&
       (e.linked === undefined || e.linked === false && e.capabilities && !e.claims.length && !e.actions.length &&
         !processorOf(e) && !kit.objects.some(o => o.extension === e.id)), 'Invalid extension capabilities');
     // A capability setting: its range and the extension's value; the profile lists every value's bytes.
@@ -768,7 +772,7 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
   const numbers = assignNumbers(kit, selection, layout);
   const definitions = {...kit.definitions, ...numberSymbols(kit, selection, numbers)};
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
-  // Heap voices (SDK 1.20) hold stock heap from boot; with a layout that shrinks that heap
+  // Heap voices (SDK 1.19) hold stock heap from boot; with a layout that shrinks that heap
   // further their headroom is unknown, so the pair is refused (tooling/voice_heap.py).
   const heapSynths = kit.machines.filter(m => selected.has(m.id) && m.heapVoices);
   if (kit.experimental === true && heapSynths.length) {
@@ -1281,11 +1285,17 @@ export function kitGroup(kit, model) {
   while (group + 1 < (kit.groups?.length ?? 0) && model >= first + kit.groups[group].count) first += kit.groups[group++].count;
   return {group, place:model - first, label:kit.groups?.[group]?.label ?? ''};
 }
+// A key the kit has not set up: with padVolume, 0 dB (dB + 30) on the third encoder, in the
+// choke group's place with groups; with padRandom, none on the fourth (SDK 1.23).
 export function kitChoices(kit, model, choke = 0) {
-  if (!kit.groups?.length) return [model, choke, 0, 0];
   const {group, place} = kitGroup(kit, model);
-  return [group, place, choke, 0];
+  const choices = kit.groups?.length ? [group, place, choke, 0] : [model, choke, 0, 0];
+  if (kit.padVolume) choices[2] = 30;
+  if (kit.padRandom) choices[3] = 0;
+  return choices;
 }
+// A kit's selected key as its screen is told it (SDK 1.23): 0..23, or 0 for an older kit.
+export const kitSelectedKey = (kit, key) => kit.selectedKey ? key - KIT_KEYS[0] : 0;
 // The display's pan, level and pad fields for a key the kit has not set up: centred, 0 dB, neutral.
 export const kitMix = kit => kit.padMix ? {pan:0, level:0, pad:[0, 0, 0, 0]} : {pan:0, level:0};
 // The stock header of a kit's page: each shown slot's label and its 0..127 value, blank when unused.

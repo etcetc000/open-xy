@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {KIT_KEYS, kitChoices, kitGroup, kitHeader, kitKey, kitMix, kitModel, kitWord} from '../builder/core.mjs';
+import {KIT_KEYS, kitChoices, kitGroup, kitHeader, kitKey, kitMix, kitModel, kitSelectedKey, kitWord} from '../builder/core.mjs';
 import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readSelection, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, imageSettings, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
@@ -89,6 +89,25 @@ test('a settings extension links no code, applies only its capability edits and 
   assert.deepEqual(plain, longer);  // the capability's edit is the only difference
   assert.deepEqual(await recoverFirmware(kit, longer), {stock, selected:['a'], extensions:['longer'], memory:'standard'});
   assert.deepEqual(await recoverFirmware(kit, await patchFirmware(kit, off, stock)), {stock, selected:['a'], extensions:[], memory:'standard'});
+});
+
+test('a kit refuses an extension naming a build capability (hooks into SDK code)', async () => {
+  const k = fixture();
+  Object.assign(k, {format:'opxy-browser-kit/1', profileSource:profileBytes.toString('base64'), notices:'SDK',
+    stockCatalog:'', screenTemplate:readFileSync(new URL('../sdk/platform/opxy-1.2.1/screen.svg', import.meta.url), 'utf8')});
+  k.objects = [{name:'a.o', owner:'a', bytes:Buffer.from(elf()).toString('base64'), sha256:await sha256(elf())}];
+  const meta = {name:'Settings', description:'Turns on a capability.', origin:'official', claim_labels:{}, claims:[], actions:[], linked:false};
+  k.extensions = [{...meta, id:'longer', capabilities:['long_samples']}];
+  await openKit(k);
+  // idle: a build capability of this profile (hooks into SDK code). master_filter: a service of this profile
+  // named after itself whose edits are hooks; it passes every other capability rule, so only the limit-only
+  // rule refuses it. load_governor: a build capability of fixed-byte limit edits, each marked "build" in the
+  // profile; only that mark refuses it. fast_helpers: a build capability with no edit at all (it chooses SDK
+  // units' sources); no fixed edit marks it on, so nothing could read it from an image.
+  for (const capability of ['idle', 'master_filter', 'load_governor', 'fast_helpers']) {
+    k.extensions = [{...meta, id:'faster', capabilities:[capability]}];
+    await assert.rejects(openKit(k), /Invalid extension capabilities/, capability);
+  }
 });
 
 test('a capability setting writes the reviewed bytes of its value and is recovered with it', async () => {
@@ -871,6 +890,12 @@ test("a kit's keys, models and header read as the device's adapter reads them", 
     [[0, 0, 2, 0], [0, 12, 2, 0], [1, 0, 2, 0], [1, 7, 2, 0], [2, 0, 2, 0], [3, 2, 2, 0]]);
   assert.deepEqual(kitGroup(kit, 30), {group:3, place:0, label:'GND'});
   assert.deepEqual(kitChoices({models:12}, 7), [7, 0, 0, 0]);
+  // The drum-kit controls (SDK 1.23): a key not set up reads 0 dB (30) and no random; with
+  // groups the volume takes the choke group's place.
+  assert.deepEqual(kitChoices({models:12, padVolume:true, padRandom:true}, 7, 2), [7, 2, 30, 0]);
+  assert.deepEqual(kitChoices({models:5, padVolume:true, groups:[{label:'A', count:2}, {label:'B', count:3}]}, 3, 1),
+    [1, 1, 30, 0]);
+  assert.deepEqual([kitSelectedKey({models:2, selectedKey:true}, 76), kitSelectedKey({models:2}, 76)], [23, 0]);
   assert.equal(kitGroup({models:12}, 7).label, '');
   assert.deepEqual(kitMix(kit), {pan:0, level:0, pad:[0, 0, 0, 0]});
   assert.deepEqual(kitMix({models:12}), {pan:0, level:0});

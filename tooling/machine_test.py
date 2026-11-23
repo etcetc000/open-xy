@@ -82,7 +82,7 @@ int main() {{
 
 
 def drawn_player(m, host_cxx, scratch):
-    """A note player's own drawn page (SDK 1.22): its artwork against its declared display,
+    """A note player's own drawn page (SDK 1.24): its artwork against its declared display,
     then its display on the host with player.cpp, as the device unit compiles them, over a
     held key's frames: every frame valid. Returns the frames drawn."""
     from .adapters import catalog_defaults, drawing_layout
