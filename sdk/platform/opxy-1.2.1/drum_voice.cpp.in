@@ -419,7 +419,7 @@ opxy::u32 @PREFIX@_drum_edit_value(opxy::u32 model, opxy::u32 slot, opxy::u32 va
     return @NAMESPACE@::edit_parameter(model, slot, value, delta, speed);
 }
 #endif
-void @PREFIX@_drum_scramble_range(opxy::u32 model, opxy::u32 slot, opxy::u8* low, opxy::u8* high) __asm__("@PREFIX@_drum_scramble_range");
+@MODEL_EDIT@void @PREFIX@_drum_scramble_range(opxy::u32 model, opxy::u32 slot, opxy::u8* low, opxy::u8* high) __asm__("@PREFIX@_drum_scramble_range");
 void @PREFIX@_drum_scramble_range(opxy::u32 model, opxy::u32 slot, opxy::u8* low, opxy::u8* high) {
     using namespace sdk_drum_scramble_ranges;
     using namespace @NAMESPACE@;

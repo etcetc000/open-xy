@@ -133,7 +133,14 @@ DRUM_KIT_CONTROLS = ('padVolume', 'padRandom', 'ampEnvelope')
 # this line, the 1.23 line of SDK_VERSION's history (tooling/machines.py) and the "1.23" text in the
 # docs and fixtures.
 KIT_CONTROLS_SDK = (1, 23)
-DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls', 'parameterEdit', *DRUM_KIT_CONTROLS)
+# SDK 1.27: a note player's Controls.instrument (the kind of instrument its track holds), for
+# a player declaring it; and modelEdit, 0 or 1, for a drum kit whose value editor
+# (edit_model_parameter) may move the key to another model, as one dial over every model.
+# A renumber changes this line, SDK_VERSION and its history (tooling/machines.py) and the
+# "1.27" text in the docs and fixtures.
+SDK_1_27 = (1, 27)
+DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls', 'parameterEdit', 'modelEdit',
+                *DRUM_KIT_CONTROLS)
 # Pad controls share 9 bits of stock's pad word +0x14; its sends take 6 more (drum_storage.hpp).
 PAD_CONTROL_FIELDS, PAD_CONTROL_BITS = 2, 9
 EFFECT_BUFFER_LIMIT = 524288
@@ -289,6 +296,10 @@ def validate_definition(value, kind):
             require(sum(f['bits'] for f in fields) <= PAD_CONTROL_BITS,
                     'Pad controls share at most %d bits' % PAD_CONTROL_BITS)
         require(resources.get('parameterEdit', 0) in (0, 1), 'parameterEdit must be 0 or 1')
+        require(resources.get('modelEdit', 0) in (0, 1), 'modelEdit must be 0 or 1')
+        # modelEdit's callback edits every control parameterEdit's would: a kit declares one of them.
+        require(not (resources.get('modelEdit', 0) and resources.get('parameterEdit', 0)),
+                "modelEdit's edit_model_parameter takes parameterEdit's place: declare one")
         for flag in DRUM_KIT_CONTROLS:
             require(resources.get(flag, 0) in (0, 1), flag + ' must be 0 or 1')
         # padMix's Shift row already holds each key's level and its pad word the kit's pad

@@ -520,8 +520,149 @@ namespace registry { struct StockString { char text[16]; u32 length,capacity; };
             self.skipTest(result.stdout.decode(errors='replace').strip())
         self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
 
+# stock.hpp's track engine getter, which the host doubles of registration.hpp repeat word for
+# word (PlayerInstrument checks it).
+TRACK_ENGINE = 'inline u32 track_engine(u32 track) { return stock<u32(u32)>(0x8d58781c)(track); }'
+
+
+class PlayerInstrument(unittest.TestCase):
+    """Controls.instrument (SDK 1.27): the kind of instrument a player's track holds, for a build
+    with a player declaring 1.27; every other build keeps Controls and players.cpp as they were."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+
+    def player(self, sdk):
+        from machine_fixtures import FOLDER
+        folder = self.root / 'probepads'
+        shutil.copytree(FOLDER / 'probepads', folder)
+        record = json.loads((folder / 'machine.json').read_text(encoding='utf-8'))
+        record['sdk'] = sdk
+        (folder / 'machine.json').write_text(json.dumps(record), encoding='utf-8')
+        return machine_at(folder)
+
+    def test_only_a_build_with_a_1_27_player_defines_it(self):
+        from tooling.adapters import player_instrument
+        from tooling.definitions import SDK_1_27
+        from tooling.machines import SDK_VERSION
+        from machine_fixtures import fixture
+        self.assertEqual(SDK_1_27, (1, 27))
+        self.assertGreaterEqual(SDK_VERSION, SDK_1_27)
+        new, older = fixture('probepads'), self.player('1.26')
+        self.assertEqual((new.sdk, player_instrument(new), player_instrument(older)), ((1, 27), True, False))
+        self.assertEqual(native.sdk_defines([new]), (native.PLAYER_INSTRUMENT_DEFINE,))
+        self.assertEqual(native.sdk_defines([older]), ())
+        # Not a player: kits, synths and effects never ask for it, whatever they declare.
+        self.assertEqual(native.sdk_defines([fixture('probesynth'), fixture('probefx'), fixture('probekit23')]), ())
+        # The SDK units and the players of such a build see it; no other machine's units do.
+        source = (ROOT / 'tooling/native.py').read_text(encoding='utf-8')
+        self.assertIn("player_defines = tuple(d for d in defines if d == PLAYER_INSTRUMENT_DEFINE)", source)
+        self.assertIn("unit_defines = defines if m is None else ()\n"
+                      "        if m is not None and m.kind == 'player':\n"
+                      "            unit_defines = player_defines\n", source)
+        # Only the header member and the bridge's publication depend on it.
+        self.assertEqual((ROOT / 'sdk/include/opxy/player.hpp').read_text(encoding='utf-8').count(
+            '#if OPXY_PLAYER_INSTRUMENT'), 1)
+        self.assertEqual((PLATFORM / 'players.cpp').read_text(encoding='utf-8').count('#if OPXY_PLAYER_INSTRUMENT'), 3)
+        # A 1.27 player's generated adapter is the one an older player gets: only the define differs.
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            new_source = adapters.generate_player_object(a, new).read_text(encoding='utf-8')
+            old_source = adapters.generate_player_object(b, older).read_text(encoding='utf-8')
+        self.assertEqual(new_source, old_source)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_controls_keeps_its_size_without_the_define_and_a_player_needs_it_to_read_the_kind(self):
+        check = self.root / 'size.cpp'
+        check.write_text('#include <opxy/player.hpp>\n'
+                         'static_assert(sizeof(opxy::player::Controls) == SIZE, "Controls size");\n', encoding='utf-8')
+        flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+        for defines, size in (((), 112), (('-DOPXY_PLAYER_INSTRUMENT=1',), 116)):
+            result = subprocess.run([HOST_CXX, '-std=c++11', '-fsyntax-only', '-I' + str(ROOT / 'sdk/include'),
+                                     *defines, '-DSIZE=%d' % size, str(check)], capture_output=True, timeout=60, **flags)
+            self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+        # The fixture player reads Controls.instrument: it compiles only where the build defines it.
+        from machine_fixtures import FOLDER
+        source = FOLDER / 'probepads/player.cpp'
+        for defines, ok in (((), False), (('-DOPXY_PLAYER_INSTRUMENT=1',), True)):
+            result = subprocess.run([HOST_CXX, '-std=c++11', '-fsyntax-only', '-I' + str(ROOT / 'sdk/include'),
+                                     *defines, str(source)], capture_output=True, timeout=60, **flags)
+            self.assertEqual(result.returncode == 0, ok, result.stderr.decode(errors='replace'))
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_instrument_kind_is_published_per_track(self):
+        # The GUI publishes each instrument track's kind with Shift, from stock's engine getter
+        # and its drum predicate; note callbacks read the published byte
+        # (tests/fixtures/player_instrument.cpp).
+        stock = (PLATFORM / 'stock.hpp').read_text(encoding='utf-8')
+        self.assertEqual(stock.count(TRACK_ENGINE), 1)
+        (self.root / 'players_under_test.cpp').write_bytes((PLATFORM / 'players.cpp').read_bytes())
+        (self.root / 'keyboard_octaves.hpp').write_text('''#pragma once
+#include <opxy/types.hpp>
+extern opxy::u32 fake_track;
+extern volatile opxy::i32 sdk_track_octaves[8];
+namespace opxy { namespace platform {
+const u32 kLowestKey=53, kTracks=8;
+inline u32 selected_track() { return fake_track; }
+inline void refresh_keyboard_octaves() {}
+}}
+''', encoding='utf-8')
+        (self.root / 'registration.hpp').write_text('''#pragma once
+#include "players.hpp"
+const void* stock_address(opxy::u32);
+extern bool fake_shift;
+extern int fake_register;
+namespace opxy { namespace platform {
+using Address=__UINTPTR_TYPE__;
+template<class F> F* stock(u32 a) { return reinterpret_cast<F*>(const_cast<void*>(stock_address(a))); }
+''' + TRACK_ENGINE + '''
+struct Record {}; struct Screen {};
+inline int sdk_register_screen(const Record*,const Screen*) { return fake_register; }
+inline u32 audio_bpm_x10() { return 1200; }
+inline bool shift_held() { return fake_shift; }
+namespace registry { struct StockString { char text[16]; u32 length,capacity; }; }
+}}
+''', encoding='utf-8')
+        binary = self.root / ('instrument.exe' if os.name == 'nt' else 'instrument')
+        flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-DOPXY_PLAYER_INSTRUMENT=1',
+                        '-I'+str(self.root), '-I'+str(ROOT/'sdk/include'), '-I'+str(PLATFORM),
+                        str(ROOT/'tests/fixtures/player_instrument.cpp'), '-o', str(binary)],
+                       check=True, capture_output=True, timeout=120, **flags)
+        result = subprocess.run([str(binary)], capture_output=True, timeout=30, **flags)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+
+
 @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Stock OS not supplied')
 class StockPlayer(unittest.TestCase):
+    def test_instrument_kind_stands_on_stock_engine_getter_and_drum_predicate(self):
+        # Controls.instrument (SDK 1.27) calls, on the GUI, the engine getter the drum services
+        # already call and stock's drum predicate, whose entry the drums service hooks.
+        from tooling.formats import sha
+        data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(data), config()['stock_sha256'])
+        source = (PLATFORM / 'players.cpp').read_text(encoding='utf-8')
+        self.assertIn('stock<u32(u32)>(kDrumPredicate)(track_engine(track))', source)
+        self.assertIn('const u32 kDrumPredicate = 0x8d5b79f0;', source)
+        image = ldr(data)
+        at = mapped_offset(image, 0x8d58781c, 18)
+        # LINK 0xc; CALL 0x8d587708 (the track's object); P1 = R0; R0 = [P1 + 0x18]; UNLINK; RTS
+        self.assertEqual(data[at:at+18].hex(), '00e80300ffe374ff083288a101e800001000')
+        at = mapped_offset(image, 0x8d5b79f0, 36)
+        # CC = R0 < 3 (IU); LINK 0; IF CC JUMP no; CC = R0 == 3; IF CC JUMP yes; R1 = 4;
+        # CC = R0 == R1; IF !CC JUMP no; yes: UNLINK; R0 = 1; RTS; NOP; no: UNLINK; R0 = 0; RTS
+        self.assertEqual(data[at:at+36].hex(),
+                         '980d00e800000b18180c041821600808061001e8000008601000000001e8000000601000')
+        # The drums service hooks the predicate's first two instructions, aliasing an SDK kit to 4
+        # before repeating them (drum_hooks.s), and returns to the third.
+        hook = [p for p in config()['patches'] if p.get('symbol') == 'extensions_drum_classify']
+        self.assertEqual([(p['address'], p['before'], p['service']) for p in hook],
+                         [('0x8d5b79f0', '980d00e80000', 'drums')])
+        asm = (PLATFORM / 'drum_hooks.s').read_text(encoding='utf-8')
+        self.assertIn('extensions_drum_classify:\n    DRUM_ALIAS_R0\n    CC = R0 < 3 (IU);\n    LINK 0;\n'
+                      '    JUMP.L stock_drum_classify_tail;', asm)
+
     def test_enum_turn_hook_matches_stock_frame_and_continuations(self):
         from tooling.formats import sha
         from tooling.firmware import decode_branch

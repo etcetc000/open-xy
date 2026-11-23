@@ -14,6 +14,9 @@
 #include "drum_kit_controls.hpp"
 #include "drum_values.hpp"
 #endif
+#if OPXY_MODEL_EDIT
+#include "drum_model_edit.hpp"
+#endif
 // Built without a drumline_page extension: the generated startup's accessor answers null.
 const void* sdk_drumline_get() { return nullptr; }
 
@@ -70,6 +73,24 @@ u32 custom_edit(u32 model, u32 slot, u32 value, i32 delta, u32 speed) {
     if (next >= static_cast<i32>(size)) next = static_cast<i32>(size) - 1;
     return next == static_cast<i32>(current) ? value : choices[model][next];
 }
+#if OPXY_MODEL_EDIT
+// A modelEdit kit's editor: slot 0 one dial over every model of the kit (128 positions in
+// each), eight a detent and sixteen on a fast turn, ends held; any other slot one value a
+// detent within the key's model. With dial_override it answers dial_answer instead.
+u32 dial_calls, dial_model, dial_slot, dial_value, dial_speed, dial_models = 3;
+i32 dial_delta;
+bool dial_override;
+u32 dial_answer;
+u32 dial_edit(u32 model, u32 slot, u32 value, i32 delta, u32 speed) {
+    ++dial_calls; dial_model = model; dial_slot = slot; dial_value = value; dial_delta = delta; dial_speed = speed;
+    if (dial_override) return dial_answer;
+    const i32 here = static_cast<i32>(model * 128 + value);
+    const i32 low = slot ? static_cast<i32>(model * 128) : 0;
+    const i32 high = slot ? static_cast<i32>(model * 128 + 127) : static_cast<i32>(dial_models * 128 - 1);
+    const i32 next = here + (slot ? delta : delta * (speed ? 16 : 8));
+    return static_cast<u32>(next < low ? low : next > high ? high : next);
+}
+#endif
 bool format(u32, i32, char*) { return false; }
 // The send tracks (14, 15) hold no owned effect.
 u32 get_engine(u32 selected) { if (selected >= 8) return 0; require(selected == track); return engine; }
@@ -219,17 +240,29 @@ const opxy::platform::DrumMachine sdk_drum_machines[] = {
     {reinterpret_cast<const char*>(43), ready, 2, defaults, label, name, count},
     {reinterpret_cast<const char*>(44), ready, 5, defaults, label, name, count, 2, group_sizes, group_names},
 #endif
+#if OPXY_MODEL_EDIT
+    // modelEdit (drum_model_edit.hpp): engine 45, three models, its first control one dial over them.
+    {reinterpret_cast<const char*>(45), ready, 3, defaults, label, name, count},
+#endif
 };
+const opxy::u32 sdk_drum_machine_count = sizeof(sdk_drum_machines) / sizeof(sdk_drum_machines[0]);
+#if OPXY_MODEL_EDIT
+const opxy::platform::DrumModelEdit sdk_drum_model_edits[] = {
+    {reinterpret_cast<const char*>(45), dial_edit},
 #if OPXY_KIT_CONTROLS
-const opxy::u32 sdk_drum_machine_count = 9;
+    // An ampEnvelope kit with a dial keeps its keys' amp values across a turn into another model.
+    {reinterpret_cast<const char*>(44), dial_edit},
+#endif
+};
+const opxy::u32 sdk_drum_model_edit_count = sizeof(sdk_drum_model_edits) / sizeof(sdk_drum_model_edits[0]);
+#endif
+#if OPXY_KIT_CONTROLS
 static const opxy::i32 kit_amp_words[] = {128 << 16, 8192 << 16, 0x7fff0000, 0x7fff0000};
 const opxy::platform::DrumKit sdk_drum_kits[] = {
     {reinterpret_cast<const char*>(43), 3, nullptr},
     {reinterpret_cast<const char*>(44), 7, kit_amp_words},
 };
 const opxy::u32 sdk_drum_kit_count = 2;
-#else
-const opxy::u32 sdk_drum_machine_count = 7;
 #endif
 // Engine 50: a paged synth with a Shift row of eight amounts (SDK 1.13); engine 51
 // the same synth without one.
@@ -249,6 +282,9 @@ const opxy::platform::SynthControls sdk_synth_controls[] = {
 #if OPXY_KIT_CONTROLS
     {reinterpret_cast<const char*>(43), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
     {reinterpret_cast<const char*>(44), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
+#endif
+#if OPXY_MODEL_EDIT
+    {reinterpret_cast<const char*>(45), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
 #endif
 };
 const opxy::u32 sdk_synth_control_count = sizeof(sdk_synth_controls) / sizeof(sdk_synth_controls[0]);
@@ -476,6 +512,107 @@ void kit_controls_checks() {
     m2(9) = 55;
     sdk_drum_amp_tick();
     require(m2(9) == 55);
+    engine = saved_engine; key = saved_key; shifted = saved_shift;
+}
+}
+#endif
+
+#if OPXY_MODEL_EDIT
+// modelEdit in a build with such a kit: every check in main runs on kits without it,
+// unchanged; these run on engine 45 (and, with the drum-kit controls, 44).
+namespace {
+using namespace opxy;
+using namespace opxy::platform;
+bool values_of(u8& model, u8* raw) { return sdk_drum_values(0, &model, raw); }
+void model_edit_checks() {
+    const u32 saved_engine = engine, saved_key = key;
+    const bool saved_shift = shifted;
+    engine = 45; key = 53; shifted = false;
+    shown(0,1,2,3);
+    // Only the kits the table names have a model editor.
+    require(drum_model_edit(*sdk_drum_machine(45)) == &sdk_drum_model_edits[0]);
+    require(!drum_model_edit(*sdk_drum_machine(42)) && !drum_model_edit(*sdk_drum_machine(34)));
+    const u8 start[8] = {120, 21, 22, 23, 24, 25, 26, 27};
+    require(drum_pack(0, start, regions[0] + 1));
+    reinterpret_cast<u8*>(regions[0])[24] = drum_mark(0);
+    const u32 plus[3] = {0, 1, 0}, minus[3] = {0, static_cast<u32>(-1), 0}, fast[3] = {0, 1, 3};
+    u8 model = 99, raw[8];
+    u32 before = publications;
+    // Within the model: the editor gets the key's model, the slot, its value, the detents
+    // and the speed; the shared editor stores and publishes what it answers.
+    sdk_drum_edit(53, 0, minus, 0);
+    require(dial_model == 0 && dial_slot == 0 && dial_value == 120 && dial_delta == -1 && dial_speed == 0);
+    require(values_of(model, raw) && model == 0 && raw[0] == 112 && publications == before + 1);
+    // Past 127 into the next model: the model and that control move together and the key's
+    // other controls stay.
+    sdk_drum_edit(53, 0, plus, 0);
+    sdk_drum_edit(53, 0, plus, 0);
+    require(dial_model == 0 && dial_value == 120);
+    require(values_of(model, raw) && model == 1 && raw[0] == 0 && raw[1] == 21 && raw[2] == 22);
+    require(publications == before + 3 && last_key == 53);
+    // And back below 0 into the previous one.
+    sdk_drum_edit(53, 0, minus, 0);
+    require(dial_model == 1 && dial_value == 0);
+    require(values_of(model, raw) && model == 0 && raw[0] == 120);
+    // The turn's speed reaches the editor, bounded to 0..127, as parameterEdit's does.
+    sdk_drum_edit(53, 0, fast, 0);
+    require(dial_speed == 3 && values_of(model, raw) && model == 1 && raw[0] == 8);
+    const u32 faster[3] = {0, 1, 1000}, slower[3] = {0, 1, static_cast<u32>(-4)};
+    sdk_drum_edit(53, 0, faster, 0);
+    require(dial_speed == 127 && values_of(model, raw) && model == 1 && raw[0] == 24);
+    sdk_drum_edit(53, 0, slower, 0);
+    require(dial_speed == 0 && values_of(model, raw) && model == 1 && raw[0] == 32);
+    // Delta is bounded to -127..127 before the editor sees it.
+    const u32 huge[3] = {0, 0x80000000u, 0};
+    sdk_drum_edit(53, 0, huge, 0);
+    require(dial_delta == -127 && values_of(model, raw) && model == 0 && raw[0] == 0);
+    // At the dial's first position a turn down changes and publishes nothing.
+    before = publications;
+    sdk_drum_edit(53, 0, minus, 0);
+    require(publications == before && values_of(model, raw) && model == 0 && raw[0] == 0);
+    // The last model's last position holds too.
+    const u8 last[8] = {127, 21, 22, 23, 24, 25, 26, 27};
+    require(drum_pack(2, last, regions[0] + 1));
+    sdk_drum_edit(53, 0, plus, 0);
+    require(publications == before && values_of(model, raw) && model == 2 && raw[0] == 127);
+    // Another control moves within the model, as the kit answers it.
+    sdk_drum_edit(53, 1, plus, 0);
+    require(dial_slot == 1 && values_of(model, raw) && model == 2 && raw[1] == 22 && publications == before + 1);
+    // An answer outside the kit's positions is ignored: nothing stored or published.
+    dial_override = true;
+    before = publications;
+    for (u32 answer : {3u * 128, 0xffffffffu, 1000u}) {
+        dial_answer = answer;
+        sdk_drum_edit(53, 0, plus, 0);
+        require(publications == before && values_of(model, raw) && model == 2 && raw[0] == 127);
+    }
+    // Any position inside is taken as it is, a jump of several models included.
+    dial_answer = 5;
+    sdk_drum_edit(53, 1, plus, 0);
+    require(publications == before + 1 && values_of(model, raw) && model == 0 && raw[1] == 5 && raw[0] == 127);
+    dial_override = false;
+    // An unnamed slot of the key's model (the first model's slot 2) never asks the editor,
+    // and neither does a Shift encoder: Shift's first still turns the model, keeping controls.
+    const u32 calls = dial_calls;
+    sdk_drum_edit(53, 2, plus, 0);
+    shifted = true;
+    sdk_drum_edit(53, 4, plus, 0);
+    require(dial_calls == calls && values_of(model, raw) && model == 1 && raw[0] == 127 && raw[1] == 5);
+    shifted = false;
+#if OPXY_KIT_CONTROLS
+    // ampEnvelope: a key's amp values stay across a dial turn into another model.
+    engine = 44; key = 62;
+    reinterpret_cast<u8*>(regions[9])[24] = 0x47;
+    const u8 near[8] = {124, 2, 3, 4, 5, 6, 7, 8};
+    require(drum_pack(0, near, regions[9] + 1));
+    const i32 amp[4] = {5 << 16, 1000 << 16, 20000 << 16, 300 << 16};
+    for (u32 i = 0; i < 4; ++i) regions[9][1 + i] = kit_amp_store(regions[9][1 + i], amp[i]);
+    dial_models = 5;
+    sdk_drum_edit(62, 0, plus, 0);
+    require(values_of(model, raw) && model == 1 && raw[0] == 4 && raw[1] == 2);
+    for (u32 i = 0; i < 4; ++i) require(kit_amp(regions[9][1 + i], -1) == amp[i]);
+    dial_models = 3;
+#endif
     engine = saved_engine; key = saved_key; shifted = saved_shift;
 }
 }
@@ -1506,6 +1643,9 @@ int main() {
 
 #if OPXY_KIT_CONTROLS
     kit_controls_checks();
+#endif
+#if OPXY_MODEL_EDIT
+    model_edit_checks();
 #endif
     ownership = 0;
     require(sdk_drum_edit(53, 0, one, 0) == 1234 && fallback == 1);
