@@ -80,7 +80,9 @@ The builder labels a machine **CPU-high** when its reported worst case is above
 4.5% of an audio block (`HIGH_PERCENT` in
 [`tooling/cpu_measurement.py`](../tooling/cpu_measurement.py), which
 `builder/core.mjs` repeats as `CPU_HIGH_PERCENT`). The worst case is the record's
-`peak_percent`, or its `block_percent` average when it reports no peak; the
+`peak_percent`, or its `block_percent` average when it reports no peak, and for a
+synth with a [track stage](api.md#track-stage) that figure plus its stage's
+(`stage_peak_percent`, or `stage_percent`): one voice and its track's stage; the
 label immediately explains on hover or keyboard focus that higher CPU usage may reduce the number of simultaneous voices. A drum kit is judged by its
 worst single sound, never its whole-kit, choke or ceiling runs: its
 `voice_peak_percent`, the worst block of its single-voice runs, or, in a record

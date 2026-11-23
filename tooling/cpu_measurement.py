@@ -35,6 +35,12 @@ FIELDS = {'benchmark', 'commit', 'firmware_sha256', 'runs', 'block_percent'}
 SWEEP_FIELDS = FIELDS | {'midpoint_percent', 'combined_percent', 'worst_setting'}
 DRUM_FIELDS = FIELDS | {'midpoint_percent', 'kit_percent', 'choke_percent', 'ceiling_percent', 'worst_model'}
 FILTER_FIELDS = DRUM_FIELDS | {'filter_percent'}
+# A synth with a track stage (docs/api.md#track-stage) adds its stage run to its sweep
+# record: stage_percent the run's mean, stage_peak_percent its worst block. The stage runs
+# once per block for each track that holds the synth, whatever its voices, so a track
+# playing the synth costs its voices plus one stage: the record's worst case and its
+# recommendations add the stage to a voice's figures (track_cost).
+STAGE_FIELDS = {'stage_percent', 'stage_peak_percent'}
 # The share of the stock block budget a machine should stay within (docs/profiling.md).
 # Above it a machine is still accepted, with a warning.
 RECOMMENDED_PERCENT = 3.5
@@ -44,12 +50,23 @@ RECOMMENDED_PERCENT = 3.5
 HIGH_PERCENT = 4.5
 
 
+def track_cost(value, field):
+    """A record's figure for one voice with its track's stage: `field` ('block_percent' or
+    'peak_percent') plus the stage's mean or worst block, when the synth has a stage."""
+    stage = value.get({'block_percent': 'stage_percent', 'peak_percent': 'stage_peak_percent'}[field], 0)
+    return round(value[field] + stage, 6)
+
+
 def worst_case(value):
     """The reported worst case: (percent, 'peak') when the record has a peak, else (percent, 'average').
     A drum kit is judged by its worst single sound, never its whole-kit runs: its
-    single-voice peak when recorded, else its heaviest single voice's average."""
-    peak = 'voice_peak_percent' if value.get('benchmark') in DRUM_BENCHMARKS else 'peak_percent'
-    return (value[peak], 'peak') if peak in value else (value['block_percent'], 'average')
+    single-voice peak when recorded, else its heaviest single voice's average. A synth
+    with a track stage adds its stage's worst block (or mean) to a voice's."""
+    if value.get('benchmark') in DRUM_BENCHMARKS:
+        peak = 'voice_peak_percent'
+        return (value[peak], 'peak') if peak in value else (value['block_percent'], 'average')
+    return ((track_cost(value, 'peak_percent'), 'peak') if 'peak_percent' in value else
+            (track_cost(value, 'block_percent'), 'average'))
 
 
 def high(value):
@@ -60,7 +77,8 @@ def high(value):
     drum = value.get('benchmark') in DRUM_BENCHMARKS
     what = (('worst single sound peak' if drum else 'worst observed block peak') if metric == 'peak' else
             'worst single sound average (no single-sound peak recorded)' if drum else 'average (no peak reported)')
-    return f"the builder labels it CPU-high: {what} {percent:.3f}% is above {HIGH_PERCENT}%"
+    stage = ' (a voice with its track stage)' if 'stage_percent' in value and not drum else ''
+    return f"the builder labels it CPU-high: {what} {percent:.3f}% is above {HIGH_PERCENT}%{stage}"
 
 
 def above_recommended(value):
@@ -74,9 +92,11 @@ def above_recommended(value):
         where = 'at ' + position(value['worst_setting'])
     elif 'worst_model' in value:
         where = 'for ' + drum_label(value['worst_model'])
-    warnings = [recommendation(value['block_percent'], where, 'Mean')]
+    staged = ' with its track stage' if 'stage_percent' in value else ''
+    warnings = [recommendation(track_cost(value, 'block_percent'), where + staged if where else staged.strip(), 'Mean')]
     if 'peak_percent' in value:
-        warnings.append(recommendation(value['peak_percent'], 'across all measured workloads', 'Worst observed block peak'))
+        warnings.append(recommendation(track_cost(value, 'peak_percent'), 'across all measured workloads' + staged,
+                                       'Worst observed block peak'))
     return '; '.join(warning for warning in warnings if warning) or None
 
 
@@ -107,7 +127,7 @@ def validate(value, kind, commit=None, legacy=True):
             'cpu: average and worst observed block peak are required; rerun sdk.py profile report '
             'with the original captures (docs/profiling.md)')
     require(set(value) - {'report', 'peak_percent'} - ({'voice_peak_percent'} if drum else set()) -
-            ({'filter_peak_percent'} if filtered else set()) ==
+            ({'filter_peak_percent'} if filtered else set()) - (STAGE_FIELDS if sweep else set()) ==
             (SWEEP_FIELDS if sweep else FILTER_FIELDS if filtered else DRUM_FIELDS if drum else FIELDS),
             'cpu: unexpected measurement fields')
     require(isinstance(value['commit'], str) and re.fullmatch(r'[0-9a-f]{40}', value['commit']),
@@ -162,6 +182,12 @@ def validate(value, kind, commit=None, legacy=True):
                 value['block_percent'] <= voice <= value['peak_percent'],
                 'cpu: voice_peak_percent is the worst block of the single-voice runs: at least block_percent, '
                 'at most peak_percent')
+    if STAGE_FIELDS & set(value):
+        mean, worst = value.get('stage_percent'), value.get('stage_peak_percent')
+        require(STAGE_FIELDS <= set(value) and all(type(n) in (int, float) and math.isfinite(n) for n in (mean, worst))
+                and 0 < mean <= worst < 100,
+                "cpu: stage_percent and stage_peak_percent are the track stage run's mean and worst block, "
+                'together: positive, the worst at least the mean, unsaturated')
     if 'report' in value:
         require(isinstance(value['report'], str) and len(value['report']) <= 2048 and
                 re.fullmatch(REPORT_URL, value['report']), 'cpu: report must be a public HTTPS evidence URL')

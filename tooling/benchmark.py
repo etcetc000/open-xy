@@ -2,6 +2,7 @@
 from pathlib import Path
 import struct
 
+from . import track_stage
 from .cpu import control_defaults, sweep
 from .definitions import shift_parameters
 from .pipeline import ROOT
@@ -13,6 +14,9 @@ METHODS = {'synth': ('opxy-synth-c8-v1', 5), 'effect': ('opxy-effect-callback-v2
            'sample': ('opxy-sample-callback-v2', 3), 'drum': ('opxy-drum-callback-v3', 3)}
 # A sweep build's extra synth runs: the stock workload, one control at a time.
 SWEEP = 'opxy-synth-c8-sweep-v1'
+# A synth's track stage, after its synth runs: the stage callback alone on a state of its
+# own (track_stage_voice.cpp.in), reported at the callback metric effects use.
+STAGE, STAGE_METRIC = 'opxy-synth-stage-v1', 7
 
 STOCK = [('prism', 18), ('simple', 32), ('hardsync', 19), ('dissolve', 20),
          ('axis', 22), ('organ', 6), ('epiano', 7), ('wavetable', 31), ('chord', 13)]
@@ -57,7 +61,8 @@ def sweep_settings(m):
 def cases(machines, sweep=False):
     """The reports a run sends, in order: stock's nine, then each machine's; in a sweep
     build a synth's swept settings follow its standard run, then one run with every
-    control at the position that ran heaviest (combined_positions)."""
+    control at the position that ran heaviest (combined_positions); a synth with a track
+    stage then runs its stage."""
     result = [dict(name=name, engine=engine, source='stock') for name, engine in STOCK]
     for m in benchmarked(machines):
         case = dict(name=m.id, engine=m.identity.get('engine', m.identity.get('effect')), source='sdk',
@@ -72,6 +77,8 @@ def cases(machines, sweep=False):
                                                                 **({'option': option} if option else {})))
                        for control, label, value, option in swept]
             result.append(dict(case, benchmark=SWEEP, combined=True))
+        if track_stage.track_stage(m) is not None:
+            result.append(dict(case, benchmark=STAGE, metric=STAGE_METRIC, stage=True))
     return result
 
 
@@ -106,6 +113,8 @@ def case_label(case):
         return position(case['setting'])
     if case.get('combined'):
         return 'combined'
+    if case.get('stage'):
+        return 'track stage'
     return 'midpoint (stock)' if case.get('kind', 'synth') == 'synth' else 'defaults'
 
 
@@ -158,6 +167,10 @@ def generate(directory, machines, sweep=False):
             callback = p + '_benchmark'
             declarations.append(f'opxy::benchmark::Stats {callback}() __asm__("{callback}");')
         rows.append(f'    {{"{m.id}", {id_symbol}, {p}_ready, {callback}, {METHODS[m.kind][1]}, nullptr, 0}},')
+        if m.kind == 'synth' and track_stage.track_stage(m) is not None:
+            stage = track_stage.benchmark_symbol(m)
+            declarations.append(f'opxy::benchmark::Stats {stage}() __asm__("{stage}");')
+            rows.append(f'    {{"{m.id}", {id_symbol}, {p}_ready, {stage}, {STAGE_METRIC}, nullptr, 0}},')
     source = (ROOT / 'sdk/platform/opxy-1.2.1/benchmark.cpp.in').read_text(encoding='utf-8')
     source = source.replace('@DECLARATIONS@', '\n'.join(declarations))
     source = source.replace('@MACHINES@', '\n'.join(rows))

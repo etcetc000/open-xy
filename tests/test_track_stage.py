@@ -279,9 +279,19 @@ def host_run(test, folder, sources, includes=()):
 
 # The probe's generated adapter, driven as track_stage.cpp drives it: reset, then blocks of
 # a known sum with the track's words. Prints every word of each processed block.
+# The diagnostic's own services, as tests/fixtures/benchmark_callbacks.cpp gives them: a
+# clock that advances 100 cycles a reading, and counted heap blocks.
+BENCHMARK_STUBS = '''#include <cstdlib>
+static unsigned allocations, releases, clock_value;
+extern "C" opxy::u32 sdk_benchmark_cycles() { clock_value += 100; return clock_value; }
+namespace opxy { namespace benchmark {
+void* allocate(u32 bytes) { ++allocations; return std::calloc(1, bytes); }
+void release(void* data) { ++releases; std::free(data); }
+}}
+'''
 PROBE_DRIVER = '''#include <cstdio>
 #include "voice.cpp"
-opxy::u32 sdk_synth_title_slot(opxy::u32, opxy::u32 index) { return index + 4; }
+''' + BENCHMARK_STUBS + '''opxy::u32 sdk_synth_title_slot(opxy::u32, opxy::u32 index) { return index + 4; }
 opxy::u32 sdk_voice_ticks() { return 0; }
 int main() {
     static opxy::i32 words[58];
@@ -360,6 +370,29 @@ class Host(unittest.TestCase):
                 track = expected[:24 * 128]
                 self.assertTrue(any(track[12 * 128 + 1:13 * 128:2]))
                 self.assertFalse(any(track[(12 + 8) * 128:]))
+
+    def test_the_diagnostics_stage_run_times_every_block_on_a_state_of_its_own(self):
+        # docs/profiling.md, opxy-synth-stage-v1: 1,500 timed blocks, sounding, its own state
+        # released, no track's state touched.
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            generate_voice(folder, fixture('probestage'))
+            for name in ('core.h', 'engine.cpp'):
+                shutil.copy(FOLDER / 'probestage' / name, folder / name)
+            driver = ('#include <cstdio>\n#include "voice.cpp"\n' + BENCHMARK_STUBS + '''
+opxy::u32 sdk_synth_title_slot(opxy::u32, opxy::u32 index) { return index + 4; }
+opxy::u32 sdk_voice_ticks() { return 0; }
+int main() {
+    for (auto& state : track_states) state.write = 7;
+    const opxy::benchmark::Stats s = probestage_stage_benchmark();
+    for (auto& state : track_states) if (state.write != 7) return 2;
+    std::printf("%u %u %u %u %u %u\\n", s.count, s.maximum, s.minimum, s.total_low, s.audible ? 1u : 0u,
+                allocations == 1 && releases == 1 ? 1u : 0u);
+    return 0;
+}''')
+            (folder / 'test.cpp').write_text(driver, encoding='utf-8')
+            self.assertEqual(host_run(self, folder, [folder / 'test.cpp'], [folder]).split(),
+                             ['1500', '100', '100', '150000', '1', '1'])
 
 
 @unittest.skipUnless(blackfin_compiler() and (CCES / 'System/chipfactory.exe').is_file(),

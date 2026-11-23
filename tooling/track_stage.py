@@ -10,6 +10,7 @@ such a synth links none of it, and its voice adapters carry none of it.
 """
 from pathlib import Path
 
+from .cpu import control_defaults
 from .definitions import ROOT
 from .formats import require
 
@@ -52,8 +53,10 @@ def adapter_values(m, shift_row=False):
     else:
         words, given = '', 'parameters'
     source = TEMPLATE.read_text(encoding='utf-8')
+    defaults = ', '.join(map(str, control_defaults(m.definition['parameters'])[:8] + [0] * 8))
     for key, value in (('PREFIX', m.prefix), ('NAMESPACE', m.definition['id']), ('STATE_BYTES', stage['stateBytes']),
-                       ('STATE_ALIGNMENT', stage['stateAlignment']), ('STAGE_WORDS', words), ('STAGE_PARAMETERS', given)):
+                       ('STATE_ALIGNMENT', stage['stateAlignment']), ('STAGE_WORDS', words), ('STAGE_PARAMETERS', given),
+                       ('STAGE_DEFAULTS', defaults)):
         require(('@%s@' % key) in source, 'Track stage template placeholder missing')
         source = source.replace('@%s@' % key, str(value))
     # After the template's last line, which keeps its own line end.
@@ -65,10 +68,17 @@ def stage_symbols(m):
     return (m.prefix + '_track_reset', m.prefix + '_track_process')
 
 
+def benchmark_symbol(m):
+    """The diagnostic's stage run a declaring synth's adapter defines (benchmark.py STAGE)."""
+    return m.prefix + '_stage_benchmark'
+
+
 def absent_symbols(m):
     """An unselected declaring synth's entries, each kit_absent; its ready check (also
-    kit_absent) declines first, so neither is called."""
-    return dict.fromkeys(stage_symbols(m), 'kit_absent') if track_stage(m) is not None else {}
+    kit_absent) declines first, so none is called."""
+    if track_stage(m) is None:
+        return {}
+    return dict.fromkeys((*stage_symbols(m), benchmark_symbol(m)), 'kit_absent')
 
 
 def generate_table(directory, machines):

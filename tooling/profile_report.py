@@ -4,7 +4,7 @@ from pathlib import Path
 import statistics
 
 from .benchmark import case_label, combined_label, combined_positions, decode, drum_label, position
-from .cpu_measurement import BENCHMARKS, RECOMMENDED_PERCENT, above_recommended, validate
+from .cpu_measurement import BENCHMARKS, RECOMMENDED_PERCENT, above_recommended, track_cost, validate
 from .formats import require, sha
 
 
@@ -43,7 +43,7 @@ def aggregate(captures, expected, identity, name, commit, url):
     the heaviest swept setting beside it. Returns the record, the published run's
     per-capture values, the machine's standard case, every run's (case, median, peak), the
     positions each capture's combined run used and the swept settings left out as
-    silent."""
+    silent. A synth with a track stage adds its stage run's median and worst block."""
     # One capture is enough (docs/profiling.md); more publish their median.
     require(1 <= len(captures) <= 100, 'Collect 1 to 100 independent runs')
     seen, collectors = set(), set()
@@ -52,6 +52,10 @@ def aggregate(captures, expected, identity, name, commit, url):
     case = own[0]
     if case['kind'] == 'drum':
         return aggregate_drum(captures, expected, identity, name, commit, url, own)
+    # The stage run is the stage's alone: kept out of the voice runs, published beside them.
+    stage = next((c for c in own if c.get('stage')), None)
+    own = [c for c in own if not c.get('stage')]
+    stage_values, stage_peaks = [], []
     swept = own[1:]
     require(case['kind'] != 'synth' or swept,
             'A synth record is a control sweep: rebuild the package with --sweep on (the default with profiling); '
@@ -69,7 +73,18 @@ def aggregate(captures, expected, identity, name, commit, url):
         require(capture.get('mode') == 'benchmark' and capture.get('package') == identity and
                 capture.get('expected_cases') == expected, 'Capture belongs to a different build or workload')
         collectors.add(capture.get('collector_sha256'))
-        results = [r for r in decode(capture, expected) if r['machine'] in own]
+        decoded = decode(capture, expected)
+        results = [r for r in decoded if r['machine'] in own]
+        if stage is not None:
+            result = next(r for r in decoded if r['machine'] == stage)
+            metric = result['metrics'][stage['metric']]
+            require(metric['encoded_average'] < 65535,
+                    f'{name} saturated the block budget (track stage): it is above the whole budget there, '
+                    'so no CPU number can be published; make that path lighter')
+            require(metric['encoded_average'] > 0 and not result['insufficient_voice_activity'],
+                    'Inactive or failed track stage run; do not publish a CPU number')
+            stage_peaks.append(measured_peak(metric, stage))
+            stage_values.append(metric['average_budget_percent'])
         for index, result in enumerate(results):
             metric = result['metrics'][case['metric']]
             require(metric['encoded_average'] < 65535,
@@ -110,6 +125,9 @@ def aggregate(captures, expected, identity, name, commit, url):
         worst = max((index for index in settings if index in medians), key=lambda index: (medians[index], -index))
         measurement.update(midpoint_percent=medians[0], combined_percent=medians[combined],
                            worst_setting=own[worst]['setting'])
+    if stage is not None:
+        measurement.update(stage_percent=round(statistics.median(stage_values), 6),
+                           stage_peak_percent=round(max(stage_peaks), 6))
     if url is not None:
         measurement['report'] = url
     validate(measurement, case['kind'], commit, legacy=False)
@@ -248,6 +266,13 @@ def create(package, paths, name, url, out):
                   "the maximum across every measured setting/workload and every supplied capture. "
                   "Peaks are never averaged or reduced to a median. This is an observed spike, "
                   "not a proven worst-case bound for untested settings or live projects.")
+    if 'stage_percent' in measurement:
+        published += (f"\n\nTrack stage, run once per block on each track that holds the synth, whatever its "
+                      f"voices: mean **{measurement['stage_percent']:.3f}%**, worst block "
+                      f"**{measurement['stage_peak_percent']:.3f}%**. A track playing the synth costs its voices "
+                      f"plus one stage: one voice with its stage, mean {track_cost(measurement, 'block_percent'):.3f}%, "
+                      f"worst block {track_cost(measurement, 'peak_percent'):.3f}%, the figures the "
+                      "recommendation and the builder's CPU-high label use.")
     advice = f'**Warning: {warning}.**' if warning else 'Within it.'
     text = (f"# {name}: hardware CPU measurement\n\n"
             f"Machine commit: `{commit}`. Benchmark: `{measurement['benchmark']}`. Scope: {scope}.\n\n"

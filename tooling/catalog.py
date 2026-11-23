@@ -24,7 +24,7 @@ import subprocess
 import sys
 
 from .definitions import stock_name
-from . import cpu_measurement, stock_content
+from . import cpu_measurement, stock_content, track_stage
 from .formats import require
 from .machines import machine_at, relative_path
 from .pipeline import NO_WINDOW, ROOT
@@ -232,6 +232,26 @@ def release_controls(before, after, cache=CACHE, allow=False):
     return report
 
 
+def stage_records(before, after, cache=CACHE):
+    """A new synth sweep record carries its track stage's run (stage_percent and
+    stage_peak_percent) exactly when the release it measured declares a stage
+    (docs/profiling.md): each such release is fetched at its pinned commit to see."""
+    measured = lambda cpu: {k: v for k, v in cpu.items() if k != 'report'} if isinstance(cpu, dict) else cpu
+    previous = {e['id']: e for e in before}
+    for entry in after:
+        cpu = entry.get('cpu')
+        if (entry.get('kind') != 'synth' or not isinstance(cpu, dict) or 'commit' not in entry or
+                cpu.get('benchmark') != cpu_measurement.BENCHMARKS['synth'] or
+                measured(cpu) == measured(previous.get(entry['id'], {}).get('cpu'))):
+            continue
+        staged = track_stage.track_stage(fetch(entry, cache)) is not None
+        require(staged == ('stage_percent' in cpu),
+                f"{entry['id']}: " + ('its release declares a track stage, so its cpu record needs stage_percent and '
+                                      'stage_peak_percent' if staged else
+                                      'its release declares no track stage, so its cpu record has no stage fields') +
+                '; run sdk.py profile report on a package built from that release (docs/profiling.md)')
+
+
 def load(path=CATALOG):
     return validate(json.loads(Path(path).read_text(encoding='utf-8')))
 
@@ -390,6 +410,7 @@ def main(argv=None):
                     if listed == 'machines':
                         for line in release_controls(before, entries, args.cache, args.allow_control_changes):
                             print(line)
+                        stage_records(before, entries, args.cache)
                 # Against a base, only the entries this change touches; alone, every entry.
                 earlier = {e['id']: e for e in before} if args.base else {}
                 for entry in entries:

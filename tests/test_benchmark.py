@@ -93,6 +93,25 @@ class Benchmark(unittest.TestCase):
             plain_source = generate(folder, [effect, synth]).read_text(encoding='utf-8')
             self.assertEqual((table(plain_source, 'Setting settings'), table(plain_source, 'Defaults defaults')), ([], []))
 
+    def test_a_synth_with_a_track_stage_runs_its_stage_after_its_voice_runs(self):
+        from tooling.benchmark import STAGE, STAGE_METRIC, case_label
+        stage, synth = fixture('probestage'), fixture('probesynth')
+        for sweep in (False, True):
+            own = [c for c in cases([synth, stage], sweep=sweep) if c['name'] == 'probestage']
+            self.assertEqual(own[-1], dict(own[0], benchmark=STAGE, metric=STAGE_METRIC, stage=True))
+            self.assertEqual(case_label(own[-1]), 'track stage')
+            self.assertFalse(any(c.get('stage') for c in own[:-1]))
+            # A synth without a stage runs as before.
+            self.assertEqual([c for c in cases([synth, stage], sweep=sweep) if c['name'] == 'probesynth'],
+                             cases([synth], sweep=sweep)[9:])
+        with tempfile.TemporaryDirectory() as folder:
+            source = generate(folder, [synth, stage], sweep=True).read_text(encoding='utf-8')
+            plain = generate(folder, [synth], sweep=True).read_text(encoding='utf-8')
+        self.assertIn('    {"probestage", probestage_engine_id, probestage_ready, probestage_stage_benchmark, 7, nullptr, 0},',
+                      source)
+        self.assertIn('probestage_stage_benchmark() __asm__("probestage_stage_benchmark");', source)
+        self.assertNotIn('stage_benchmark', plain)
+
     def test_list_controls_name_their_option(self):
         from tooling.benchmark import position
         self.assertEqual(position(dict(control=1, label='Octave', value=7, option='+2')), 'Octave +2')

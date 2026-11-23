@@ -668,7 +668,7 @@ SDK zeroes a track's whole state in the block the track takes the synth, so a
 large state costs that block more. The stage runs once for each track that holds the synth. A build with a stage adds a
 check to every instrument track's block (whether the track holds a stage); a
 build without one is unchanged. A synth's [CPU record](profiling.md) times its
-voices, not its stage. The browser preview does not model the stage.
+stage too, in a run of its own, counted once per track beside a voice. The browser preview does not model the stage.
 
 ## Track control
 

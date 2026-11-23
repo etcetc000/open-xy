@@ -21,3 +21,40 @@ void @PREFIX@_track_reset(opxy::u32 track) {
 void @PREFIX@_track_process(opxy::u32 track, opxy::i32* sum, const opxy::i32* parameters, opxy::u32 voices) {
 @STAGE_WORDS@    @NAMESPACE@::track_process(track_states[track], shared, track, sum, @STAGE_PARAMETERS@, voices);
 }
+// The diagnostic's stage run (tooling/benchmark.py STAGE, docs/profiling.md): the stage
+// on a state of its own, never a track's, set up as a track that takes the synth (zeroed,
+// then track_reset), then 1,000 blocks of a sounding sum with one voice and 500 silent
+// blocks without one, each timed. Explicit diagnostic command only.
+#include "benchmark.hpp"
+extern "C" opxy::benchmark::Stats @PREFIX@_stage_benchmark() __asm__("@PREFIX@_stage_benchmark");
+opxy::benchmark::Stats @PREFIX@_stage_benchmark() {
+    using namespace opxy;
+    opxy::benchmark::Stats stats{};
+    opxy::benchmark::Memory memory(sizeof(TrackState));
+    if (!memory.data || reinterpret_cast<__UINTPTR_TYPE__>(memory.data) % alignof(TrackState)) return stats;
+    typedef u32 __attribute__((may_alias)) Word;
+    Word* words = static_cast<Word*>(memory.data);
+    for (unsigned i = 0; i < sizeof(TrackState) / 4; ++i) words[i] = 0;
+    TrackState& state = *static_cast<TrackState*>(memory.data);
+    @NAMESPACE@::track_reset(state, shared, 0);
+    // The track's words at the controls' defaults, a Shift row's at 0.
+    static const i32 parameters[2 * parameter_slots] = {@STAGE_DEFAULTS@};
+    i32 sum[128];
+    for (u32 block = 0; block < opxy::benchmark::blocks; ++block) {
+        const u32 voices = block < 1000 ? 1 : 0;
+        for (u32 i = 0; i < 64; ++i) {
+            sum[2 * i] = voices ? static_cast<i32>(opxy::benchmark::pcm(block * 64u + i)) * 65536 : 0;
+            sum[2 * i + 1] = voices ? static_cast<i32>(opxy::benchmark::pcm(block * 64u + i + 137u)) * 65536 : 0;
+        }
+        u32 spent;
+        {
+            const opxy::benchmark::Masked masked;
+            const u32 begin = opxy::benchmark::cycles();
+            @NAMESPACE@::track_process(state, shared, 0, sum, parameters, voices);
+            spent = opxy::benchmark::cycles() - begin;
+        }
+        stats.add(spent);
+        stats.observe(sum, 128);
+    }
+    return stats;
+}

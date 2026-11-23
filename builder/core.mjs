@@ -405,12 +405,18 @@ export const CPU_HIGH_PERCENT = 4.5;
 // average per block when its record reports no peak; null without a cpu record.
 // A drum kit is judged by its worst single sound, never its whole-kit runs: its
 // single-voice peak (voice_peak_percent), else its heaviest single voice's average.
+// A synth with a track stage adds its stage run's worst block (or mean) once, as a
+// track playing it runs one stage beside its voices (tooling.cpu_measurement.track_cost).
 export function cpuWorstCase(m) {
   const usable = n => typeof n === 'number' && Number.isFinite(n) && n > 0;
   const cpu = m.cpu && typeof m.cpu === 'object' ? m.cpu : {};
-  const peak = m.kind === 'drum' ? cpu.voice_peak_percent : cpu.peak_percent;
-  if (usable(peak)) return {percent: peak, metric: 'peak'};
-  if (usable(cpu.block_percent)) return {percent: cpu.block_percent, metric: 'average'};
+  const drum = m.kind === 'drum';
+  const staged = !drum && usable(cpu.stage_percent) && usable(cpu.stage_peak_percent);
+  const add = (n, stage) => staged ? Math.round((n + stage) * 1e6) / 1e6 : n;
+  const peak = drum ? cpu.voice_peak_percent : cpu.peak_percent;
+  const stage = staged ? {stage: true} : {};
+  if (usable(peak)) return {percent: add(peak, cpu.stage_peak_percent), metric: 'peak', ...stage};
+  if (usable(cpu.block_percent)) return {percent: add(cpu.block_percent, cpu.stage_percent), metric: 'average', ...stage};
   return null;
 }
 // The CPU-high label, derived from the cpu record so it follows the catalog: the worst
@@ -426,7 +432,8 @@ export function cpuHigh(m) {
     : worst.metric === 'peak'
     ? 'worst observed block peak ' + figure + ', above ' + CPU_HIGH_PERCENT + '%'
     : 'average ' + figure + ', above ' + CPU_HIGH_PERCENT + '% (no peak reported)';
-  return {...worst, detail, text: 'CPU-high: ' + detail};
+  const stage = worst.stage ? ' (a voice with its track stage)' : '';
+  return {...worst, detail: detail + stage, text: 'CPU-high: ' + detail + stage};
 }
 // The keywords the machines use, with how many use each, most used first, then by name: the
 // order in which the builder keeps keyword filters when only some fit (builder/app.mjs).

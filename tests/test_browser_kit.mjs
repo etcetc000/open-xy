@@ -759,6 +759,16 @@ test('the CPU-high label follows the reported peak, or the average when no peak 
   for (const cpu of [{block_percent:5, peak_percent:48}, {block_percent:5}])
     assert.equal(cpuHigh({kind:'drum', cpu}).text,
       'CPU-high: worst single sound average 5% of an audio block, above 4.5% (no single-sound peak recorded)');
+  // A synth with a track stage: one voice and its track's stage (tooling.cpu_measurement.track_cost).
+  const staged = {kind:'synth', cpu:{block_percent:2, peak_percent:2.5, stage_percent:1, stage_peak_percent:2.1}};
+  assert.deepEqual(cpuWorstCase(staged), {percent:4.6, metric:'peak', stage:true});
+  assert.equal(cpuHigh(staged).text, 'CPU-high: worst observed block peak 4.6% of an audio block, above 4.5% (a voice with its track stage)');
+  assert.equal(cpuHigh({kind:'synth', cpu:{...staged.cpu, stage_peak_percent:2}}), null);
+  assert.deepEqual(cpuWorstCase({kind:'synth', cpu:{block_percent:2, stage_percent:2.6, stage_peak_percent:3}}),
+    {percent:4.6, metric:'average', stage:true});
+  // Only a synth's record carries them; a kit's stray fields are not read.
+  assert.deepEqual(cpuWorstCase({kind:'drum', cpu:{block_percent:2, stage_percent:3, stage_peak_percent:4}}),
+    {percent:2, metric:'average'});
   // Strictly above the threshold; no record, or no usable figure, is no label.
   assert.equal(cpuHigh({cpu:{block_percent:4.5}}), null);
   assert.equal(cpuHigh({cpu:{block_percent:3, peak_percent:4.5}}), null);
