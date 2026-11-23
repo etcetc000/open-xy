@@ -2110,7 +2110,8 @@ only in a build with a player declaring SDK 1.27 or later, where every player
 of the build gets it; a build without one keeps the 112-byte `Controls` and
 compiles every player and the SDK's player code exactly as before. A player
 that reads it declares 1.27: one declaring an older version that reads it
-compiles only beside a 1.27 player, and reads the kind there. In such a build, building `Controls` takes about 12 instructions more
-on the usual path (a published byte per track), and each GUI frame asks stock
-for eight tracks' engines, counted from the compiler's listing, not timed on a
-device ([firmware](abi-1.2.1.md#players-track-instrument)).
+compiles only beside a 1.27 player, and reads the kind there. In such a
+build, building `Controls` takes about 12 instructions more on the usual path
+(a published byte per track), and each GUI frame asks stock for eight tracks'
+engines, counted from the compiler's listing, not timed on a device
+([firmware](abi-1.2.1.md#players-track-instrument)).
