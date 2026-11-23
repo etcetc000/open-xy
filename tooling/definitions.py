@@ -133,12 +133,12 @@ DRUM_KIT_CONTROLS = ('padVolume', 'padRandom', 'ampEnvelope')
 # this line, the 1.23 line of SDK_VERSION's history (tooling/machines.py) and the "1.23" text in the
 # docs and fixtures.
 KIT_CONTROLS_SDK = (1, 23)
-# SDK 1.27: a note player's Controls.instrument (the kind of instrument its track holds), for
+# SDK 1.25: a note player's Controls.instrument (the kind of instrument its track holds), for
 # a player declaring it; and modelEdit, 0 or 1, for a drum kit whose value editor
 # (edit_model_parameter) may move the key to another model, as one dial over every model.
 # A renumber changes this line, SDK_VERSION and its history (tooling/machines.py) and the
-# "1.27" text in the docs and fixtures.
-SDK_1_27 = (1, 27)
+# "1.25" text in the docs and fixtures.
+SDK_1_25 = (1, 25)
 DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls', 'parameterEdit', 'modelEdit',
                 *DRUM_KIT_CONTROLS)
 # Pad controls share 9 bits of stock's pad word +0x14; its sends take 6 more (drum_storage.hpp).

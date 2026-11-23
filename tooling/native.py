@@ -212,18 +212,18 @@ def check_sources(machines):
 # other build compiles those units as before.
 KIT_CONTROLS_DEFINE = '-DOPXY_KIT_CONTROLS=1'
 # Defined for every SDK unit, and every player's unit, of a build with a player declaring
-# SDK 1.27 or later: Controls.instrument (opxy/player.hpp) and its publication
+# SDK 1.25 or later: Controls.instrument (opxy/player.hpp) and its publication
 # (players.cpp). Every other build compiles both as before.
 PLAYER_INSTRUMENT_DEFINE = '-DOPXY_PLAYER_INSTRUMENT=1'
-# Defined for every SDK unit of a build with a kit declaring modelEdit (SDK 1.27): the
+# Defined for every SDK unit of a build with a kit declaring modelEdit (SDK 1.25): the
 # shared editor's call into its editor (drum_model_edit.hpp). Every other build compiles
 # those units as before.
 MODEL_EDIT_DEFINE = '-DOPXY_MODEL_EDIT=1'
 
 
 def sdk_defines(machines):
-    """The SDK 1.27 defines a build's machines ask for, in a fixed order: none for a build
-    without a 1.27 player or a modelEdit kit."""
+    """The SDK 1.25 defines a build's machines ask for, in a fixed order: none for a build
+    without a 1.25 player or a modelEdit kit."""
     return (((PLAYER_INSTRUMENT_DEFINE,) if any(player_instrument(m) for m in machines) else ()) +
             ((MODEL_EDIT_DEFINE,) if any(model_edit(m) for m in machines) else ()))
 
@@ -678,7 +678,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
     # The SDK's units of a build with a kit declaring the drum-kit controls see
     # OPXY_KIT_CONTROLS; a machine's own units never do.
     defines = (KIT_CONTROLS_DEFINE,) if 'kit_controls' in active_services(profile, service_users(machines)) else ()
-    # SDK 1.27: a 1.27 player's Controls.instrument, which every player of its build shares with
+    # SDK 1.25: a 1.25 player's Controls.instrument, which every player of its build shares with
     # the SDK units (a player's own units see that define alone), and a modelEdit kit's editor.
     defines += sdk_defines(machines)
     player_defines = tuple(d for d in defines if d == PLAYER_INSTRUMENT_DEFINE)

@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import (DRUM_KIT_CONTROLS, EXTENDED_SDK, KIT_CONTROLS_SDK, SDK_1_27, extended_display, ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
+from .definitions import (DRUM_KIT_CONTROLS, EXTENDED_SDK, KIT_CONTROLS_SDK, SDK_1_25, extended_display, ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
@@ -82,10 +82,9 @@ IDLE_SDK = (1, 22)
 # kit's screen its selected key (draw::Input::selected_key; KIT_CONTROLS_SDK in definitions.py).
 # 1.24 adds a synth's track stage (resources.trackStage, track_stage.py): one state per
 # instrument track, processed in place on the track's voice sum once per block.
-# 1.27 gives a note player its track's kind of instrument (Controls.instrument) and lets a
-# drum kit's value editor move the key to another model (resources.modelEdit). It takes the
-# next free number when it merges (SDK_1_27 in definitions.py moves with it).
-SDK_VERSION = (1, 27)
+# 1.25 gives a note player its track's kind of instrument (Controls.instrument) and lets a
+# drum kit's value editor move the key to another model (resources.modelEdit; SDK_1_25 in definitions.py).
+SDK_VERSION = (1, 25)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -585,7 +584,7 @@ def machine_at(root, identity=None):
     if definition['resources'].get('parameterEdit'):
         require_sdk(version, (1, 21), 'Per-model drum value editing (parameterEdit)')
     if definition['resources'].get('modelEdit'):
-        require_sdk(version, SDK_1_27, 'Drum value editing across models (modelEdit)')
+        require_sdk(version, SDK_1_25, 'Drum value editing across models (modelEdit)')
     # Only a set flag needs 1.12: an explicit 0 is the mono, callback-free default.
     if kind == 'synth' and any(definition['resources'].get(k) for k in ('stereoOutput', 'releaseCallback')):
         require_sdk(version, (1, 12), 'Stereo synth output and voice release callbacks (stereoOutput, releaseCallback)')

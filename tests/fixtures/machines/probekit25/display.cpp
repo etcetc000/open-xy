@@ -1,6 +1,6 @@
 #include "display.h"
 
-namespace probekit27 {
+namespace probekit25 {
 inline void display_reset(DisplayState& state) { state.phase = 0; }
 
 inline void display(DisplayState& state, const opxy::draw::Input& input, Frame& frame) {

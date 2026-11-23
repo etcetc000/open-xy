@@ -526,8 +526,8 @@ TRACK_ENGINE = 'inline u32 track_engine(u32 track) { return stock<u32(u32)>(0x8d
 
 
 class PlayerInstrument(unittest.TestCase):
-    """Controls.instrument (SDK 1.27): the kind of instrument a player's track holds, for a build
-    with a player declaring 1.27; every other build keeps Controls and players.cpp as they were."""
+    """Controls.instrument (SDK 1.25): the kind of instrument a player's track holds, for a build
+    with a player declaring 1.25; every other build keeps Controls and players.cpp as they were."""
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -543,15 +543,15 @@ class PlayerInstrument(unittest.TestCase):
         (folder / 'machine.json').write_text(json.dumps(record), encoding='utf-8')
         return machine_at(folder)
 
-    def test_only_a_build_with_a_1_27_player_defines_it(self):
+    def test_only_a_build_with_a_1_25_player_defines_it(self):
         from tooling.adapters import player_instrument
-        from tooling.definitions import SDK_1_27
+        from tooling.definitions import SDK_1_25
         from tooling.machines import SDK_VERSION
         from machine_fixtures import fixture
-        self.assertEqual(SDK_1_27, (1, 27))
-        self.assertGreaterEqual(SDK_VERSION, SDK_1_27)
-        new, older = fixture('probepads'), self.player('1.26')
-        self.assertEqual((new.sdk, player_instrument(new), player_instrument(older)), ((1, 27), True, False))
+        self.assertEqual(SDK_1_25, (1, 25))
+        self.assertGreaterEqual(SDK_VERSION, SDK_1_25)
+        new, older = fixture('probepads'), self.player('1.24')
+        self.assertEqual((new.sdk, player_instrument(new), player_instrument(older)), ((1, 25), True, False))
         self.assertEqual(native.sdk_defines([new]), (native.PLAYER_INSTRUMENT_DEFINE,))
         self.assertEqual(native.sdk_defines([older]), ())
         # Not a player: kits, synths and effects never ask for it, whatever they declare.
@@ -566,7 +566,7 @@ class PlayerInstrument(unittest.TestCase):
         self.assertEqual((ROOT / 'sdk/include/opxy/player.hpp').read_text(encoding='utf-8').count(
             '#if OPXY_PLAYER_INSTRUMENT'), 1)
         self.assertEqual((PLATFORM / 'players.cpp').read_text(encoding='utf-8').count('#if OPXY_PLAYER_INSTRUMENT'), 3)
-        # A 1.27 player's generated adapter is the one an older player gets: only the define differs.
+        # A 1.25 player's generated adapter is the one an older player gets: only the define differs.
         with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
             new_source = adapters.generate_player_object(a, new).read_text(encoding='utf-8')
             old_source = adapters.generate_player_object(b, older).read_text(encoding='utf-8')
@@ -637,7 +637,7 @@ namespace registry { struct StockString { char text[16]; u32 length,capacity; };
 @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Stock OS not supplied')
 class StockPlayer(unittest.TestCase):
     def test_instrument_kind_stands_on_stock_engine_getter_and_drum_predicate(self):
-        # Controls.instrument (SDK 1.27) calls, on the GUI, the engine getter the drum services
+        # Controls.instrument (SDK 1.25) calls, on the GUI, the engine getter the drum services
         # already call and stock's drum predicate, whose entry the drums service hooks.
         from tooling.formats import sha
         data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()

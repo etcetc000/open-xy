@@ -97,7 +97,7 @@ struct Update {
 // The members after lowest_key were appended: value[] and lowest_key keep
 // their offsets (0 and 32).
 //
-// SDK 1.27, appended after clicks: instrument is the kind of instrument the
+// SDK 1.25, appended after clicks: instrument is the kind of instrument the
 // player's track holds, as stock classifies it: DrumInstrument for its drum
 // sampler, its drum synth or an SDK drum kit; OtherInstrument for anything
 // else (a synth, the keyboard sampler, a sample engine, no instrument) and on
@@ -105,7 +105,7 @@ struct Update {
 // the GUI once per frame and a callback reads the latest, so after the
 // track's instrument changes, press, update and display see the new kind
 // within a frame. The member exists in a build with a player declaring SDK
-// 1.27 or later (the SDK then defines OPXY_PLAYER_INSTRUMENT for its units
+// 1.25 or later (the SDK then defines OPXY_PLAYER_INSTRUMENT for its units
 // and its players'); a build without one keeps the 112-byte Controls, and
 // every older player's code, as they were.
 enum Instrument : u32 { OtherInstrument = 0, DrumInstrument = 1 };

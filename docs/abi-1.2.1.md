@@ -1463,7 +1463,7 @@ group, then the model in it), the choke group, then nothing, or on a `padMix`
 kit pan and level, its second row the key's pad fields. Track modulation is
 applied after decoding. GUI edits repack and use the stock dirty/publication
 calls; no audio callback writes preset state or performs file I/O. A
-`modelEdit` kit's control turn (SDK 1.27) takes the same route with the model
+`modelEdit` kit's control turn (SDK 1.25) takes the same route with the model
 its editor answers: no new hook or stock address. Only a build with such a kit
 compiles that arm of `sdk_drum_edit` (`OPXY_MODEL_EDIT`) and generates its
 table (`sdk_drum_model_edits`, `drum_model_edit.hpp`).
@@ -2300,8 +2300,8 @@ publish into the same storage. No audio callback uses GUI pattern getters.
 
 ### Players: track instrument
 
-SDK 1.27 adds no hook and no stock address for players. In a build with a
-player declaring 1.27 (`OPXY_PLAYER_INSTRUMENT`), the compositor substitute,
+SDK 1.25 adds no hook and no stock address for players. In a build with a
+player declaring 1.25 (`OPXY_PLAYER_INSTRUMENT`), the compositor substitute,
 with the Shift word, publishes each instrument track's kind of instrument
 (`Controls.instrument`) into eight bytes of the players service, from stock
 calls on the GUI: the track's engine getter `8d58781c` (`LINK`, `CALL

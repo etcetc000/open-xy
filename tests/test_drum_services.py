@@ -61,7 +61,7 @@ class DrumServices(unittest.TestCase):
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
     def test_a_model_edit_kits_turn_moves_the_key_across_models(self):
-        # A build with a modelEdit kit (SDK 1.27): the shared editor compiled with OPXY_MODEL_EDIT,
+        # A build with a modelEdit kit (SDK 1.25): the shared editor compiled with OPXY_MODEL_EDIT,
         # every check above unchanged on kits without it, then its own (drum_gui.cpp
         # model_edit_checks); beside the drum-kit controls, an ampEnvelope kit keeps its amp values.
         self.run_drum_gui(model_edit=True)

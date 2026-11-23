@@ -14,7 +14,7 @@ import math
 from pathlib import Path
 
 from .benchmark import append_callback
-from .definitions import (KIT_CONTROLS_SDK, SDK_1_27, extended_display, ROOT, STOCK_VOICES, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
+from .definitions import (KIT_CONTROLS_SDK, SDK_1_25, extended_display, ROOT, STOCK_VOICES, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
                           shift_choices, shift_field, shift_parameters, stock_shift_codes, synth_shift,
                           validate_definition)
 
@@ -140,7 +140,7 @@ def generate_voice(directory, m, sweep=False, idle=False):
         values['PAD_SIGNS'] = sum(1 << i for i, f in enumerate(pads) if f.get('signed'))
         values['TRANSPORT'] = 'true' if drum_transport(m) else 'false'
         values['PARAMETER_EDIT'] = m.definition['resources'].get('parameterEdit', 0)
-        # A modelEdit kit's editor (SDK 1.27), which drum_callbacks.cpp's model-edit table names;
+        # A modelEdit kit's editor (SDK 1.25), which drum_callbacks.cpp's model-edit table names;
         # nothing for any other kit, whose adapter stays as it was.
         values['MODEL_EDIT'] = (
             f'opxy::u32 {m.prefix}_drum_edit_model(opxy::u32, opxy::u32, opxy::u32, opxy::i32, opxy::u32) '
@@ -315,13 +315,13 @@ def kit_amp_defaults(m):
 
 
 def player_instrument(m):
-    """Whether a note player reads Controls.instrument: one declaring SDK 1.27 or later. A build
+    """Whether a note player reads Controls.instrument: one declaring SDK 1.25 or later. A build
     with one compiles its SDK units and its players with OPXY_PLAYER_INSTRUMENT (native.py)."""
-    return getattr(m, 'kind', 'synth') == 'player' and getattr(m, 'sdk', (1, 0)) >= SDK_1_27
+    return getattr(m, 'kind', 'synth') == 'player' and getattr(m, 'sdk', (1, 0)) >= SDK_1_25
 
 
 def model_edit(m):
-    """Whether a drum kit declares modelEdit (SDK 1.27): its edit_model_parameter may move a key to
+    """Whether a drum kit declares modelEdit (SDK 1.25): its edit_model_parameter may move a key to
     another model. A build with one compiles its SDK units with OPXY_MODEL_EDIT (native.py)."""
     return getattr(m, 'kind', 'synth') == 'drum' and bool(m.definition['resources'].get('modelEdit', 0))
 

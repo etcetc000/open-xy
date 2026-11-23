@@ -1,5 +1,5 @@
 // Execute the actual player bridge (players.cpp, compiled with OPXY_PLAYER_INSTRUMENT as a
-// build with an SDK 1.27 player compiles it) with stock calls replaced by fakes: each
+// build with an SDK 1.25 player compiles it) with stock calls replaced by fakes: each
 // instrument track's kind of instrument, published by the GUI once per compositor frame and
 // read into Controls.instrument by every callback's Controls, for a drum sampler, a drum
 // synth, an SDK kit, a synth, a sampler, a sample engine and an empty track, a track changing

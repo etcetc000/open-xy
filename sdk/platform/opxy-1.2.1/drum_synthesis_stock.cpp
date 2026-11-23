@@ -124,7 +124,7 @@ opxy::u32 sdk_drum_edit(opxy::u32 key, opxy::u32 control, const opxy::u32* event
         return 0;
 #if OPXY_MODEL_EDIT
     } else if (const DrumModelEdit* across = drum_model_edit(*machine)) {
-        // A modelEdit kit (SDK 1.27): its editor answers a turn of an available
+        // A modelEdit kit (SDK 1.25): its editor answers a turn of an available
         // control with the key's model and that control's value, so the turn may
         // move the key to another model (drum_model_edit.hpp). Event word two is
         // the turn's speed, as for parameterEdit below.

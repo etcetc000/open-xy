@@ -1059,7 +1059,7 @@ steps. A kit with a per-model discrete selector can use this callback to jump
 directly to the next available option while other controls keep unit steps.
 It does not run during audio rendering or alter saved-value encoding.
 
-From SDK 1.27 a kit can instead declare `resources.modelEdit: 1` and add, in place of
+From SDK 1.25 a kit can instead declare `resources.modelEdit: 1` and add, in place of
 `edit_parameter`, a callback that may move the key to another model:
 
 ```cpp
@@ -1358,7 +1358,7 @@ means 0. Callbacks are functions in the machine's namespace.
 | `padRandom` | 0 or 1; drum kits without `padMix`, SDK 1.23 | Shift's fourth encoder sets each key's random, which moves each hit's controls by up to ±32 steps ([drum-kit controls](#the-drum-kit-controls)) | |
 | `ampEnvelope` | 0 or 1; drum kits without `padMix`, SDK 1.23 | M2's start, attack, hold and decay kept per key and shaping each note, fading on note-off ([drum-kit controls](#the-drum-kit-controls)) | |
 | `parameterEdit` | 0 or 1; drum kits, SDK 1.21 | A turn of an available control (below the model's count and named), without Shift and with no step held, asks the kit for the control's next stored value instead of moving it one unit a detent ([drum kits](#synthesis-drum-kits)) | `edit_parameter` |
-| `modelEdit` | 0 or 1; drum kits, SDK 1.27; not with `parameterEdit` | The same turns ask the kit for the key's next model and value, so one encoder can run through every model ([drum kits](#synthesis-drum-kits)) | `edit_model_parameter` |
+| `modelEdit` | 0 or 1; drum kits, SDK 1.25; not with `parameterEdit` | The same turns ask the kit for the key's next model and value, so one encoder can run through every model ([drum kits](#synthesis-drum-kits)) | `edit_model_parameter` |
 | `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
 | `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |
@@ -1767,7 +1767,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.27 and builds 1.0 to 1.27 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.25 and builds 1.0 to 1.25 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
@@ -2090,9 +2090,9 @@ that stock delivers keyboard notes to the player while Shift is held. Key
 events other than notes (the -/+ keys, Shift + key) and Shift + encoder clicks
 are not available to players; they need a new hook.
 
-### A player's track instrument (SDK 1.27)
+### A player's track instrument (SDK 1.25)
 
-A player declaring `"sdk": "1.27"` also receives `Controls.instrument`, the
+A player declaring `"sdk": "1.25"` also receives `Controls.instrument`, the
 kind of instrument its track holds, as stock classifies it:
 `opxy::player::DrumInstrument` for stock's drum sampler, its drum synth or an
 SDK drum kit, `OtherInstrument` for anything else (a synth, the keyboard
@@ -2106,11 +2106,11 @@ forks the drum sampler reads `OtherInstrument`: stock does not classify it as
 a drum.
 
 `instrument` follows `clicks` (offset 112; `Controls` is 116 bytes). It exists
-only in a build with a player declaring SDK 1.27 or later, where every player
+only in a build with a player declaring SDK 1.25 or later, where every player
 of the build gets it; a build without one keeps the 112-byte `Controls` and
 compiles every player and the SDK's player code exactly as before. A player
-that reads it declares 1.27: one declaring an older version that reads it
-compiles only beside a 1.27 player, and reads the kind there. In such a
+that reads it declares 1.25: one declaring an older version that reads it
+compiles only beside a 1.25 player, and reads the kind there. In such a
 build, building `Controls` takes about 12 instructions more on the usual path
 (a published byte per track), and each GUI frame asks stock for eight tracks'
 engines, counted from the compiler's listing, not timed on a device

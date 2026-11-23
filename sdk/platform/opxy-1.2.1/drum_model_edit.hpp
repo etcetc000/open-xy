@@ -1,4 +1,4 @@
-// A drum kit's value editing across models (resources.modelEdit, SDK 1.27). The kit's
+// A drum kit's value editing across models (resources.modelEdit, SDK 1.25). The kit's
 // edit_model_parameter answers a turn of one of its controls with the key's model and that
 // control's value as one position, model * 128 + value, so one encoder can run on into the
 // next model past 127 and the previous one below 0. Its table (sdk_drum_model_edits, in
