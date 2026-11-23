@@ -25,7 +25,7 @@ Firmware coverage: every capability below has addresses for **OP-XY OS 1.2.1 onl
 service fails with "the <name> capability has no firmware sites for OP-XY OS
 <version>".
 
-The SDK's one CPU extension, `extensions/cpu` ("CPU (experimental)"), selects all six:
+The SDK's one CPU extension, `extensions/cpu` ("CPU (experimental)"), selects six of them:
 `boot_log_fix`, `idle`, `block_trims`, `output_slack`, `load_governor` and
 `fast_helpers`, the last at its setting 0, off. It needs `sdk.py build`. It
 does not select `release_floor`, whose threshold the idle cut uses: with `cpu` alone, `idle` skips
@@ -443,8 +443,9 @@ one at 1 the fast ones, with the sizes above.
 
 ## pitch_constants
 
-What it changes in stock: stock's note-to-pitch routine (`8d5c09d6`), which every synth
-voice start runs (stock's note pitch `8d5c0a70` calls it), loads the float constants
+What it changes in stock: stock's note-to-pitch routine (`8d5c09d6`), which stock's
+note pitch `8d5c0a70` calls (itself called at `8d507596` and `8d51acbe`; a synth voice
+start makes one such call, as the whole-image runs below show), loads the float constants
 1200.0 and 100.0 and converts each to fixed point by calling `8d5bf5ec` (a floor, two
 float-to-integer, an integer-to-float, a subtract, an add of 0.005 and a multiply by 100,
 all software floating point). The answers never change. The two load-and-call pairs

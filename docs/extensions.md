@@ -236,7 +236,7 @@ So it cannot be written into an existing image (`settings apply` refuses it;
 `settings show` reports whether an image was built with it, except for
 `fast_helpers`, which no image site shows), and browser kits do not offer it.
 Off, every one of its sites stays stock and the SDK units of its service are not
-linked (`load_governor` has none). `fast_helpers` has no site and no unit of its
+linked (`load_governor` and `pitch_constants` have none). `fast_helpers` has no site and no unit of its
 own: its two units, `divide` and `memory`, are linked in every native build, off
 (0, the default) from the plain `divide.s` and `memory.cpp` and on (1) from
 `divide_fast.s` and `memory_fast.cpp`, under the same object names. Each

@@ -478,7 +478,7 @@ class StockAddresses(unittest.TestCase):
     @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Stock OS image not supplied')
     def test_every_edit_replaces_the_stock_image_bytes(self):
         data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
-        names = set(CPU) | {'boot_log_fix', 'load_governor'}
+        names = set(CPU) | {'boot_log_fix', 'load_governor', 'pitch_constants'}
         edits = [p for p in config()['patches'] if p.get('service') in names]
         self.assertGreaterEqual(len(edits), 10)
         for p in edits:
