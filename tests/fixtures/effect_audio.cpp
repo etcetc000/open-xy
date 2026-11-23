@@ -23,7 +23,12 @@ Address host_stock_address(Address address) {
 }
 }}
 inline void* operator new(decltype(sizeof 0), void* destination) { return destination; }
+// The effect's number, which the device reads as its link-time symbol's value; a browser
+// selection that leaves the effect out makes it 0.
+extern "C" const char probefx_fx_id[1] __asm__("probefx_fx_id") = {0};
+namespace host { opxy::u32 effect_number = 5; }
 namespace opxy { namespace platform { namespace telemetry {
+u32 host_link_number(const char* symbol) { return symbol == probefx_fx_id ? host::effect_number : 0; }
 u32 enter() { return 0; }
 void leave(u32) {}
 wire::Bank* construct_bank(void* storage, volatile u32* words, u32 count, u32 mode, bool reset, u32 prefix) {
@@ -92,5 +97,14 @@ int main() {
     if (!audio_owner(key, 0) || audio_owner(key, 1)) return 13;
     host::engines[2] = 5;
     if (!audio_owner(5, 2) || audio_owner(5, 3) || audio_owner(5, 14) || audio_owner(key | 2, 0)) return 14;
+    // Renumbered by a browser selection, the effect answers to its new key only; left out
+    // (number 0), to none.
+    host::objects[15] = &second;
+    host::effect_number = 9;
+    if (resolve_bank(nullptr, key, 0) || resolve_bank(nullptr, effect_key | 9, 0) != bank ||
+        !configuration(effect_key | 9, words, mode, reset, prefix)) return 15;
+    host::effect_number = 0;
+    if (resolve_bank(nullptr, effect_key, 0) || resolve_bank(nullptr, 0, 0) || configuration(effect_key, words, mode, reset, prefix))
+        return 16;
     return 0;
 }

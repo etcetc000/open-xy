@@ -287,9 +287,6 @@ def fetch(entry, cache=CACHE):
     m = machine_at(folder / entry['path'])
     require(m.id == entry['id'] and m.kind == entry['kind'],
             f"{entry['id']}: the machine at the pinned commit differs from its catalog entry")
-    # Every catalog machine goes into the browser kit, which cannot link the audio transport yet.
-    require(not m.definition['resources'].get('display', {}).get('audioTransport'),
-            f"{entry['id']}: audio snapshots on the device (audioTransport) are not in the browser builder yet")
     return m
 
 

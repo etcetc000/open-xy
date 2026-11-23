@@ -477,6 +477,8 @@ def absent_symbols(m):
             absent[m.prefix + '_screen_ready'] = 'kit_absent'
         # The shared track control table names these; unselected, its ready check declines first.
         absent.update({symbol: 'kit_absent' for symbol in control_callbacks(m)})
+    # So does the audio snapshot registry; unselected, the machine's number is 0 and matches no key.
+    absent.update(audio_telemetry.absent_symbols(m))
     if m.kind in ('effect', 'sample', 'drum'):
         absent[m.prefix + '_benchmark'] = 'kit_absent'
     return absent

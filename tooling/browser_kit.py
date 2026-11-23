@@ -19,7 +19,7 @@ from .formats import require, sha
 from .machines import FIXED_NUMBERS, check_request
 from .pipeline import (ROOT, add_overwrite_argument, child, document, fresh_output, read, require_release_host,
                        resolve_toolchain, tool_paths)
-from . import audio_telemetry, extensions, native, preview, screen, voice_heap
+from . import extensions, native, preview, screen, voice_heap
 
 
 def notices(machines, runtime=False):
@@ -166,10 +166,6 @@ def refuse_build_capabilities(extensions_):
 def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False):
     profile, machines, definitions = native.configuration(native.package_collection(package))
     refuse_build_capabilities(native.extensions_of(machines))
-    # The builder does not link the audio transport's hooks yet (docs/display.md#audio-snapshots).
-    transport = [m.id for m in audio_telemetry.users(machines)]
-    require(not transport, 'Audio snapshots on the device (audioTransport) need a native build; the browser kit '
-                           'cannot hold ' + ', '.join(transport))
     sources = catalog_sources(machines, personal)
     require(sha(stock_catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     runtime_members = document(package / 'analysis/compile-report.json').get('runtime', [])
@@ -194,8 +190,10 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
         if name in extension_objects:
             entry['extension'] = extension_objects[name]
         objects.append(entry)
-    # Stock addresses only: each selection's machine numbers are the builder's.
-    stock = {key: value for key, value in definitions.items() if key in native.DEFINITIONS}
+    # Stock addresses only: each selection's machine numbers are the builder's. A collection
+    # with audio snapshots also carries the stock calls its transport hooks continue to.
+    stock = {key: value for key, value in definitions.items()
+             if key in native.DEFINITIONS or key in native.TELEMETRY_DEFINITIONS}
     # The machines the native package links, whose selection reproduces it.
     linked = document(package / 'analysis/compile-report.json')['linked']
     # The release version, as the firmware's boot label shows it.

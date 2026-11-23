@@ -73,10 +73,44 @@ template <u32 Words, u32 Mode, bool Reset, u32 Prefix = 1, u32 Slots = 8> struct
     }
 };
 }
-// Generated registry: only a configured synth matching the current audio track
-// owner, or a configured effect its send holds, resolves to a role-local bank. No author-provided pointers.
-wire::Bank* resolve_bank(void*, wire::u16 engine, wire::u8 track);
-bool configuration(u32 engine, u32& words, u32& mode, bool& reset, u32& prefix);
+// A machine with audio snapshots, as the generated registry lists it
+// (tooling/audio_telemetry.py generate_registry). Its number is a link-time symbol's
+// value: the native build's, or the number the browser builder gives the selection, 0
+// for a machine the selection leaves out.
+struct Owner {
+    const char* number;
+    bool effect;
+    wire::Bank* (*bank)(u32 slot);
+    u16 words;
+    u8 mode;
+    bool reset;
+    u8 prefix;
+};
+inline u32 link_number(const char* symbol) { return static_cast<u32>(reinterpret_cast<Address>(symbol)); }
+// The owner of a wire key: a synth's engine number, or an effect's number with effect_key.
+inline const Owner* find_owner(const Owner* owners, u32 count, u32 engine) {
+    for (u32 i = 0; i < count; ++i) {
+        const u32 number = link_number(owners[i].number);
+        if (number && (owners[i].effect ? effect_key | number : number) == engine) return &owners[i];
+    }
+    return nullptr;
+}
+// The generated registry's owner of a wire key, or null.
+const Owner* owner(u32 engine);
+// Only a listed synth matching the current audio track owner, or a listed effect its
+// send holds, resolves to a role-local bank. No author-provided pointers.
+inline wire::Bank* resolve_bank(void*, wire::u16 engine, wire::u8 track) {
+    const Owner* o = owner(engine);
+    if (!o) return nullptr;
+    if (o->effect) return track < effect_sends ? o->bank(track) : nullptr;
+    return track < 8 && audio_track_engine(track) == engine ? o->bank(track) : nullptr;
+}
+inline bool configuration(u32 engine, u32& words, u32& mode, bool& reset, u32& prefix) {
+    const Owner* o = owner(engine);
+    if (!o) return false;
+    words = o->words; mode = o->mode; reset = o->reset; prefix = o->prefix;
+    return true;
+}
 
 // The wire track of a screen's track: a synth's own (0..7, while it is the track's
 // engine), or an effect's send (14, 15 -> 0, 1); 8 when the screen has none.

@@ -74,9 +74,23 @@ class EffectAudio(unittest.TestCase):
             header = (Path(temp) / 'display_binding.hpp').read_text()
             self.assertIn('using DisplayInput = draw::AudioInput;', header)
             self.assertIn('return platform::telemetry::effect_key | reinterpret_cast<u32>(probefx_fx_id);', header)
-            registry = audio_telemetry.generate_registry(Path(temp), [m, fixture('probesynth')]).read_text()
-            self.assertIn('    if (engine & effect_key) {', registry)
-            self.assertIn(f'        case {0x8000 | m.identity["effect"]}: return probefx_audio_bank(track);', registry)
+            # The registry names numbers by link-time symbol, so one compiled registry serves every
+            # selection the browser builder links; a machine without audio snapshots has no row.
+            synth = fixture('probesynth')
+            synth = replace(synth, definition=copy.deepcopy(synth.definition))
+            synth.definition['resources']['display'] = dict(synth.definition['resources'].get('display', {}),
+                                                            audioTransport=1, audioWords=2, audioMode=2,
+                                                            audioAccumulators=1, audioReset=1)
+            registry = audio_telemetry.generate_registry(Path(temp), [m, fixture('probefx'), synth]).read_text()
+            self.assertIn('extern const char probefx_fx_id[] __asm__("probefx_fx_id");', registry)
+            self.assertIn('    {probefx_fx_id, true, probefx_audio_bank, 4, 0, false, 1},', registry)
+            self.assertIn('    {probesynth_engine_id, false, probesynth_audio_bank, 2, 2, true, 1},', registry)
+            self.assertEqual(registry.count('_audio_bank, '), 2)
+            for number in (m.identity['effect'], 0x8000 | m.identity['effect'], synth.identity['engine']):
+                self.assertNotIn(f' {number}:', registry)
+            # Left out of a browser selection, the effect's accessor resolves to kit_absent.
+            self.assertEqual(native.absent_symbols(m)['probefx_audio_bank'], 'kit_absent')
+            self.assertNotIn('probefx_audio_bank', native.absent_symbols(fixture('probefx')))
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
     def test_each_send_publishes_its_own_words_while_it_holds_the_effect(self):
@@ -100,6 +114,11 @@ class EffectAudio(unittest.TestCase):
             for name in ('audio_transport_native.hpp', 'audio_telemetry.hpp', 'telemetry/protocol.hpp'):
                 (folder / name).parent.mkdir(exist_ok=True)
                 (folder / name).write_bytes((platform / name).read_bytes())
+            # A link-time number is a symbol's address on the device; the host maps the symbol to it.
+            transport = (folder / 'audio_transport_native.hpp').read_text()
+            transport = transport.replace('static_cast<u32>(reinterpret_cast<Address>(symbol))', 'host_link_number(symbol)')
+            transport = transport.replace('struct Owner {', 'u32 host_link_number(const char*);\nstruct Owner {')
+            (folder / 'audio_transport_native.hpp').write_text(transport)
             (folder / 'fx.cpp').write_text(FX)
             (folder / 'test.cpp').write_text((ROOT / 'tests/fixtures/effect_audio.cpp').read_text())
             binary = folder / ('test.exe' if os.name == 'nt' else 'test')
