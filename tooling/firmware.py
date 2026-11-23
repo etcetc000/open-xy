@@ -23,10 +23,11 @@ def patch_active(patch, services, profiling=True):
 
 
 def hook_symbol(patch, services):
-    """The module symbol a hook enters. A stock site has one hook: services that need the
-    same site share one handler that runs them in a fixed order, and the record's
-    `symbols` names it for the first of them that is active (builder/core.mjs
-    hookSymbol). Otherwise the record's `symbol`."""
+    """The module symbol a hook enters. A stock site has one hook: when several services
+    need it, the record's `symbols` maps each of them to the handler a build with it
+    enters, and the first one active wins: a handler shared by several services runs
+    them all in a fixed order (builder/core.mjs hookSymbol). Otherwise the record's
+    `symbol`."""
     return next((symbol for service, symbol in patch.get('symbols', {}).items() if service in services),
                 patch['symbol'])
 

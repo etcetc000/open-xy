@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '5d5265791ad337af33d3044ff42a03fad6d137b0a28add7dea4f163c7b8fa990';
+export const PROFILE_SHA256 = '2567a84dbb705c7e8b369cb2f9cf44065f2c181a9a221bf60ba037ac03280faa';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -905,9 +905,9 @@ const words = (...values) => {
   const bytes = new Uint8Array(values.length * 2);
   values.forEach((word, i) => view(bytes).setUint16(i * 2, word, true)); return bytes;
 };
-// The module symbol a hook enters: services that need one stock site share one
-// handler, which the edit's `symbols` names for the first of them the selection
-// uses; otherwise its `symbol` (tooling.firmware.hook_symbol).
+// The module symbol a hook enters: when several services need one stock site, the
+// edit's `symbols` maps each to the handler a selection with it enters, the first
+// one the selection uses winning; otherwise its `symbol` (tooling.firmware.hook_symbol).
 export function hookSymbol(edit, services) {
   const shared = Object.entries(edit.symbols ?? {}).find(([service]) => services.has(service));
   return shared ? shared[1] : edit.symbol;
@@ -973,7 +973,7 @@ export async function patchFirmware(kit, linked, stock, {profiling = true, setti
     check(edit.profiling === undefined || (edit.profiling === false && edit.kind === 'hook'),
       'Invalid profiling hook');
     check(edit.symbols === undefined || (edit.kind === 'hook' && edit.service !== undefined &&
-      Object.keys(edit.symbols).length > 0 && Object.entries(edit.symbols).every(([service, symbol]) =>
+      Object.values(edit.symbols).includes(edit.symbol) && Object.entries(edit.symbols).every(([service, symbol]) =>
         Object.hasOwn(p.services ?? {}, service) && typeof symbol === 'string' && symbol)),
       'Invalid shared hook');
     if ((edit.service && !linked.services.has(edit.service)) || (edit.profiling === false && profiling)) {

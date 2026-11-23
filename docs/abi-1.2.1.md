@@ -66,12 +66,12 @@ per-key sends the `drum_sends` service, used only by a kit declaring `padMix` an
 by a `drumline_page` extension.
 A stock site has at most one hook. Services that need the same site share one
 handler that runs them in a fixed order: the site's record belongs to a service
-that every user of them uses, and its `symbols` name the shared handler for the
-service whose presence calls for it (`tooling/firmware.py` `hook_symbol`). The
-mixer's call of a track's voice loop (`8d510bea`) is such a site: its record is
-the `track_call` service, used by per-key sends and [track stages](#track-stage)
-alike; with per-key sends alone it enters their own handler, as before, and with
-a track stage the shared one, which runs both.
+used by every user of them, and its `symbols` map each of them to the handler a
+build with it enters, the first one the build has winning (`tooling/firmware.py`
+`hook_symbol`). The mixer's call of a track's voice loop (`8d510bea`) is such a
+site: its record is the `track_call` service, used by per-key sends and [track
+stages](#track-stage) alike; a build with a track stage enters the shared
+handler, which runs both, and one with per-key sends alone their own, as before.
 The step locks of a kit's Shift fields are the `drum_locks` service, used by a
 `padMix` kit, by a synth with a Shift row and by a `drumline_page` extension.
 The `played_pad` service has no edit: it links the [drum trigger](#screens)

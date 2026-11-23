@@ -104,7 +104,7 @@ class TrackCall(unittest.TestCase):
         patch = track_call(profile)
         self.assertEqual((patch['kind'], patch['length'], patch['before'], patch['call'], patch['service'], patch['symbol']),
                          ('hook', 4, '00e38f5d', True, 'track_call', 'sdk_drum_send_track'))
-        self.assertEqual(patch['symbols'], {'track_stage': 'sdk_track_call'})
+        self.assertEqual(list(patch['symbols'].items()), [('track_stage', 'sdk_track_call'), ('drum_sends', 'sdk_drum_send_track')])
         # The instruction it replaces calls the voice loop, which the shared handler calls in its place.
         self.assertEqual(decode_branch(int(SITE, 16), bytes.fromhex(patch['before'])), (LOOP, True))
         handler = (PLATFORM / 'track_call.s').read_text(encoding='utf-8')
@@ -149,14 +149,21 @@ class TrackCall(unittest.TestCase):
 
     def test_a_shared_hook_names_declared_services(self):
         profile = config()
-        for symbols, service in (({'nothing': 'sdk_track_call'}, 'track_call'), ({}, 'track_call'),
-                                 ({'track_stage': ''}, 'track_call'), ({'track_stage': 'sdk_track_call'}, None),
-                                 (['track_stage'], 'track_call')):
+        both = {'track_stage': 'sdk_track_call', 'drum_sends': 'sdk_drum_send_track'}
+        for symbols, service in (({'nothing': 'sdk_track_call', 'drum_sends': 'sdk_drum_send_track'}, 'track_call'),
+                                 ({}, 'track_call'), (dict(both, track_stage=''), 'track_call'), (both, None),
+                                 (['track_stage'], 'track_call'),
+                                 # One for every user of the record's service, its own symbol among them.
+                                 ({'track_stage': 'sdk_track_call'}, 'track_call'),
+                                 ({'track_stage': 'sdk_track_call', 'drum_sends': 'sdk_drum_send_own'}, 'track_call'),
+                                 (both, 'drum_sends')):
             changed = copy.deepcopy(profile)
             patch = track_call(changed)
             patch['symbols'] = symbols
             if service is None:
                 del patch['service']
+            else:
+                patch['service'] = service
             with self.subTest(symbols=symbols, service=service), self.assertRaises(ValueError):
                 check_patch_boundaries(changed, len(changed['patches']))
         check_patch_boundaries(profile, len(profile['patches']))

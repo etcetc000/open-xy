@@ -2509,7 +2509,8 @@
       "call": true,
       "service": "track_call",
       "symbols": {
-        "track_stage": "sdk_track_call"
+        "track_stage": "sdk_track_call",
+        "drum_sends": "sdk_drum_send_track"
       }
     },
     {
