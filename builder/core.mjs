@@ -908,6 +908,21 @@ const words = (...values) => {
 // The module symbol a hook enters: when several services need one stock site, the
 // edit's `symbols` maps each to the handler a selection with it enters, the first
 // one the selection uses winning; otherwise its `symbol` (tooling.firmware.hook_symbol).
+// Whether an edit's `symbols` map is absent or valid (tooling.pipeline.check_patch_boundaries):
+// a service hook's, naming declared services with a handler each, its own symbol among them,
+// and together used by exactly the users of the record's service. `services` is the profile's.
+export function validSharedHook(edit, services) {
+  const shared = edit.symbols;
+  if (shared === undefined) return true;
+  if (edit.kind !== 'hook' || edit.service === undefined || typeof shared !== 'object' || shared === null ||
+      Array.isArray(shared) || !Object.keys(shared).length || !Object.values(shared).includes(edit.symbol) ||
+      !Object.entries(shared).every(([service, symbol]) => Object.hasOwn(services, service) &&
+        typeof symbol === 'string' && symbol) || !Object.hasOwn(services, edit.service)) return false;
+  const users = new Set(Object.keys(shared).flatMap(s => services[s]));
+  const own = new Set(services[edit.service]);
+  return users.size === own.size && [...users].every(u => own.has(u));
+}
+
 export function hookSymbol(edit, services) {
   const shared = Object.entries(edit.symbols ?? {}).find(([service]) => services.has(service));
   return shared ? shared[1] : edit.symbol;
@@ -972,13 +987,7 @@ export async function patchFirmware(kit, linked, stock, {profiling = true, setti
       'Undeclared service: ' + edit.service);
     check(edit.profiling === undefined || (edit.profiling === false && edit.kind === 'hook'),
       'Invalid profiling hook');
-    check(edit.symbols === undefined || (edit.kind === 'hook' && edit.service !== undefined &&
-      typeof edit.symbols === 'object' && edit.symbols !== null && !Array.isArray(edit.symbols) &&
-      Object.keys(edit.symbols).length > 0 && Object.values(edit.symbols).includes(edit.symbol) && Object.entries(edit.symbols).every(([service, symbol]) =>
-        Object.hasOwn(p.services ?? {}, service) && typeof symbol === 'string' && symbol) &&
-      new Set(Object.keys(edit.symbols).flatMap(s => p.services[s])).size === new Set(p.services[edit.service]).size &&
-      Object.keys(edit.symbols).flatMap(s => p.services[s]).every(u => p.services[edit.service].includes(u))),
-      'Invalid shared hook');
+    check(validSharedHook(edit, p.services ?? {}), 'Invalid shared hook');
     if ((edit.service && !linked.services.has(edit.service)) || (edit.profiling === false && profiling)) {
       after = before;  // inactive hooks leave the corresponding stock code unchanged
     } else if (['hook', 'startup'].includes(edit.kind)) {

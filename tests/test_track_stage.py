@@ -151,6 +151,7 @@ class TrackCall(unittest.TestCase):
     def test_a_shared_hook_names_declared_services(self):
         profile = config()
         both = {'track_stage': 'sdk_track_call', 'drum_sends': 'sdk_drum_send_track'}
+        bad = []
         for symbols, service in (({'nothing': 'sdk_track_call', 'drum_sends': 'sdk_drum_send_track'}, 'track_call'),
                                  ({}, 'track_call'), (dict(both, track_stage=''), 'track_call'), (both, None),
                                  (['track_stage'], 'track_call'),
@@ -167,7 +168,16 @@ class TrackCall(unittest.TestCase):
                 patch['service'] = service
             with self.subTest(symbols=symbols, service=service), self.assertRaises(ValueError):
                 check_patch_boundaries(changed, len(changed['patches']))
+            bad.append(patch)
         check_patch_boundaries(profile, len(profile['patches']))
+        # The browser's check (builder/core.mjs validSharedHook) refuses the same records.
+        script = ('import {validSharedHook} from %s;\nconst [services, edits] = JSON.parse(process.argv[1]);\n'
+                  'process.stdout.write(JSON.stringify(edits.map(e => validSharedHook(e, services))));'
+                  % json.dumps((ROOT / 'builder/core.mjs').as_uri()))
+        result = subprocess.run(['node', '--input-type=module', '-e', script,
+                                 json.dumps([profile['services'], [track_call(profile), *bad]])],
+                                capture_output=True, text=True, cwd=ROOT, timeout=60, check=True)
+        self.assertEqual(json.loads(result.stdout), [True] + [False] * len(bad))
 
     def test_the_browser_enters_the_same_handler(self):
         profile = config()

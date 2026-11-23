@@ -622,7 +622,7 @@ void track_process(TrackState& state, Shared& shared, opxy::u32 track,
 | Argument | Contract |
 | --- | --- |
 | `sum` | The track's voice sum, 64 interleaved left/right frames (128 Q31 words), read and overwritten in place; a word left alone passes as it is. Always stereo, for mono and `stereoOutput` synths alike, since stock pans each voice into it |
-| `parameters` | The track's words as its voices get them in the same block, with parameter locks and LFO modulation as stock applies them: the declared controls in order, then zero; sixteen with a [Shift row](#a-synths-shift-row) |
+| `parameters` | The track's words as its voices get them in the same block, with parameter locks and the track's LFO modulation as stock leaves them after the voice loop (modulation stock applies to a single voice is not in them): the declared controls in order, then zero; sixteen with a [Shift row](#a-synths-shift-row) |
 | `voices` | How many voices stock rendered on the track this block; with 0 the sum is silent |
 | `track` | The instrument track, 0..7 |
 
@@ -637,11 +637,11 @@ and do not rely on the absolute level.
 
 `track_process` runs once per block on each instrument track that holds the
 synth, in the same block as its voices: the SDK adds no latency. `track_reset`
-runs before it whenever a track's engine changes to this synth, after the SDK
-zeroes that track's state. While a track holds another engine, its state is
-kept and not touched; a project load that leaves the synth on a track keeps
-its state too. Stock does not mix a MIDI track at all, so a track switched to
-MIDI and back to the synth keeps its state without a reset. The callbacks follow `render`'s rules, run serially on
+runs before it whenever a track takes this synth, including each track's first
+block after startup, after the SDK zeroes that track's state. A project load
+that leaves the synth on a track keeps its state. Stock does not mix a MIDI
+track at all, so a track switched to MIDI and back to the synth keeps its state
+without a reset. The callbacks follow `render`'s rules, run serially on
 the audio role and get the same `Shared` as the voices; the voices do not learn
 their track.
 
@@ -664,7 +664,8 @@ of 1 or more) must declare `"unbounded"`, which never sleeps. Sleeping is part
 of the stage, not a [CPU capability](cpu-capabilities.md).
 
 Memory is 8 × `stateBytes` of module memory, counted in the synth's share. The
-stage runs once for each track that holds the synth. A build with a stage adds a
+SDK zeroes a track's whole state in the block the track takes the synth, so a
+large state costs that block more. The stage runs once for each track that holds the synth. A build with a stage adds a
 check to every instrument track's block (whether the track holds a stage); a
 build without one is unchanged. A synth's [CPU record](profiling.md) times its
 voices, not its stage. The browser preview does not model the stage.
