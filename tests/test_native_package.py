@@ -116,9 +116,13 @@ class PackageVerification(unittest.TestCase):
             if edit.get('profiling') is False:
                 if 'service' in edit:
                     # A service's own bypass without profiling (block_trims: sdk_track_mix) lives in that
-                    # service's units and is applied only when the service is.
-                    self.assertEqual(services.get(owner_of[edit['symbol']]), edit['service'], edit['symbol'])
+                    # service's units and is applied only when the service is; a package without that
+                    # service does not link the symbol at all.
                     active = edit['service'] in self.report['services']
+                    if active:
+                        self.assertEqual(services.get(owner_of[edit['symbol']]), edit['service'], edit['symbol'])
+                    else:
+                        self.assertNotIn(edit['symbol'], owner_of, edit['symbol'])
                 else:
                     self.assertIn(edit['symbol'], symbols)
                     active = True
