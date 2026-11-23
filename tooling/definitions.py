@@ -130,7 +130,7 @@ TRACK_STAGE_KEYS = ('stateBytes', 'stateAlignment', 'tailFrames')
 # start, attack, hold and decay kept per key and played by the adapter.
 DRUM_KIT_CONTROLS = ('padVolume', 'padRandom', 'ampEnvelope')
 # The SDK of the drum-kit controls and of a kit screen's selected key. A renumber changes
-# this line, SDK_VERSION and its history (tooling/machines.py) and the "1.23" text in the
+# this line, the 1.23 line of SDK_VERSION's history (tooling/machines.py) and the "1.23" text in the
 # docs and fixtures.
 KIT_CONTROLS_SDK = (1, 23)
 DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls', 'parameterEdit', *DRUM_KIT_CONTROLS)

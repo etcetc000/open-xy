@@ -79,7 +79,7 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # renumber it, with the "SDK 1.22" text of docs/api.md.
 IDLE_SDK = (1, 22)
 # 1.23 adds the drum-kit controls (resources.padVolume, padRandom, ampEnvelope) and gives a
-# kit's screen its selected key (draw::Input::selected_key) (KIT_CONTROLS_SDK in definitions.py).
+# kit's screen its selected key (draw::Input::selected_key; KIT_CONTROLS_SDK in definitions.py).
 # 1.24 adds a synth's track stage (resources.trackStage, track_stage.py): one state per
 # instrument track, processed in place on the track's voice sum once per block.
 SDK_VERSION = (1, 24)
