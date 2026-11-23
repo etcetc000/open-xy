@@ -975,8 +975,9 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines, native=None
             # instrument track's sample engine too; counted for every sample machine).
             bounds[m.id] += handler_frame
         if track_stage.track_stage(m) is not None:
-            # Its stage, from that handler through the runtime (track_call.s, track_stage.cpp).
-            stage = [symbols[name]['value'] for name in track_stage.stage_symbols(m)]
+            # Its stage and ready check, from that handler through the runtime (track_call.s,
+            # track_stage.cpp).
+            stage = [symbols[name]['value'] for name in (*track_stage.stage_symbols(m), m.prefix + '_record_ready')]
             require(handler is not None and all(entry in body for entry in stage),
                     'Track stage entry of ' + m.id + ' is not a function start')
             bounds[m.id] = max(bounds[m.id], depth(handler, False) + max(depth(entry) for entry in stage))
