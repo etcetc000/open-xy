@@ -434,7 +434,9 @@ export class SvgDisplay {
       const source = leaf(id, ['path']);
       if (source.getAttribute('transform')) throw new Error('A glyph outline is untransformed');
       const records = glyphCommands(source.getAttribute('d') || '');
-      if (!(i % 2) && records.length < 2) throw new Error("A glyph's first outline draws something");
+      // The stock parser merges repeated points: the first outline needs two distinct ones.
+      const points = new Set(records.filter(([, v]) => v.length).map(([, v]) => v.slice(-2).map(x => Math.trunc(x * 1024)).join(',')));
+      if (!(i % 2) && (records.length < 2 || points.size < 2)) throw new Error("A glyph's first outline draws something");
       // Q10 once, truncated as the device's parser stores the source.
       return records.length === 1 ? '' : records.map(([verb, values]) =>
         verb + values.map(v => String(Math.trunc(v * 1024) / 1024)).join(' ')).join(' ');

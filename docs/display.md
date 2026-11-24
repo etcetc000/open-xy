@@ -585,7 +585,8 @@ need `audioTransport`; a definition missing one is refused.
 `audioMode` 0 keeps the words, 1 sums one packed accumulator, and 2 sums
 `audioAccumulators` words (1 if absent) followed by kept ones. At most 16 words without
 `audioReset` give `draw::AudioInput`; more, or `audioReset: 1` (a reset request
-the producer applies in its own callback, modes 0 and 2), give
+the producer applies in its own callback, modes 0 and 2, so a synth's waits until it
+plays), give
 `draw::TelemetryInput`.
 
 A synth's words are its track's: each track it plays on has its own, and its

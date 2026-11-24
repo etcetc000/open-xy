@@ -22,7 +22,7 @@ Author source paths as `<prefix>_glyph_<definition>_<part>` (part 0 or 1), under
 an offscreen static group such as `transform="translate(1024,1024)"`. Source
 paths have no individual transform and contain explicit absolute M/L/C/Z
 commands, at most 16 per path, within +/-8192 pixels. The first part must have
-at least two records; use `M0,0` for an absent second part. Sources are not frame
+at least two records at two distinct points; use `M0,0` for an absent second part. Sources are not frame
 nodes. Geometry is quantized to the original local Q10 coordinates once.
 
 Destination nodes `glyphStart+2*instance+part` are stroke-only (`fill="none"`)

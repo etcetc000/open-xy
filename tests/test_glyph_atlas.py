@@ -59,7 +59,8 @@ class GlyphAtlas(unittest.TestCase):
                 trial=copy.deepcopy(m.definition);trial['resources']['display'].update(update)
                 with self.assertRaises(ValueError):definitions.validate_definition(trial,'synth')
             art=(m.root/'panel.svg.fragment').read_text()
-            for bad in [art.replace('M3.0009 4 C','M3.0009 4 Q'),art.replace('L15,0','L0,0'),art.replace('M3.0009 4 C','M9000 4 C')]:
+            for bad in [art.replace('M3.0009 4 C','M3.0009 4 Q'),art.replace('L15,0','L0,0'),art.replace('M3.0009 4 C','M9000 4 C'),
+                        art.replace('M0 0 L1 2 Z','M1 1 L1.0001 1')]:
                 with self.assertRaises(ValueError):native.validate_panel(m,bad)
     @unittest.skipUnless(shutil.which('clang++') and shutil.which('node'),'WASM and Node required')
     def test_native_binder_ownership_and_failure_atomicity(self):

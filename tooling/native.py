@@ -1252,7 +1252,9 @@ def check_glyphs(by_id, prefix, display):
         return
     for index, name in enumerate(glyph_ids(prefix, display)):
         commands = glyph_commands(by_id.get(name))
-        require(index % 2 or len(commands) >= 2, "A glyph's first outline draws something: " + name)
+        # The stock parser merges repeated points: the first outline needs two distinct ones.
+        points = {(int(float(values[-2]) * 1024), int(float(values[-1]) * 1024)) for _, values in commands if values}
+        require(index % 2 or (len(commands) >= 2 and len(points) >= 2), "A glyph's first outline draws something: " + name)
     for index in range(display['glyphStart'], display['glyphStart'] + 2 * display['glyphs']):
         name = f'{prefix}_node_{index}'
         node = by_id.get(name)

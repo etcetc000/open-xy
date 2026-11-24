@@ -264,6 +264,8 @@ async function enableAudio() {
           processor.onprocessorerror = () => {
             clearTimeout(timeout); reject(new Error('Audio processor failed.'));
             audioBackend = null; panic(); status('Audio processor stopped. Reload to retry.');
+            // A screen's pending snapshot reads nothing now, rather than waiting out its timeout.
+            if (pendingSnapshot) { clearTimeout(pendingSnapshot.timer); pendingSnapshot.resolve(null); pendingSnapshot = null; }
           };
           processor.port.onmessage = ({ data }) => {
             if (data.ready) {
