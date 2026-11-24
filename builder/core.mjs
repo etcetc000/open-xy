@@ -1556,7 +1556,7 @@ export function readMachinePack(bytes) {
   });
 }
 
-// The fields tooling.browser_kit.machine_entry writes for a custom synth, effect or sample
+// The keys tooling.browser_kit.machine_entry writes for a custom synth, effect or sample
 // engine; anything else (a catalog source, keywords, aux presets) is refused.
 // Names a machine may not take (tooling.definitions.STOCK_TYPES and RESERVED_PREFIXES).
 const STOCK_TYPES = ['sampler', 'drum', 'drumline', 'organ', 'epiano', 'prism', 'hardsync', 'dissolve', 'axis',
