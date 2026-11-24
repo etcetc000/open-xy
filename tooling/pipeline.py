@@ -143,7 +143,8 @@ def host_platform():
     if system == 'windows' and not machine:
         # Windows Python asks WMI for the processor and falls back to PROCESSOR_ARCHITECTURE;
         # under parallel builds the query can fail in a shell without that variable, leaving
-        # it empty. The interpreter's own build platform (win-amd64, win-arm64) still holds.
+        # it empty. A native Windows interpreter's own build platform (win-amd64, win-arm64)
+        # still holds; MinGW and 32-bit builds keep failing with the no-tools message.
         machine = sysconfig.get_platform().rpartition('-')[2]
     return system + '-' + {'amd64': 'x86_64', 'aarch64': 'arm64'}.get(machine, machine)
 
