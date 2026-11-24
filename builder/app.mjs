@@ -932,7 +932,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       if (current !== packTicket || base !== baseKit) return;
       useMachineCollection(candidate);
       const count = candidate.machines.length - baseKit.machines.length;
-      $('machine-pack-result').textContent = `${count} custom ${count === 1 ? 'machine' : 'machines'} added. Select them in the catalog. Keep this ZIP to import again after reloading.`;
+      $('machine-pack-result').textContent = `${count} custom ${count === 1 ? 'machine' : 'machines'} added. Select them in the catalog. Keep this ZIP to import again after reloading.` + (stock ? ' Choose your OS file again if it was built with other machines, so its selection is recognized.' : '');
     } catch (error) {
       if (current === packTicket) $('machine-pack-result').textContent = error.message || String(error);
     }
@@ -940,7 +940,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   $('remove-machine-pack').onclick = () => {
     ++packTicket;
     useMachineCollection(baseKit);
-    $('machine-pack-result').textContent = 'Imported machines removed. Saved machine numbers are kept.';
+    $('machine-pack-result').textContent = 'Imported machines removed. Saved machine numbers are kept.' + (stock ? ' Choose your OS file again if it was built with other machines, so its selection is recognized.' : '');
   };
   $('expert-mode').onclick = () => {
     if (!acknowledged || builderPreview || !kit) return;

@@ -99,12 +99,12 @@ any other, published from the [core machines](https://github.com/etcetc000/open-
 ## Import custom machines
 
 On the builder's **Choose machines** page, choose **Import machines ZIP** beside
-**Choose extensions**. An SDK-built pack adds one or more machines
-marked **Yours**, initially unselected. The file stays in the browser; importing
-does not publish a catalog entry. Import code only from authors you trust:
-native machine code is not isolated or reviewed by Open-XY. While a pack is
-imported, every build links its registration and control tables, even when none
-of its machines is selected, and its browser previews run in the page when
+**Choose extensions**. An SDK-built pack adds one or more machines marked
+**Yours**, initially unselected. The file stays in the browser; importing does
+not publish a catalog entry. Import code only from authors you trust: native
+machine code is not isolated or reviewed by Open-XY. While a pack is imported,
+every build links its startup, registration and control code, even when none of
+its machines is selected, and its browser previews run in the page when
 inspected.
 
 A pack extends the site's exact machine collection. It cannot replace existing
@@ -120,7 +120,8 @@ selection; keep its ZIP and your saved layout to use it again. Import the pack
 before loading a layout that selects its machines. An OS is recognized with the
 collection it was built from: with a pack imported, an OS built without it (or
 the reverse) is recovered like an earlier open-xy OS: its stock OS is kept and
-its machines are chosen again.
+its machines are chosen again. After importing or removing a pack, choose the OS
+file again to recognize a build made with those machines.
 
 ### Export a machine pack
 
@@ -154,11 +155,12 @@ duplicate identities, damaged objects and machines that cannot link or fit
 individually. A custom machine that needs SDK objects none of the site's
 machines link (another profile service, an arithmetic runtime member or an SDK
 header unit such as `opxy/sample_kernel.hpp` or `opxy/control_interaction.hpp`)
-cannot extend that site: the importer names the first such object. The normal memory meter checks the combined selection. After a
-site release or catalog update, its author may need to export a matching pack.
-Checks do not certify an author's native code, measure CPU or establish device
-recovery. The format is a single stored `machines.json` entry in ZIP, identified
-as `opxy-machine-pack/1`; use the exporter rather than assembling it by hand.
+cannot extend that site: the importer names the first such object. The normal
+memory meter checks the combined selection. After a site release or catalog
+update, its author may need to export a matching pack. Checks do not certify an
+author's native code, measure CPU or establish device recovery. The format is a
+single stored `machines.json` entry in ZIP, identified as `opxy-machine-pack/1`;
+use the exporter rather than assembling it by hand.
 
 [Firmware extensions](extensions.md) have a catalog of their own,
 `catalog/extensions.json`, in the same format under `"extensions"`: `kind` is

@@ -206,6 +206,20 @@ test('packs take authored descriptions and artwork comments as the SDK does, and
   m.description = 'A custom machine';
   m.grayscaleArtwork = '<script>bad()</script>';
   await assert.rejects(importMachinePack(base, pack), /artwork/);
+  delete m.grayscaleArtwork;
+  // Markup hidden from a comment strip, a prefixed or unknown element, and names stock or the SDK use.
+  for (const artwork of ['<text><![CDATA[<!--]]></text><script>bad()</script><text><![CDATA[-->]]></text>',
+    '<?x <!--?><script>bad()</script><?x -->?>', '<svg:script xmlns:svg="http://www.w3.org/2000/svg">bad()</svg:script>',
+    '<animate attributeName="x"/>', '<a><rect/></a>', '<rect style="fill:red"/>', '<!-- open <rect/>']) {
+    m.artwork = artwork;
+    await assert.rejects(importMachinePack(base, pack), /artwork/, artwork);
+  }
+  for (const id of ['reverb', 'sdk', 'kit_custom']) {
+    const {base, pack} = await packFixture();
+    Object.assign(pack.machines[1], {id, prefix:id, asset:id + '.svg',
+      catalog:`, {"type":"${id}","default_params":[0,0,0,0,0,0,0,0]}`});
+    await assert.rejects(importMachinePack(base, pack), /metadata/, id);
+  }
 });
 
 test('packs refuse kinds they cannot import and malformed services or heap voices', async () => {

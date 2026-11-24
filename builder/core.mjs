@@ -1558,6 +1558,11 @@ export function readMachinePack(bytes) {
 
 // The fields tooling.browser_kit.machine_entry writes for a custom synth, effect or sample
 // engine; anything else (a catalog source, keywords, aux presets) is refused.
+// Names a machine may not take (tooling.definitions.STOCK_TYPES and RESERVED_PREFIXES).
+const STOCK_TYPES = ['sampler', 'drum', 'drumline', 'organ', 'epiano', 'prism', 'hardsync', 'dissolve', 'axis',
+  'wavetable', 'simple', 'midi', 'multisampler', 'delay', 'reverb', 'chorus', 'phaser', 'dist', 'lofi', 'arpeggio',
+  'hold', 'maestro'];
+const RESERVED_PREFIXES = ['extensions', 'sdk', 'kit', 'stock', 'local'];
 const PACK_MACHINE_KEYS = new Set(['id', 'name', 'kind', 'prefix', 'description', 'identity', 'controls', 'positions',
   'pages', 'catalog', 'origin', 'features', 'presetDefaults', 'presets', 'icon', 'absent', 'artwork', 'grayscaleArtwork',
   'asset', 'fullCanvas', 'preview', 'shiftRow', 'heapVoices']);
@@ -1567,6 +1572,7 @@ function checkPackMachine(m) {
   // An ID as layouts and presets hold it (MACHINE_ID), which is also its symbol prefix
   // (tooling.machines), and a description as machine.json holds it.
   check(m && typeof m.id === 'string' && MACHINE_ID.test(m.id) && !Object.hasOwn(Object.prototype, m.id) &&
+    !STOCK_TYPES.includes(m.id) && !RESERVED_PREFIXES.some(p => m.id === p || m.id.startsWith(p + '_')) &&
     m.prefix === m.id && ['synth', 'effect', 'sample'].includes(m.kind) &&
     m.origin === 'personal' && m.source === undefined && m.cpu === undefined &&
     typeof m.name === 'string' && m.name.length > 0 && m.name.length <= 80 &&
@@ -1592,10 +1598,16 @@ function checkPackMachine(m) {
     // An effect's entry carries its number (catalogEntry); an instrument's has none.
     (m.kind === 'effect' ? Number.isInteger(entry.id) : !Object.hasOwn(entry, 'id')), 'Invalid machine menu');
   presetFiles(m);
-  // Authored comments (which the exporter keeps) are not markup.
-  const safeArtwork = text => typeof text === 'string' && text.length <= 65536 &&
-    !/<!DOCTYPE|<!ENTITY|<\/?(?:script|foreignObject|iframe|image|use|style)\b|\bon\w+\s*=|\bhref\s*=/i
-      .test(text.replace(/<!--[\s\S]*?-->/g, ''));
+  // The SDK's authored SVG (tooling.svg_safety): its drawing elements only, no processing
+  // instruction, CDATA or declaration, no prefixed name. Authored comments (which the exporter
+  // keeps) are not markup; anything else beginning `<!` or `<?` is refused before they are removed.
+  const safeArtwork = text => {
+    if (typeof text !== 'string' || text.length > 65536 || /<\?|<!(?!--)/.test(text)) return false;
+    const markup = text.replace(/<!--[\s\S]*?-->/g, '');
+    return !/<!--|-->|\bon\w+\s*=|\bhref\s*=|\bstyle\s*=|url\s*\(|\\/i.test(markup) &&
+      [...markup.matchAll(/<\/?\s*([^\s/>]*)/g)].every(([, name]) =>
+        ['svg', 'g', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path', 'text'].includes(name));
+  };
   check(m.artwork === undefined || safeArtwork(m.artwork) && m.asset === m.id + '.svg' &&
     (m.grayscaleArtwork === undefined || safeArtwork(m.grayscaleArtwork)), 'Invalid machine artwork');
   check(m.kind !== 'synth' || typeof m.artwork === 'string', 'Missing synth artwork');
