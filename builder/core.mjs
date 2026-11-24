@@ -1557,13 +1557,13 @@ export function readMachinePack(bytes) {
 }
 
 function checkPackMachine(m) {
-  const identifier = (value, limit) => typeof value === 'string' && new RegExp(`^[a-z][a-z0-9_]{0,${limit - 1}}$`).test(value) &&
-    !Object.hasOwn(Object.prototype, value);
-  // An ID as layouts and presets hold it (MACHINE_ID); a prefix names its symbols.
-  check(m && identifier(m.id, 15) && identifier(m.prefix, 32) && ['synth', 'effect', 'sample'].includes(m.kind) &&
+  // An ID as layouts and presets hold it (MACHINE_ID), which is also its symbol prefix
+  // (tooling.machines), and a description as machine.json holds it.
+  check(m && typeof m.id === 'string' && MACHINE_ID.test(m.id) && !Object.hasOwn(Object.prototype, m.id) &&
+    m.prefix === m.id && ['synth', 'effect', 'sample'].includes(m.kind) &&
     m.origin === 'personal' && m.source === undefined && m.cpu === undefined &&
     typeof m.name === 'string' && m.name.length > 0 && m.name.length <= 80 &&
-    typeof m.description === 'string' && m.description.length <= 2000,
+    typeof m.description === 'string' && m.description.length <= 160,
     'Invalid custom machine metadata');
   check(Array.isArray(m.controls) && m.controls.length >= (m.kind === 'synth' ? 4 : 1) && m.controls.length <= 8 &&
     m.controls.every(c => typeof c === 'string' && c.length <= 80) &&
@@ -1595,7 +1595,7 @@ function checkPackMachine(m) {
     m.preview.defaults.every(n => Number.isInteger(n) && n >= 0 && n <= 0x7fffffff), 'Invalid machine preview');
   // The services it uses beyond its kind's (activeServices), and a synth's heap voices (linkKit).
   check(m.features === undefined || Array.isArray(m.features) && m.features.length <= 16 &&
-    m.features.every(f => typeof f === 'string' && /^[a-z][a-z0-9_]{0,31}$/.test(f)), 'Invalid machine features');
+    m.features.every(f => typeof f === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,31}$/.test(f)), 'Invalid machine features');
   check(m.heapVoices === undefined || m.kind === 'synth' && Number.isInteger(m.heapVoices) && m.heapVoices > 0,
     'Invalid machine heap voices');
 }
@@ -1620,8 +1620,17 @@ export async function importMachinePack(base, pack) {
     pack.machines.length <= base.profile.identities.engines &&
     base.machines.every((m, i) => sameValue(machineContract(m), machineContract(pack.machines[i]))),
     'This pack must extend the current catalog without replacing its machines. Ask its author for a matching pack.');
-  const added = pack.machines.slice(base.machines.length);
-  for (const m of added) checkPackMachine(m);
+  // The menu entry is rebuilt from its checked values in tooling.adapters.catalog_entry's
+  // layout, so the stock menu gets exactly those (an effect's number is the layout's).
+  const users = new Set(Object.values(base.profile.services ?? {}).flat());
+  const added = pack.machines.slice(base.machines.length).map(m => {
+    checkPackMachine(m);
+    check((m.features ?? []).every(f => users.has(f)), 'Invalid machine features');
+    const entry = JSON.parse(m.catalog.trim().slice(1)), indent = '\n            ';
+    return {...m, catalog: ',\n        {' + indent + '"type": ' + JSON.stringify(entry.type) +
+      (m.kind === 'effect' ? ',' + indent + '"id": ' + entry.id : '') +
+      ',' + indent + '"default_params": [' + entry.default_params.join(', ') + ']\n        }' + (m.kind === 'effect' ? '' : '\n')};
+  });
   check(new Set(pack.machines.map(m => m.id)).size === pack.machines.length &&
     new Set(pack.machines.map(m => m.prefix)).size === pack.machines.length, 'Duplicate machine identity');
   check(Array.isArray(pack.objects) && pack.objects.length <= 4096 &&
@@ -1631,11 +1640,15 @@ export async function importMachinePack(base, pack) {
   const existingIds = new Set(base.machines.map(m => m.id));
   const existingObjects = base.objects.map(objectRecord);
   const preserved = pack.objects.filter(o => o.owner === null || existingIds.has(o.owner));
-  check(preserved.length === existingObjects.length && preserved.every((o, i) => {
-    const old = existingObjects[i];
-    return o.owner === null && collectionObjects.has(o.name)
-      ? sameValue({...o, bytes:'', sha256:''}, {...old, bytes:'', sha256:''}) : sameValue(o, old);
-  }), 'This pack changes the existing machines or SDK runtime. Rebuild it with the matching SDK and catalog.');
+  const changed = [...Array(Math.max(preserved.length, existingObjects.length)).keys()].find(i => {
+    const o = preserved[i], old = existingObjects[i];
+    return !o || !old || !(o.owner === null && collectionObjects.has(o.name)
+      ? sameValue({...o, bytes:'', sha256:''}, {...old, bytes:'', sha256:''}) : sameValue(o, old));
+  });
+  // A custom machine that needs SDK objects the site's machines do not (another service,
+  // arithmetic runtime member or SDK header unit) cannot extend this collection.
+  check(changed === undefined, 'This pack changes the existing machines or SDK runtime (' +
+    (preserved[changed]?.name ?? existingObjects[changed]?.name) + '). Rebuild it with the matching SDK and catalog.');
   const addedIds = new Set(added.map(m => m.id));
   check(pack.objects.every(o => o.owner === null || existingIds.has(o.owner) || addedIds.has(o.owner) &&
     o.name.startsWith(o.owner + '/') && /^[A-Za-z0-9_./-]+\.o$/.test(o.name) && !o.name.split('/').includes('..') &&
@@ -1647,8 +1660,13 @@ export async function importMachinePack(base, pack) {
   for (const m of added) {
     if (m.preview) check(await sha256(decode64(m.preview.wasm)) === m.preview.sha256, 'Machine preview hash mismatch');
     // Catch missing imports, duplicate exports and machines that cannot fit even
-    // alone. The user's combined selection is checked by the normal memory meter.
-    linkKit(candidate, [m.id]);
+    // alone, in the larger memory a site offers. The user's combined selection is
+    // checked by the normal memory meter.
+    try { linkKit(candidate, [m.id]); }
+    catch (error) {
+      if (error.capacity !== true || !offersExpandedMemory(candidate.profile)) throw error;
+      linkKit(memoryKit(candidate, true), [m.id]);
+    }
   }
   // The pack's shared tables name every added machine: a selection without them must
   // still resolve each one's callbacks (its `absent` list).

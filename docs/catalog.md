@@ -128,8 +128,10 @@ the SDK revision it was built from, normally the release tag of the version the
 builder shows beside its name (`v0.0.7`; a catalog update published since then
 needs its later revision), with the pinned native tools and your own stock OS.
 Fetch that revision's catalog, then export the site's collection with the
-SDK's own extensions (each folder under `extensions/`, as `sdk.py release` adds
-them) and your custom machine folders appended (repeat `--machine` for more):
+SDK's own extensions (each folder under `extensions/`, in name order, as
+`sdk.py release` adds them) and your custom machine folders appended (repeat
+`--machine` for more). The export rebuilds every machine's browser preview, so
+it also needs Clang++ for wasm32 (`--preview-cxx`, as for any [kit](builder.md#export-a-kit)):
 
 ```sh
 git checkout v0.0.7
@@ -140,14 +142,16 @@ python sdk.py kit --personal --machine-pack --collection local/catalog/collectio
 After native and browser verification passes, share only `machines.zip` from
 the output directory. It contains compiled objects, machine metadata, artwork,
 your machines' browser previews and license notices, with no firmware or stock
-content.
-The surrounding kit and build directory contain stock inputs and must stay
+content. The surrounding kit and build directory contain stock inputs and must stay
 outside every checkout. The pack limit is 64 MiB. A source repository ZIP or
 firmware installation ZIP is not a machine pack.
 
 The importer rejects changed catalog machines, mismatched releases/runtime,
 duplicate identities, damaged objects and machines that cannot link or fit
-individually. The normal memory meter checks the combined selection. After a
+individually. A custom machine that needs SDK objects none of the site's
+machines link (another profile service, an arithmetic runtime member or an SDK
+header unit such as `opxy/sample_kernel.hpp`) cannot extend that site: the
+importer names the first such object. The normal memory meter checks the combined selection. After a
 site release or catalog update, its author may need to export a matching pack.
 Checks do not certify an author's native code, measure CPU or establish device
 recovery. The format is a single stored `machines.json` entry in ZIP, identified

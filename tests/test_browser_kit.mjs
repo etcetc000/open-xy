@@ -105,7 +105,7 @@ test('only the collection-specific glue may differ in a compatible machine pack'
   pack.objects.at(-1).bytes = bytes.toString('base64'); pack.objects.at(-1).sha256 = await sha256(bytes);
   await importMachinePack(base, pack);
   pack.objects.at(-1).service = 'samples';
-  await assert.rejects(importMachinePack(base, pack), /SDK runtime/);
+  await assert.rejects(importMachinePack(base, pack), /SDK runtime \(sdk\/startup\.o\)/);
 });
 
 test('a pack keeps the site kit unit sources and may differ only in collection tables', async () => {
@@ -155,14 +155,27 @@ test('packs refuse menus without an effect number and IDs longer than layouts ho
   }
 });
 
+test('an imported menu entry is rebuilt from its checked values in the exporter layout', async () => {
+  const {base, pack} = await packFixture(), m = pack.machines[1];
+  Object.assign(m, {kind:'effect', identity:{effect:null, page:21}, controls:['A'], positions:[0],
+    // A repeated key: JSON keeps the last, and so does the rebuilt entry.
+    catalog:', {"type":"custom","id":21,"default_params":[1,2,3,4,5,6,7,8],"id":99}'});
+  const candidate = await importMachinePack(base, pack);
+  const indent = '\n            ';
+  assert.equal(candidate.machines[1].catalog, ',\n        {' + indent + '"type": "custom",' + indent + '"id": 99,' +
+    indent + '"default_params": [1, 2, 3, 4, 5, 6, 7, 8]\n        }');
+  assert.equal(candidate.machines[2].catalog, ',\n        {' + indent + '"type": "another",' + indent +
+    '"default_params": [0, 0, 0, 0, 0, 0, 0, 0]\n        }\n');
+});
+
 test('packs refuse kinds they cannot import and malformed services or heap voices', async () => {
   for (const change of [m => { m.kind = 'drum'; }, m => { m.kind = 'player'; }, m => { m.features = ['Bad']; },
-    m => { m.features = 'control'; }, m => { m.heapVoices = -1; }, m => { m.heapVoices = 1.5; }]) {
+    m => { m.features = 'hidePages'; }, m => { m.features = ['control']; }, m => { m.heapVoices = -1; }, m => { m.heapVoices = 1.5; }]) {
     const {base, pack} = await packFixture(); change(pack.machines[1]);
     await assert.rejects(importMachinePack(base, pack), undefined, change.toString());
   }
   const {base, pack} = await packFixture();
-  Object.assign(pack.machines[1], {features:['control'], heapVoices:4096});
+  Object.assign(pack.machines[1], {features:['hidePages', 'synthShift'], heapVoices:4096});
   await importMachinePack(base, pack);
 });
 
