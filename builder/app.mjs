@@ -286,7 +286,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       ...(expandedKit ? {Memory: expandedMemory() ? expandedSize() + ' (experimental)' : 'Standard'} : {}),
       'Machine graphics': (grayscale ? 'Grayscale' : 'Original designs') + (count ? ' · ' + count + ' customized' : ''),
       // Every build links an imported pack's startup and tables, whichever machines are selected.
-      ...(baseKit && kit !== baseKit ? {'Machine pack': (kit.machines.length - baseKit.machines.length) + ' imported machines'} : {}),
+      ...(baseKit && kit !== baseKit ? {'Machine pack': (n => n + (n === 1 ? ' imported machine' : ' imported machines'))(kit.machines.length - baseKit.machines.length)} : {}),
     });
   }
   function graphicsChanged(machine) {

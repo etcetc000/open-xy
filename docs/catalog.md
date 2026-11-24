@@ -110,18 +110,20 @@ inspected.
 A pack extends the site's exact machine collection. It cannot replace existing
 machines, change the SDK runtime or add extensions, and it adds synths, effects
 and sample engines only: drum kits, players and aux machines cannot be imported
-yet. Its compiled registration, control and callback tables accompany the added
-machines, so independent packs cannot be combined: export the desired custom
-machines together. A pack that imports replaces the previous one; a refused one
-leaves it. **Remove imported machines** restores the site's collection. Both
-operations keep saved machine numbers reserved. Reloading clears the imported
-pack and drops its machines from the remembered selection; keep its ZIP and your
-saved layout to use it again. Import the pack before loading a layout that
-selects its machines. An OS is recognized with the collection it was built from:
-with a pack imported, an OS built without it (or the reverse) is recovered like
-an earlier open-xy OS: its stock OS is kept and its machines are chosen again.
-After importing or removing a pack, choose the OS file again to recognize a
-build made with those machines.
+yet. A machine published to the catalog after the site's release is exported as
+a catalog machine, not a custom one, and cannot be imported. Its compiled
+registration, control and callback tables accompany the added machines, so
+independent packs cannot be combined: export the desired custom machines
+together. A pack that imports replaces the previous one; a refused one leaves
+it. **Remove imported machines** restores the site's collection. Both operations
+keep saved machine numbers reserved. Reloading clears the imported pack and
+drops its machines from the remembered selection; keep its ZIP and your saved
+layout to use it again. Import the pack before loading a layout that selects its
+machines. An OS is recognized with the collection it was built from: with a pack
+imported, an OS built without it (or the reverse) is recovered like an earlier
+open-xy OS: its stock OS is kept and its machines are chosen again. After
+importing or removing a pack, choose the OS file again to recognize a build made
+with those machines.
 
 ### Export a machine pack
 
