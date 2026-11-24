@@ -148,7 +148,8 @@ the output directory. It contains compiled objects, machine metadata, artwork,
 your machines' browser previews and license notices, with no firmware or stock
 content. The surrounding kit and build directory contain stock inputs and must stay
 outside every checkout. The pack limit is 64 MiB. A source repository ZIP or
-firmware installation ZIP is not a machine pack.
+firmware installation ZIP is not a machine pack, and neither is a pack that was
+unzipped and zipped again: share `machines.zip` exactly as the exporter wrote it.
 
 The importer rejects changed catalog machines, mismatched releases/runtime,
 duplicate identities, damaged objects and machines that cannot link or fit

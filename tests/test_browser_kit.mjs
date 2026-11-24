@@ -176,6 +176,8 @@ test('packs refuse menus without an effect number and IDs longer than layouts ho
         catalog:`, {"type":"custom","id":${id},"default_params":[0,0,0,0,0,0,0,0]}`});
     }, /menu/]),
     [p => { for (const key of ['id', 'prefix']) p.machines[1][key] = 'custommachinelong'; }, /metadata/],
+    // Not an object, or not JSON: the same refusal, not a parser error.
+    ...[', null', ', [1]', ', "custom"', ', {"type":'].map(catalog => [p => { p.machines[1].catalog = catalog; }, /Invalid machine menu/]),
   ];
   for (const [change, error] of cases) {
     const {base, pack} = await packFixture(); change(pack);
@@ -210,9 +212,17 @@ test('packs take authored descriptions and artwork comments as the SDK does, and
   // Markup hidden from a comment strip, a prefixed or unknown element, and names stock or the SDK use.
   for (const artwork of ['<text><![CDATA[<!--]]></text><script>bad()</script><text><![CDATA[-->]]></text>',
     '<?x <!--?><script>bad()</script><?x -->?>', '<svg:script xmlns:svg="http://www.w3.org/2000/svg">bad()</svg:script>',
-    '<animate attributeName="x"/>', '<a><rect/></a>', '<rect style="fill:red"/>', '<!-- open <rect/>']) {
+    '<animate attributeName="x"/>', '<a><rect/></a>', '<rect style="fill:red"/>', '<!-- open <rect/>',
+    '<!DOCTYPE svg><rect/>', '<rect fill="&#117;rl(#x)"/>', '<rect onclick="x()"/>', '<rect xlink:href="#x"/>']) {
     m.artwork = artwork;
     await assert.rejects(importMachinePack(base, pack), /artwork/, artwork);
+  }
+  // What the SDK's authored SVG may hold: a font-style, a backslash or url( in text, CDATA text,
+  // and a comment holding markup.
+  for (const artwork of ['<text font-style="italic" x="1">A\\B url(x)</text>', '<text><![CDATA[a < b]]></text>',
+    '<!-- <!DOCTYPE x> <script> --><g><rect width="1" height="1"/></g>']) {
+    m.artwork = artwork;
+    await importMachinePack(base, pack);
   }
   for (const id of ['reverb', 'sdk', 'kit_custom']) {
     const {base, pack} = await packFixture();

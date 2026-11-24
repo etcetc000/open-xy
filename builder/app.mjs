@@ -173,6 +173,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       : !linked ? 'This selection cannot be built. ' + (selectionError || 'Review the memory usage and choose fewer machines.') : '';
     $('build').disabled = !!reason || building;
     $('expert-mode').disabled = builderPreview || !acknowledged || !kit;
+    // Imported code is accepted only after the risk notice, never in audition preview.
+    $('machine-pack').disabled = builderPreview || !acknowledged || !baseKit;
     $('expert-build').disabled = !!reason || building;
     $('expert-run').disabled = !!reason || building || !wizard.supportsQuickInstall();
     $('expert-save').disabled = !kit || builderPreview;
@@ -253,6 +255,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       $('builder-workspace').hidden = false;
       $('builder-workspace').inert = false;
       navigate(expertMode ? 5 : 1);
+      if (kit) ready();
       resolve();
     };
   });
@@ -923,7 +926,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   }
   $('machine-pack').onchange = async e => {
     const file = e.target.files[0]; e.target.value = '';
-    if (!file || !baseKit) return;
+    if (!file || !baseKit || builderPreview || !acknowledged) return;
     const current = ++packTicket, base = baseKit;
     $('machine-pack-result').textContent = 'Checking ' + file.name + '…';
     try {
@@ -1142,7 +1145,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     invalidate(); stock = null; kit = baseKit = next; baseSource = data;
     // A new collection drops an imported pack, which extended the previous one.
     ++packTicket;
-    $('machine-pack').disabled = false; $('remove-machine-pack').hidden = true;
+    $('remove-machine-pack').hidden = true;
     $('machine-pack-result').textContent = '';
     selectionRemembered = false; selectedExtensions = []; extensionSettings = {}; editedExtensionSettings.clear();
     $('selection-memory').textContent = '';

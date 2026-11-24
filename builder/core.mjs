@@ -1563,6 +1563,33 @@ const STOCK_TYPES = ['sampler', 'drum', 'drumline', 'organ', 'epiano', 'prism', 
   'wavetable', 'simple', 'midi', 'multisampler', 'delay', 'reverb', 'chorus', 'phaser', 'dist', 'lofi', 'arpeggio',
   'hold', 'maestro'];
 const RESERVED_PREFIXES = ['extensions', 'sdk', 'kit', 'stock', 'local'];
+// Imported artwork as tooling.svg_safety accepts the SDK's authored SVG, read token by token:
+// comments, CDATA and text are inert; every tag is one of its drawing elements, with no event,
+// style or link attribute and no url() paint in a value (as the XML parser decodes it). A
+// processing instruction, declaration or anything unparsed ends the scan and is refused.
+const ARTWORK_ELEMENTS = new Set(['svg', 'g', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path', 'text']);
+const xmlValue = value => value.replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+  .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+  .replace(/&(lt|gt|quot|apos|amp);/g, (_, n) => ({lt:'<', gt:'>', quot:'"', apos:"'", amp:'&'})[n]);
+function safeArtwork(text) {
+  if (typeof text !== 'string' || text.length > 65536) return false;
+  const tokens = /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<(\/?)([A-Za-z][\w:.-]*)((?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*\/?>|[^<]+/y;
+  const attributes = /\s+([^\s=/>]+)\s*=\s*("[^"]*"|'[^']*')/g;
+  let at = 0, token;
+  while (at < text.length) {
+    tokens.lastIndex = at;
+    if (!(token = tokens.exec(text))) return false;
+    at = tokens.lastIndex;
+    if (token[2] === undefined) continue;
+    if (!ARTWORK_ELEMENTS.has(token[2])) return false;
+    for (const [, name, quoted] of token[3].matchAll(attributes)) {
+      const value = xmlValue(quoted.slice(1, -1));
+      if (/^on/i.test(name) || name.toLowerCase() === 'style' || /href/i.test(name) || /url\s*\(|\\/i.test(value))
+        return false;
+    }
+  }
+  return true;
+}
 const PACK_MACHINE_KEYS = new Set(['id', 'name', 'kind', 'prefix', 'description', 'identity', 'controls', 'positions',
   'pages', 'catalog', 'origin', 'features', 'presetDefaults', 'presets', 'icon', 'absent', 'artwork', 'grayscaleArtwork',
   'asset', 'fullCanvas', 'preview', 'shiftRow', 'heapVoices']);
@@ -1591,23 +1618,15 @@ function checkPackMachine(m) {
     /^[MmZzLlHhVvCcSsQqTtAa0-9eE+.,\s-]*$/.test(m.icon), 'Invalid machine icon');
   check(typeof m.catalog === 'string' && m.catalog.length < 4096 && m.catalog.trim().startsWith(','),
     'Invalid machine menu');
-  const entry = JSON.parse(m.catalog.trim().slice(1));
-  check(entry.type === m.id && Array.isArray(entry.default_params) && entry.default_params.length === 8 &&
+  let entry = null;
+  try { entry = JSON.parse(m.catalog.trim().slice(1)); } catch { /* refused below */ }
+  check(entry && typeof entry === 'object' && !Array.isArray(entry) &&
+    entry.type === m.id && Array.isArray(entry.default_params) && entry.default_params.length === 8 &&
     entry.default_params.every(n => Number.isInteger(n) && n >= 0 && n <= 32767) &&
     Object.keys(entry).every(key => ['type', 'id', 'default_params'].includes(key)) &&
     // An effect's entry carries its number (catalogEntry); an instrument's has none.
     (m.kind === 'effect' ? Number.isInteger(entry.id) : !Object.hasOwn(entry, 'id')), 'Invalid machine menu');
   presetFiles(m);
-  // The SDK's authored SVG (tooling.svg_safety): its drawing elements only, no processing
-  // instruction, CDATA or declaration, no prefixed name. Authored comments (which the exporter
-  // keeps) are not markup; anything else beginning `<!` or `<?` is refused before they are removed.
-  const safeArtwork = text => {
-    if (typeof text !== 'string' || text.length > 65536 || /<\?|<!(?!--)/.test(text)) return false;
-    const markup = text.replace(/<!--[\s\S]*?-->/g, '');
-    return !/<!--|-->|\bon\w+\s*=|\bhref\s*=|\bstyle\s*=|url\s*\(|\\/i.test(markup) &&
-      [...markup.matchAll(/<\/?\s*([^\s/>]*)/g)].every(([, name]) =>
-        ['svg', 'g', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path', 'text'].includes(name));
-  };
   check(m.artwork === undefined || safeArtwork(m.artwork) && m.asset === m.id + '.svg' &&
     (m.grayscaleArtwork === undefined || safeArtwork(m.grayscaleArtwork)), 'Invalid machine artwork');
   check(m.kind !== 'synth' || typeof m.artwork === 'string', 'Missing synth artwork');
