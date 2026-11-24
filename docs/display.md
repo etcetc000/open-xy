@@ -594,8 +594,10 @@ screen reads the selected track's. A track's voices share its words: a later
 voice's `publish_word` replaces an earlier one's, and a snapshot can fall between
 two voices of a block, so combine voices with `add_packed16` into an accumulator
 word (`audioMode` 1, or the first `audioAccumulators` words in mode 2). Only
-those words restart from zero for each snapshot; `add_packed16` on any other
-word keeps summing until it saturates. A track's words are not cleared when its
+those words restart from zero for each snapshot, and only when one is taken: while
+no screen reads them they keep summing, so the first snapshot after the screen
+opens can carry everything since the last one, up to saturation. `add_packed16`
+on any other word keeps summing until it saturates. A track's words are not cleared when its
 engine changes or a project loads: until the synth plays there again, its screen
 shows the words the track last held.
 

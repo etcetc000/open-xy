@@ -102,7 +102,10 @@ service sends its packets with stock's sender between the processors
 setting the queue's batch byte (`+172`) for the call and restoring it, the
 only stock memory it writes. It also reads stock's timer (`8d5be290`), the
 audio side's engine per track (`11b01d48`), the audio frame index (`84a50b98`),
-the prepared amplitude (`11903400`) and the processor role byte (`86c05ca4`).
+the prepared amplitude (`11903400`), the processor role byte (`86c05ca4`), and,
+before each send, the sender's state, read only: the endpoint's fields at
+`841460b4 + 3f4dd`, `+ 3f4ee`, `+ 3f4ef`, `+ 3f4f0` and `+ 3f4f8`, and the queue object
+`84185824` at `+0`, `+0c`, `+10`, `+14`, `+18`, its opcode bitmap at `+38` and the batch byte.
 [Extended drawing](display.md#extended-drawing) otherwise needs no edit: [output
 levels](display.md#output-levels) read entries 0..2 of stock's GUI level table
 (`080376e4`, read only: output left, output right, the selected input); its encoder
