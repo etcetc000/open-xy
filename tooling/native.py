@@ -19,7 +19,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from . import audio_telemetry, benchmark, extensions, load_governor, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables, track_stage, voice_heap
-from .adapters import (kit_controls, pad_mix, played_pad, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
+from .adapters import (kit_controls, model_edit, pad_mix, player_instrument, played_pad, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
@@ -102,10 +102,10 @@ UNIT_SOURCES = {'fast_helpers': {'divide': 'sdk/platform/blackfin/divide_fast.s'
 
 def check_unit_sources():
     """UNIT_SOURCES names exactly the registry's unit capabilities and their units, each an SDK unit with
-    an existing file."""
+    a plain source (PLAIN_SOURCES) and an existing file."""
     require({name: set(units) for name, units in extensions.unit_capabilities().items()} ==
             {name: set(units) for name, units in UNIT_SOURCES.items()} and
-            all(unit in SDK_UNITS and (ROOT / source).is_file() for units in UNIT_SOURCES.values()
+            all(unit in SDK_UNITS and unit in PLAIN_SOURCES and (ROOT / source).is_file() for units in UNIT_SOURCES.values()
                 for unit, source in units.items()), 'The unit capabilities and their sources differ')
 
 
@@ -115,6 +115,47 @@ def unit_sources(machines, profile):
     services, settings = active_services(profile, service_users(machines)), build_settings(machines)
     return {unit: source for name, units in UNIT_SOURCES.items() if name in services and settings.get(name, 0) == 1
             for unit, source in units.items()}
+
+
+# The plain source of each SDK unit a unit capability can choose another source for.
+PLAIN_SOURCES = {'divide': RUNTIME_ASM, 'memory': RUNTIME_CXX}
+
+
+def sdk_unit_defines(profile, machines):
+    """The defines every SDK unit of a build compiles with (machines' own units take none of them)."""
+    defines = (KIT_CONTROLS_DEFINE,) if 'kit_controls' in active_services(profile, service_users(machines)) else ()
+    return defines + sdk_defines(machines)
+
+
+def compile_unit_source(gcc, tools, source, obj, defines):
+    """SDK unit `obj` from `source` (an assembly .s or a C++ file of the repository), as every
+    build compiles divide and memory, whichever source a unit capability chose."""
+    if source.endswith('.s'):
+        return execute([tools['as'], '-mcpu=bf707', '-I', ROOT, '-o', obj, ROOT / source])
+    return compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(), defines)
+
+
+def unit_variants(directory, tools, compiler, profile, machines):
+    """For a browser kit (tooling/browser_kit.py): each unit capability the collection's extensions
+    declare -> each value of its setting -> {object name: bytes} of the units it chooses the source
+    of, compiled and normalized as compile_collection compiles them for a build at that value (0:
+    the plain sources, 1: UNIT_SOURCES). Empty for a collection that declares none."""
+    declared = {c for e in extensions_of(machines) for c in e.capabilities}
+    gcc, defines = compiler_paths(compiler), sdk_unit_defines(profile, machines)
+    variants = {}
+    for name, units in UNIT_SOURCES.items():
+        if name not in declared:
+            continue
+        for value in (0, 1):
+            chosen = variants.setdefault(name, {}).setdefault(value, {})
+            for unit, fast in units.items():
+                obj = Path(directory) / name / str(value) / 'sdk' / (unit + '.o')
+                obj.parent.mkdir(parents=True, exist_ok=True)
+                compile_unit_source(gcc, tools, fast if value else PLAIN_SOURCES[unit], obj, defines)
+                obj.write_bytes(normalize_object(read(obj)))
+                require('R_BFIN_RIMM16' not in execute([tools['objdump'], '-r', obj]), 'Truncated address relocation in ' + unit)
+                chosen['sdk/' + unit + '.o'] = read(obj)
+    return variants
 
 
 def fixed_after(patch, services, profiling, chosen):
@@ -216,6 +257,21 @@ def check_sources(machines):
 # (SDK 1.23): the shared drum units' calls into them (drum_kit_controls.hpp). Every
 # other build compiles those units as before.
 KIT_CONTROLS_DEFINE = '-DOPXY_KIT_CONTROLS=1'
+# Defined for every SDK unit, and every player's unit, of a build with a player declaring
+# SDK 1.25 or later: Controls.instrument (opxy/player.hpp) and its publication
+# (players.cpp). Every other build compiles both as before.
+PLAYER_INSTRUMENT_DEFINE = '-DOPXY_PLAYER_INSTRUMENT=1'
+# Defined for every SDK unit of a build with a kit declaring modelEdit (SDK 1.25): the
+# shared editor's call into its editor (drum_model_edit.hpp). Every other build compiles
+# those units as before.
+MODEL_EDIT_DEFINE = '-DOPXY_MODEL_EDIT=1'
+
+
+def sdk_defines(machines):
+    """The SDK 1.25 defines a build's machines ask for, in a fixed order: none for a build
+    without a 1.25 player or a modelEdit kit."""
+    return (((PLAYER_INSTRUMENT_DEFINE,) if any(player_instrument(m) for m in machines) else ()) +
+            ((MODEL_EDIT_DEFINE,) if any(model_edit(m) for m in machines) else ()))
 
 
 def compile_cxx(cxx, assembler, source, obj, includes=(), defines=()):
@@ -474,6 +530,8 @@ def absent_symbols(m):
                 absent.update({'_' + m.prefix + '_vtable': 'kit_absent', m.prefix + '_drum_send': 'kit_absent'})
             if m.definition['resources'].get('parameterEdit', 0):
                 absent[m.prefix + '_drum_edit_value'] = 'kit_absent'
+            if model_edit(m):
+                absent[m.prefix + '_drum_edit_model'] = 'kit_absent'
         if m.kind == 'sample':
             # The shared sample table names these; unselected, its ready check declines first.
             absent.update({symbol: 'kit_absent' for symbol in sample_callbacks(m)})
@@ -674,11 +732,17 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         execute([tools['as'], '-mcpu=bf707', '-I', ROOT, '-o', obj, source])
 
     # The SDK's units of a build with a kit declaring the drum-kit controls see
-    # OPXY_KIT_CONTROLS; a machine's own units never do.
-    defines = (KIT_CONTROLS_DEFINE,) if 'kit_controls' in active_services(profile, service_users(machines)) else ()
+    # OPXY_KIT_CONTROLS; a machine's own units never do. SDK 1.25: a 1.25 player's
+    # Controls.instrument, which every player of its build shares with the SDK units (a
+    # player's own units see that define alone), and a modelEdit kit's editor.
+    defines = sdk_unit_defines(profile, machines)
+    player_defines = tuple(d for d in defines if d == PLAYER_INSTRUMENT_DEFINE)
 
     def cxx(source, obj, m=None):
-        compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m), defines if m is None else ())
+        unit_defines = defines if m is None else ()
+        if m is not None and m.kind == 'player':
+            unit_defines = player_defines
+        compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m), unit_defines)
 
     def build_unit(obj, m, step):
         folder = obj.parent
@@ -721,12 +785,10 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(track_stage.generate_table(folder, machines)), obj)
             if step == 'registration_stock':
                 return cxx(str(generate_registration_stock(folder)), obj)
-            if step == 'divide':
-                return assemble_unit(ROOT / chosen_sources.get('divide', RUNTIME_ASM), obj)
+            if step in PLAIN_SOURCES:  # divide, memory: a unit capability may choose their source
+                return compile_unit_source(gcc, tools, chosen_sources.get(step, PLAIN_SOURCES[step]), obj, defines)
             if step == 'sample_kernel':
                 return assemble_unit(ROOT / KERNEL_ASM, obj)
-            if step == 'memory':
-                return cxx(chosen_sources.get('memory', RUNTIME_CXX), obj)
             if step == 'startup_label':
                 return assemble_unit(startup_label.generate(folder, version), obj)
             if step == 'startup':

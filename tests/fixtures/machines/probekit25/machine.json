@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "sdk": "1.25",
+  "kind": "drum",
+  "description": "Test fixture: a three-model drawn drum kit whose first control runs over every model (modelEdit)."
+}

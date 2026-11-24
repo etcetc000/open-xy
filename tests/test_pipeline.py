@@ -249,6 +249,11 @@ class SourceContracts(unittest.TestCase):
             with self.subTest(system=system), mock.patch('platform.system', return_value=system),                     mock.patch('platform.machine', return_value='x86_64'):
                 self.assertEqual(pipeline.host_platform(), 'windows-x86_64')
 
+    def test_windows_host_survives_an_empty_machine_query(self):
+        for build, key in (('win-amd64', 'windows-x86_64'), ('win-arm64', 'windows-arm64')):
+            with self.subTest(build=build), mock.patch('platform.system', return_value='Windows'),                     mock.patch('platform.machine', return_value=''),                     mock.patch('sysconfig.get_platform', return_value=build):
+                self.assertEqual(pipeline.host_platform(), key)
+
     def test_release_kits_only_on_release_host(self):
         release = pipeline.toolchains()['release']
         with mock.patch.object(pipeline, 'host_platform', return_value=release):

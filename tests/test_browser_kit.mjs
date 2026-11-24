@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {KIT_KEYS, kitChoices, kitGroup, kitHeader, kitKey, kitMix, kitModel, kitSelectedKey, kitWord} from '../builder/core.mjs';
-import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readSelection, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, imageSettings, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
+import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readSelection, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, imageSettings, unitSettings, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -91,23 +91,95 @@ test('a settings extension links no code, applies only its capability edits and 
   assert.deepEqual(await recoverFirmware(kit, await patchFirmware(kit, off, stock)), {stock, selected:['a'], extensions:[], memory:'standard'});
 });
 
-test('a kit refuses an extension naming a build capability (hooks into SDK code)', async () => {
+// A helper object as a unit capability's sources make them (tooling.native UNIT_SOURCES): the fixture
+// ELF defining `helpr` with its four code bytes.
+function helper(code) { const bytes = elf(); bytes.set(Buffer.from('helpr'), 89); bytes.set(code, 52); return bytes; }
+const capsule = (name, bytes, extra = {}) => ({name, owner:null, ...extra, bytes:Buffer.from(bytes).toString('base64')});
+
+test('a kit carries a capability only with what the browser needs for it', async () => {
   const k = fixture();
   Object.assign(k, {format:'opxy-browser-kit/1', profileSource:profileBytes.toString('base64'), notices:'SDK',
     stockCatalog:'', screenTemplate:readFileSync(new URL('../sdk/platform/opxy-1.2.1/screen.svg', import.meta.url), 'utf8')});
-  k.objects = [{name:'a.o', owner:'a', bytes:Buffer.from(elf()).toString('base64'), sha256:await sha256(elf())}];
+  const objects = [capsule('a.o', elf(), {owner:'a'})];
+  for (const o of objects) o.sha256 = await sha256(Buffer.from(o.bytes, 'base64'));
+  k.objects = objects;
   const meta = {name:'Settings', description:'Turns on a capability.', origin:'official', claim_labels:{}, claims:[], actions:[], linked:false};
-  k.extensions = [{...meta, id:'longer', capabilities:['long_samples']}];
-  await openKit(k);
-  // idle: a build capability of this profile (hooks into SDK code). master_filter: a service of this profile
-  // named after itself whose edits are hooks; it passes every other capability rule, so only the limit-only
-  // rule refuses it. load_governor: a build capability of fixed-byte limit edits, each marked "build" in the
-  // profile; only that mark refuses it. fast_helpers: a build capability with no edit at all (it chooses SDK
-  // units' sources); no fixed edit marks it on, so nothing could read it from an image.
-  for (const capability of ['idle', 'master_filter', 'load_governor', 'fast_helpers']) {
+  const opens = async (capability, overrides = {}) => {
+    Object.assign(k, {objects, unitSources:undefined}, overrides);
     k.extensions = [{...meta, id:'faster', capabilities:[capability]}];
-    await assert.rejects(openKit(k), /Invalid extension capabilities/, capability);
-  }
+    return openKit(k);
+  };
+  // Image edits: long_samples, boot_log_fix, and load_governor's and pitch_constants' fixed bytes,
+  // which the profile marks as the build's: the browser writes them.
+  for (const capability of ['long_samples', 'boot_log_fix', 'load_governor', 'pitch_constants']) await opens(capability);
+  // Hooks into SDK code: only with that service's own objects in the kit, which the export compiles
+  // (block_trims, output_slack). idle changes every machine's generated code, so a kit never holds
+  // its objects (the export refuses it: tooling.browser_kit.refuse_adapter_capabilities);
+  // master_filter is no registry capability, so no kit object implements it as one.
+  for (const capability of ['block_trims', 'output_slack', 'idle', 'master_filter'])
+    await assert.rejects(opens(capability), /Invalid extension capabilities/, capability);
+  const hooks = capsule('sdk/track_hooks.o', helper([0, 96, 16, 0]), {service:'block_trims'});
+  hooks.sha256 = await sha256(Buffer.from(hooks.bytes, 'base64'));
+  await opens('block_trims', {objects:[...objects, hooks]});
+  await assert.rejects(opens('output_slack', {objects:[...objects, hooks]}), /Invalid extension capabilities/);
+  // fast_helpers has no edit: only with its units' objects for each value (kit.unitSources).
+  await assert.rejects(opens('fast_helpers'), /Invalid extension capabilities/);
+  const plain = capsule('sdk/divide.o', helper([0, 96, 16, 0])), fast = capsule('sdk/divide.o', helper([1, 96, 16, 0]));
+  for (const o of [plain, fast]) o.sha256 = await sha256(Buffer.from(o.bytes, 'base64'));
+  const withDivide = [...objects, plain];
+  const units = {fast_helpers:{'0':[{name:plain.name, bytes:plain.bytes, sha256:plain.sha256}],
+    '1':[{name:fast.name, bytes:fast.bytes, sha256:fast.sha256}]}};
+  const opened = await opens('fast_helpers', {objects:withDivide, unitSources:units});
+  assert.equal(opened.unitSources.fast_helpers['1'][0].path, 'unit-sources/fast_helpers/1/sdk/divide.o');
+  // Its setting: each value of its range has the kit's objects.
+  const setting = {label:'Fast helpers', unit:'0 off, 1 on', minimum:0, maximum:1, default:0, value:0};
+  k.extensions = [{...meta, id:'faster', capabilities:['fast_helpers'], settings:{fast_helpers:setting}}];
+  await openKit({...k, objects:withDivide, unitSources:units});
+  await assert.rejects(openKit({...k, objects:withDivide, unitSources:units,
+    extensions:[{...k.extensions[0], settings:{fast_helpers:{...setting, maximum:2}}}]}), /Invalid extension settings/);
+  for (const [why, unitSources, kitObjects] of [
+    ['a value missing', {fast_helpers:{'0':units.fast_helpers['0']}}, withDivide],
+    ['an object the kit lacks', units, objects],
+    ['a capability with edits', {...units, long_samples:units.fast_helpers}, withDivide],
+    ['another digest', {fast_helpers:{...units.fast_helpers, '1':[{...units.fast_helpers['1'][0], sha256:plain.sha256}]}}, withDivide],
+    ['values naming other objects', {fast_helpers:{...units.fast_helpers, '1':[{...units.fast_helpers['1'][0], name:'a.o'}]}}, withDivide]])
+    await assert.rejects(opens('fast_helpers', {objects:kitObjects, unitSources}), /unit sources|hash mismatch/, why);
+});
+
+test('a unit capability links its chosen value\'s objects in place of the build\'s, and is recovered with it', async () => {
+  const {kit, stock} = await profilingFixture();
+  const plain = helper([0, 96, 16, 0]), fast = helper([1, 96, 16, 0]);
+  kit.objects.push({...readObject(plain), name:'sdk/divide.o', owner:null});
+  kit.profile.services = {...kit.profile.services, fast_helpers:['fast_helpers']};
+  const variant = (value, bytes) => [{...readObject(bytes), name:'sdk/divide.o', owner:null, path:`unit-sources/fast_helpers/${value}/sdk/divide.o`}];
+  kit.unitSources = {fast_helpers:{'0':variant(0, plain), '1':variant(1, fast)}};
+  const setting = {label:'Fast helpers', unit:'0 off, 1 on', minimum:0, maximum:1, default:0};
+  kit.extensions = [{id:'faster', claims:[], actions:[], capabilities:['fast_helpers'], linked:false, settings:{fast_helpers:{...setting, value:0}}}];
+  const without = linkKit(kit, ['a']), own = linkKit(kit, ['a'], null, ['faster']);
+  const on = linkKit(kit, ['a'], null, ['faster'], {fast_helpers:1});
+  // Without the extension a chosen value is ignored: every build without it links the plain sources.
+  assert.deepEqual(linkKit(kit, ['a'], null, [], {fast_helpers:1}).module, without.module);
+  assert.deepEqual(own.module, without.module);
+  assert.deepEqual([without.units, own.units, on.units], [{fast_helpers:0}, {fast_helpers:0}, {fast_helpers:1}]);
+  assert.deepEqual(unitSettings(kit, ['faster'], {fast_helpers:1}), {fast_helpers:1});
+  // The same names in the same place: only the helper's bytes differ.
+  assert.deepEqual(on.objects.map(o => o.name), without.objects.map(o => o.name));
+  assert.equal(on.objects[1].path, 'unit-sources/fast_helpers/1/sdk/divide.o');
+  assert.deepEqual([...on.module].map((b, i) => b === without.module[i] ? 0 : i).filter(Boolean), [4]);
+  assert.deepEqual(on.globals, without.globals);
+  // The extension's own value is the default; a value outside the kit's is refused.
+  kit.extensions[0].settings.fast_helpers.value = 1;
+  assert.deepEqual(linkKit(kit, ['a'], null, ['faster']).module, on.module);
+  assert.throws(() => linkKit(kit, ['a'], null, ['faster'], {fast_helpers:2}), /outside its range/);
+  kit.extensions[0].settings.fast_helpers.value = 0;
+  // The OS is patched for the values the module was linked with.
+  await assert.rejects(patchFirmware(kit, on, stock), /linked for other capability settings/);
+  const image = await patchFirmware(kit, on, stock, {settings:{fast_helpers:1}});
+  // No image site shows the value: recovery tries each and reports the one that rebuilds it.
+  assert.deepEqual(imageSettings(kit, image), {});
+  assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a'], extensions:['faster'], memory:'standard', settings:{fast_helpers:1}});
+  // At 0 the image is the one without the extension, which recovery tries first.
+  assert.deepEqual(await recoverFirmware(kit, await patchFirmware(kit, own, stock)), {stock, selected:['a'], extensions:[], memory:'standard'});
 });
 
 test('a capability setting writes the reviewed bytes of its value and is recovered with it', async () => {

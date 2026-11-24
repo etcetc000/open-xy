@@ -1,6 +1,6 @@
 # Glyph atlas
 
-Part of [extended drawing](display.md#extended-drawing), from SDK 1.25. An opt-in glyph frame selects bounded immutable SVG outlines into independently
+Part of [extended drawing](display.md#extended-drawing), from SDK 1.26. An opt-in glyph frame selects bounded immutable SVG outlines into independently
 owned path leaves. It uses no system font, per-frame allocation, or shared
 mutable command buffer. The source artwork remains the machine's input.
 

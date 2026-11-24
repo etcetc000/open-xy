@@ -12,9 +12,13 @@ differs (`tooling/firmware.py` `assemble`). `fast_helpers` is the exception: it
 has no site and no unit of its own, and its two units are linked either way, from
 the plain sources when it is off ([below](#fast_helpers)).
 
-The build capabilities are chosen only by `sdk.py build`: `sdk.py settings apply` refuses them and
-browser kits cannot carry them. `boot_log_fix`, one fixed data byte, is an image
-capability: `sdk.py settings apply` can write it into an existing image and a browser kit can carry it.
+The build capabilities are chosen when the firmware is built, by `sdk.py build` or the
+builder: `sdk.py settings apply` refuses them. The builder offers every one but `idle`
+([deprecated](#idle)), which changes every machine's generated voice and effect code
+(`"adapters": true` in the registry), so a kit, whose objects serve every selection, refuses
+it ([builder](builder.md#capabilities)).
+`boot_log_fix`, one fixed data byte, is an image
+capability: `sdk.py settings apply` can write it into an existing image.
 `sdk.py settings show --image os.ldr` reports
 whether an image was built with each, except `fast_helpers`, which has no site in
 the image: a build's `analysis/compile-report.json` names the sources it chose
@@ -25,14 +29,15 @@ Firmware coverage: every capability below has addresses for **OP-XY OS 1.2.1 onl
 service fails with "the <name> capability has no firmware sites for OP-XY OS
 <version>".
 
-The SDK's one CPU extension, `extensions/cpu` ("CPU (experimental)"), selects all six:
-`boot_log_fix`, `idle`, `block_trims`, `output_slack`, `load_governor` and
-`fast_helpers`, the last at its setting 0, off. It needs `sdk.py build`. It
-does not select `release_floor`, whose threshold the idle cut uses: with `cpu` alone, `idle` skips
-silent sends and cuts no voice ([idle](#idle)). A
-collection that wants only some of the capabilities selects them with a settings
-extension of its own that names just those, in place of `cpu` (`sdk.py build`
-takes a settings extension from any folder the collection names).
+The SDK's one CPU extension, `extensions/cpu` ("CPU (experimental)"), selects six:
+`boot_log_fix`, `block_trims`, `output_slack`, `load_governor`, `pitch_constants` and
+`fast_helpers`, the last at its setting 0, off. It does not select `idle`, which is
+[deprecated](#idle), or `release_floor`. The builder offers it: a build of a kit's whole
+collection there is byte for byte `sdk.py build` of that collection with `cpu` at the
+same fast helpers setting and profiling. A collection that wants only some of the
+capabilities selects them with a settings extension of its own that names just those,
+in place of `cpu` (`sdk.py build` takes a settings extension from any folder the
+collection names).
 
 **What has run on a device: nothing from this repository.** No build made from this
 repository with any of these capabilities on has run on a device. A capability
@@ -47,6 +52,7 @@ without it has byte for byte ([Off means off](#off-means-off)).
 | `output_slack` | hook `sdk_dsp_block_audio` at `8c0c6ffe` (and, once armed, a run-time swap of the audio task's block pointer `11b008cc`) | `dsp_block`, `dsp_block_hooks`, `output_slack`, `output_slack_hooks` |
 | `load_governor` (fixed bytes, no code) | limits `8d51c430`, `8d51c48c`, `8d51c492`, `8d51c49a`, `8d51e4f0`, `8d51e4fe` | none |
 | `fast_helpers` (a setting, 0 off or 1 on; default 0) | none: it chooses the source of two units every build links | at 1, `divide` from `divide_fast.s` and `memory` from `memory_fast.cpp`; at 0, the plain `divide.s` and `memory.cpp` |
+| `pitch_constants` (fixed bytes, no code) | limits `8d5c0a1e`, `8d5c0a2c` (12 bytes each) | none |
 
 ## Budgets
 
@@ -54,7 +60,8 @@ A block is 64 frames, 580,352 cycles at the OP-XY's clock (1.45 ms). No figure h
 measured on a device. Each cycle figure comes from the BF707 Functional-Sim (no cache, no
 DDR model) run by a test in this repository, with the command that prints it; an
 instruction count is read from the built code (the loop and its count are named, so a
-disassembly of the build shows it); anything else is said not to be measured here. Code
+disassembly of the build shows it); a figure from a run outside this repository says
+so; anything else is said not to be measured here. Code
 and data are the bytes the capability adds to the linked module, measured on a build of Open-XY's own catalog
 machines (fm2op, macroosc, karplus, timestretch, ringmod, pingpong, chords) with
 only that capability on, against the same build with none; RAM is the zeroed memory
@@ -63,11 +70,12 @@ only that capability on, against the same build with none; RAM is the zeroed mem
 | Capability | Runs in the audio callback | Cycles of a 580,352-cycle block | Module bytes |
 | --- | --- | --- | --- |
 | `boot_log_fix` | nothing | 0 | 0 |
-| `idle` | per send per block: `sdk_send_fx` (a scan of 384 words while the send is quiet, then the effect's call is skipped once idle); per sounding voice per block: `sdk_idle_render` (stock's chooser plus a check) | a quiet send: its scans, one hardware loop of two instructions a word over 384 words (about 770 instructions; counted from the built code, not timed); a sounding send: a scan of its 128-word bus before the effect's call, one hardware loop of two instructions a word (about 260 instructions), and about 90 more of checks (counted from the built code, not timed); with `release_floor`, the drum sampler's tables scan up to 1,024 samples a block in all (not counted); with `cpu` alone, an SDK voice whose engine defines `settled()` still takes its block's peak and asks `settled()` every block, though nothing is cut (no catalog engine defines `settled()`, so nothing for the catalog; not counted). Saves an idle send's whole effect call and a cut voice's remaining blocks; not measured in this repository | 3,476; RAM 36,704 zeroed and 8 initialised (33,472 of sample tables, 504 of send state) |
+| `idle` | per send per block: `sdk_send_fx` (a scan of 384 words while the send is quiet, then the effect's call is skipped once idle); per sounding voice per block: `sdk_idle_render` (stock's chooser plus a check) | a quiet send: its scans, one hardware loop of two instructions a word over 384 words (about 770 instructions; counted from the built code, not timed); a sounding send: a scan of its 128-word bus before the effect's call, one hardware loop of two instructions a word (about 260 instructions), and about 90 more of checks (counted from the built code, not timed); with `release_floor`, the drum sampler's tables scan up to 1,024 samples a block in all (not counted); without `release_floor`, an SDK voice whose engine defines `settled()` still takes its block's peak and asks `settled()` every block, though nothing is cut (no catalog engine defines `settled()`, so nothing for the catalog; not counted). Saves an idle send's whole effect call and a cut voice's remaining blocks; not measured in this repository | 3,476; RAM 36,704 zeroed and 8 initialised (33,472 of sample tables, 504 of send state) |
 | `block_trims` | per sounding track per block: `sdk_track_mix`; per LFO pass: `sdk_lfo_pass`; per block: `sdk_tape_play`, `sdk_tape_tail` | Functional-Sim, from this repository's tests ([block_trims](#block_trims)): a silent sounding track's mixes 402 against stock's 1,704; an LFO pass check 45 against 58 (up to 72 calls a block); an idle tape about 2,610 a block | 1,268; RAM 4 zeroed |
 | `output_slack` | per block: `sdk_dsp_block_audio`; until armed, a quiet check of the newest block (256 words, more with USB multichannel); once armed, each period a copy of one block (1,024 words) out of a 4 KB queue | the copy about 2,050 instructions a period (counted from the built code: a hardware loop of two instructions a word over 1,024 words; not timed) | 436; RAM 4,144 zeroed (the 4 KB queue) |
 | `load_governor` | stock's governor, as before, on its edited bytes | 0 (it changes when voices are cut, not the work) | 0 |
 | `fast_helpers` | whenever machine code calls `memset`, `memcpy` or an integer divide | less per call; never measured as a share of a block | 248 |
+| `pitch_constants` | per synth voice start: stock's note pitch, with two conversions fewer | Functional-Sim, this repository's test ([pitch_constants](#pitch_constants)): stock's note pitch 834 against 233 a call; in whole-image runs outside this repository, 600 less every voice start, on every synth run (four SDK synths and stock's), so 14,400 (2.5 % of a block) in a block that starts 24 voices | 0 |
 
 ## Off means off
 
@@ -105,12 +113,18 @@ from `idle`.
 
 ## idle
 
+**Deprecated: not in the shipped `cpu` extension.** Its code stays in the SDK and in
+the registry, and `sdk.py build` still takes it from a settings extension of your own
+that names it (with `release_floor` for the idle cut); the builder refuses it. What
+follows describes it as built that way.
+
 What it changes in stock:
 - [Idle sends](abi-1.2.1.md#send-idling): both send effects' calls
   (`8d5116a0`, `8d511908`) go to `sdk_send_fx`, which skips a send whose input,
   output and bus stayed below its floor for its effect's hold (its tail, as the
-  effect declares it or as its memory can hold it, plus 64 blocks) with nothing
-  it reads changing.
+  effect declares it or as its memory can hold it, plus 64 blocks; for an effect
+  that declares no tail, never under 2,112 blocks, 3.07 s) with nothing it reads
+  changing.
 - [Idle cut](abi-1.2.1.md#idle-cut): the track voice loop's renderer call
   (`8d51c7a6`) goes to `sdk_idle_render`, which kills (stock's one-block fade) a
   voice that can no longer get louder and has fallen below the project's idle
@@ -124,8 +138,8 @@ records for the send hook and no voice is ever judged idle.
 
 **The idle cut needs `release_floor`.** Its threshold is the `release_floor` setting's
 (`idle_cut.cpp` asks stock's envelope routine once where a release ends; stock alone
-gives no threshold). With `idle` on and `release_floor` off, which is what the `cpu`
-extension alone gives, the threshold is 0 and no voice is ever cut: `sdk_idle_render`
+gives no threshold). With `idle` on and `release_floor` off, the threshold is 0 and no
+voice is ever cut: `sdk_idle_render`
 calls stock's chooser and returns, the SDK adapters' cut never fires, and only the idle
 sends act. The 33,472 bytes of sample tables are still reserved: `release_floor` is an
 image setting that `sdk.py settings apply` can write into the image later, and the cut
@@ -374,8 +388,9 @@ Stock's held peaks cut such patterns.
 - The time constant was chosen by the author on synthetic loads in a simulator outside
   this repository, not on a real project's load; what it then does is what the host
   tests check.
-- The edits are fixed bytes at stock sites. The SDK writes them only in `sdk.py
-  build`, but any tool that writes bytes into an image could write them.
+- The edits are fixed bytes at stock sites. The SDK writes them only when it builds
+  the firmware (`sdk.py build` or the builder), but any tool that writes bytes into an
+  image could write them.
 
 Tests: host only. `test_load_governor.py`: the edits and their encodings, the
 smoother's bytes run instruction by instruction off and on against models of stock's
@@ -425,7 +440,8 @@ C uses LC1, so hand assembly that calls them inside an LC0 hardware loop must sa
 no SDK assembly does, and no catalog machine's hand assembly calls anything (the
 catalog's pinned commits when this was written; a machine added later is not
 checked). `sdk.py settings show` cannot tell whether an image has them; the build's
-compile report can.
+compile report can, and a builder download's `build.json` records the setting when it was
+chosen in the builder or recovered from a loaded OS.
 
 Tests: host only. The instruction model runs both fast files' own text:
 quotients, remainders and the signed wrappers against C over edge and random
@@ -433,3 +449,61 @@ operands, `memset` and `memcpy` against byte loops at every alignment and overla
 in a window, and a register check that refuses a helper which changes a
 callee-saved register. A link test shows a build at 0 links the plain objects and
 one at 1 the fast ones, with the sizes above.
+
+## pitch_constants
+
+What it changes in stock: stock's note-to-pitch routine (`8d5c09d6`), which stock's
+note pitch `8d5c0a70` calls (itself called at `8d507596` and `8d51acbe`; a synth voice
+start makes one such call, as the whole-image runs below show), loads the float constants
+1200.0 and 100.0 and converts each to fixed point by calling `8d5bf5ec` (a floor, two
+float-to-integer, an integer-to-float, a subtract, an add of 0.005 and a multiply by 100,
+all software floating point). The answers never change. The two load-and-call pairs
+(`8d5c0a1e`, `8d5c0a2c`, 12 bytes each) become loads of the words those calls return,
+`0x04b00000` and `0x00640000`, and two 16-bit NOPs where each call was. The rest of the
+routine is stock's. Two fixed-byte edits, marked `"build"`; no code.
+
+Off: both sites hold stock's bytes. The `cpu` extension turns it on.
+
+The words are stock's own: the simulator test below runs `8d5bf5ec` on both constants
+and gets them, twice each, and a host test computes them from the routine's arithmetic
+in single precision.
+
+What the replaced calls did besides returning the word: the conversion's work leaves
+values in scratch registers (the calling convention's R0-R3, P0-P2, the accumulators
+A0 and A1 and the arithmetic flags) that differ with the edits.
+Its stores are to its own stack frame. Both are a reading of its code, not checked
+instruction by instruction here; that nothing after the routine depends on them is the
+calling convention, and the equal results and state below.
+
+What it saves (BF707 Functional-Sim; no cache, no DDR model; not a device measurement):
+- the note pitch call: 834 cycles against 233 with the edits (mean of 24,576 calls,
+  tracks 0-7, notes 0-127, 24 values of its third argument), 835 against 234 with
+  random pitch tables;
+- in the whole audio loop of a built image, booted on the Functional-Sim by a harness
+  outside this repository (a probe synth and the catalog's fm2op, macroosc and
+  karplus, stock's synths on the other tracks): exactly 600 cycles less for every
+  voice start, on each of the four and on stock's synths: 4,800 in a block that starts
+  8 voices of one machine (a probe synth block of 88,811 becomes 84,011), 14,400 in
+  one that starts 24 voices across the four (2.5 % of a block), nothing in a block
+  without a voice start. The same runs show the audio buffers, stock's audio data
+  regions, the engine block and the first 320 bytes of each of stock's 27 voice slots
+  equal, hash for hash, to the build without it in every block (7 scenarios, 482
+  blocks, among them a note sweep over every MIDI note on random track words, once
+  with the four SDK synths on half the tracks and once with stock's synths alone).
+A device's saving may differ: the conversions run from DDR and ROM, whose fetches the
+simulator does not model.
+
+What it costs: nothing in the module; 24 bytes of stock code.
+
+What it risks: code in `8d5c09d6` after either site that read a scratch register or
+flag the conversion left would see another value (none is known: the compiler's
+convention, and equal results on all 24,576 inputs). Stock synths' voice starts change
+too, cheaper only.
+
+Tests: `test_pitch_constants.py`: the edits, their stock bytes and offsets, the calls'
+target, the words against the routine's arithmetic, that it is off unless an extension
+names it and on with `cpu` (host); on the Functional-Sim (needs a stock OS image and
+CCES, so CI skips it), `8d5bf5ec`'s own answers and stock's note pitch on 24,576
+inputs with booted and with random tables, stock against the edits, equal on every
+input. The whole-image runs above are not in this repository. To print the call's
+figures: `python tests/sim_cycles.py`.
