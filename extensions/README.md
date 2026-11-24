@@ -1,21 +1,17 @@
 # Settings extensions of this SDK
 
-`cpu` ("CPU (experimental)") names the seven CPU capabilities
-([docs/cpu-capabilities.md](../docs/cpu-capabilities.md)): `boot_log_fix`, `idle`,
+`cpu` ("CPU (experimental)") names six CPU capabilities
+([docs/cpu-capabilities.md](../docs/cpu-capabilities.md)): `boot_log_fix`,
 `block_trims`, `output_slack`, `load_governor`, `pitch_constants` and `fast_helpers`,
 the last one off (setting 0). It is experimental, always.
 Like every settings extension it holds only `extension.json`: the SDK owns every
 patch site, and the extension only names capabilities. Add it to a collection's
-`extensions` (`{"path": ".../extensions/cpu"}`) and build with `sdk.py build`.
-The builder offers it without `idle`, which changes every machine's generated code
-([docs/builder.md](../docs/builder.md#capabilities)), and says so in its details.
-A build without it has none of them.
+`extensions` (`{"path": ".../extensions/cpu"}`) and build with `sdk.py build`, or
+select it in the builder. A build without it has none of them.
 
-`idle` cuts voices only with a threshold, which is the `release_floor` setting's, and
-`cpu` does not select `release_floor`: with `cpu` alone, idle sends act and no voice
-is cut (docs/cpu-capabilities.md#idle). A collection that wants the idle cut selects
-`release_floor` too, with its own settings extension; that also shortens every
-release that crosses the floor, which is a change in sound.
+`idle` is deprecated and not in `cpu` (docs/cpu-capabilities.md#idle). Its code stays:
+a collection can still name it, with `release_floor` for the idle cut, in a settings
+extension of its own built with `sdk.py build`; the builder refuses it.
 
 `load_governor` is a plain switch, on when named: stock's governor then acts on a
 short mean of the block load, cuts voices from 99 % of its scale (93.8 % of a real

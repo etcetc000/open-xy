@@ -185,7 +185,7 @@ def configuration(entries=None, layout=None):
     check_unit_sources()
     require([p['kind'] for p in profile['patches']].count('startup') == 1, 'Expected one startup label edit')
     machines = Collection(collection(entries, layout), extensions.check_collection(
-        [collection_extension(e) for e in entries or () if 'extension' in e]))
+        [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]))
     extensions.check_coverage(profile, machines.extensions)
     definitions = dict(DEFINITIONS)
     for m in machines:
@@ -203,15 +203,6 @@ def configuration(entries=None, layout=None):
     return profile, machines, definitions
 
 
-def collection_extension(entry):
-    """A collection entry's extension: {"extension": folder}, and for a browser kit's build
-    (tooling/browser_kit.py site_entries) "without": the capabilities it leaves out."""
-    require(set(entry) <= {'extension', 'without'} and isinstance(entry.get('without', []), list),
-            'An extension entry is {"extension": folder} and optionally "without": [capabilities]')
-    extension = extensions.extension_at(entry['extension'])
-    return extensions.without(extension, entry['without']) if 'without' in entry else extension
-
-
 def provenance(machines):
     """Every authored, SDK and compiler-profile input; private artifacts never enter.
     The collection is its machines, in order: their IDs and sources below."""
@@ -224,10 +215,8 @@ def provenance(machines):
         hashes.update({name: sha(read(path)) for name, path in m.files().items()})
     for e in extensions_of(machines):
         hashes.update({f'extension:{e.id}/{name}': sha(read(path)) for name, path in e.sources().items()})
-    # An extension built without some capabilities (the browser kit's cpu) names them.
     hashes['collection'] = sha(json.dumps([m.id for m in machines] +
-                                          ['extension:' + e.id + ''.join(' -' + c for c in e.withheld)
-                                           for e in extensions_of(machines)]).encode('utf-8'))
+                                          ['extension:' + e.id for e in extensions_of(machines)]).encode('utf-8'))
     return dict(sorted(hashes.items()))
 
 

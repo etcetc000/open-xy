@@ -172,33 +172,14 @@ def machine_entry(m, profile, sources, output, preview_cxx):
     return entry
 
 
-def withheld(extension):
-    """The capabilities of an extension a browser kit leaves out: those that change every
-    machine's generated code (extensions.site_needs 'adapters'), which the kit's objects,
-    compiled once for every selection, cannot carry. A kit carries the rest: image edits, and
-    SDK units the browser links with the capability (docs/builder.md#capabilities)."""
-    return [c for c in extension.capabilities if extensions.site_needs(c) == 'adapters']
-
-
-def site_entries(entries):
-    """A collection's entries as a browser kit builds them: each extension without the
-    capabilities the kit leaves out (withheld), recorded in its entry so the package, and its
-    independent rebuild, are that build. A settings extension with nothing left is refused."""
-    result = []
-    for entry in entries:
-        left_out = withheld(extensions.extension_at(entry['extension'])) if 'extension' in entry else []
-        result.append(dict(entry, without=left_out) if left_out else entry)
-        if left_out:
-            native.collection_extension(result[-1])  # refuses a settings extension left with nothing
-    return result
-
-
 def refuse_adapter_capabilities(extensions_):
-    """A browser kit's build leaves out every capability that changes machines' generated code
-    (site_entries): a package that has one cannot become a kit."""
-    left = sorted(c for e in extensions_ for c in withheld(e))
-    require(not left, "These capabilities change every machine's generated code, so a browser kit leaves them "
-                      'out (sdk.py kit builds without them): ' + ', '.join(left))
+    """A browser kit's objects are compiled once for every selection, so it cannot carry a capability
+    that changes every machine's generated code (extensions.adapter_capabilities: idle). Every other
+    capability it carries: image edits, and SDK units it links with the capability
+    (docs/builder.md#capabilities)."""
+    adapters = sorted({c for e in extensions_ for c in e.capabilities} & set(extensions.adapter_capabilities()))
+    require(not adapters, "These capabilities change every machine's generated code, so a browser kit cannot carry "
+                          'them; build with sdk.py build, or leave them out of the extension: ' + ', '.join(adapters))
 
 
 def unit_sources(output, tools, compiler, profile, machines, objects):
@@ -402,7 +383,8 @@ def main(argv=None):
         parser.exit(1, 'ERROR: ' + str(error) + '\n')
     try:
         # Refuse an unreviewed machine before the long build, not after it.
-        machines = native.configuration(site_entries(native.selected_collection(args)))[1]
+        machines = native.configuration(native.selected_collection(args))[1]
+        refuse_adapter_capabilities(native.extensions_of(machines))
         catalog_sources(machines, args.personal)
     except ValueError as error:
         parser.exit(1, 'ERROR: ' + str(error) + '\n')
@@ -411,7 +393,7 @@ def main(argv=None):
     try:
         package = out / 'source'
         native.build(package, Path(args.toolchain), Path(args.compiler),
-                     Path(args.stock_os), Path(args.stock_content), site_entries(native.selected_collection(args)))
+                     Path(args.stock_os), Path(args.stock_content), native.selected_collection(args))
         options = []
         for name in ('toolchain', 'compiler', 'stock_os', 'stock_content'):
             options += ['--' + name.replace('_', '-'), str(Path(getattr(args, name)).resolve())]

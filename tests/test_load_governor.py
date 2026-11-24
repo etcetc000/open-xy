@@ -512,8 +512,7 @@ class OnlyWhenBuilt(unittest.TestCase):
     def test_a_browser_kit_carries_it_as_image_edits(self):
         # Fixed bytes and no code: the builder writes them when its extension is selected.
         e = extension_at(folder(self))
-        self.assertEqual(extensions.site_needs('load_governor'), 'image')
-        self.assertEqual(browser_kit.withheld(e), [])
+        self.assertNotIn('load_governor', extensions.adapter_capabilities())
         browser_kit.refuse_adapter_capabilities([e])
 
     def test_each_edit_is_marked_as_the_builds(self):

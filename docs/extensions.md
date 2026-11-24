@@ -216,7 +216,7 @@ value (one without a value chooses the default); a capability without a setting,
 | Capability | Setting | Effect |
 | --- | --- | --- |
 | `long_samples` | | A file loads up to 1,048,575 frames (2^20 - 1, 23.78 s at 44.1 kHz), the most a stock sample object holds, instead of stock's 882,000 (20 s). Recording still stops at 20 s. |
-| `release_floor` | Idle threshold, -66..-20 dB (default -48) | A released note stops, and frees its voice, once its amplitude envelope falls below the threshold, fading over one block; stock stops at -66 dB. The level is the envelope's own, before velocity, filter and track volume. Held notes, stolen-voice fades and drum kits are unchanged; the filter envelope's release stops at the same level. It works on its own. With [`idle`](cpu-capabilities.md#idle) the idle cut also stops voices at this threshold, and idle skips quiet sends (which does not need this setting); the builder's `cpu` leaves `idle` out (and does not select this setting), so with `cpu` and an extension that selects `release_floor` released notes still stop at the threshold but no send is skipped. |
+| `release_floor` | Idle threshold, -66..-20 dB (default -48) | A released note stops, and frees its voice, once its amplitude envelope falls below the threshold, fading over one block; stock stops at -66 dB. The level is the envelope's own, before velocity, filter and track volume. Held notes, stolen-voice fades and drum kits are unchanged; the filter envelope's release stops at the same level. It works on its own. With [`idle`](cpu-capabilities.md#idle) (deprecated, not in `cpu`) the idle cut also stops voices at this threshold. |
 | `fast_helpers` | Fast helpers, 0 off or 1 on (default 0) | The faster fill, copy and divide routines every native machine calls ([CPU capabilities](cpu-capabilities.md#fast_helpers)): at 1 the build links hand-written versions in place of the plain ones. Experimental; a build capability with no image site: chosen by `sdk.py build` or the builder, never by `settings apply`, and `settings show` cannot read it. |
 
 `python sdk.py settings show --image os.ldr` lists the capabilities an OS image
@@ -236,8 +236,8 @@ So it cannot be written into an existing image (`settings apply` refuses it;
 `settings show` reports whether an image was built with it, except for
 `fast_helpers`, which no image site shows). The builder offers every build
 capability but those that change every machine's generated code (`"adapters":
-true`, `idle`), which a kit leaves out of its extensions
-([builder](builder.md#capabilities)).
+true`, `idle`, which is deprecated and not in the `cpu` extension): `sdk.py kit`
+refuses an extension that names one ([builder](builder.md#capabilities)).
 Off, every one of its sites stays stock and the SDK units of its service are not
 linked (`load_governor` and `pitch_constants` have none). `fast_helpers` has no site and no unit of its
 own: its two units, `divide` and `memory`, are linked in every native build, off
@@ -311,7 +311,7 @@ encodings, called from `configuration()` in `tooling/native.py`. A build capabil
 whose service changes the code generated for every machine (as `idle` changes the
 voice and effect adapters) says so with `"adapters": true`: a test compares every
 fixture machine's generated sources with and without each build capability against
-that mark, and browser kits leave such a capability out ([builder](builder.md#capabilities)).
+that mark, and browser kits refuse such a capability ([builder](builder.md#capabilities)).
 
 **Add an action** with a registry entry (and its `requires`, if one claim must
 grant it), a bit in

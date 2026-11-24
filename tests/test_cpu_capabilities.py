@@ -192,7 +192,7 @@ class UnitCapability(unittest.TestCase):
             image_settings.apply(b'', [e])
         # A browser kit carries it: its units' objects for each value (tooling/browser_kit.py unit_sources).
         from tooling import browser_kit
-        self.assertEqual(browser_kit.withheld(e), [])
+        browser_kit.refuse_adapter_capabilities([e])
         # No site: settings.built leaves it out rather than report it off (the compile report says it).
         with mock.patch.object(image_settings, 'build_capabilities', lambda: ('fast_helpers',)):
             self.assertEqual(image_settings.built(loader(bytes(range(16))), dict(stock_bytes=16, patches=[])), {})
@@ -246,53 +246,20 @@ class Switches(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Chosen when the firmware is built'):
             image_settings.apply(b'', [e])
 
-    def test_what_a_browser_kit_needs_for_each_capability(self):
-        # From the registry and the firmware profile alone: fixed bytes the browser writes, SDK units it
-        # links, or every machine's generated code, which a kit compiled once cannot carry.
-        self.assertEqual({name: extensions.site_needs(name) for name in REGISTRY},
-                         {'long_samples': 'image', 'release_floor': 'image', 'boot_log_fix': 'image',
-                          'load_governor': 'image', 'pitch_constants': 'image', 'idle': 'adapters',
-                          'block_trims': 'units', 'output_slack': 'units', 'fast_helpers': 'units'})
-        self.assertEqual([n for n, c in REGISTRY.items() if c.get('adapters')], ['idle'])
-        # A future capability is classified the same way: one with hooks links units, one marked adapters is left out.
-        with registry_with(probe={'build': True, 'adapters': True}):
-            self.assertEqual(extensions.site_needs('probe'), 'adapters')
+    def test_a_browser_kit_refuses_only_what_changes_machines_code(self):
+        # A kit's objects serve every selection, so it cannot carry a capability that changes every
+        # machine's generated code: the registry marks those (`"adapters": true`, idle alone).
+        from tooling import browser_kit
+        self.assertEqual(extensions.adapter_capabilities(), ('idle',))
         for shape in ({'adapters': True}, {'build': True, 'adapters': False}, {'build': True, 'units': ['divide'],
                       'setting': REGISTRY['fast_helpers']['setting'], 'adapters': True}):
             with self.subTest(shape=shape), registry_with(fast_helpers=shape, idle=shape), self.assertRaises(ValueError):
                 extensions.capabilities()
-
-    def test_a_browser_kit_leaves_out_only_what_changes_machines_code(self):
-        from tooling import browser_kit
         browser_kit.refuse_adapter_capabilities([extension_at(folder(self, ['long_samples', 'block_trims', 'fast_helpers']))])
-        with self.assertRaisesRegex(ValueError, "change every machine's generated code.*: idle"):
+        with self.assertRaisesRegex(ValueError, "change every machine's generated code.*sdk.py build.*: idle"):
             browser_kit.refuse_adapter_capabilities([extension_at(folder(self, ['idle', 'block_trims']))])
-        cpu = extension_at(ROOT / 'extensions' / 'cpu')
-        self.assertEqual(browser_kit.withheld(cpu), ['idle'])
-        # The kit's build: cpu without idle, recorded in its collection entry, which the package's
-        # manifest keeps, so its independent rebuild (sdk.py check --native-package) is the same build.
-        entries = [{'path': str(FIXTURES / 'probesynth')}, {'extension': str(cpu.root)}]
-        site = browser_kit.site_entries(entries)
-        self.assertEqual(site, [entries[0], {'extension': str(cpu.root), 'without': ['idle']}])
-        carried = native.configuration(site)[1].extensions[0]
-        self.assertEqual((carried.capabilities, carried.withheld, carried.settings),
-                         (tuple(c for c in cpu.capabilities if c != 'idle'), ('idle',), {'fast_helpers': 0}))
-        browser_kit.refuse_adapter_capabilities([carried])
-        services = active_services(config(), native.service_users(Machines(carried)))
-        self.assertEqual(services, {'boot_log_fix', 'block_trims', 'output_slack', 'load_governor', 'pitch_constants',
-                                    'fast_helpers'})
-        self.assertFalse({'send_fx', 'idle_cut'} & {step for _n, _m, step in native.plan(Machines(carried))})
-        self.assertEqual(extensions.metadata([carried], {'cpu': 'official'})[0]['withheld'], ['idle'])
-        # A settings extension of idle alone has nothing left for a kit.
-        alone = str(folder(self, ['idle']))
-        with self.assertRaisesRegex(ValueError, 'keeps at least one capability'):
-            browser_kit.site_entries([entries[0], {'extension': alone}])
-        # An entry may leave out only capabilities its extension declares.
-        for without in (['release_floor'], ['idle', 'idle'], 'idle'):
-            with self.subTest(without=without), self.assertRaises(ValueError):
-                native.configuration([entries[0], {'extension': str(cpu.root), 'without': without}])
-        with self.assertRaises(ValueError):
-            native.configuration([entries[0], {'extension': str(cpu.root), 'other': 1}])
+        # The SDK's cpu extension declares none of them, so a kit carries it whole.
+        browser_kit.refuse_adapter_capabilities([extension_at(ROOT / 'extensions' / 'cpu')])
 
     def test_the_sdk_extensions_are_official_without_a_catalog_entry(self):
         # Independent of this checkout's git state: git's answers are given (tracked, then clean).
@@ -427,22 +394,22 @@ class Extensions(unittest.TestCase):
         # load governor (a switch: named, it is on) and the fast helpers at 0, off.
         self.assertEqual(sorted(p.name for p in (ROOT / 'extensions').iterdir() if p.is_dir()), ['cpu'])
         cpu = extension_at(ROOT / 'extensions' / 'cpu')
+        # idle is deprecated: not shipped in cpu (docs/cpu-capabilities.md#idle), still in the registry.
         self.assertEqual((cpu.id, cpu.text['name'], cpu.capabilities, cpu.linked, cpu.settings),
                          ('cpu', 'CPU (experimental)',
-                          ('boot_log_fix', 'idle', 'block_trims', 'output_slack', 'load_governor', 'pitch_constants',
+                          ('boot_log_fix', 'block_trims', 'output_slack', 'load_governor', 'pitch_constants',
                            'fast_helpers'),
                           False, {'fast_helpers': 0}))
         for key in ('description', 'note'):
             self.assertIn('experimental', cpu.text[key].lower(), key)
-        self.assertIn('Idle: sdk.py build', cpu.text['note'])
+            self.assertNotIn('idle', cpu.text[key].lower(), key)
         for words in ('Governor on', 'Fast helpers off, 1 on'):
             self.assertIn(words, cpu.text['note'])
-        # It names what is off, and that voices idle only with release_floor, which it does not select.
-        for words in ('fast helpers (off)', 'voices with release_floor'):
-            self.assertIn(words, cpu.text['description'])
+        self.assertIn('fast helpers (off)', cpu.text['description'])
         self.assertNotIn('release_floor', cpu.capabilities)
         services = active_services(config(), native.service_users(Machines(cpu)))
-        self.assertEqual(services, set(CPU) | {'boot_log_fix', 'load_governor', 'pitch_constants', 'fast_helpers'})
+        self.assertEqual(services, set(CPU) - {'idle'} | {'boot_log_fix', 'load_governor', 'pitch_constants', 'fast_helpers'})
+        self.assertFalse({'send_fx', 'idle_cut'} & {step for _n, _m, step in native.plan(Machines(cpu))})
 
     def test_a_collection_may_select_a_subset_with_its_own_extension(self):
         # A collection's own settings extension in place of cpu: only what it names is on.

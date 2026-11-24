@@ -7,7 +7,7 @@ holds the registry of claims, actions and capabilities (PROFILE) and the runtime
 a build's collection lists the extensions it links, in callback order. No dynamic
 loading or arbitrary hooks.
 """
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 import re
 import base64
@@ -80,8 +80,8 @@ def capabilities():
     `units` (fast_helpers), which has no edit at all: its setting, 0 (off, the default) or 1,
     chooses the source of the SDK units it names (tooling/native.py UNIT_SOURCES); no stock
     byte depends on it. A hook build capability whose service also changes the code generated
-    for every machine (idle: the voice and effect adapters) says so with `"adapters": true`,
-    which is what keeps it out of a browser kit (site_needs)."""
+    for every machine (idle: the voice and effect adapters) says so with `"adapters": true`:
+    a browser kit, whose objects serve every selection, refuses it (adapter_capabilities)."""
     data, firmware = document(ROOT / PROFILE)['capabilities'], document(ROOT / FIRMWARE_PROFILE)
     require(isinstance(data, dict) and len(data) <= 32, 'Capabilities are a registry')
     for name, capability in data.items():
@@ -141,30 +141,10 @@ def build_capabilities():
     return tuple(name for name, c in document(ROOT / PROFILE)['capabilities'].items() if c.get('build'))
 
 
-def site_needs(name):
-    """What a browser kit needs to carry a registry capability (docs/builder.md#capabilities),
-    from the registry and the firmware profile alone: 'image' when its edits are fixed bytes
-    (the browser writes them), 'units' when it also links SDK code (hooks into its service's
-    units, or `units` whose source it chooses: the kit carries those objects), 'adapters' when it
-    changes every machine's generated code (`"adapters": true`), which a kit compiled once cannot
-    carry, so a kit leaves it out."""
-    capability = document(ROOT / PROFILE)['capabilities'][name]
-    if capability.get('adapters'):
-        return 'adapters'
-    hooks = any(p.get('service') == name and p['kind'] == 'hook' for p in document(ROOT / FIRMWARE_PROFILE)['patches'])
-    return 'units' if hooks or 'units' in capability else 'image'
-
-
-def without(extension, names):
-    """The extension with these of its capabilities left out (and their settings): what a browser
-    kit carries of it, the rest named in `withheld`. A settings extension keeps at least one."""
-    names = tuple(names)
-    require(len(set(names)) == len(names) and set(names) <= set(extension.capabilities),
-            f'{extension.id}: leaves out only capabilities it declares, each once')
-    kept = tuple(c for c in extension.capabilities if c not in names)
-    require(kept or extension.linked, f'{extension.id}: a settings extension keeps at least one capability')
-    return replace(extension, capabilities=kept, withheld=extension.withheld + names,
-                   settings={c: v for c, v in extension.settings.items() if c in kept})
+def adapter_capabilities():
+    """The registry's build capabilities that change the code generated for every machine
+    (`"adapters": true`, idle): a browser kit cannot carry them (tooling/browser_kit.py)."""
+    return tuple(name for name, c in document(ROOT / PROFILE)['capabilities'].items() if c.get('adapters'))
 
 
 def unit_capabilities():
@@ -205,7 +185,6 @@ class Extension:
     capabilities: tuple = ()  # firmware services it turns on (capabilities())
     linked: bool = True  # False for a settings extension: no code, no runtime
     settings: dict = field(default_factory=dict)  # capability -> chosen value (capability_settings())
-    withheld: tuple = ()  # capabilities it declares that this build leaves out (without)
 
     @property
     def master_filter(self):
@@ -483,9 +462,6 @@ def metadata(extensions, origins):
             chosen = {c: dict(specs[c], value=e.settings.get(c, specs[c]['default'])) for c in e.capabilities if c in specs}
             if chosen:
                 row['settings'] = chosen
-        if e.withheld:
-            # Declared but left out of the kit (site_needs 'adapters'): the builder says so.
-            row['withheld'] = list(e.withheld)
         if not e.linked:
             row['linked'] = False
         if e.drumline_page is not None:

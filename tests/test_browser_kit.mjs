@@ -96,7 +96,7 @@ test('a settings extension links no code, applies only its capability edits and 
 function helper(code) { const bytes = elf(); bytes.set(Buffer.from('helpr'), 89); bytes.set(code, 52); return bytes; }
 const capsule = (name, bytes, extra = {}) => ({name, owner:null, ...extra, bytes:Buffer.from(bytes).toString('base64')});
 
-test('a kit carries a capability only with what the browser needs for it (tooling.extensions.site_needs)', async () => {
+test('a kit carries a capability only with what the browser needs for it', async () => {
   const k = fixture();
   Object.assign(k, {format:'opxy-browser-kit/1', profileSource:profileBytes.toString('base64'), notices:'SDK',
     stockCatalog:'', screenTemplate:readFileSync(new URL('../sdk/platform/opxy-1.2.1/screen.svg', import.meta.url), 'utf8')});
@@ -114,8 +114,8 @@ test('a kit carries a capability only with what the browser needs for it (toolin
   for (const capability of ['long_samples', 'boot_log_fix', 'load_governor', 'pitch_constants']) await opens(capability);
   // Hooks into SDK code: only with that service's own objects in the kit, which the export compiles
   // (block_trims, output_slack). idle changes every machine's generated code, so a kit never holds
-  // its objects (tooling.browser_kit.withheld); master_filter is no registry capability, so no kit
-  // object implements it as one.
+  // its objects (the export refuses it: tooling.browser_kit.refuse_adapter_capabilities);
+  // master_filter is no registry capability, so no kit object implements it as one.
   for (const capability of ['block_trims', 'output_slack', 'idle', 'master_filter'])
     await assert.rejects(opens(capability), /Invalid extension capabilities/, capability);
   const hooks = capsule('sdk/track_hooks.o', helper([0, 96, 16, 0]), {service:'block_trims'});
@@ -144,12 +144,6 @@ test('a kit carries a capability only with what the browser needs for it (toolin
     ['another digest', {fast_helpers:{...units.fast_helpers, '1':[{...units.fast_helpers['1'][0], sha256:plain.sha256}]}}, withDivide],
     ['values naming other objects', {fast_helpers:{...units.fast_helpers, '1':[{...units.fast_helpers['1'][0], name:'a.o'}]}}, withDivide]])
     await assert.rejects(opens('fast_helpers', {objects:kitObjects, unitSources}), /unit sources|hash mismatch/, why);
-  // What the kit leaves out of an extension (withheld): named, and never one it carries.
-  k.unitSources = undefined; k.objects = objects;
-  k.extensions = [{...meta, id:'cpu', capabilities:['long_samples'], withheld:['idle']}];
-  await openKit(k);
-  for (const withheld of [[], ['long_samples'], ['idle', 'idle'], 'idle'])
-    await assert.rejects(openKit({...k, extensions:[{...k.extensions[0], withheld}]}), /Invalid extension capabilities/, String(withheld));
 });
 
 test('a unit capability links its chosen value\'s objects in place of the build\'s, and is recovered with it', async () => {

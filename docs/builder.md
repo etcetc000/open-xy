@@ -385,8 +385,7 @@ stock OS and builds of its own collection.
 ### Capabilities
 
 A kit carries an extension's [capabilities](extensions.md#settings-extensions)
-by what each needs (`tooling.extensions.site_needs`, from the registry and the
-firmware profile alone):
+by what each needs:
 
 - **image edits**: fixed bytes at stock sites (`long_samples`, `release_floor`,
   `boot_log_fix`, and the build capabilities `load_governor` and
@@ -398,21 +397,18 @@ firmware profile alone):
   from: the kit holds both values' objects (`unitSources`) and links the chosen
   one under the same names, in the same place.
 - **machine code**: a capability marked `"adapters": true` in the registry
-  (`idle`) changes the code generated for every machine. A kit's objects serve
-  every selection, so the export leaves it out: its build is the collection's
-  with each such capability taken out of its extension (`"without"` in the
-  package's collection entry, which its independent rebuild follows), and the
-  builder names what it left out in the extension's details. `sdk.py build`
-  has it.
+  (`idle`, [deprecated](cpu-capabilities.md#idle)) changes the code generated
+  for every machine. A kit's objects serve every selection, so `sdk.py kit`
+  refuses an extension that names one, before it builds anything; `sdk.py
+  build` still takes it.
 
-So the site's `cpu` extension is the SDK's `cpu` without `idle`. A build of the
-kit's whole collection with it is byte for byte the `sdk.py build` of that
-collection with a settings extension naming the same capabilities and settings,
-at the same profiling (the site's downloads have it off); without it, the
-`sdk.py build` of the machines alone. A smaller selection links the same
-objects, as every kit's selections do. Recovery tries both fast helpers values
-for an extension choice with `cpu`, since no site in the OS image shows which one
-a build has. Their objects pass the GNU ld check at export; the native build's
+The site's `cpu` extension is the SDK's `cpu`. A build of the kit's whole
+collection with it is byte for byte the `sdk.py build` of that collection with
+`cpu` at the same fast helpers setting and profiling (the site's downloads have
+profiling off); without it, the `sdk.py build` of the machines alone. A smaller
+selection links the same objects, as every kit's selections do. Recovery tries
+both fast helpers values for an extension choice with `cpu`, since no site in
+the OS image shows which one a build has. Their objects pass the GNU ld check at export; the native build's
 stack and one-definition checks run on the value the kit's own build chose.
 
 The browser links the normalized ELF32 Blackfin objects itself, supporting the

@@ -91,25 +91,22 @@ class BrowserKitExport(unittest.TestCase):
             player_folder(player)
             self.export(FIXTURES / 'probepads', FIXTURES / 'probekit25', FIXTURES / 'probekit21', player)
 
-    def test_the_cpu_extension_on_the_site_is_sdk_py_build_without_idle(self):
-        # The SDK's cpu extension in a kit: everything but idle, which changes every machine's generated code.
-        # The export's own checks link every checked selection with and without it, and with fast_helpers at
-        # 1, against GNU ld, and the whole collection with it against the kit's native package.
+    def test_the_cpu_extension_on_the_site_is_sdk_py_build(self):
+        # The SDK's cpu extension in a kit, whole. The export's own checks link every checked selection with
+        # and without it, and with fast_helpers at 1, against GNU ld, and the whole collection with it against
+        # the kit's native package.
         machines = (FIXTURES / 'probesynth', FIXTURES / 'probefx')
         cpu = ROOT / 'extensions/cpu'
         kit_dir = self.export(*machines, extensions=[cpu])
         kit = json.loads((kit_dir / 'kit.json').read_text(encoding='utf-8'))
         declared = json.loads((cpu / 'extension.json').read_text(encoding='utf-8'))['capabilities']
         entry = next(e for e in kit['extensions'] if e['id'] == 'cpu')
-        self.assertEqual((entry['capabilities'], entry['withheld'], entry['origin']),
-                         ([c for c in declared if c != 'idle'], ['idle'], 'official'))
+        self.assertEqual((entry['capabilities'], entry['origin']), (declared, 'official'))
         self.assertEqual(sorted(o.get('service') for o in kit['objects'] if o.get('service') in
                                 ('idle', 'block_trims', 'output_slack')),
                          ['block_trims'] * 2 + ['output_slack'] * 4)
         self.assertEqual({c: sorted(o['name'] for o in v['1']) for c, v in kit['unitSources'].items()},
                          {'fast_helpers': ['sdk/divide.o', 'sdk/memory.o']})
-        manifest = json.loads((kit_dir / 'source/manifest.json').read_text(encoding='utf-8'))
-        self.assertIn({'extension': str(cpu.resolve()), 'without': ['idle']}, manifest['collection'])
 
         # Without the extension: the same OS as sdk.py build of the machines alone, so a kit that offers
         # cpu costs a build that leaves it out nothing.
@@ -119,13 +116,12 @@ class BrowserKitExport(unittest.TestCase):
         self.assertEqual(firmware, (plain / 'candidate/os.ldr').read_bytes())
 
         # With it and fast_helpers at 1, profiling off as the site's downloads: the same OS as sdk.py build
-        # with a settings extension naming cpu's capabilities but idle, at that setting.
-        settings = self.work() / 'cpu-without-idle'
+        # with a settings extension naming cpu's capabilities at that setting.
+        settings = self.work() / 'cpu-fast'
         settings.mkdir()
         (settings / 'extension.json').write_text(json.dumps({
-            'id': 'cpu', 'name': 'CPU without idle', 'description': 'Test: cpu without idle, fast helpers on.',
-            'claims': [], 'actions': [], 'capabilities': [c for c in declared if c != 'idle'],
-            'settings': {'fast_helpers': 1}}), encoding='utf-8')
+            'id': 'cpu', 'name': 'CPU, fast helpers on', 'description': 'Test: cpu with fast helpers on.',
+            'claims': [], 'actions': [], 'capabilities': declared, 'settings': {'fast_helpers': 1}}), encoding='utf-8')
         fast = self.build(*machines, extensions=[settings], profiling='off')
         self.assertIn('unit_sources', json.loads((fast / 'analysis/compile-report.json').read_text(encoding='utf-8')))
         module, firmware = self.link(kit_dir, fast, ['cpu'], {'fast_helpers': 1}, 'off')

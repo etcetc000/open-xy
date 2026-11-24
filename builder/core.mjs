@@ -660,18 +660,13 @@ export async function openKit(kit) {
       (e.drumline_page === undefined || e.drumline_page === true),
       'Invalid extension metadata');
     // A settings extension (linked: false) links no code: it only turns on its
-    // capabilities, each the profile service of the same name (tooling.extensions), as far as
-    // the kit carries them (carriedCapability).
+    // capabilities, each the profile service of the same name (tooling.extensions), each one
+    // the kit carries (carriedCapability).
     check((e.capabilities === undefined || Array.isArray(e.capabilities) && e.capabilities.length > 0 &&
       new Set(e.capabilities).size === e.capabilities.length &&
       e.capabilities.every(c => /^[a-z][a-z0-9_]{0,31}$/.test(c) && carriedCapability(kit, c))) &&
       (e.linked === undefined || e.linked === false && e.capabilities && !e.claims.length && !e.actions.length &&
         !processorOf(e) && !kit.objects.some(o => o.extension === e.id)), 'Invalid extension capabilities');
-    // The capabilities it declares that the kit leaves out (tooling.browser_kit.withheld), which the
-    // builder names: never one it carries.
-    check(e.withheld === undefined || Array.isArray(e.withheld) && e.withheld.length > 0 &&
-      new Set(e.withheld).size === e.withheld.length && e.withheld.every(c => /^[a-z][a-z0-9_]{0,31}$/.test(c) &&
-        !(e.capabilities ?? []).includes(c)), 'Invalid extension capabilities');
     // A capability setting: its range and the extension's value; the profile lists every value's bytes,
     // or, for a unit capability, the kit every value's objects.
     check(e.settings === undefined || typeof e.settings === 'object' && Object.entries(e.settings).every(([c, v]) =>
@@ -756,12 +751,12 @@ export async function openKit(kit) {
   return {...kit, objects, ...(kit.unitSources ? {unitSources} : {})};
 }
 
-// Whether a kit carries a capability an extension declares (tooling.extensions.site_needs): one
+// Whether a kit carries a capability an extension declares (docs/builder.md#capabilities): one
 // whose edits are fixed bytes, at least one of them not stock's when it has no hooks (image edits,
 // load_governor's and pitch_constants' included); one whose hooks enter its own service's SDK
 // objects, which the kit holds (block_trims, output_slack); or one with no edit that chooses its
 // SDK units' sources (fast_helpers: kit.unitSources). A capability that changes every machine's
-// generated code (idle) has none of its objects in a kit: never carried.
+// generated code (idle) has none of its objects in a kit, whose export refuses it: never carried.
 function carriedCapability(kit, c) {
   if (kit.profile.services?.[c]?.join() !== c) return false;
   const edits = kit.profile.patches.filter(edit => edit.service === c);
