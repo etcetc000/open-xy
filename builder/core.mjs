@@ -1568,8 +1568,10 @@ const RESERVED_PREFIXES = ['extensions', 'sdk', 'kit', 'stock', 'local'];
 // style or link attribute and no url() paint in a value (as the XML parser decodes it). A
 // processing instruction, declaration or anything unparsed ends the scan and is refused.
 const ARTWORK_ELEMENTS = new Set(['svg', 'g', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path', 'text']);
-const xmlValue = value => value.replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
-  .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+// A reference beyond Unicode is not XML: it is refused.
+const codePoint = n => n <= 0x10ffff ? String.fromCodePoint(n) : '\\';
+const xmlValue = value => value.replace(/&#x([0-9a-f]+);/gi, (_, n) => codePoint(parseInt(n, 16)))
+  .replace(/&#(\d+);/g, (_, n) => codePoint(Number(n)))
   .replace(/&(lt|gt|quot|apos|amp);/g, (_, n) => ({lt:'<', gt:'>', quot:'"', apos:"'", amp:'&'})[n]);
 function safeArtwork(text) {
   if (typeof text !== 'string' || text.length > 65536) return false;
@@ -1593,12 +1595,14 @@ function safeArtwork(text) {
 const PACK_MACHINE_KEYS = new Set(['id', 'name', 'kind', 'prefix', 'description', 'identity', 'controls', 'positions',
   'pages', 'catalog', 'origin', 'features', 'presetDefaults', 'presets', 'icon', 'absent', 'artwork', 'grayscaleArtwork',
   'asset', 'fullCanvas', 'preview', 'shiftRow', 'heapVoices']);
-function checkPackMachine(m) {
+function checkPackMachine(m, fixed = {}) {
   check(m && typeof m === 'object' && Object.keys(m).every(key => PACK_MACHINE_KEYS.has(key)),
     'Invalid custom machine metadata');
   // An ID as layouts and presets hold it (MACHINE_ID), which is also its symbol prefix
   // (tooling.machines), and a description as machine.json holds it.
   check(m && typeof m.id === 'string' && MACHINE_ID.test(m.id) && !Object.hasOwn(Object.prototype, m.id) &&
+    // Fixed numbers belong to Open-XY's own machines, even one this site does not carry.
+    !Object.hasOwn(fixed, m.id) &&
     !STOCK_TYPES.includes(m.id) && !RESERVED_PREFIXES.some(p => m.id === p || m.id.startsWith(p + '_')) &&
     m.prefix === m.id && ['synth', 'effect', 'sample'].includes(m.kind) &&
     m.origin === 'personal' && m.source === undefined && m.cpu === undefined &&
@@ -1678,7 +1682,7 @@ export async function importMachinePack(base, pack) {
   // layout, so the stock menu gets exactly those (an effect's number is the layout's).
   const users = new Set(Object.values(base.profile.services ?? {}).flat());
   const added = pack.machines.slice(base.machines.length).map(m => {
-    checkPackMachine(m);
+    checkPackMachine(m, base.fixed);
     check((m.features ?? []).every(f => users.has(f)), 'Invalid machine features');
     const entry = JSON.parse(m.catalog.trim().slice(1)), indent = '\n            ';
     // An effect's menu number is one stock offers (catalogEntry replaces it with the layout's).

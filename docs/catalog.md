@@ -103,8 +103,8 @@ On the builder's **Choose machines** page, choose **Import machines ZIP** beside
 **Yours**, initially unselected. The file stays in the browser; importing does
 not publish a catalog entry. Import code only from authors you trust: native
 machine code is not isolated or reviewed by Open-XY. While a pack is imported,
-every build links its startup, registration and control code, even when none of
-its machines is selected, and its browser previews run in the page when
+every build links its startup code and generated machine tables, even when none
+of its machines is selected, and its browser previews run in the page when
 inspected.
 
 A pack extends the site's exact machine collection. It cannot replace existing
@@ -113,15 +113,15 @@ and sample engines only: drum kits, players and aux machines cannot be imported
 yet. Its compiled registration, control and callback tables accompany the added
 machines, so independent packs cannot be combined: export the desired custom
 machines together. A pack that imports replaces the previous one; a refused one
-leaves it. **Remove imported machines** under **About machine ZIPs** restores
-the site's collection. Both operations keep saved machine numbers reserved.
-Reloading clears the imported pack and drops its machines from the remembered
-selection; keep its ZIP and your saved layout to use it again. Import the pack
-before loading a layout that selects its machines. An OS is recognized with the
-collection it was built from: with a pack imported, an OS built without it (or
-the reverse) is recovered like an earlier open-xy OS: its stock OS is kept and
-its machines are chosen again. After importing or removing a pack, choose the OS
-file again to recognize a build made with those machines.
+leaves it. **Remove imported machines** restores the site's collection. Both
+operations keep saved machine numbers reserved. Reloading clears the imported
+pack and drops its machines from the remembered selection; keep its ZIP and your
+saved layout to use it again. Import the pack before loading a layout that
+selects its machines. An OS is recognized with the collection it was built from:
+with a pack imported, an OS built without it (or the reverse) is recovered like
+an earlier open-xy OS: its stock OS is kept and its machines are chosen again.
+After importing or removing a pack, choose the OS file again to recognize a
+build made with those machines.
 
 ### Export a machine pack
 
@@ -152,16 +152,16 @@ firmware installation ZIP is not a machine pack, and neither is a pack that was
 unzipped and zipped again: share `machines.zip` exactly as the exporter wrote it.
 
 The importer rejects changed catalog machines, mismatched releases/runtime,
-duplicate identities, damaged objects and machines that cannot link or fit
-individually. A custom machine that needs SDK objects none of the site's
-machines link (another profile service, an arithmetic runtime member or an SDK
-header unit such as `opxy/sample_kernel.hpp` or `opxy/control_interaction.hpp`)
-cannot extend that site: the importer names the first such object. The normal
-memory meter checks the combined selection. After a site release or catalog
-update, its author may need to export a matching pack. Checks do not certify an
-author's native code, measure CPU or establish device recovery. The format is a
-single stored `machines.json` entry in ZIP, identified as `opxy-machine-pack/1`;
-use the exporter rather than assembling it by hand.
+duplicate identities, IDs holding Open-XY's fixed numbers, damaged objects and
+machines that cannot link or fit individually. A custom machine that needs SDK
+objects none of the site's machines link (another profile service, an arithmetic
+runtime member or an SDK header unit such as `opxy/sample_kernel.hpp` or
+`opxy/control_interaction.hpp`) cannot extend that site: the importer names the
+first such object. The normal memory meter checks the combined selection. After
+a site release or catalog update, its author may need to export a matching pack.
+Checks do not certify an author's native code, measure CPU or establish device
+recovery. The format is a single stored `machines.json` entry in ZIP, identified
+as `opxy-machine-pack/1`; use the exporter rather than assembling it by hand.
 
 [Firmware extensions](extensions.md) have a catalog of their own,
 `catalog/extensions.json`, in the same format under `"extensions"`: `kind` is

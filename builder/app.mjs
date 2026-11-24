@@ -285,6 +285,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       Extensions: (kit.extensions ?? []).filter(e => selectedExtensions.includes(e.id)).map(e => e.name).join(', ') || 'None',
       ...(expandedKit ? {Memory: expandedMemory() ? expandedSize() + ' (experimental)' : 'Standard'} : {}),
       'Machine graphics': (grayscale ? 'Grayscale' : 'Original designs') + (count ? ' · ' + count + ' customized' : ''),
+      // Every build links an imported pack's startup and tables, whichever machines are selected.
+      ...(baseKit && kit !== baseKit ? {'Machine pack': (kit.machines.length - baseKit.machines.length) + ' imported machines'} : {}),
     });
   }
   function graphicsChanged(machine) {
@@ -932,7 +934,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     try {
       const pack = core.readMachinePack(await readBounded(file, core.MACHINE_PACK_LIMIT));
       const candidate = await core.importMachinePack(baseSource, pack);
-      if (current !== packTicket || base !== baseKit) return;
+      if (current !== packTicket || base !== baseKit || builderPreview || !acknowledged) return;
       useMachineCollection(candidate);
       const count = candidate.machines.length - baseKit.machines.length;
       $('machine-pack-result').textContent = `${count} custom ${count === 1 ? 'machine' : 'machines'} added. Select them in the catalog. Keep this ZIP to import again after reloading.` + (stock ? ' Choose your OS file again if it was built with other machines, so its selection is recognized.' : '');

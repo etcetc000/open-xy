@@ -670,3 +670,5 @@ footer details[open] { flex-basis:100%; }
 .machine-import p { max-width:70ch; margin:8px 0; }
 #machine-pack-result { flex:none; margin:8px 0 0; font-size:12px; overflow-wrap:anywhere; }
 #machine-pack-result:empty { display:none; }
+.machine-import-trust { flex:none; margin:8px 0 0; font-size:12px; color:var(--muted); }
+.file-button:has(input:disabled) { opacity:.5; cursor:not-allowed; }

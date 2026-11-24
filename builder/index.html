@@ -135,10 +135,10 @@
 
     <div class="actions machine-actions"><button data-step="1" class="secondary">← OS</button><div class="action-buttons"><label class="file-button">Import machines ZIP<input id="machine-pack" type="file" accept=".zip,application/zip" disabled></label><button id="choose-extensions" class="primary" disabled>Choose extensions <span aria-hidden="true">→</span></button></div></div>
     <p id="machine-pack-result" role="status" aria-live="polite"></p>
+    <p class="machine-import-trust">Only import machine ZIPs from authors you trust: their code runs in every build while imported. <button id="remove-machine-pack" type="button" class="secondary" hidden>Remove imported machines</button></p>
     <details class="machine-import"><summary>About machine ZIPs</summary>
       <p>Import an SDK machine pack made for this catalog. Files stay in this browser. Only import code from authors you trust: while a pack is imported, every build includes its startup and machine tables.</p>
       <p>One pack can contain several machines. A pack that imports replaces the current one. Reloading clears imported machines.</p>
-      <button id="remove-machine-pack" type="button" class="secondary" hidden>Remove imported machines</button>
     </details>
   </section>
   <section data-page="3" hidden aria-labelledby="extensions-title">

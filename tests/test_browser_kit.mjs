@@ -213,7 +213,8 @@ test('packs take authored descriptions and artwork comments as the SDK does, and
   for (const artwork of ['<text><![CDATA[<!--]]></text><script>bad()</script><text><![CDATA[-->]]></text>',
     '<?x <!--?><script>bad()</script><?x -->?>', '<svg:script xmlns:svg="http://www.w3.org/2000/svg">bad()</svg:script>',
     '<animate attributeName="x"/>', '<a><rect/></a>', '<rect style="fill:red"/>', '<!-- open <rect/>',
-    '<!DOCTYPE svg><rect/>', '<rect fill="&#117;rl(#x)"/>', '<rect onclick="x()"/>', '<rect xlink:href="#x"/>']) {
+    '<!DOCTYPE svg><rect/>', '<rect fill="&#117;rl(#x)"/>', '<rect onclick="x()"/>', '<rect xlink:href="#x"/>',
+    '<rect fill="&#x110000;"/>', '<rect fill="&#99999999;"/>']) {
     m.artwork = artwork;
     await assert.rejects(importMachinePack(base, pack), /artwork/, artwork);
   }
@@ -224,8 +225,10 @@ test('packs take authored descriptions and artwork comments as the SDK does, and
     m.artwork = artwork;
     await importMachinePack(base, pack);
   }
-  for (const id of ['reverb', 'sdk', 'kit_custom']) {
+  // `zz` holds fixed numbers, as Open-XY's own machines do on every site, though this site lacks it.
+  for (const id of ['reverb', 'sdk', 'kit_custom', 'zz']) {
     const {base, pack} = await packFixture();
+    base.fixed.zz = {engine:40, page:90};
     Object.assign(pack.machines[1], {id, prefix:id, asset:id + '.svg',
       catalog:`, {"type":"${id}","default_params":[0,0,0,0,0,0,0,0]}`});
     await assert.rejects(importMachinePack(base, pack), /metadata/, id);
