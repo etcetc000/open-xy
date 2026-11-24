@@ -126,13 +126,14 @@ its machines are chosen again.
 Build against exactly what the destination site was released from: check out the
 SDK revision it was built from, normally the release tag of the version the
 builder shows beside its name (`v0.0.7`; a catalog update published since then
-needs its later revision), with the pinned native tools and your own stock OS.
-Fetch that revision's catalog, then export the site's collection with the SDK's
-own extensions (one `--extension` per folder under `extensions/` at that
-revision, in name order, as `sdk.py release` adds them) and your custom machine
-folders appended (repeat `--machine` for more). The export rebuilds every
-machine's browser preview, so it also needs Clang++ for wasm32 (`--preview-cxx`,
-as for any [kit](builder.md#export-a-kit)):
+needs its later revision, and the beta site is built from the current
+`staging`), with the pinned native tools and your own stock OS. Fetch that
+revision's catalog, then export the site's collection with the SDK's own
+extensions (one `--extension` per folder under `extensions/` at that revision,
+in name order, as `sdk.py release` adds them) and your custom machine folders
+appended (repeat `--machine` for more). The export rebuilds every machine's
+browser preview, so it also needs Clang++ for wasm32 (`--preview-cxx`, as for
+any [kit](builder.md#export-a-kit)):
 
 ```sh
 git checkout v0.0.7
@@ -151,8 +152,8 @@ The importer rejects changed catalog machines, mismatched releases/runtime,
 duplicate identities, damaged objects and machines that cannot link or fit
 individually. A custom machine that needs SDK objects none of the site's
 machines link (another profile service, an arithmetic runtime member or an SDK
-header unit such as `opxy/sample_kernel.hpp`) cannot extend that site: the
-importer names the first such object. The normal memory meter checks the combined selection. After a
+header unit such as `opxy/sample_kernel.hpp` or `opxy/control_interaction.hpp`)
+cannot extend that site: the importer names the first such object. The normal memory meter checks the combined selection. After a
 site release or catalog update, its author may need to export a matching pack.
 Checks do not certify an author's native code, measure CPU or establish device
 recovery. The format is a single stored `machines.json` entry in ZIP, identified

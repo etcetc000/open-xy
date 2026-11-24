@@ -52,6 +52,14 @@ async function packFixture() {
       await object('another/voice.o', 'another', 'third'), ...k.objects.slice(1)]), extensions:[], notices:'Author license'};
   return {base, pack};
 }
+// The site links the objects of these services (a kit's `service` objects), so the pack has them too.
+async function withServices(base, pack, services) {
+  for (const [i, service] of services.entries()) {
+    const bytes = elf(); bytes.set(new TextEncoder().encode('svc' + String(i).padStart(2, '0')), 89);
+    const o = {name:'sdk/' + service + '.o', owner:null, service, bytes:Buffer.from(bytes).toString('base64'), sha256:await sha256(bytes)};
+    base.objects.push(o); pack.objects.push(structuredClone(o));
+  }
+}
 
 test('machine ZIP adds several selectable machines without changing the base kit or saved numbers', async () => {
   const {base, pack} = await packFixture(), before = structuredClone(base);
@@ -192,6 +200,8 @@ test('packs refuse kinds they cannot import and malformed services or heap voice
   for (const [change, error] of [[m => { m.kind = 'drum'; }, /metadata/], [m => { m.kind = 'player'; }, /metadata/],
     [m => { m.heapVoices = -1; }, /heap voices/], [m => { m.heapVoices = 1.5; }, /heap voices/],
     [m => { m.shiftRow = 'yes'; }, /Shift row/],
+    [m => { m.unknown = true; }, /metadata/], [m => { m.keywords = ['bass']; }, /metadata/],
+    [m => { m.auxPresets = {'../../x.json':'{}'}; }, /metadata/], [m => { m.fullCanvas = 'x'; }, /full canvas/],
     [m => { m.preview = {wasm:'', sha256:'0'.repeat(64), defaults:[0, 0, 0, 0], kit:{models:1e9}}; }, /preview/],
     [m => { m.preview = {wasm:'', sha256:'0'.repeat(64), defaults:[0, 0, 0, 0], shift:Array(8).fill(0)}; }, /preview/],
     // Only the features an imported kind declares: never a capability, another kind or an aux track.
@@ -203,13 +213,19 @@ test('packs refuse kinds they cannot import and malformed services or heap voice
     await assert.rejects(importMachinePack(base, pack), error, change.toString());
   }
   const {base, pack} = await packFixture();
-  Object.assign(pack.machines[1], {features:['hidePages', 'synthShift'], heapVoices:4096});
+  Object.assign(pack.machines[1], {features:['hidePages', 'synthShift'], shiftRow:true, heapVoices:4096});
+  // Each service these features switch on with hooks must be the site's.
+  await assert.rejects(importMachinePack(base, pack), /needs the control service/);
+  await withServices(base, pack, ['control', 'drums', 'drum_locks', 'synth_shift']);
   await importMachinePack(base, pack);
+  pack.machines[1].shiftRow = undefined;
+  await assert.rejects(importMachinePack(base, pack), /Shift row/);
 });
 
 test('packs accept the SDK control counts, absent synth slots and source filenames', async () => {
   for (const kind of ['effect', 'sample']) for (const count of [1, 2, 3]) {
     const {base, pack} = await packFixture(), m = pack.machines[1];
+    if (kind === 'sample') await withServices(base, pack, ['samples', 'octaves']);
     Object.assign(m, {kind, identity:kind === 'effect' ? {effect:null, page:21} : {engine:null, page:7},
       controls:m.controls.slice(0, count), positions:m.positions.slice(0, count),
       // An effect's menu entry carries the number its author's collection gave it.

@@ -1530,7 +1530,7 @@ function crc32(bytes) {
 // multi-disk, ZIP64, duplicate/traversal entries and trailing data before parsing.
 export function readMachinePack(bytes) {
   check(bytes instanceof Uint8Array && bytes.length >= 124 && bytes.length <= MACHINE_PACK_LIMIT,
-    'Choose an SDK machine ZIP smaller than 64 MiB.');
+    'Choose an SDK machine ZIP: this file is empty, too small or larger than 64 MiB.');
   const d = view(bytes), u16 = at => d.getUint16(at, true), u32 = at => d.getUint32(at, true);
   const end = bytes.length - 22;
   check(u32(end) === 0x06054b50 && u16(end + 4) === 0 && u16(end + 6) === 0 &&
@@ -1556,7 +1556,14 @@ export function readMachinePack(bytes) {
   });
 }
 
+// The fields tooling.browser_kit.machine_entry writes for a custom synth, effect or sample
+// engine; anything else (a catalog source, keywords, aux presets) is refused.
+const PACK_MACHINE_KEYS = new Set(['id', 'name', 'kind', 'prefix', 'description', 'identity', 'controls', 'positions',
+  'pages', 'catalog', 'origin', 'features', 'presetDefaults', 'presets', 'icon', 'absent', 'artwork', 'grayscaleArtwork',
+  'asset', 'fullCanvas', 'preview', 'shiftRow', 'heapVoices']);
 function checkPackMachine(m) {
+  check(m && typeof m === 'object' && Object.keys(m).every(key => PACK_MACHINE_KEYS.has(key)),
+    'Invalid custom machine metadata');
   // An ID as layouts and presets hold it (MACHINE_ID), which is also its symbol prefix
   // (tooling.machines), and a description as machine.json holds it.
   check(m && typeof m.id === 'string' && MACHINE_ID.test(m.id) && !Object.hasOwn(Object.prototype, m.id) &&
@@ -1604,7 +1611,11 @@ function checkPackMachine(m) {
   check(m.features === undefined || Array.isArray(m.features) && m.features.length <= 4 &&
     m.features.every(f => ['trackControl', 'hidePages', 'trackStage'].includes(f) || f === 'synthShift' && m.kind === 'synth'),
     'Invalid machine features');
-  check(m.shiftRow === undefined || m.shiftRow === true && m.kind === 'synth', 'Invalid machine Shift row');
+  // A Shift row is declared both ways (machine_entry): its feature and its presets' row.
+  check((m.shiftRow === undefined || m.shiftRow === true && m.kind === 'synth') &&
+    (m.features ?? []).includes('synthShift') === (m.shiftRow === true), 'Invalid machine Shift row');
+  check(m.fullCanvas === undefined || m.fullCanvas === 1, 'Invalid full canvas flag');
+  check(m.grayscaleArtwork === undefined || typeof m.artwork === 'string', 'Invalid machine artwork');
   check(m.heapVoices === undefined || m.kind === 'synth' && Number.isInteger(m.heapVoices) && m.heapVoices > 0,
     'Invalid machine heap voices');
 }
@@ -1678,6 +1689,17 @@ export async function importMachinePack(base, pack) {
       if (error.capacity !== true || !offersExpandedMemory(candidate.profile)) throw error;
       linkKit(memoryKit(candidate, true), [m.id]);
     }
+  }
+  for (const m of added) {
+    // A service it switches on with hooks must have its objects in this kit (carriedCapability):
+    // a pack never adds them, and a build would hook into nothing.
+    for (const service of activeServices(base.profile, [m]))
+      check(!base.profile.patches.some(edit => edit.service === service && edit.kind === 'hook') ||
+        candidate.objects.some(o => o.service === service), `${m.id} needs the ${service} service, which this site does not link`);
+    // Its absent fallbacks name its own callbacks, not another machine's or the SDK's.
+    for (const symbol of Object.keys(m.absent))
+      check(!candidate.objects.some(o => o.owner !== m.id && o.symbols.some(s => s.binding && s.section && s.name === symbol)),
+        `${m.id} lists another object's ${symbol} as its own callback`);
   }
   // The pack's shared objects name added machines' callbacks: each one they import must be
   // in its machine's `absent` list, so every selection without that machine still links.
