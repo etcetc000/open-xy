@@ -3,9 +3,22 @@ import json
 from pathlib import Path
 import statistics
 
-from .benchmark import case_label, combined_label, combined_positions, decode, position
-from .cpu_measurement import BENCHMARKS, RECOMMENDED_PERCENT, above_recommended, validate
+from .benchmark import case_label, combined_label, combined_positions, decode, drum_label, position
+from .cpu_measurement import BENCHMARKS, RECOMMENDED_PERCENT, above_recommended, track_cost, validate
 from .formats import require, sha
+
+
+def measured_peak(metric, case):
+    """Keep the worst block, never a median of peaks or a clipped lower bound."""
+    label = case_label(case)
+    require(not metric['maximum_clipped'],
+            f'Clipped peak ({label}): at least 100% of the block budget; no exact peak can be published. '
+            'Make that path lighter and remeasure (docs/profiling.md)')
+    require(metric['encoded_maximum'] >= metric['encoded_average'],
+            f'Invalid peak below the average ({label}); collect the run again')
+    require(metric['encoded_average'] > 0 or metric['encoded_maximum'] == 0,
+            f'Peak without a measurable average ({label}); cannot treat this run as silent')
+    return metric['maximum_budget_percent']
 
 
 def package_data(package):
@@ -28,15 +41,21 @@ def aggregate(captures, expected, identity, name, commit, url):
     """The machine's record from complete runs: each of its runs' median across captures;
     a synth's record is its heaviest run, with the midpoint run, the combined run and
     the heaviest swept setting beside it. Returns the record, the published run's
-    per-capture values, the machine's standard case, every run's median by case, the
+    per-capture values, the machine's standard case, every run's (case, median, peak), the
     positions each capture's combined run used and the swept settings left out as
-    silent."""
+    silent. A synth with a track stage adds its stage run's median and worst block."""
     # One capture is enough (docs/profiling.md); more publish their median.
     require(1 <= len(captures) <= 100, 'Collect 1 to 100 independent runs')
     seen, collectors = set(), set()
     own = [c for c in expected if c['name'] == name and c['source'] == 'sdk']
     require(own and 'benchmark' in own[0], 'Machine is not in this diagnostic package')
     case = own[0]
+    if case['kind'] == 'drum':
+        return aggregate_drum(captures, expected, identity, name, commit, url, own)
+    # The stage run is the stage's alone: kept out of the voice runs, published beside them.
+    stage = next((c for c in own if c.get('stage')), None)
+    own = [c for c in own if not c.get('stage')]
+    stage_values, stage_peaks = [], []
     swept = own[1:]
     require(case['kind'] != 'synth' or swept,
             'A synth record is a control sweep: rebuild the package with --sweep on (the default with profiling); '
@@ -45,6 +64,7 @@ def aggregate(captures, expected, identity, name, commit, url):
     combined = next((index for index, c in enumerate(own) if c.get('combined')), None)
     require(not swept or (settings and combined is not None), 'Incomplete control sweep in this package')
     values = {index: [] for index in range(len(own))}
+    peaks = {index: [] for index in values}
     combinations = []
     for capture in captures:
         fingerprint = sha(json.dumps(capture, sort_keys=True).encode())
@@ -53,12 +73,24 @@ def aggregate(captures, expected, identity, name, commit, url):
         require(capture.get('mode') == 'benchmark' and capture.get('package') == identity and
                 capture.get('expected_cases') == expected, 'Capture belongs to a different build or workload')
         collectors.add(capture.get('collector_sha256'))
-        results = [r for r in decode(capture, expected) if r['machine'] in own]
+        decoded = decode(capture, expected)
+        results = [r for r in decoded if r['machine'] in own]
+        if stage is not None:
+            result = next(r for r in decoded if r['machine'] == stage)
+            metric = result['metrics'][stage['metric']]
+            require(metric['encoded_average'] < 65535,
+                    f'{name} saturated the block budget (track stage): it is above the whole budget there, '
+                    'so no CPU number can be published; make that path lighter')
+            require(metric['encoded_average'] > 0 and not result['insufficient_voice_activity'],
+                    'Inactive or failed track stage run; do not publish a CPU number')
+            stage_peaks.append(measured_peak(metric, stage))
+            stage_values.append(metric['average_budget_percent'])
         for index, result in enumerate(results):
             metric = result['metrics'][case['metric']]
             require(metric['encoded_average'] < 65535,
                     f"{name} saturated the block budget ({case_label(own[index])}): it is above the whole "
                     'budget there, so no CPU number can be published; make that path lighter')
+            peaks[index].append(measured_peak(metric, own[index]))
             # The standard and combined runs must sound. A swept setting may silence the voice
             # (a level at 0): with nothing timed it is left out, not refused; one whose note
             # merely ended early still timed its blocks, and its cost counts.
@@ -85,18 +117,71 @@ def aggregate(captures, expected, identity, name, commit, url):
     medians = {index: round(statistics.median(runs), 6) for index, runs in values.items() if None not in runs}
     require(not swept or any(index in medians for index in settings), 'Every swept setting was silent')
     heaviest = max(medians, key=lambda index: (medians[index], -index))
+    maxima = {index: round(max(runs), 6) for index, runs in peaks.items()}
     measurement = dict(benchmark=BENCHMARKS[case['kind']] if swept else case['benchmark'], commit=commit,
                        firmware_sha256=identity['firmware_sha256'], runs=len(captures),
-                       block_percent=medians[heaviest])
+                       block_percent=medians[heaviest], peak_percent=max(maxima.values()))
     if swept:
         worst = max((index for index in settings if index in medians), key=lambda index: (medians[index], -index))
         measurement.update(midpoint_percent=medians[0], combined_percent=medians[combined],
                            worst_setting=own[worst]['setting'])
+    if stage is not None:
+        measurement.update(stage_percent=round(statistics.median(stage_values), 6),
+                           stage_peak_percent=round(max(stage_peaks), 6))
     if url is not None:
         measurement['report'] = url
     validate(measurement, case['kind'], commit, legacy=False)
-    return (measurement, values[heaviest], case, [(own[index], medians.get(index)) for index in values],
+    return (measurement, values[heaviest], case, [(own[index], medians.get(index), maxima[index]) for index in values],
             combinations, silent)
+
+
+def aggregate_drum(captures, expected, identity, name, commit, url, own):
+    """A kit's record: each run's median across captures; its heaviest single voice is
+    block_percent, whatever a level does to its sound (the workload always reports those),
+    and the worst block of the single-voice runs alone is voice_peak_percent. Those runs
+    play the kit with M3 off; the filter run (M3 on, the ladder on every voice) is
+    filter_percent and filter_peak_percent, and peak_percent leaves it out."""
+    case = own[0]
+    seen, collectors = set(), set()
+    values = {index: [] for index in range(len(own))}
+    peaks = {index: [] for index in values}
+    for capture in captures:
+        fingerprint = sha(json.dumps(capture, sort_keys=True).encode())
+        require(fingerprint not in seen, 'Do not reuse a capture as another run')
+        seen.add(fingerprint)
+        require(capture.get('mode') == 'benchmark' and capture.get('package') == identity and
+                capture.get('expected_cases') == expected, 'Capture belongs to a different build or workload')
+        collectors.add(capture.get('collector_sha256'))
+        results = [r for r in decode(capture, expected) if r['machine'] in own]
+        for index, result in enumerate(results):
+            metric = result['metrics'][case['metric']]
+            require(metric['encoded_average'] < 65535,
+                    f"{name} saturated the block budget ({case_label(own[index])}): it is above the whole budget "
+                    'there, so no CPU number can be published; make that path lighter or lower voiceCapacity')
+            require(metric['encoded_average'] > 0 and not result['insufficient_voice_activity'],
+                    f'Inactive or failed workload ({case_label(own[index])}); do not publish a CPU number')
+            peaks[index].append(measured_peak(metric, own[index]))
+            values[index].append(metric['average_budget_percent'])
+    require(len(collectors) == 1 and None not in collectors, 'Use the same collector for all runs')
+    medians = {index: round(statistics.median(runs), 6) for index, runs in values.items()}
+    maxima = {index: round(max(runs), 6) for index, runs in peaks.items()}
+    of = lambda kind: [index for index, c in enumerate(own) if c['drum']['run'] == kind]
+    voices, filtered = of('voice'), of('filter')
+    worst = max(voices, key=lambda index: (medians[index], -index))
+    measurement = dict(benchmark=case['benchmark'], commit=commit, firmware_sha256=identity['firmware_sha256'],
+                       runs=len(captures), block_percent=medians[worst],
+                       peak_percent=max(maxima[i] for i in maxima if i not in filtered),
+                       # The worst single sound's spike, for the builder's CPU-high label.
+                       voice_peak_percent=max(maxima[i] for i in voices),
+                       midpoint_percent=max(medians[i] for i in voices if own[i]['drum']['level'] == 64),
+                       kit_percent=medians[of('kit')[0]], choke_percent=medians[of('choke')[0]],
+                       ceiling_percent=medians[of('ceiling')[0]], worst_model=own[worst]['drum'])
+    if filtered:
+        measurement.update(filter_percent=medians[filtered[0]], filter_peak_percent=maxima[filtered[0]])
+    if url is not None:
+        measurement['report'] = url
+    validate(measurement, case['kind'], commit, legacy=False)
+    return measurement, values[worst], case, [(own[index], medians[index], maxima[index]) for index in values], [], []
 
 
 def create(package, paths, name, url, out):
@@ -123,11 +208,29 @@ def create(package, paths, name, url, out):
     require(not destination.exists(), 'Use a fresh report directory')
     destination.mkdir(parents=True)
     (destination / 'catalog-cpu.json').write_text(json.dumps({'cpu': measurement}, indent=2) + '\n')
-    scope = 'whole voice, including oscillator/filter' if case['kind'] == 'synth' else 'machine render callback only'
+    scope = ('whole voice, including oscillator/filter' if case['kind'] == 'synth' else
+             "the kit's voices through the SDK's drum adapter, not stock's drum renderer" if case['kind'] == 'drum' else
+             'machine render callback only')
     warning = above_recommended(measurement)
-    if 'worst_setting' in measurement:
+    if case['kind'] == 'drum':
+        each = 'from one capture' if len(values) == 1 else f'each the median of {len(values)} captures'
+        published = (f"Heaviest single voice, {each}: **{measurement['block_percent']:.3f}%** of the stock 580,352-cycle "
+                     f"block budget ({drum_label(measurement['worst_model'])}). Heaviest at the middle: "
+                     f"{measurement['midpoint_percent']:.3f}%. Whole kit: its own keys "
+                     f"{measurement['kit_percent']:.3f}%, same-key retriggers {measurement['choke_percent']:.3f}%, "
+                     f"full polyphony of the heaviest voice {measurement['ceiling_percent']:.3f}%. "
+                     f"Worst block of a single voice: {measurement['voice_peak_percent']:.3f}%.")
+        if 'filter_percent' in measurement:
+            published += (f" Those runs play the kit as it starts, the track's M3 off. With M3 on, the ladder on "
+                          f"every voice, full polyphony of the heaviest voice: {measurement['filter_percent']:.3f}%, "
+                          f"worst block {measurement['filter_peak_percent']:.3f}%.")
+        table = ['| Run | Mean block budget (median across captures) | Worst observed block |', '| --- | ---: | ---: |']
+        table += [f'| {case_label(run)} | {median:.3f}% | {peak:.3f}% |' for run, median, peak in runs]
+        published += '\n\n' + '\n'.join(table)
+        limits = "stock's drum renderer, its amplitude envelope or mixing, or settings between the levels. "
+    elif 'worst_setting' in measurement:
         setting = measurement['worst_setting']
-        measured = sum(median is not None for run, median in runs if 'setting' in run)
+        measured = sum(median is not None for run, median, peak in runs if 'setting' in run)
         each = 'from one capture' if len(values) == 1 else f'each the median of {len(values)} captures'
         published = (f"Heaviest of the midpoint run, {measured} measured settings (each control through its "
                      f"positions with the others at their defaults) and every control at its heaviest position, "
@@ -139,10 +242,10 @@ def create(package, paths, name, url, out):
         same = all(c == combinations[0] for c in combinations)
         together = (combined_label(combinations[0]) if same else 'combined (as read from the reports), differing '
                     'between runs: ' + '; '.join(', '.join(map(position, c)) for c in combinations))
-        table = ['| Setting | ' + ('Mean block budget' if len(values) == 1 else 'Median') + ' |', '| --- | ---: |']
-        for run, median in runs:
+        table = ['| Setting | Mean block budget (median across captures) | Worst observed block |', '| --- | ---: | ---: |']
+        for run, median, peak in runs:
             label = together if run.get('combined') else case_label(run)
-            table.append(f'| {label} | ' + ('silent, left out' if median is None else f'{median:.3f}%') + ' |')
+            table.append(f'| {label} | ' + ('silent, left out' if median is None else f'{median:.3f}%') + f' | {peak:.3f}% |')
         published += '\n\n' + '\n'.join(table)
         if silent:
             published += ('\n\nLeft out as silent in every capture: ' + ', '.join(map(case_label, silent)) +
@@ -150,17 +253,32 @@ def create(package, paths, name, url, out):
         limits = 'maximum polyphony or other combinations of control settings. '
     else:
         if len(values) == 1:
-            published = (f"One capture: **{measurement['block_percent']:.3f}%** of the stock 580,352-cycle "
+            published = (f"One capture's mean: **{measurement['block_percent']:.3f}%** of the stock 580,352-cycle "
                          "block budget.")
         else:
             published = (f"Median of {len(values)} run means: **{measurement['block_percent']:.3f}%** of the stock "
                          f"580,352-cycle block budget. Run means: {', '.join(f'{v:.3f}%' for v in values)}.")
         limits = 'maximum polyphony or a settings sweep. '
+    peak_run = max(runs, key=lambda run: run[2])[0]
+    peak_label = (combined_label(combinations[0]) if peak_run.get('combined') and
+                  all(c == combinations[0] for c in combinations) else case_label(peak_run))
+    published += (f"\n\nWorst observed block: **{measurement['peak_percent']:.3f}%** ({peak_label}), "
+                  "the maximum across every measured setting/workload and every supplied capture. "
+                  "Peaks are never averaged or reduced to a median. This is an observed spike, "
+                  "not a proven worst-case bound for untested settings or live projects.")
+    if 'stage_percent' in measurement:
+        published += (f"\n\nTrack stage, run once per block on each track that holds the synth, whatever its "
+                      f"voices: mean **{measurement['stage_percent']:.3f}%**, worst block "
+                      f"**{measurement['stage_peak_percent']:.3f}%**. A track playing the synth costs its voices "
+                      f"plus one stage: one voice with its stage, mean {track_cost(measurement, 'block_percent'):.3f}%, "
+                      f"worst block {track_cost(measurement, 'peak_percent'):.3f}%, the figures the "
+                      "recommendation and the builder's CPU-high label use.")
     advice = f'**Warning: {warning}.**' if warning else 'Within it.'
     text = (f"# {name}: hardware CPU measurement\n\n"
             f"Machine commit: `{commit}`. Benchmark: `{measurement['benchmark']}`. Scope: {scope}.\n\n"
             f"{published}\n\n"
-            f"Recommended: at most {RECOMMENDED_PERCENT}%. {advice}\n\n"
+            f"Recommended mean and worst observed block peak: each at most {RECOMMENDED_PERCENT}%. "
+            f"Exceeding the recommendation is a warning, not a catalog rejection. {advice}\n\n"
             "This is a synthetic measurement on the USB-MIDI command endpoint, not total device CPU, " + limits +
             "Graphics are excluded. "
             "Callback tests exclude sample preparation, allocation, stock mixing and voice processing; "

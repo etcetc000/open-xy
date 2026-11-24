@@ -9,7 +9,7 @@ machines; it holds no machines itself. Every machine lives in a repository of
 its own. Open-XY's own machines are in
 [open-xy-core-machines](https://github.com/etcetc000/open-xy-core-machines): synths 2op FM, Macro Osc (a port of Mutable
 Instruments Braids) and Karplus, the Timestretch sample engine, and the Ring
-Mod and Ping Pong send effects. Read them as examples.
+Mod and Ping Pong send effects, and the Chords note player. Read them as examples.
 
 [Open-XY](docs/builder.md), the browser builder at open-xy.com, lets OP-XY
 owners pick from the catalog's machines and download firmware made from their
@@ -71,7 +71,8 @@ two-page header. Unused second-page columns repeat the same control from page 1.
 It includes source, tests, README, agent instructions, licence and CI. Use
 `--kind effect` for a send effect; omit `--repository` when adding just a machine
 folder to an existing repository. Follow the generated instructions through
-audition, [hardware profiling](docs/profiling.md) and
+audition, mandatory [hardware profiling](docs/profiling.md) of both average CPU
+and the worst observed block (peak CPU), and
 [catalog submission](docs/catalog.md#submit-a-machine).
 
 A machine is a folder of source: `machine.json`, which declares its kind (each

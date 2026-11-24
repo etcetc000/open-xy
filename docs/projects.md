@@ -8,7 +8,8 @@ user's firmware, can open the project with the right machines. Sections let
 other firmware features keep their own data in the same file.
 
 Open-XY firmware writes a companion after every project save, listing its
-machines, and reads it whenever it opens a project, the workspace at startup
+machines and what its [track control](api.md#track-control) machines keep with
+the project, and reads it whenever it opens a project, the workspace at startup
 included ([firmware](abi-1.2.1.md#project-companions)).
 [`tooling/projects.py`](../tooling/projects.py) is the reference reader and
 writer.
@@ -82,7 +83,9 @@ rest.
 
 A writer replacing a project rewrites its own sections. It keeps other owners'
 sections unchanged while the previous companion still matched the project it
-replaces, and drops them otherwise. The firmware writes only `open-xy.machines` for now.
+replaces, and drops them otherwise. The firmware writes `open-xy.machines`;
+when a track control machine keeps anything, `open-xy.control`; and when a step
+holds SDK locks, `open-xy.locks`.
 
 ### Canonical form
 
@@ -122,6 +125,63 @@ opens that track with stock's fallback for a machine it lacks, Prism (engine
 which machine was missing. A number two listed machines claim falls back the
 same way, since neither can be trusted. Numbers the section does not list are
 read as saved. A section for another profile is ignored.
+
+## `open-xy.control`
+
+Version 1. `machines` holds what each track control machine kept with the
+project, by machine ID, as a base64 string of at most 8192 bytes. The machine
+alone knows what the bytes mean. After loading a project, the firmware gives
+each machine its entry when the companion matches the project, and nothing
+otherwise.
+
+`aux` holds, by track index (`"11"` for track 12) and then by pattern index
+(`"0"` to `"15"`), the stock role's eight controls kept aside for each pattern
+a machine [took over](api.md#aux-tracks), as base64 of eight little-endian
+32-bit words. The project itself holds which machine each pattern runs, in its
+engine number. After a load, a pattern whose machine the firmware lacks is the
+stock role again and gets those controls back. Early test builds of aux tracks wrote one entry per
+track instead (`"machine"` and `"controls"`); the reader skips it, so such a
+project opens with CV on track 12, playing the machine's values as its controls.
+
+## `open-xy.locks`
+
+Version 1. `pool` holds the values of the project's
+[step-lock handles](abi-1.2.1.md#step-lock-handles), as base64 of their blocks in
+handle order, each a run of little-endian 16-bit words: the handle (1..2457,
+ascending), the entry count (1..25), then each entry's field mask (non-zero),
+its key (a note 0..127, ascending, or 65535 for every key the step plays, last)
+and one value per mask bit, lowest field first, as a signed 16-bit number. The
+fields' meaning is the client's (a `padMix` kit's Shift row, a Shift-row synth's
+entries or Drumline's second page). The pool takes at
+most 24 KiB before base64.
+
+The project itself holds which step carries which handle, in lock word 37. When
+the firmware loads a project whose companion matches it and holds a valid
+version 1 section, every handle the section does not give values for is cleared
+from it. Without one (no companion, a mismatched one, a newer version, or a pool
+that is not valid base64 or whose blocks break these rules) the handles stay as
+saved and play nothing; the rest of the companion still applies. The section is
+sized before `open-xy.control`, which gets the room it leaves.
+
+## `open-xy.master-filter`
+
+Version 2 contains `processor` (`eq` or the extension's stable `state_id`) and
+`parameters`, an object mapping the shared parameter IDs to normalized Q31
+integers, 0–2147483647. Missing parameters use their declared defaults; unknown
+parameters are ignored. Invalid known values or unsupported versions do not
+activate the processor. Version 1's integer `sweep` (0–1023, neutral 512) remains
+readable: it maps to the first parameter as `sweep << 21`; later parameters use
+their defaults. The extension identity `dj` remains stable.
+
+Processor identity is independent of menu order. An unavailable processor falls
+back to EQ, even if another processor now occupies its former menu index.
+
+The SDK writes this section only with a master processor included, using the same
+streaming writer, size/CRC binding and reader as machine remapping. Choice and
+all parameters become active only when their matching project is published.
+Missing/unusable state selects stock EQ and declared defaults. Stock EQ values
+remain in `.xy`; projects without `.oxy` remain compatible. New projects and
+abandoned loads cannot inherit pending state from another project.
 
 ## Commands
 

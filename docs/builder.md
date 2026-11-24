@@ -4,6 +4,55 @@ Open-XY builds OP-XY firmware in the browser. It runs as a website or from a
 single `opxy-builder.html` file, including offline from `file://`. Firmware never
 leaves the browser.
 
+## Expert mode
+
+After acknowledging the notice, choose **Expert mode** for a compact build panel.
+The mode and your machine/extension choices are remembered in this browser.
+Load a `layout.json` config, or edit the selection, and choose a verified
+`os.ldr`. **Save config** exports your selection and machine numbers before a
+build. **Build ZIP** creates the normal download.
+
+With the XY already in dev-menu MTP mode and other transfer apps closed,
+**Build & copy to XY** requests the device in that click, builds the selection,
+then sends it using the same MTP client as the guide. Each file is read back and
+hash-checked before the next; content goes first and `os.ldr` last. Failed builds,
+cancellation and readback failures cannot report a completed copy. The browser
+still requires device permission, and the notice must be acknowledged on each
+load. Writing the boot partition and rebooting remain physical device actions.
+The compact completion screen shows those remaining actions in one line.
+
+## MTP troubleshooting on macOS
+
+Select **I’m having trouble connecting to MTP** in either the OS-copy guide or
+build-upload guide. The same help is available before connecting and after a
+failed transfer, including when copying manually.
+
+The help button opens the fresh-install guide directly, assuming you have
+already closed other transfer apps and checked the connection.
+
+For a fresh installation, **Start fresh with OS 1.2.1** guides a full drive
+format and official OS reinstall before installing Open-XY. It erases user content and
+soundpacks; verify backups and obtain the official OS 1.2.1 update before
+proceeding. If you cannot back up data you need, stop. The guide requires an
+explicit acknowledgement before showing the format instructions and never
+formats the device itself.
+
+With the dev menu enabled, **5. format drive** is in **te-boot**, not the factory
+menu (where track 5 writes the OS). Follow the device prompts and wait for
+completion. Hold COM while switching on, then select **1. upload firmware**.
+The guide links to official OS 1.2.1 and walks through copying the `.tfw` file
+and ejecting the removable disk to start the update. After reinstalling,
+it returns to the original copy or install flow. See the
+[official update instructions](https://teenage.engineering/guides/op-xy/te-boot).
+
+A format and reinstall resolved a reported persistent MTP failure on a device
+with soundpacks installed. Soundpacks have **not** been established as the cause,
+and this procedure is not a guaranteed fix.
+
+If MTP connects but `os.ldr` is missing, use **The OS file is missing · Help me
+recover it** instead. That separate path guides an official reinstall without
+directing you to format.
+
 ## Using the builder
 
 1. Use a desktop browser exposing both Web MIDI and WebUSB, such as Chrome, Edge
@@ -34,18 +83,89 @@ leaves the browser.
    in one click. The next page links to the official OS 1.2.1 download and explains
    how to power cycle, check that the menu is gone, and reinstall. After reinstalling,
    **Try again** goes straight to enabling the dev menu for the same computer.
-3. Select machines. Synth rows have a playable preview of their C++ sound and
-   display code; each row shows its code, data and state size against the
-   memory meter. Machines from the [catalog](catalog.md) are marked
+3. Select machines. Synth and drum kit rows have a playable preview of their C++
+   sound and display code. Open **Preview controls** to adjust parameters, play the
+   keyboard and set its volume. The controls start collapsed; reopening them
+   keeps parameter values, and closing them stops preview notes. A kit's keyboard
+   is its 24 keys, each set up as the kit sets it up: pressing one selects it and
+   plays its machine, and **Machine** and the sliders edit the selected key, as
+   Shift and the encoders do on the device ([kit previews](preview.md#drum-kits)). Each row shows
+   its code, data and state size against the memory meter.
+   Machines from the [catalog](catalog.md) are marked
    **Community** and start unselected; their details name the maintainer and
    link to the machine's code at the commit the catalog pins. Open-XY's own
    example machines from the catalog are labelled as Open-XY machines. A
    [personal kit](#export-a-kit)'s own machines are marked **Yours**.
+   A machine whose catalog CPU measurement is above 4.5% of an audio block is
+   marked **CPU-high**, in its row and details; hover or focus the mark for an immediate explanation of its effect on voice count
+   ([catalog](catalog.md)).
+   Above the list, search by name, maintainer, repository (such as a collection's
+   name), description, kind or keyword, sort by name, maintainer or kind, and
+   filter by kind, by the catalog's [keywords](catalog.md#keywords) or by your
+   favorites. Keyword filters take up to three lines, in alphabetical order:
+   when they don't all fit, the most used ones show, with any you are filtering
+   by, and **+N more** shows the rest. Star a row to make it a
+   favorite; favorites are kept in this browser only. Filtering never changes
+   the selection: the count under the filters says how many selected machines
+   it hides. **Presets**, beside the selection count, saves the selected
+   machines under a name and chooses them again in one step, replacing the
+   selection. **Update** on a preset replaces its machines with the current
+   selection, as saving its name again does. Presets are kept in this browser
+   only and name machines by ID: a machine the collection no longer offers is
+   left out and named.
 4. Choose optional extensions using the same checkbox rows as machines. Select
    a row to read what it does and how to use it in the details panel.
-   Extensions start off; continuing with none is valid. The summary lists your
+   Firmware extensions start off; continuing with none is valid. The summary lists your
    machines, extensions and combined memory use. Conflicting Record-double-tap
    claims cannot be selected together.
+   **Grayscale machine graphics** is also available on this page, including in
+   collections without firmware extensions. It starts off; enabling it changes custom
+   screens while leaving stock screens unchanged. It adds no extension runtime
+   memory; the selection summary lists the graphics choice separately.
+   Open **Configure** to see and customize the selected machines together. Checking
+   the option sets grayscale as the default for all selected custom screens. Each custom screen has a **Screen appearance** control:
+   **Enforce grayscale** or **Keep original design**, showing its current setting.
+   Choosing a different appearance creates an individual override; choosing the
+   overall default again clears it. The extension checkbox is on whenever any
+   selected custom screen is configured for grayscale, and off when all use their
+   original designs. Opening or closing **Configure** does not change it.
+   Stock screens remain unchanged and have no
+   override control. Overrides are retained while changing the selection in this
+   session; only selected machines' overrides enter the installation package.
+   The same dialog previews every selected machine with its setting applied.
+   For machines with a browser module, it renders the default UI once and caches
+   a frozen SVG snapshot; a drum kit's shows its first key as the kit sets it up. There is no animation loop or audio; changing graphics
+   reuses the same frame, and reopening reuses the cached snapshots. Machines
+   without a browser module show their static artwork with a fallback label.
+   Machines using stock screens are identified when no visual preview is available.
+   The dialog always shows the installation settings. **Make all grayscale** and
+   **Restore all originals** set the default and apply it to every selected custom screen,
+   clearing those machines' overrides. Unselected machines' explicit overrides
+   stay in place. Both buttons update the graphics checkbox on Extensions;
+   stock screens remain unchanged. Use **Screen appearance** below each screen
+   to make individual exceptions. **Done** or Escape closes the dialog while
+   keeping the choices.
+   Checking **Grayscale machine graphics** sets every selected custom screen to
+   grayscale; unchecking it restores all their original designs. Both actions clear
+   the selected machines' overrides and preserve unselected machines' overrides. Grayscale
+   converts the selected machines' custom SVG screens, including text, strokes,
+   fills and the palette entries used by animations. It preserves geometry,
+   opacity and motion; sample engines and effects retain their stock screens.
+   Custom screens that are already grayscale, including all animation palette
+   entries, retain their original SVG bytes and hashes unchanged.
+   For colorful originals, a machine's validated developer-authored
+   [grayscale variant](display.md#grayscale-artwork) takes priority over automatic
+   conversion. Without one, the builder separates distinct hue families into
+   gray ranges, using brightness as a secondary cue and one consistent palette
+   throughout animations. The tonal spacing adapts to the number of distinct
+   colors and shades, giving sparse palettes wider separation. Neutral grays
+   remain unchanged. Both routes check the packaged SVG paints before
+   installation; see the [conversion behavior](display.md#grayscale-artwork).
+   Invalid declared variants or unsupported paints stop the build
+   with a message naming the machine; choose colorful or use corrected artwork.
+   Changing the default or a per-machine override discards the prepared download
+   and requires a new build. The build manifest records the default and selected
+   overrides; machine sources and saved sound parameters are unchanged.
 5. Build the firmware, then follow the installation guide using the remembered computer choice. Mac
    browsers with WebUSB send the files directly; Windows downloads a ZIP to
    copy with File Explorer. The OS write step on the device is still manual.
@@ -56,9 +176,14 @@ The ZIP contains:
 | --- | --- |
 | `os.ldr` | Device root, replacing the existing file |
 | `content/op1_factory.json` | Replaces the menu file |
-| `content/display/*.svg` | New screens for the selected machines; keep the stock files |
+| `content/display/*.svg` | New screens for the selected machines; keep the stock files. Never replace a stock screen: stock halts at boot when one lacks an element it looks up, so the builder refuses a machine named after stock content ([Registration boundary](api.md#registration-boundary)) |
 | `content/presets/<machine>/*.json` | Each selected instrument's init preset, `default.json`, and its own [presets](api.md#presets), in the instrument's folder |
 | `layout.json`, hashes | Keep `layout.json`: it holds your machines' numbers, and loading it into the builder next time keeps them for your projects |
+
+The ZIP and direct transfer use the same prepared files. `build.json` records
+the graphics setting and hashes of the final artwork. Disabling **Grayscale machine graphics** keeps the original SVG bytes; automatic grayscale conversion changes
+only paint attributes in the packaged
+screens, without modifying the machines' source or audio code.
 
 Every build shows its release at boot, `OPEN 0.0.3-1.2.1` for 0.0.3, the version in
 [`VERSION`](../VERSION) that the builder also shows under its name and records in
@@ -69,8 +194,8 @@ The builder accepts the stock OS 1.2.1 file or any Open-XY OS made from it,
 including one from an earlier release: it rebuilds the stock image by undoing
 the reviewed edits and accepts it only if it matches OS 1.2.1 exactly. An exact
 output of the same collection also restores its machine and extension
-selection; for any other, choose them again (the layout still keeps machine
-numbers). Saved selection files also retain extensions; older selection files
+selection when there are no saved or edited choices. Otherwise the current
+choices are kept (the layout still keeps machine numbers). Saved selection files also retain extensions; older selection files
 without that field select none.
 Encrypted `.tfw`, unknown patches and damaged files are rejected. Projects,
 presets and samples on the device are not touched.
@@ -98,6 +223,23 @@ selected machine shares for code, data and state, and 16 KiB for relocated stock
 tables. The memory meter shows each machine's share; see
 [memory and limits](api.md#memory-and-limits). CPU headroom is not measured.
 
+Below the meter, **Use 4 MiB for machines** is an experimental option, off by
+default. It grows the reservation to 4 MiB (4080 KiB for machines) by
+shortening the application heap from 18 MiB to 16 MiB, using the profile's
+reviewed `experimental_memory` layout: the module starts 2 MiB lower and the two
+heap edits write the smaller size, while the tables, hooks and every other edit
+are unchanged. The stock OS needs that heap for its interface, projects,
+presets, file browsing and MTP, and running out of it is fatal, so this build
+may be unstable under heavy use. The selection summary shows the choice,
+`build.json` and `layout.json` record it (`reserved_bytes`, and
+`"memory": "expanded"` in the layout). Loading an open-xy OS sets the option to what that OS
+used (a stock OS keeps the current choice), and so does restoring a `layout.json`
+that lists machines. A layout from an experimental size this site doesn't offer
+keeps the current choice; machines that need more than the memory chosen use
+this site's option when it is on, and otherwise the builder says to turn it on.
+`sdk.py build` uses only the standard layout and refuses a 4 MiB `layout.json`;
+`sdk.py project write` accepts it.
+
 Projects save each track's machine by number, so a machine keeps its numbers
 in your firmware for good ([layouts](api.md#identity)). The builder remembers
 your layout in this browser and writes it to `layout.json` in every download;
@@ -106,6 +248,16 @@ computer. A layout from a build for OS 1.2.0 still loads. Numbers given to a mac
 open another machine. Adding a machine to the collection means adding it to
 the native build; the builder is not a plugin loader and does not raise the
 voice limit.
+
+Changes you make to the machine or extension selection are saved in this browser,
+including an empty selection. Refreshing keeps these choices; machines removed
+from the catalog are left out, and new entries stay unselected. If saved extensions
+now conflict, the choices remain visible and Build explains which conflict to
+resolve; valid machine choices are preserved. Browser storage
+is local to this site and browser. If storage is unavailable the machine page
+says so. The OS file must be selected again after a refresh. A disabled Build
+button explains what is missing: leave audition preview using **Go to OS setup**,
+load a verified OS, and choose machines that fit the memory limit.
 
 ## Web development
 
@@ -122,6 +274,9 @@ collection without uploading an OS file. Append a machine ID, for example
 `#preview/machines/fm2op`, to open its details directly. Installation stays disabled;
 the **OS** button returns to the normal builder entry. A configured collection is
 required for machine previews.
+
+`#preview/settings` remains an alias for the Extensions preview without an OS file. It also keeps
+installation disabled; returning to Machines auditions the chosen graphics mode.
 
 The extension picker has a direct preview at `#preview/extensions`, with no OS
 file required. Building remains disabled in preview mode.
@@ -222,12 +377,43 @@ A published kit comes from the release host, after
 [release verification](build.md#release-verification). It holds the
 [catalog](catalog.md)'s machines fetched at their pinned commits
 (`--collection local/catalog/collection.json`), each with its repository, tag,
-commit and maintainer. For your own machines,
+commit and maintainer, and the SDK's own extensions (`extensions/`, such as
+`cpu`), which ship with the SDK rather than the catalog and show as Core. For
+your own machines,
 add `--personal`: it runs on any pinned host, Windows or Apple-silicon macOS,
 and skips only that verification. Open the resulting `opxy-builder.html`, or
 serve it as in [web development](#web-development), to select machines,
 preview them and use the installation guide with your device. It accepts your
 stock OS and builds of its own collection.
+
+### Capabilities
+
+A kit carries an extension's [capabilities](extensions.md#settings-extensions)
+by what each needs:
+
+- **image edits**: fixed bytes at stock sites (`long_samples`, `release_floor`,
+  `boot_log_fix`, and the build capabilities `load_governor` and
+  `pitch_constants`). The browser writes them when the extension is selected.
+- **SDK units**: a capability whose hooks enter SDK code its service links
+  (`block_trims`, `output_slack`): the kit holds those units' objects, compiled
+  with the rest, and links them only with the extension. A unit capability
+  (`fast_helpers`) chooses which source two units every build links compile
+  from: the kit holds both values' objects (`unitSources`) and links the chosen
+  one under the same names, in the same place.
+- **machine code**: a capability marked `"adapters": true` in the registry
+  (`idle`, [deprecated](cpu-capabilities.md#idle)) changes the code generated
+  for every machine. A kit's objects serve every selection, so `sdk.py kit`
+  refuses an extension that names one, before it builds anything; `sdk.py
+  build` still takes it.
+
+The site's `cpu` extension is the SDK's `cpu`. A build of the kit's whole
+collection with it is byte for byte the `sdk.py build` of that collection with
+`cpu` at the same fast helpers setting and profiling (the site's downloads have
+profiling off); without it, the `sdk.py build` of the machines alone. A smaller
+selection links the same objects, as every kit's selections do. Recovery tries
+both fast helpers values for an extension choice with `cpu`, since no site in
+the OS image shows which one a build has. Their objects pass the GNU ld check at export; the native build's
+stack and one-definition checks run on the value the kit's own build chose.
 
 The browser links the normalized ELF32 Blackfin objects itself, supporting the
 LUIMM16, HUIMM16, PCREL24, PCREL24_JUMP_L and BYTE4 relocations. Unsupported
@@ -248,7 +434,8 @@ The export checks that:
   its `os.ldr` byte for byte: every machine, or Open-XY's own when the collection
   doesn't fit at once ([memory](api.md#memory-and-limits));
 - every non-empty selection with every extension choice (including none) matches
-  GNU ld, including symbols and BSS;
+  GNU ld, including symbols and BSS; a unit capability's other value is checked with
+  its extension alone and with the largest extension choice that holds it;
 - browser output matches the Python writer, with correct catalog, artwork and ZIP;
 - every output is recognized and its selection restored, and corruption inside
   or outside the allowed edits is rejected.

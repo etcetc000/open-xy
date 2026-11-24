@@ -1,0 +1,3 @@
+.screen-toolbar:has(.graphics-label) { flex-wrap:wrap; gap:12px; }
+.graphics-label { font-size:11px; }
+.graphics-label select:disabled { opacity:.5; }

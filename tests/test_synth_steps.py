@@ -77,6 +77,8 @@ class SynthSteps(unittest.TestCase):
                                       'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
             (folder / 'stock.hpp').write_text(stock, encoding='utf-8')
             (folder / 'synth_controls.cpp').write_bytes((platform / 'synth_controls.cpp').read_bytes())
+            # The lock store's inline stock calls belong beside the substituted header too.
+            (folder / 'drum_lock_store.hpp').write_bytes((platform / 'drum_lock_store.hpp').read_bytes())
             binary = folder / ('test.exe' if os.name == 'nt' else 'test')
             hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
             result = subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror',

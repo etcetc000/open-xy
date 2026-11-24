@@ -33,6 +33,14 @@ class Folder:
         data = json.loads(path.read_text(encoding='utf-8'))
         data.update(changes)
         path.write_text(json.dumps({k: v for k, v in data.items() if v is not None}), encoding='utf-8')
+        if data.get('master_filter'):
+            from tooling.pipeline import save_json
+            definition=dict(schema=1,id=data['id'],name='Probe',parameters=[dict(id='sweep',label='filter',default=.5,
+                mapping=dict(kind='linear',minimum=0,maximum=1),display='percent')],presets={},
+                resources=dict(display=dict(stateBytes=4,stateAlignment=4,paths=0,points=0,nodes=1,texts=0,palette=1)))
+            save_json(self.root/'definition.json',definition)
+            (self.root/'display.h').write_text('// shared display declaration\n')
+            (self.root/'display.cpp').write_text('// shared display implementation\n')
         return self.root
 
 
@@ -85,7 +93,8 @@ class Extensions(unittest.TestCase):
         profile = config()
         extensions.check_profile(profile)
         self.assertEqual(extensions.events(), ['context', 'recordable_note_on', 'selected_note_off',
-                                               'recording_tick', 'input_activity', 'queued_control'])
+                                               'recording_tick', 'input_activity', 'queued_control',
+                                               'usb_host_ready'])
         hook = lambda p: next(x for x in p['patches'] if x.get('events'))
         for mutate in (
             lambda p: hook(p).pop('events'),
@@ -155,4 +164,4 @@ class ExtensionCatalog(unittest.TestCase):
     def test_official_extensions_are_listed_by_id(self):
         self.assertTrue(catalog.official(self.entry()))
         self.assertFalse(catalog.official(self.entry(id='echo')))
-        self.assertEqual([e['id'] for e in catalog.load_extensions()], ['capture'])
+        self.assertEqual([e['id'] for e in catalog.load_extensions() if catalog.official(e)], ['capture', 'long_samples'])

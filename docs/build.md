@@ -8,7 +8,7 @@ machine reaches the firmware by joining the collection; read the
 [caveats](../README.md) before installing.
 
 Commands use `python`; on macOS it is usually `python3`. Building needs only
-Python 3.11+, no virtual environment or packages (copying to the device from Windows also needs comtypes, see [install](#5-install)); the browser preview in
+Python 3.11+, no virtual environment or packages (copying to the device with `device push` also needs comtypes on Windows or the libusb library on macOS and Linux, see [install](#5-install)); the browser preview in
 [your first machine](first-machine.md) has its own prerequisites.
 
 ## 1. Install the tools
@@ -72,8 +72,9 @@ stock-1.2.1/
 
 4. Press track 2 for "2. exit".
 
-If the OP-XY freezes on "mtp mode active" as soon as a computer connects,
-reinstall the official OS 1.2.1 update (`.tfw`) and try again.
+If MTP fails to connect or freezes, follow the builder’s
+[MTP troubleshooting guide](builder.md#mtp-troubleshooting-on-macos). It offers a fresh OS 1.2.1 setup and separates missing-OS recovery from
+a drive format that erases user data.
 
 For example, keep the folder in `%LOCALAPPDATA%/OPXY-SDK/private/` on Windows,
 `~/Library/Application Support/OPXY-SDK/private/` on macOS or
@@ -148,14 +149,31 @@ prints its results as JSON, then the files to install from `<out>/candidate/`.
 | `os.ldr` | `/os.ldr` |
 | `content/op1_factory.json` | `/content/op1_factory.json` |
 | `content/display/<machine>.svg`, one per synth | `/content/display/<machine>.svg` |
+| `content/presets/<machine>/`, one per instrument (not effect): an init preset and the machine's [own](api.md#presets) | `/content/presets/<machine>/` |
+| `content/samples/<machine>/`, for a sample engine shipping [its own samples](api.md#own-samples) | `/content/samples/<machine>/` |
 
 1. Open file transfer as in step 2 and copy the files to the paths above,
-   replacing existing files. Keep the device's other content. On Windows,
+   replacing existing files. Keep the device's other content, and never replace
+   one of stock's own files other than `os.ldr` and `content/op1_factory.json`:
+   stock looks up elements in its own screens and halts at boot when one is
+   missing. The build refuses a machine named after stock content
+   ([Registration boundary](api.md#registration-boundary)), so none of its files
+   lands on one of stock's.
    `python sdk.py device push <out>/candidate` does this instead:
    it backs up each file it replaces, reads
    every copied file back and restores the backups if anything fails, keeping
-   them and a record under the private folder. It needs
-   `python -m pip install comtypes==1.4.17` and never writes the boot partition.
+   them and a record under the private folder. It never writes the boot partition.
+   Push copies what it is given and does not check names, because it is also how
+   a stock file is put back: a package built before the SDK refused stock names
+   can still replace a stock file. Restore it from the backup push keeps.
+   On Windows it needs `python -m pip install comtypes==1.4.17`. On macOS and Linux it
+   speaks MTP over libusb, which needs only the library (`brew install libusb`, or
+   `apt install libusb-1.0-0`), the device in "mtp file transfer (mac)" mode and no
+   other app holding it (Field Kit, OpenMTP, Android File Transfer, the browser
+   builder); on Linux, a udev rule may be needed for access to the USB device.
+   To copy without backups or device readback, pass `--no-backup --no-verify`
+   together. This replaces every supplied file and records each write, but
+   cannot restore earlier files if interrupted.
 2. Press track 2 for "2. exit".
 3. Press track 5 for "5. write os to boot partition", keeping the OP-XY on power.
    When "firmware written ok!" appears, switch it off and on.
@@ -163,12 +181,38 @@ prints its results as JSON, then the files to install from `<out>/candidate/`.
 The firmware writer reads `/os.ldr`, not the upgrade directory. The browser
 builder's packages also add each instrument's presets
 (`content/presets/<machine>/`: an init preset and the machine's
-[own](api.md#presets)); command-line packages do not.
+[own](api.md#presets)).
 `module.elf` and `module.bin` are development artifacts, not installable
 images. Build commands never write to a device; hardware profiling sends
 explicit diagnostic commands but does not install firmware. To select machines and
 install through the browser builder's guide instead, export a
 [personal kit](builder.md#export-a-kit) of your collection.
+
+## On the device
+
+Each of these cost someone a round of installing:
+
+- **Build from the device's layout.** Pass the `layout.json` of the firmware
+  the OP-XY is running, which a builder install leaves at the device's root,
+  not one from another build. Otherwise machines get other numbers, and
+  projects saved without a [companion](projects.md) open the wrong machines.
+- **Write the OS from the boot menu.** A plain restart keeps the old OS. If
+  you have left file transfer, hold COM while switching on, then press track 3
+  and track 5, and switch off and on after "firmware written ok!".
+- **`producer_factory … not registered` is not proof.** The device's log in
+  `/logs` shows it at every boot, even when every machine works. A machine
+  missing from the menu is what shows the old OS is still running.
+- **Copying never deletes.** Presets made for a machine's old controls stay on
+  the device and sound wrong until you delete them. Factory presets of machines
+  a build leaves out stay too; the firmware hides them
+  ([presets](abi-1.2.1.md#presets)).
+- **Effects get a quiet send.** An effect receives a much quieter signal than
+  a synth's output ([effects](api.md#effects)): one tuned on the host blew out
+  at a 1 to 2% send on the device. Test effects on the device at low send
+  settings.
+- **The stock LFO needs voices or a selected track.** It moves a machine that
+  plays no voices only while that machine's track is selected
+  ([#238](https://github.com/etcetc000/open-xy/issues/238)).
 
 ## What a build checks
 

@@ -1,16 +1,20 @@
 """Firmware extensions: folders of their own, like machines, against the SDK's contracts.
 
-An extension folder holds extension.json (its ID, the site's text, and the claims
-and actions it uses), extension.cpp and tests/. The SDK holds the registry of
-claims and actions (PROFILE) and the runtime; a build's collection lists the
-extensions it links, in callback order. No dynamic loading or arbitrary hooks.
+An extension folder holds extension.json (its ID, the site's text, and the claims,
+actions and capabilities it uses), extension.cpp and tests/. A settings extension
+holds only extension.json: it declares capabilities and links no code. The SDK
+holds the registry of claims, actions and capabilities (PROFILE) and the runtime;
+a build's collection lists the extensions it links, in callback order. No dynamic
+loading or arbitrary hooks.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import re
+import base64
+import hashlib
 from .contributors import validate_source_boundary
 from .formats import require
-from .pipeline import ROOT, document
+from .pipeline import PROFILE as FIRMWARE_PROFILE, ROOT, document
 
 PROFILE = 'profiles/extensions.json'
 
@@ -31,12 +35,20 @@ HEADER = 'sdk/include/opxy/extension.hpp'
 RUNTIME = 'sdk/platform/extension_runtime.hpp'
 SOURCE_SUFFIXES = ('.cpp', '.cc', '.h', '.hpp', '.inc')
 
+# Stock Drumline's second page (docs/drumline-page.md): 1-4 parameters packed into
+# 16 code bits of a pad's word +0x00; a send's choices are the SDK's per-key codes.
+DRUMLINE_PAGE_LABEL = 'Drumline page 2'
+DRUMLINE_SEND_CHOICES = ('TRK', '0', '17', '33', '50', '67', '83', '100')
+DRUMLINE_ROLES = {'send1': 1, 'send2': 2}
+DRUMLINE_TEXT = re.compile(r'[ -~]{1,7}')
+DRUMLINE_CODE_BITS = 16
+
 
 def registry():
     """The claims and actions an extension may declare: SDK contracts. Claims are
     data (a label and the key it governs); actions are one bit each in RUNTIME."""
     data = document(ROOT / PROFILE)
-    require(set(data) == {'schema', 'claims', 'actions'} and data['schema'] == 3, 'Invalid extension registry')
+    require(set(data) == {'schema', 'claims', 'actions', 'capabilities'} and data['schema'] == 4, 'Invalid extension registry')
     claims, actions = data['claims'], data['actions']
     require(isinstance(claims, dict) and isinstance(actions, dict), 'Claims and actions are registries')
     require(len(claims) <= 32 and len(actions) <= 32, 'At most 32 claims and 32 actions')
@@ -50,6 +62,116 @@ def registry():
     return claims, actions
 
 
+
+def capabilities():
+    """The registry's capabilities: each is the firmware profile service of the same name,
+    which only extensions that declare it use. A capability carries no fields, or one
+    whole-number `setting` (label, unit, minimum, maximum, default) whose edit lists the
+    reviewed bytes of every value in `choices`, or `"build": true`. Each other capability
+    needs at least one fixed edit (no `choices`) whose bytes differ from stock: that edit
+    says whether the capability is on, since a setting's bytes may equal stock's
+    (release_floor's -66 dB).
+
+    A build capability (docs/cpu-capabilities.md) is chosen when the firmware is built
+    (`sdk.py build` or the builder), never written into an existing image: its edits may be
+    hooks into SDK code its service links. Each of its fixed-byte (limit) edits is marked
+    `"build": true` in the firmware profile, so the profile itself tells it apart from an image
+    capability's (load_governor has only such edits). A build capability has no setting, except one with
+    `units` (fast_helpers), which has no edit at all: its setting, 0 (off, the default) or 1,
+    chooses the source of the SDK units it names (tooling/native.py UNIT_SOURCES); no stock
+    byte depends on it. A hook build capability whose service also changes the code generated
+    for every machine (idle: the voice and effect adapters) says so with `"adapters": true`:
+    a browser kit, whose objects serve every selection, refuses it (adapter_capabilities)."""
+    data, firmware = document(ROOT / PROFILE)['capabilities'], document(ROOT / FIRMWARE_PROFILE)
+    require(isinstance(data, dict) and len(data) <= 32, 'Capabilities are a registry')
+    for name, capability in data.items():
+        edits = [p for p in firmware['patches'] if p.get('service') == name]
+        require(NAME.fullmatch(name) and firmware['services'].get(name) == [name], 'Invalid capability: ' + name)
+        if capability.get('build') is not None and 'units' in capability:
+            # A build capability that only chooses SDK units' sources: no edit, units by name,
+            # a setting that is exactly off (0, the default) or on (1).
+            units, spec = capability['units'], capability.get('setting')
+            require(capability.get('build') is True and set(capability) == {'build', 'units', 'setting'} and
+                    not edits and isinstance(units, list) and units and len(set(units)) == len(units) and
+                    all(isinstance(u, str) and NAME.fullmatch(u) for u in units) and
+                    isinstance(spec, dict) and set(spec) == {'label', 'unit', 'minimum', 'maximum', 'default'} and
+                    all(isinstance(spec[k], str) and 0 < len(spec[k]) <= 24 for k in ('label', 'unit')) and
+                    [spec[k] for k in ('minimum', 'maximum', 'default')] == [0, 1, 0] and
+                    all(type(spec[k]) is int for k in ('minimum', 'maximum', 'default')),
+                    'Invalid build capability: ' + name)
+            continue
+        if capability.get('build') is not None:
+            # Hooks, and fixed bytes each marked as the build's (the profile's own record
+            # that the edit is a build capability's); no setting.
+            require(capability in ({'build': True}, {'build': True, 'adapters': True}) and edits and
+                    all((p['kind'] == 'hook' or p['kind'] == 'limit' and p.get('build') is True) and
+                        'choices' not in p and 'setting' not in p for p in edits),
+                    'Invalid build capability: ' + name)
+            continue
+        require(not any('build' in p for p in edits), 'Only a build capability marks its edits as the build ones: ' + name)
+        # Fixed bytes only, so the builder can tell from an image that a capability is on.
+        require(edits and all(p['kind'] == 'limit' for p in edits), 'Invalid capability: ' + name)
+        require(any('choices' not in p and p['before'] != p['after'] for p in edits),
+                'A capability needs a fixed edit that marks it on: ' + name)
+        require(capability == {} or set(capability) == {'setting'}, 'Invalid capability: ' + name)
+        chosen = [p for p in edits if 'setting' in p or 'choices' in p]
+        if capability:
+            spec = capability['setting']
+            require(isinstance(spec, dict) and set(spec) == {'label', 'unit', 'minimum', 'maximum', 'default'} and
+                    all(isinstance(spec[k], str) and 0 < len(spec[k]) <= 24 for k in ('label', 'unit')) and
+                    all(type(spec[k]) is int for k in ('minimum', 'maximum', 'default')) and
+                    spec['minimum'] <= spec['default'] <= spec['maximum'], 'Invalid capability setting: ' + name)
+            values = {str(v) for v in range(spec['minimum'], spec['maximum'] + 1)}
+            require(chosen and all(p.get('setting') == name and isinstance(p.get('choices'), dict) and
+                                   set(p['choices']) == values and p['after'] == p['choices'][str(spec['default'])] and
+                                   all(len(bytes.fromhex(b)) == p['length'] for b in p['choices'].values())
+                                   for p in chosen), 'Invalid capability setting edits: ' + name)
+        else:
+            require(not chosen, 'Invalid capability: ' + name)
+    return tuple(data)
+
+
+def capability_settings():
+    """Capability name -> its setting (label, unit, minimum, maximum, default), for those with one."""
+    return {name: c['setting'] for name, c in document(ROOT / PROFILE)['capabilities'].items() if 'setting' in c}
+
+
+def build_capabilities():
+    """The registry's build capabilities (capabilities): chosen at build time only."""
+    return tuple(name for name, c in document(ROOT / PROFILE)['capabilities'].items() if c.get('build'))
+
+
+def adapter_capabilities():
+    """The registry's build capabilities that change the code generated for every machine
+    (`"adapters": true`, idle): a browser kit cannot carry them (tooling/browser_kit.py)."""
+    return tuple(name for name, c in document(ROOT / PROFILE)['capabilities'].items() if c.get('adapters'))
+
+
+def unit_capabilities():
+    """Build capability -> the SDK units whose source it chooses (capabilities: `units`)."""
+    return {name: tuple(c['units']) for name, c in document(ROOT / PROFILE)['capabilities'].items()
+            if c.get('build') and 'units' in c}
+
+
+def check_coverage(profile, extensions_):
+    """Every capability the extensions declare has its sites in this firmware profile: a
+    capability without addresses for the profile's OS version fails the build, never skips."""
+    for e in extensions_:
+        for name in e.capabilities:
+            require(profile.get('services', {}).get(name) == [name],
+                    f'{e.id}: the {name} capability has no firmware sites for OP-XY OS '
+                    f'{profile.get("firmware_version", "?")} (docs/cpu-capabilities.md lists each one\'s versions)')
+
+
+def setting_edits(profile, settings):
+    """Each setting edit's chosen bytes: address -> after, from {capability: value}; missing
+    values take their defaults."""
+    specs = capability_settings()
+    require(set(settings) <= set(specs), 'Unknown capability setting')
+    return {p['address']: p['choices'][str(settings.get(p['setting'], specs[p['setting']]['default']))]
+            for p in profile['patches'] if 'setting' in p}
+
+
 @dataclass(frozen=True)
 class Extension:
     id: str
@@ -57,6 +179,16 @@ class Extension:
     claims: tuple
     actions: tuple
     text: dict  # name, description and optional note: the site's row and details
+
+    master_processor: dict = None
+    drumline_page: list = None  # the checked parameters (drumline_page_of)
+    capabilities: tuple = ()  # firmware services it turns on (capabilities())
+    linked: bool = True  # False for a settings extension: no code, no runtime
+    settings: dict = field(default_factory=dict)  # capability -> chosen value (capability_settings())
+
+    @property
+    def master_filter(self):
+        return self.master_processor  # Legacy Python caller compatibility.
 
     def sources(self):
         """Every file of the extension, by name relative to its folder."""
@@ -67,17 +199,39 @@ class Extension:
 def extension_at(folder):
     """The extension in `folder`, checked against the SDK's registry and source rules."""
     root = Path(folder).resolve()
-    require((root / 'extension.json').is_file() and (root / 'extension.cpp').is_file(),
-            f'{root}: an extension folder holds extension.json and extension.cpp')
+    require((root / 'extension.json').is_file(), f'{root}: an extension folder holds extension.json')
     data = document(root / 'extension.json')
+    linked = (root / 'extension.cpp').is_file()
     keys = {'id', 'claims', 'actions', 'name', 'description'}
-    require(isinstance(data, dict) and keys <= set(data) <= keys | {'note'}, f'{root}: extension.json fields are '
-            'id, name, description, claims, actions and an optional note')
+    require(isinstance(data, dict) and
+            keys <= set(data) <= keys | {'note', 'master_filter', 'master_processor', 'drumline_page', 'capabilities', 'settings'},
+            f'{root}: extension.json fields are id, name, description, claims, actions and optional note, '
+            'master_processor, drumline_page, capabilities and settings')
     name = data['id']
     require(isinstance(name, str) and NAME.fullmatch(name) and name not in RESERVED, f'{root}: invalid extension id')
     for key in TEXT_LIMITS:
         require(key not in data or (isinstance(data[key], str) and 0 < len(data[key]) <= TEXT_LIMITS[key]),
                 f'{name}: {key} is 1-{TEXT_LIMITS[key]} characters')
+    require(not ('master_filter' in data and 'master_processor' in data), 'Declare master_processor only once')
+    master_filter = data.get('master_processor', data.get('master_filter'))
+    if master_filter is not None:
+        require(isinstance(master_filter, dict) and {'artwork'} <= set(master_filter) <= {'artwork', 'state_id'} and
+                isinstance(master_filter['artwork'], str), f'{name}: master_processor declares artwork')
+        state_id = master_filter.get('state_id', name)
+        require(isinstance(state_id, str) and NAME.fullmatch(state_id) and state_id != 'eq',
+                f'{name}: master_processor state_id is an extension ID other than eq')
+        artwork = Path(master_filter['artwork'])
+        require(not artwork.is_absolute() and '..' not in artwork.parts and
+                re.fullmatch(r'[a-z][a-z0-9_]*\.svg', artwork.name) and
+                (root / artwork).resolve().is_relative_to(root), f'{name}: invalid master processor artwork path')
+        from .definitions import validate_definition
+        definition=validate_definition(document(root/'definition.json'),'master')
+        require(definition['id']==name, 'Master definition ID differs from extension ID')
+        require((root/'display.h').is_file() and (root/'display.cpp').is_file(), 'Master processor needs shared display.h/display.cpp')
+        validate_master_artwork(root / artwork, definition)
+    drumline_page = drumline_page_of(name, data['drumline_page']) if 'drumline_page' in data else None
+    require(drumline_page is None or linked and re.search(r'\bdrumline_processor\b', (root / 'extension.cpp').read_text(encoding='utf-8')),
+            f'{name}: a drumline_page extension exports opxy::extensions::{name}::drumline_processor from extension.cpp')
     claims, actions = registry()
     for field, known in (('claims', claims), ('actions', actions)):
         values = data[field]
@@ -88,15 +242,105 @@ def extension_at(folder):
         needed = actions[action].get('requires')
         require(needed is None or needed in data['claims'], f'{name}: {action} requires the {needed} claim')
     require(not data['actions'] or data['claims'], f'{name}: actions are granted through a claim it holds')
+    declared = data.get('capabilities', [])
+    known = capabilities()
+    require(isinstance(declared, list) and len(set(declared)) == len(declared) and
+            all(isinstance(c, str) and c in known for c in declared) and ('capabilities' not in data or declared),
+            f'{name}: unknown or repeated capability; the SDK declares them in {PROFILE}')
+    settings, specs = data.get('settings', {}), capability_settings()
+    require(isinstance(settings, dict) and ('settings' not in data or settings) and
+            all(c in declared and c in specs and type(v) is int and specs[c]['minimum'] <= v <= specs[c]['maximum']
+                for c, v in settings.items()),
+            f'{name}: settings choose a value within range for a capability it declares that has a setting')
+    if not linked:
+        # A settings extension only turns on SDK capabilities: nothing of its own runs.
+        sources = [p for p in root.rglob('*') if p.is_file() and '.git' not in p.relative_to(root).parts and
+                   p.relative_to(root).as_posix() not in ('extension.json', 'README.md', 'LICENSE')]
+        require(declared and not data['claims'] and not data['actions'] and master_filter is None and
+                drumline_page is None and not sources,
+                f'{name}: an extension without extension.cpp is a settings extension: capabilities only, '
+                'and no other files than README.md and LICENSE')
     for path in root.rglob('*'):
         if path.is_file() and path.suffix in SOURCE_SUFFIXES and '.git' not in path.relative_to(root).parts:
             validate_source_boundary(path.read_text(encoding='utf-8'), f'{name}/{path.relative_to(root).as_posix()}')
     return Extension(name, root, tuple(data['claims']), tuple(data['actions']),
-                     {k: data[k] for k in TEXT_LIMITS if k in data})
+                     {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter, drumline_page,
+                     tuple(declared), linked, dict(settings))
+
+
+def drumline_page_of(name, value):
+    """A drumline_page declaration, checked: its parameters in declaration order, each
+    with its label, choices, default choice, role (0 own, 1 FX I, 2 FX II) and its
+    code's shift and bits. Sends take the SDK's choices and the low bits, so a page
+    whose own parameters are all at their defaults carries nothing past bit 6."""
+    require(isinstance(value, dict) and {'parameters'} <= set(value) <= {'parameters', 'state_id'} and
+            isinstance(value['parameters'], list) and 1 <= len(value['parameters']) <= 4,
+            f'{name}: drumline_page declares 1-4 parameters and optionally a state_id')
+    require(isinstance(value.get('state_id', name), str) and NAME.fullmatch(value.get('state_id', name)),
+            f'{name}: drumline_page state_id is an extension ID')
+    rows = []
+    for p in value['parameters']:
+        require(isinstance(p, dict) and isinstance(p.get('label'), str) and DRUMLINE_TEXT.fullmatch(p['label']),
+                f'{name}: a drumline_page parameter has a label of 1-7 printable ASCII characters')
+        if 'role' in p:
+            require(set(p) == {'label', 'role'} and isinstance(p['role'], str) and p['role'] in DRUMLINE_ROLES,
+                    f'{name}: a send parameter is {{"label", "role": "send1" or "send2"}}; the SDK gives its choices')
+            rows.append(dict(label=p['label'], choices=list(DRUMLINE_SEND_CHOICES), default=0, role=DRUMLINE_ROLES[p['role']]))
+            continue
+        require({'label', 'choices'} <= set(p) <= {'label', 'choices', 'default'},
+                f'{name}: a drumline_page parameter has a label, choices and optionally a default')
+        choices = p['choices']
+        require(isinstance(choices, list) and 2 <= len(choices) <= 32 and
+                all(isinstance(c, str) and DRUMLINE_TEXT.fullmatch(c) for c in choices),
+                f'{name}: a drumline_page parameter has 2-32 choices of 1-7 printable ASCII characters')
+        default = p.get('default', 0)
+        require(type(default) is int and 0 <= default < len(choices), f'{name}: a default is a choice index')
+        rows.append(dict(label=p['label'], choices=list(choices), default=default, role=0))
+    roles = [r['role'] for r in rows if r['role']]
+    require(len(roles) == len(set(roles)), f'{name}: each send appears once')
+    shift = 0
+    for r in sorted(rows, key=lambda r: (r['role'] == 0, r['role'])):
+        r['bits'] = max(1, (len(r['choices']) - 1).bit_length())
+        r['shift'] = shift
+        shift += r['bits']
+    require(shift <= DRUMLINE_CODE_BITS, f'{name}: drumline_page parameters need at most {DRUMLINE_CODE_BITS} bits')
+    # The owner tag's source: the ID unless state_id keeps saved pads across a rename.
+    for r in rows:
+        r['state_id'] = value.get('state_id', name)
+    return rows
+
+
+def drumline_tag(name):
+    """The owner tag a drumline_page extension writes into a pad: FNV-1a of its ID,
+    folded to 16 bits, never 0."""
+    h = 0x811c9dc5
+    for b in name.encode('ascii'):
+        h = ((h ^ b) * 0x01000193) & 0xffffffff
+    return ((h >> 16) ^ h) & 0xffff or 1
+
+
+def generate_drumline_page(extension):
+    """The page table and its accessor, sdk_drumline_page_extension, in the extension's
+    own object (one drumline_page extension per build)."""
+    rows = extension.drumline_page
+    quote = lambda text: '"' + text.replace('\\', '\\\\').replace('"', '\\"') + '"'
+    lines = ['#include "' + (ROOT / 'sdk/platform/opxy-1.2.1/drumline_page.hpp').as_posix() + '"', 'namespace {']
+    for i, r in enumerate(rows):
+        lines.append('const char* const sdk_drumline_choices_%d[] = {%s};' % (i, ', '.join(quote(c) for c in r['choices'])))
+    lines.append('const opxy::platform::DrumlinePageParameter sdk_drumline_parameters[] = {' + ', '.join(
+        '{%s, sdk_drumline_choices_%d, %du, %du, %du, %du, %du}' % (
+            quote(r['label']), i, len(r['choices']), r['default'], r['role'], r['shift'], r['bits'])
+        for i, r in enumerate(rows)) + '};')
+    lines += ['const opxy::platform::DrumlinePage sdk_drumline_page_table = {%du, &opxy::extensions::%s::drumline_processor, '
+              'sdk_drumline_parameters, %du};' % (drumline_tag(rows[0]['state_id']), extension.id, len(rows)), '}',
+              'extern "C" const opxy::platform::DrumlinePage* sdk_drumline_page_extension() __asm__("sdk_drumline_page_extension");',
+              'extern "C" const opxy::platform::DrumlinePage* sdk_drumline_page_extension() { return &sdk_drumline_page_table; }', '']
+    return '\n'.join(lines)
 
 
 def check_collection(extensions):
-    """A build's extensions: distinct, within the limit, and no claim held twice."""
+    """A build's extensions: distinct, within the limit, no claim held twice and no
+    capability with a setting declared twice (both would write one site)."""
     require(len(extensions) <= MAX_EXTENSIONS, f'At most {MAX_EXTENSIONS} extensions')
     ids, owners = set(), {}
     claims, _actions = registry()
@@ -106,6 +350,19 @@ def check_collection(extensions):
         for claim in e.claims:
             require(claim not in owners, f'{claims[claim]["label"]} has multiple owners: {owners.get(claim)}, {e.id}')
             owners[claim] = e.id
+        # Each capability with a setting has one owner, whether or not the extension writes a
+        # value (without one it chooses the default), as the builder's exclusiveUses has it.
+        for name in (c for c in e.capabilities if c in capability_settings()):
+            require(('setting', name) not in owners,
+                    f'{name} is declared by two extensions: {owners.get(("setting", name))}, {e.id}')
+            owners[('setting', name)] = e.id
+    processors = [e for e in extensions if e.master_processor is not None]
+    ids = [e.master_processor.get('state_id', e.id) for e in processors]
+    require(len(ids) == len(set(ids)), 'Master processor state IDs must be unique')
+    assets = [Path(e.master_processor['artwork']).name for e in processors]
+    require(len(assets) == len(set(assets)), 'Master processor assets must be unique')
+    pages = [e.id for e in extensions if e.drumline_page is not None]
+    require(len(pages) <= 1, f'{DRUMLINE_PAGE_LABEL} has multiple owners: ' + ', '.join(pages))
     return extensions
 
 
@@ -175,6 +432,19 @@ def generate_extension(folder, extension):
                       'extern "C" const opxy::extensions::Hooks* ' + symbol + '() __asm__("' + symbol + '");\n'
                       'extern "C" const opxy::extensions::Hooks* ' + symbol + '() {\n'
                       '    return &opxy::extensions::' + extension.id + '::hooks;\n}\n', encoding='utf-8')
+    if extension.master_processor is not None:
+        legacy = 'master_filter' in document(extension.root/'extension.json')
+        symbol = 'sdk_extension_' + extension.id + '_processor'
+        with target.open('a', encoding='utf-8') as out:
+            out.write('#include <opxy/master_processor.hpp>\n')
+            out.write('extern "C" const opxy::master::Processor* ' + symbol + '() __asm__("' + symbol + '");\n'
+                      'extern "C" const opxy::master::Processor* ' + symbol + '() { return '
+                      '&opxy::extensions::' + extension.id + ('::filter' if legacy else '::processor') + '; }\n')
+            source, _ = generate_processor_panel(folder / ('panel_' + extension.id), extension)
+            out.write('#include "' + source.as_posix() + '"\n')
+    if extension.drumline_page is not None:
+        with target.open('a', encoding='utf-8') as out:
+            out.write(generate_drumline_page(extension))
     return target
 
 
@@ -182,5 +452,99 @@ def metadata(extensions, origins):
     """The kit's extension entries: the site's text, claims and actions, and an origin
     (official, catalog or personal, as for machines) from `origins` by ID."""
     claims, _actions = registry()
-    return [dict(id=e.id, origin=origins[e.id], claims=list(e.claims), actions=list(e.actions), **e.text,
+    rows = [dict(id=e.id, origin=origins[e.id], claims=list(e.claims), actions=list(e.actions), **e.text,
                  claim_labels={c: claims[c]['label'] for c in e.claims}) for e in extensions]
+    for e, row in zip(extensions, rows):
+        if e.capabilities:
+            row['capabilities'] = list(e.capabilities)
+            # The builder shows each capability setting with the extension's value as its default.
+            specs = capability_settings()
+            chosen = {c: dict(specs[c], value=e.settings.get(c, specs[c]['default'])) for c in e.capabilities if c in specs}
+            if chosen:
+                row['settings'] = chosen
+        if not e.linked:
+            row['linked'] = False
+        if e.drumline_page is not None:
+            # Exclusive, as a claim is: the builder lets one selected extension own it
+            # (builder/core.mjs exclusiveUses).
+            row['drumline_page'] = True
+        if e.master_processor is not None:
+            data = validate_master_artwork(e.root / e.master_processor['artwork'])
+            row['master_processor'] = dict(state_id=e.master_processor.get('state_id',e.id), asset=Path(e.master_processor['artwork']).name,
+                artwork=base64.b64encode(data).decode('ascii'), sha256=hashlib.sha256(data).hexdigest())
+    return rows
+
+
+def validate_master_artwork(path, definition=None):
+    """Standalone, authored path-only SVG, never stock content or external references."""
+    import xml.etree.ElementTree as ET
+    data = path.read_bytes()
+    require(0 < len(data) <= 65536, 'Master processor SVG exceeds 64 KiB')
+    from .svg_safety import validate_xml
+    validate_xml(data)
+    root = ET.fromstring(data)
+    require(root.tag == '{http://www.w3.org/2000/svg}svg' and root.get('viewBox') == '0 0 480 222',
+            'Master processor SVG needs the 480 x 222 viewport')
+    from .svg_safety import validate_nodes
+    for node in root.iter():node.tag=node.tag.removeprefix('{http://www.w3.org/2000/svg}')
+    leaves=[n for n in root.iter() if n is not root]
+    root.tag='g'
+    validate_nodes(list(root.iter()))
+    if definition is not None:
+        from .native import check_bindings, check_palette
+        by_id = {n.get('id'):n for n in leaves if n.get('id')}
+        check_palette(by_id, check_bindings(by_id,definition['id'],definition['resources']['display']))
+    return data
+
+
+def generate_master_collection(folder, entries):
+    """Immutable registration accessors: omitted extension objects return nullptr."""
+    entries = [e for e in entries if e.master_processor is not None]
+    lines = ['#include "master_processor.hpp"']
+    for e in entries:
+        symbol='sdk_extension_'+e.id
+        lines += ['extern "C" const opxy::master::Processor* '+symbol+'_processor() __asm__("'+symbol+'_processor");',
+                  'extern "C" const opxy::platform::master_processor::Display* '+symbol+'_panel() __asm__("'+symbol+'_panel");']
+    lines += ['namespace opxy { namespace platform { namespace master_processor {',
+              'Registration registration(u32 type) {', '    if(!type)return {};', '    u32 selected=0;']
+    from .definitions import control_positions
+    for e in entries:
+        definition=document(e.root/'definition.json');positions=control_positions(definition)
+        rows=[]
+        for i,p in enumerate(definition['parameters']):
+            steps=len(p['mapping']['labels']) if p['mapping']['kind']=='enum' else 0
+            rows.append('{"%s","%s",%d,%d,%d}' % (p['id'],p['label'],round(p['default']*0x7fffffff),positions[i],steps))
+        symbol='sdk_extension_'+e.id
+        lines += ['    if(const auto* p='+symbol+'_processor()) {',
+                  '        if(p->label && p->reset && p->prepare && p->process) {',
+                  '            u32 n=0;while(n<16 && p->label[n])++n;',
+                  '            if(n && n<16 && ++selected==type) {',
+                  '                static const Parameter parameters[] = {'+','.join(rows)+'};',
+                  '                return {"'+e.master_processor.get('state_id',e.id)+'",p,parameters,'+str(len(rows))+','+symbol+'_panel()};',
+                  '            }', '        }', '    }']
+    lines += ['    return {};','}', 'u32 processor_count() {', '    u32 n=0;',
+              '    while(n<max_processors && registration(n+1).processor)++n;', '    return n;', '}', '}}}', '']
+    target=folder/'master_filter_collection.cpp';target.write_text('\n'.join(lines),encoding='utf-8');return target
+
+
+def generate_processor_panel(folder, extension):
+    """One bounded GUI instance per included processor, using the shared display binding."""
+    from .adapters import generate_display
+    from .native import display_ids, header_ids
+    folder=Path(folder);folder.mkdir(exist_ok=True)
+    e=extension;definition=document(e.root/'definition.json')
+    generate_display(folder,definition=definition,kind='master',namespace='opxy::extensions::'+e.id,
+                     symbol_prefix='sdk_master_'+e.id, binding_namespace='master_binding_'+e.id)
+    ids=display_ids(e.id,definition['resources']['display'])
+    source='#include "display_binding.cpp"\n'
+    source+='#define OPXY_MASTER_PANEL_ID '+e.id+'\n#define OPXY_MASTER_BINDING master_binding_'+e.id+'\n'
+    source+='static const char* const master_display_ids[] = {'+','.join('"'+i+'"' for i in ids)+'};\n'
+    source+='static const char* const master_header_ids[] = {'+','.join('"'+i+'"' for i in header_ids(e.id))+'};\n'
+    source+='#define OPXY_MASTER_ASSET "'+Path(e.master_processor['artwork']).name+'"\n'
+    source+='#include "'+(ROOT/'sdk/platform/opxy-1.2.1/master_processor_panel.hpp').as_posix()+'"\n'
+    symbol='sdk_extension_'+e.id+'_panel'
+    source+='extern "C" const opxy::platform::master_processor::Display* '+symbol+'() __asm__("'+symbol+'");\n'
+    source+='extern "C" const opxy::platform::master_processor::Display* '+symbol+'() {\n'
+    source+='    using namespace opxy::platform::master_processor::panels::'+e.id+';\n'
+    source+='    static const opxy::platform::master_processor::Display display={frame,reset_project,parameter_reset};return &display;\n}\n'
+    target=folder/'panel.cpp';target.write_text(source,encoding='utf-8');return target,e.root

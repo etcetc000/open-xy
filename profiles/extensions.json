@@ -1,10 +1,21 @@
 {
-  "schema": 3,
+  "schema": 4,
   "claims": {
     "record_double_tap": {"label": "Record double-tap", "key": 50}
   },
   "actions": {
     "edit_notes": {"requires": "record_double_tap"},
     "notify": {}
+  },
+  "capabilities": {
+    "long_samples": {},
+    "release_floor": {"setting": {"label": "Idle threshold", "unit": "dB", "minimum": -66, "maximum": -20, "default": -48}},
+    "boot_log_fix": {},
+    "load_governor": {"build": true},
+    "idle": {"build": true, "adapters": true},
+    "block_trims": {"build": true},
+    "output_slack": {"build": true},
+    "fast_helpers": {"build": true, "units": ["divide", "memory"], "setting": {"label": "Fast helpers", "unit": "0 off, 1 on", "minimum": 0, "maximum": 1, "default": 0}},
+    "pitch_constants": {"build": true}
   }
 }

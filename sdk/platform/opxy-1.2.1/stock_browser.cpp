@@ -12,12 +12,17 @@ u32 no(Delegate*) { return 0; }
 u32 key(Delegate*, const u32* event) { return event && event[0] == 7 ? 1u : 0u; }
 void highlight(Delegate* delegate, u32 mode, i32 id) {
     Session* session = current(delegate);
+    if (session && !session->accepted && session->callbacks.highlight)
+        session->callbacks.highlight(session->callbacks.context, mode, id);
     if (session && !session->accepted && mode == 0 && id >= 0 && static_cast<u32>(id) < session->count)
         session->candidate = static_cast<u32>(id);
 }
 u32 click(Delegate* delegate, u32 encoder) {
     Session* session = current(delegate);
-    if (!session || (encoder != 0 && encoder != 3)) return 1;
+    // A flat list confirms on the left or white click; two columns on knobs 2-4, as
+    // stock's preset browser does (its knob 1 sorts, which this adapter has none of).
+    const bool confirms = session && (session->columns ? encoder >= 1 && encoder <= 3 : encoder == 0 || encoder == 3);
+    if (!confirms) return 1;
     if (!session->accepted) {
         session->accepted = true;
         session->callbacks.confirm(session->callbacks.context, session->candidate);
@@ -53,34 +58,53 @@ void copy(char* target, const char* source, u32 size) {
     for (u32 i = 0; i < 16; ++i) target[i] = i < size ? source[i] : 0;
 }
 }
+bool name(String& target, const char* text) {
+    const u32 size = length(text);
+    target = String{};
+    target.length = size; target.capacity = 15;
+    copy(target.text, text, size);
+    return size != 0;
+}
+
 bool open(Session& session, Row* rows, u32 count, const char* title,
-          const char* const* labels, u32 initial, Callbacks callbacks) {
-    if (owner || word(kScreen) == 9 || !rows || !count || initial >= count || !callbacks.confirm || !labels)
+          const char* const* labels, u32 initial, Callbacks callbacks, i32 track) {
+    // Validate everything first: rows an open browser may show, or invalid input,
+    // leave the caller's storage untouched.
+    if (owner || word(kScreen) == 9 || !rows || !labels || !count || initial >= count || !callbacks.confirm ||
+        !length(title))
         return false;
+    for (u32 i = 0; i < count; ++i) if (!length(labels[i])) return false;
+    for (u32 i = 0; i < count; ++i) {
+        rows[i] = Row{};
+        name(rows[i].name, labels[i]);
+        rows[i].id = static_cast<i32>(i);
+    }
+    return open_rows(session, rows, count, title, initial, callbacks, track, false);
+}
+
+bool open_rows(Session& session, Row* rows, u32 count, const char* title, u32 initial, Callbacks callbacks,
+               i32 track, bool columns) {
+    if (owner || word(kScreen) == 9 || !rows || !count || initial >= count || !callbacks.confirm) return false;
     const u32 title_size = length(title);
     if (!title_size) return false;
-    for (u32 i = 0; i < count; ++i) if (!length(labels[i])) return false;
     // The getters are the same ones the stock send-effect selector uses.
     void* browser = stock<void*()>(0x8c09dc28)();
     void* screen = stock<void*()>(0x8d550e70)();
     if (!browser || !screen) return false;
-    for (u32 i = 0; i < count; ++i) {
-        rows[i] = Row{};
-        rows[i].name.length = length(labels[i]); rows[i].name.capacity = 15;
-        copy(rows[i].name.text, labels[i], rows[i].name.length);
-        rows[i].id = static_cast<i32>(i);
-    }
     session.catalog = Catalog{{0, rows, rows + count, rows + count}, 0};
     session.delegate = Delegate{&methods, &session};
     session.callbacks = callbacks;
     copy(session.title, title, title_size);
     session.count = count; session.candidate = initial;
     session.accepted = session.closing = false;
+    session.columns = columns;
     owner = &session;
-    stock<void(void*, i32, const char*)>(0x8d551c48)(screen, -1, session.title);
+    // Stock's send-effect selector passes its track here (8c08f638).
+    stock<void(void*, i32, const char*)>(0x8d551c48)(screen, track < 16 ? track : -1, session.title);
     stock<void(void*, Catalog*, i32, Delegate*, u32)>(0x8c0a0b90)(
         browser, &session.catalog, static_cast<i32>(initial), &session.delegate, 0);
-    stock<void(void*, u32)>(0x8d5501ec)(screen, 0);
+    // The preset browser (8c0b174c) shows its bank column so; flat lists hide it.
+    stock<void(void*, u32)>(0x8d5501ec)(screen, columns ? 1 : 0);
     return true;
 }
 }}}}

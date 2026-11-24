@@ -8,10 +8,13 @@
 #define require(value) do { if (!(value)) { std::fprintf(stderr, "line %d\n", __LINE__); std::abort(); } } while (0)
 
 static const opxy::u32 kSlots = 256;  // the relocated screen slots (stock_tables.SCREENS)
-static opxy::u32 owned_page, asked, refreshes;
+static opxy::u32 owned_page, asked, refreshes, substitutions, sample_page, sample_screen_page, sample_asked;
 static int ready = 1;
 int sdk_screen_owned(opxy::u32 page) { ++asked; return page == owned_page ? ready : 0; }
 void sdk_send_refresh() { ++refreshes; }
+opxy::u32 substitute(opxy::u32) { ++substitutions; return 0; }
+// A sample engine's own screen while its stock sample page is selected.
+opxy::u32 sdk_sample_screen(opxy::u32 page) { ++sample_asked; return page == sample_page ? sample_screen_page : 0; }
 
 // One frame; returns the pages in paint order. selected changes after the
 // first advance to check that the frame keeps its snapshot.
@@ -32,16 +35,18 @@ static unsigned frame(opxy::u32 selected, opxy::u32* order) {
 }
 
 int main() {
+    sdk_screen_substitute = substitute;
     opxy::u32 order[kSlots];
     for (int state : {1, 0, 2}) {
         ready = state;
         for (opxy::u32 owned = 0; owned <= kSlots + 1; ++owned)
             for (opxy::u32 selected : {0u, 1u, 2u, 7u, 80u, 81u, 82u, 83u, 126u, 127u, 128u, 200u, 254u, 255u, 256u, 300u, owned}) {
                 owned_page = owned;
-                asked = refreshes = 0;
+                asked = refreshes = substitutions = 0;
                 require(frame(selected, order) == kSlots);
                 require(asked <= 1);  // ownership is asked once per frame at most
                 require(refreshes == 1);  // the sends' effect controls, once a frame
+                require(substitutions == 1); // player refresh runs on every page, once
                 const bool promoted = ready == 1 && selected == owned && selected > 1 && selected < kSlots;
                 // Every page exactly once; the promoted page second, others ascending.
                 unsigned expected = 0;
@@ -52,6 +57,26 @@ int main() {
                 }
             }
     }
+    // A sample engine's own screen is painted right after the stock sample page
+    // it covers, only while that page is selected, and is then visible.
+    owned_page = 0;
+    for (opxy::u32 stock_page : {2u, 7u})
+        for (opxy::u32 screen : {82u, 99u, 127u}) {
+            sample_page = stock_page;
+            sample_screen_page = screen;
+            sample_asked = 0;
+            require(frame(stock_page, order) == kSlots);
+            require(sample_asked == 1);
+            unsigned expected = 0;
+            for (unsigned i = 0; i < kSlots; ++i) {
+                if (i == stock_page + 1) { require(order[i] == screen); continue; }
+                if (expected == screen) ++expected;
+                require(order[i] == expected++);
+            }
+            require(frame(stock_page + 1, order) == kSlots);   // another page selected: stock order
+            for (unsigned i = 0; i < kSlots; ++i) require(order[i] == i);
+        }
+    sample_page = 0;
     opxy::platform::ScreenActivation empty = {};
     require(empty.token(84, 0) == 0);
     ready = 1; owned_page = 84; frame(84, order);
@@ -80,6 +105,24 @@ int main() {
     require(wrap.token(84, 1) == 1);
     wrap.serial = 0xffffffffu; wrap.select(85);
     require(wrap.serial == 1 && wrap.token(85, 1) != 0);
+    // A player's own screen occupies Maestro's layer, exactly once, and
+    // leaves overlays above it. Invalid replacement slots keep stock order.
+    for (opxy::u32 replacement : {0u, 1u, 46u, 84u, 255u, 256u}) {
+        opxy::platform::ScreenOrder<kSlots> substituted = {};
+        opxy::platform::ScreenCursor cursor = {0, 0};
+        const bool valid = replacement > 1 && replacement < kSlots && replacement != 46;
+        unsigned visits[kSlots] = {}, count = 0;
+        do {
+            const auto slot = cursor.slot / 4;
+            require(slot < kSlots && ++visits[slot] == 1);
+            if (cursor.page == 46) require(slot == (valid ? replacement : 46));
+            ++count;
+            cursor.slot += 4;
+        } while (substituted.advance(cursor, 46, replacement, [](opxy::u32) { return 0; }));
+        require(count == kSlots - (valid ? 1 : 0));
+        require(visits[46] == (valid ? 0u : 1u));
+        require(visits[47] == 1 && visits[80] == 1);
+    }
     std::puts("screen order and page/track activation ok");
     return 0;
 }

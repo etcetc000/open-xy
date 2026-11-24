@@ -1,16 +1,18 @@
 import copy
+import dataclasses
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 from types import SimpleNamespace
 import tempfile
 import json
 import unittest
 
-from tooling.adapters import (catalog_defaults, catalog_entry, control_cycles, generate_display, generate_screen,
-                               generate_synth_controls, screen_bytes)
-from tooling.definitions import ROOT, control_positions, paged, validate_definition
+from tooling.adapters import (catalog_defaults, catalog_entry, control_cycles, default_preset, generate_display,
+                               generate_player_object, generate_screen, generate_synth_controls, preset_files, preset_path, screen_bytes)
+from tooling.definitions import ROOT, control_positions, extended_display, paged, validate_definition
 from machine_fixtures import FOLDER, fixture
 from tooling.native import display_ids
 
@@ -91,6 +93,58 @@ class Definitions(unittest.TestCase):
         changed['parameters'][0]['default'] = 0.5
         self.assertEqual(catalog_defaults(changed)[0], 16384)
 
+    def test_generated_init_preset_matches_catalog_defaults_except_for_effects(self):
+        self.assertEqual(preset_files(fixture('probefx')), {})
+        for m in (fixture('probesynth'), fixture('probesample')):
+            files = preset_files(m)
+            path = f'content/presets/{m.id}/default.json'
+            self.assertEqual(list(files), [path])
+            preset = files[path]
+            self.assertEqual(preset, default_preset(m))
+            self.assertEqual((preset['type'], preset['version'], preset['platform'], preset['regions']),
+                             (m.id, 4, 'OP-XY', []))
+            self.assertEqual(preset['engine']['params'], catalog_defaults(m.definition))
+            self.assertFalse(preset['fx']['active'] or preset['lfo']['active'])
+
+    def test_preset_defaults_set_the_init_presets_track_volume(self):
+        from tooling.machines import machine_at
+        synth = fixture('probesynth')
+        self.assertEqual(default_preset(synth)['engine']['volume'], 16384)  # the template's
+        louder = dataclasses.replace(synth, preset_defaults=dict(synth.preset_defaults, volume=20000))
+        self.assertEqual(default_preset(louder)['engine']['volume'], 20000)
+        self.assertEqual(default_preset(louder)['envelope'], default_preset(synth)['envelope'])
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / 'probesynth'
+            shutil.copytree(FOLDER / 'probesynth', root)
+            record = json.loads((root / 'machine.json').read_text(encoding='utf-8'))
+            for volume, valid in ((0, True), (32767, True), (32768, False), (-1, False), (True, False), (1.5, False),
+                                  ('20000', False)):
+                (root / 'machine.json').write_text(json.dumps(dict(record, presetDefaults={'volume': volume})),
+                                                   encoding='utf-8')
+                with self.subTest(volume=volume):
+                    if valid:
+                        self.assertEqual(machine_at(root).preset_defaults, {'volume': volume})
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'Invalid preset volume default'):
+                            machine_at(root)
+
+    def test_a_machines_own_default_preset_replaces_the_generated_one(self):
+        synth = fixture('probesynth')
+        own = {'type': synth.id, 'version': 4, 'marker': 'authored'}
+        other = {'type': synth.id, 'version': 4, 'marker': 'warm'}
+        overridden = dataclasses.replace(synth, presets={'default': own, 'warm': other})
+        files = preset_files(overridden)
+        self.assertEqual(files, {f'content/presets/{synth.id}/default.json': own,
+                                 f'content/presets/{synth.id}/warm.json': other})
+
+    def test_an_aux_track_control_machine_keeps_no_instrument_preset_folder(self):
+        synth = fixture('probesynth')
+        resources = {**synth.definition['resources'], 'trackControl': {'stateBytes': 8, 'stateAlignment': 4,
+                                                                       'unique': True, 'aux': [12]}}
+        aux = dataclasses.replace(synth, definition={**synth.definition, 'resources': resources})
+        self.assertIsNone(preset_path(aux))
+        self.assertEqual(preset_files(aux), {})
+
     def test_resource_declarations_reject_unknown_layouts_and_rates(self):
         for key, value in (('voiceBytes', 0), ('voiceBytes', 41),
                            ('voiceAlignment', 3), ('voiceAlignment', 16),
@@ -116,13 +170,24 @@ class Definitions(unittest.TestCase):
     def test_displays_declare_their_shape_within_limits(self):
         for key, value in (('stateBytes', 61), ('stateBytes', 0),
                            ('stateAlignment', 3), ('stateAlignment', 8),
-                           ('paths', 0), ('paths', 5), ('points', 1), ('points', 65),
-                           ('nodes', 1), ('nodes', 257), ('texts', -1), ('texts', 17), ('texts', True),
+                           ('paths', 0), ('paths', 33), ('points', 1), ('points', 257),
+                           ('nodes', 1), ('nodes', 513), ('texts', -1), ('texts', 33), ('texts', True),
                            ('palette', 0), ('palette', 17), ('kind', 'drawing')):
             changed = copy.deepcopy(self.engine)
             changed['resources']['display'][key] = value
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                 validate_definition(changed, 'synth')
+        # More paths or points than a plain display holds make it an extended one
+        # (docs/display.md#extended-drawing): 5 paths of 64 points or 4 of 65 then share 256 coordinate pairs.
+        for key, value in (('paths', 5), ('points', 65)):
+            changed = copy.deepcopy(self.engine)
+            changed['resources']['display'][key] = value
+            self.assertFalse(extended_display(self.engine['resources']['display']))
+            self.assertTrue(extended_display(changed['resources']['display']))
+        changed = copy.deepcopy(self.engine)
+        changed['resources']['display'].update(paths=5, points=64)
+        with self.assertRaisesRegex(ValueError, '256 coordinate pairs'):
+            validate_definition(changed, 'synth')
         # A display without paths declares no points.
         without = fixture('probesources').definition
         validate_definition(without, 'synth')
@@ -213,11 +278,23 @@ class Definitions(unittest.TestCase):
         effect = copy.deepcopy(fixture('probefx').definition)
         effect['parameters'].append(self.absent('none'))
         with self.assertRaisesRegex(ValueError, 'Only a synth'): validate_definition(effect, 'effect')
+        player = dict(schema=1, id='probeplayer', name='Player', resources={}, presets={}, parameters=[
+            dict(id='p%d' % i, label='P%d' % i, default=0, mapping=dict(kind='linear', minimum=0, maximum=1),
+                 display='percent') for i in range(3)] + [self.absent('none')])
+        validate_definition(player, 'player')
+        with tempfile.TemporaryDirectory() as directory:
+            machine = SimpleNamespace(kind='player', prefix='probeplayer', native_name='probeplayer', display='stock',
+                                      identity=dict(player=6, page=90), definition=player)
+            text = generate_player_object(directory, machine).read_text(encoding='utf-8')
+        self.assertIn('{0, 0, 0, 1, 1, 1, 1, 1}, false, false}', text)
+        player['parameters'][3]['label'] = 'X'
+        with self.assertRaises(ValueError): validate_definition(player, 'player')
         machines = [SimpleNamespace(kind='synth', prefix='gap', identity=dict(engine=5), definition=value)]
         with tempfile.TemporaryDirectory() as directory:
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
-        # The row's last field: the absent slots' mask (slots 3 and 4), which are not continuous either.
-        row = re.search(r'^    \{gap_engine_id, gap_ready, \{([\d, ]+)\}, (\d+), \{[\d, ]+\}, gap_format, false, false, (\d+)\},$', text, re.M)
+        # The row's last field: the absent slots' mask (slots 3 and 4), which are not continuous either;
+        # before it, the hidden pages (none).
+        row = re.search(r'^    \{gap_engine_id, gap_ready, \{([\d, ]+)\}, (\d+), \{[\d, ]+\}, gap_format, false, false, 0, (\d+)\},$', text, re.M)
         self.assertEqual(row.group(1), '0, 1, 2, 5, 4, 3, 6, 7')
         self.assertEqual(int(row.group(2)) & 24, 0)
         self.assertEqual(row.group(3), '24')
@@ -251,7 +328,10 @@ class Definitions(unittest.TestCase):
         self.assertEqual(control_cycles(value), [5, 6, 7, 4, 3, 0, 1, 2])
         self.assertFalse(paged(self.engine))
         rejected = []
-        for bad in ('next', True, None):
+        # "click" is a note player's alone (test_players), on four controls or eight.
+        clicking = copy.deepcopy(self.engine); clicking['press'] = 'click'
+        rejected.append(clicking)
+        for bad in ('next', True, None, 'click'):
             changed = copy.deepcopy(value); changed['press'] = bad
             rejected.append(changed)
         short = copy.deepcopy(value); del short['parameters'][-1]
@@ -278,8 +358,30 @@ class Definitions(unittest.TestCase):
                     SimpleNamespace(kind='synth', prefix='plain', identity=dict(engine=5), definition=self.engine)]
         with tempfile.TemporaryDirectory() as directory:
             text = generate_synth_controls(directory, machines).read_text(encoding='utf-8')
-        self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, .*, (true|false), \d+\},$', text, re.M),
+        self.assertEqual(re.findall(r'^    \{(\w+)_engine_id, .*, (true|false), \d+, \d+\},$', text, re.M),
                          [('paged', 'true'), ('plain', 'false')])
+
+    def test_an_effect_may_page_and_have_a_shift_row(self):
+        effect = copy.deepcopy(fixture('probefx').definition)
+        effect['parameters'] += [self.alternate(i, f'p{i}') for i in range(4)]
+        effect['press'] = 'page'
+        enum = lambda i, labels: dict(id=f's{i}', label=f'S {i}', default=0, display='enum',
+                                      mapping=dict(kind='enum', labels=labels))
+        effect['shift'] = [enum(0, ['a', 'b']), enum(1, ['c', 'd', 'e'])]
+        validate_definition(effect, 'effect')
+        self.assertTrue(paged(effect))
+        rejected = []
+        for shift in ([], [enum(i, ['a', 'b']) for i in range(5)],
+                      [dict(enum(0, ['a', 'b']), display='percent', mapping=dict(kind='linear', minimum=0, maximum=1))],
+                      [dict(enum(0, ['a', 'b']), id='drive')],
+                      [enum(i, [f'c{n}' for n in range(256)]) for i in range(3)]):
+            rejected.append(dict(effect, shift=shift))
+        # A synth's Shift row (SDK 1.13) has rules of its own (test_synth_shift): five entries
+        # need a second page, which a four-control synth lacks.
+        synth = copy.deepcopy(self.engine); synth['shift'] = [enum(i, ['a', 'b']) for i in range(5)]
+        for bad, kind in [(r, 'effect') for r in rejected] + [(synth, 'synth')]:
+            with self.subTest(kind=kind, shift=len(bad['shift'])), self.assertRaises(ValueError):
+                validate_definition(bad, kind)
 
     def test_an_effects_controls_after_four_alternate_on_the_send_page(self):
         # Without `control`, an effect's fifth to eighth controls alternate on positions 0..3.
@@ -339,6 +441,19 @@ class Definitions(unittest.TestCase):
                                                          FOLDER / 'probesynth')), source.name],
                         cwd=directory, capture_output=True, text=True, timeout=120, **hidden)
                     self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_kit_screen_reads_the_note_serial_its_sdk_declares(self):
+        """A drum kit declaring SDK 1.21 or later reads the track's serial and the played pad's
+        snapshot; an older kit keeps the selected-pad strike filter; other screens neither."""
+        definition = copy.deepcopy(fixture('probesynth').definition)
+        for kind, sdk, played, selected in (('drum', (1, 21), 'true', 'false'), ('drum', (1, 20), 'false', 'true'),
+                                            ('drum', (1, 17), 'false', 'true'), ('drum', (1, 8), 'false', 'true'),
+                                            ('synth', (1, 21), 'false', 'false'), ('sample', (1, 17), 'false', 'false')):
+            m = SimpleNamespace(prefix='kit', native_name='kit', definition=definition, kind=kind, sdk=sdk)
+            with self.subTest(kind=kind, sdk=sdk), tempfile.TemporaryDirectory() as directory:
+                text = generate_screen(directory, m).read_text(encoding='utf-8')
+                self.assertIn('static const bool played_pad = %s;' % played, text)
+                self.assertIn('static const bool selected_pad = %s;' % selected, text)
 
 if __name__ == '__main__':
     unittest.main()

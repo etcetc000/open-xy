@@ -1,0 +1,288 @@
+"""Execute drum GUI routing with real SDK controls and stock boundary doubles."""
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+from types import SimpleNamespace
+
+from tooling.adapters import generate_drum_callbacks
+
+from test_sample_services import HOST_CXX, ROOT
+
+
+@unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+class DrumServices(unittest.TestCase):
+    def test_generated_classification_does_not_require_gui_screen(self):
+        platform = ROOT / 'sdk/platform/opxy-1.2.1'
+        machine = SimpleNamespace(kind='drum', prefix='probe', definition={'resources': {'modelCount': 12}})
+        with tempfile.TemporaryDirectory(prefix='drum-classification-') as folder:
+            folder = Path(folder)
+            generated = generate_drum_callbacks(folder, [machine])
+            binary = folder / ('classification.exe' if os.name == 'nt' else 'classification')
+            hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+            command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror',
+                       '-I' + str(ROOT / 'sdk/include'), '-I' + str(platform),
+                       str(generated), str(platform / 'drum_machines.cpp'),
+                       str(ROOT / 'tests/fixtures/drum_classification.cpp'), '-o', str(binary)]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=120, **hidden)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30, **hidden)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_kit_of_more_than_16_models_has_at_most_15_with_eight_controls(self):
+        from tooling.machine_test import drum_storage
+        with tempfile.TemporaryDirectory(prefix='drum-storage-') as folder:
+            folder = Path(folder)
+            (folder / 'core.h').write_text('#include <opxy/types.hpp>\nnamespace probe { opxy::u32 parameter_count(opxy::u32); }\n')
+            for fulls, ok in ((16, False), (15, True), (14, True)):
+                (folder / 'engine.cpp').write_text(
+                    'namespace probe { opxy::u32 parameter_count(opxy::u32 m) { return m < %d ? 8 : 5; } }\n' % fulls)
+                machine = SimpleNamespace(id='probe', root=folder, sources=(), includes=(),
+                                          definition={'id': 'probe', 'resources': {'modelCount': 33}})
+                with self.subTest(fulls=fulls):
+                    if ok:
+                        self.assertEqual(drum_storage(machine, HOST_CXX, folder), fulls)
+                    else:
+                        with self.assertRaisesRegex(ValueError, '16 of its 33 models use all eight controls'):
+                            drum_storage(machine, HOST_CXX, folder)
+            machine.definition['resources']['modelCount'] = 16
+            (folder / 'engine.cpp').write_text('namespace probe { opxy::u32 parameter_count(opxy::u32) { return 8; } }\n')
+            self.assertEqual(drum_storage(machine, HOST_CXX, folder), 16)   # the 4-bit layout holds any
+
+    def test_pad_edit_alternates_shift_and_model_changes(self):
+        self.run_drum_gui()
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_the_drum_kit_controls_edit_read_and_follow_m2(self):
+        # A build with a kit declaring them: the shared units compiled with OPXY_KIT_CONTROLS,
+        # every check above unchanged on kits without them, then theirs (drum_gui.cpp).
+        self.run_drum_gui(kit_controls=True)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_a_model_edit_kits_turn_moves_the_key_across_models(self):
+        # A build with a modelEdit kit (SDK 1.25): the shared editor compiled with OPXY_MODEL_EDIT,
+        # every check above unchanged on kits without it, then its own (drum_gui.cpp
+        # model_edit_checks); beside the drum-kit controls, an ampEnvelope kit keeps its amp values.
+        self.run_drum_gui(model_edit=True)
+        self.run_drum_gui(kit_controls=True, model_edit=True)
+
+    def run_drum_gui(self, kit_controls=False, model_edit=False):
+        platform = ROOT / 'sdk/platform/opxy-1.2.1'
+        with tempfile.TemporaryDirectory(prefix='drum-services-') as folder:
+            folder = Path(folder)
+            stock = (platform / 'stock.hpp').read_text()
+            stock = stock.replace('typedef __UINTPTR_TYPE__ Address;',
+                                  'typedef __UINTPTR_TYPE__ Address;\nAddress host_stock_address(Address);')
+            for pointer in ('T*', 'const volatile u32*', 'const volatile unsigned char*'):
+                stock = stock.replace('reinterpret_cast<' + pointer + '>(address)',
+                                      'reinterpret_cast<' + pointer + '>(host_stock_address(address))')
+            (folder / 'stock.hpp').write_text(stock)
+            # Keep the shared inline decoder beside the mocked stock header.
+            for header in ('drum_values.hpp', 'drum_lock_store.hpp'):
+                (folder / header).write_text((platform / header).read_text())
+            sources = []
+            units = ('synth_controls.cpp', 'drum_synthesis_stock.cpp', 'drum_values_stock.cpp', 'drum_machines.cpp')
+            for name in units + (('drum_kit_controls.cpp',) if kit_controls else ()):
+                target = folder / name
+                target.write_text((platform / name).read_text())
+                sources.append(str(target))
+            binary = folder / ('drum_gui.exe' if os.name == 'nt' else 'drum_gui')
+            hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+            command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', *(['-DOPXY_KIT_CONTROLS=1'] if kit_controls else []),
+                       *(['-DOPXY_MODEL_EDIT=1'] if model_edit else []),
+                       '-I' + str(folder),
+                       '-I' + str(ROOT / 'sdk/include'), '-I' + str(platform),
+                       str(ROOT / 'tests/fixtures/drum_gui.cpp'), *sources, '-o', str(binary)]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=120, **hidden)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30, **hidden)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+class PadSetupStock(unittest.TestCase):
+    """drum_storage.hpp's set-up value against each stock writer of a kit key's pad word."""
+
+    @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Private stock input not supplied')
+    def test_no_stock_writer_of_the_pad_word_gives_the_set_up_value(self):
+        import re
+        from tooling.formats import ldr, mapped_offset, sha
+        from tooling.pipeline import config
+        stock = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(stock), config()['stock_sha256'])
+        blocks = ldr(stock)
+
+        def code(address, length):
+            offset = mapped_offset(blocks, address, length)
+            return stock[offset:offset + length].hex()
+
+        def word(address):
+            # Stock's data mixes stored and filled load blocks.
+            block = next(b for b in blocks if b['target'] <= address < b['target'] + b['count'])
+            if block['fill']:
+                return block['argument']
+            offset = mapped_offset(blocks, address, 4)
+            return int.from_bytes(stock[offset:offset + 4], 'little')
+
+        header = (ROOT / 'sdk/platform/opxy-1.2.1/drum_storage.hpp').read_text(encoding='utf-8')
+        ready = int(re.search(r'kDrumPadReady = (0x[0-9a-f]+);', header).group(1), 16)
+
+        def is_ready(value):
+            return value & 0x8000ffff == ready
+
+        # Projects keep the record byte for byte: the pattern writer (8d598ce8)
+        # hands the 24 pad entries at +0x394c, 0xc00 bytes, to its writer 8d5914bc.
+        self.assertEqual(code(0x8d598e68, 16), '20e14c394650073022e1000cffe324c3')
+        # The payload builder's word 6 is max(word +0x14, flag): R0 = [P4 + 0x14];
+        # R0 = MAX (R0, R6); [P3 + 0x18] = R0.
+        self.assertEqual(code(0x8d5ad738, 8), '60a107c4060098b1')
+        # Preset import: a region's random as max(random << 16, 0) (8d4e3558),
+        # stored at +0x14 (8d4e3b9e, [P5 + 0x10] with P5 the entry + 4); so a
+        # preset leaves a low half of 0.
+        self.assertEqual(code(0x8d4e3588, 30), '073000de058c1043000082ce8080f7a0000001e80000016007c401001000')
+        self.assertEqual(code(0x8d4e3b94, 12), 'b1af09e46000ffe3dffc28b1')
+        # Or its default kit's value from the table at 8403a7b4 (8d4e3956..3958).
+        self.assertEqual(code(0x8d4e394a, 16), '31e5170030e51500e9b0a865099129b1')
+        defaults = [word(0x8403a7b4 + 4 * k) for k in range(24)]
+        self.assertEqual(defaults, [0] * 23 + [0x26660000])
+        # Stock's Drumline editor (8d4d6098): 8d4d6cc8 with 100, which it doubles
+        # to 200 steps, then b * q + q / 2 for q = 0x7fffffff / 200.
+        self.assertEqual(code(0x8d4d6098, 20), '29e1640082ce07c2f1bc68a1026000e3110668b1')
+        self.assertEqual(code(0x8d4d6cde, 90),
+                         '82ce088ca8a00000000d10600d60280620e100018608221082cec70169a00000e940f040b84d0850'
+                         '0e30fe6707c40640026007c4020e00daff7fffff000000de02048c050000666c71c27820ad0501e8'
+                         '0000084d04c408201000')
+        step = 0x7fffffff // 200
+        editor = [b * step + (step >> 1) for b in range(200)]
+        self.assertEqual((editor[0], editor[-1]), (5368709, 2142114891))
+        for value in defaults + editor:
+            self.assertFalse(is_ready(value), hex(value))
+        self.assertNotEqual(ready & 0xffff, 0)   # any value a preset restores has a low half of 0
+        # A preset load: stock's preset import 8d4e35a8(preset, flag) has three callers,
+        # each hooked so a padMix kit's loaded keys are set up (sdk_drum_preset_load). It
+        # writes the track at the preset's +4 (8d4e22d4: R0 = [P5 + 0x4]) in that track's
+        # current pattern (8d587708), which the hook reads back.
+        from tooling.firmware import decode_branch
+        sites = {0x8d4dda96: '00e3892d', 0x8d4ddb84: '00e3122d', 0x8d4dde44: '00e3b22b'}
+        callers = set()
+        for block in blocks:
+            if block['fill'] or not block['stored']:
+                continue
+            body = stock[block['offset'] + 16:block['offset'] + 16 + block['stored']]
+            for i in range(0, len(body) - 8, 2):
+                address = block['target'] + i
+                half = int.from_bytes(body[i:i + 2], 'little')
+                if half >> 8 == 0xe3 and decode_branch(address, body[i:i + 4]) == (0x8d4e35a8, True):
+                    callers.add(address)
+                elif half == 0xde00 and body[i + 6:i + 8] == bytes(2) and \
+                        (int.from_bytes(body[i + 2:i + 4], 'little') << 16 | int.from_bytes(body[i + 4:i + 6], 'little')) == 0x8d4e35a8:
+                    callers.add(address)
+        self.assertEqual(callers, set(sites))
+        for address, before in sites.items():
+            self.assertEqual(code(address, 4), before)
+        hooks = {int(p['address'], 16): p for p in config()['patches'] if p.get('symbol') == 'sdk_drum_preset_load'}
+        self.assertEqual({a: (p['before'], p['length'], p['call'], p['service']) for a, p in hooks.items()},
+                         {a: (h, 4, True, 'drums') for a, h in sites.items()})
+        self.assertEqual(decode_branch(0x8d4e35bc, bytes.fromhex(code(0x8d4e35bc, 4))), (0x8d4e22d4, True))
+        self.assertEqual(decode_branch(0x8d4e35c0, bytes.fromhex(code(0x8d4e35c0, 4))), (0x8d587708, True))
+        self.assertEqual(code(0x8d4e22e2, 2), '68a0')   # R0 = [P5 + 0x4]
+
+
+class DrumHookUnits(unittest.TestCase):
+    def test_every_drums_hook_is_defined_in_a_unit_of_the_drums_service(self):
+        # A service's hooks call into its own units (test_native_package checks the
+        # package): every build links the others, a build without the service neither.
+        import re
+        from tooling import native
+        from tooling.pipeline import config
+        platform = ROOT / 'sdk/platform/opxy-1.2.1'
+        for patch in config()['patches']:
+            if patch.get('service') != 'drums' or patch['kind'] != 'hook':
+                continue
+            symbol = patch['symbol']
+            defining = [f.stem for f in sorted(platform.iterdir()) if f.suffix in ('.cpp', '.s') and
+                        re.search(r'^\.global %s$|^[\w:* ]*\b%s\([^;]*\)\s*\{' % (symbol, symbol),
+                                  f.read_text(encoding='utf-8'), re.M)]
+            with self.subTest(symbol=symbol):
+                self.assertEqual(len(defining), 1, defining)
+                self.assertEqual(native.UNIT_SERVICES.get(defining[0]), 'drums', defining)
+
+    def test_the_played_pad_snapshot_is_linked_only_with_a_kit_declaring_sdk_1_21(self):
+        # Only the screen of a kit declaring SDK 1.21 or later calls sdk_drum_trigger
+        # (screen_drawing.hpp played_pad), so the units a build selects hold drum_trigger
+        # only when such a kit is in it: not for a synth, a Shift-row synth (a drums
+        # user) or an older kit, whose screens never call it.
+        import re
+        from dataclasses import replace
+        from tooling import native
+        from tooling.firmware import active_services
+        from tooling.pipeline import config
+        from machine_fixtures import fixture
+        platform = ROOT / 'sdk/platform/opxy-1.2.1'
+        defining = [f.stem for f in sorted(platform.iterdir()) if f.suffix == '.cpp' and
+                    re.search(r'^void sdk_drum_trigger\(', f.read_text(encoding='utf-8'), re.M)]
+        self.assertEqual(defining, ['drum_trigger'])
+        synth, shift = fixture('probesynth'), fixture('probeshift')
+        kit = lambda sdk, name: replace(synth, kind='drum', id=name, sdk=sdk)
+        units = lambda *machines: [step for _name, m, step in native.plan(native.Collection(machines)) if m is None]
+        for machines, linked in (((synth,), False), ((shift,), False), ((kit((1, 17), 'oldkit'),), False),
+                                 ((kit((1, 8), 'oldkit'), shift), False), ((kit((1, 21), 'newkit'),), True),
+                                 ((kit((1, 20), 'oldkit'),), False),
+                                 ((kit((1, 17), 'oldkit'), kit((1, 21), 'newkit'), synth), True)):
+            with self.subTest(machines=[(m.id, m.kind, m.sdk) for m in machines]):
+                selected = units(*machines)
+                self.assertEqual('drum_trigger' in selected, linked)
+                # Python's service users turn the played_pad service on by the same rule (the
+                # browser kit's own path is the next test).
+                self.assertEqual('played_pad' in active_services(config(), native.service_users(machines)), linked)
+                if any(m.kind == 'drum' or m is shift for m in machines):
+                    self.assertIn('drum_synthesis_stock', selected)   # the drums service itself stays
+
+    def test_the_browser_kit_links_the_played_pad_snapshot_only_for_a_kit_declaring_sdk_1_21(self):
+        # The browser builder's path: the kit lists each machine's features
+        # (browser_kit.machine_entry), core.mjs activeServices turns services on from
+        # them, and linkKit keeps a service's SDK object only while it is on.
+        import json
+        from dataclasses import replace
+        from tooling import browser_kit, native
+        from tooling.pipeline import config
+        from machine_fixtures import fixture
+        # A real drawn kit: the browser kit builds a drawn kit's preview from its drum definition.
+        base = fixture('probekit16')
+        kits = {name: replace(base, id=name, sdk=sdk)
+                for name, sdk in (('kit110', (1, 10)), ('kit117', (1, 17)), ('kit120', (1, 20)), ('kit121', (1, 21)))}
+        # Each kit listed on its own, under the fixture's id, whose artwork names its nodes.
+        with tempfile.TemporaryDirectory(prefix='played-pad-kit-') as folder:
+            entries = {name: browser_kit.machine_entry(replace(m, id=base.id), config(), {}, Path(folder) / name, 'clang++')
+                       for name, m in kits.items()}
+        for name, entry in entries.items():
+            with self.subTest(kit=name):
+                self.assertEqual('playedPad' in entry.get('features', []), kits[name].sdk >= (1, 21))
+        # The kit's objects carry their service as the native build assigns it.
+        services = native.object_services(native.Collection(list(kits.values())))
+        objects = [dict(name=name, owner=None, service=service) for name, service in services.items()]
+        self.assertIn('played_pad', services.values())
+        selections = [['kit110'], ['kit117'], ['kit120'], ['kit121'], ['kit117', 'kit121'], ['kit110', 'kit120']]
+        script = """
+import {activeServices} from %s;
+let input = '';
+for await (const chunk of process.stdin) input += chunk;
+const {profile, entries, objects, selections} = JSON.parse(input);
+process.stdout.write(JSON.stringify(selections.map(selection => {
+  const services = activeServices(profile, selection.map(id => entries[id]));
+  // linkKit's rule for an SDK object (owner null).
+  return objects.filter(o => !o.service || services.has(o.service)).map(o => o.name);
+})));
+""" % json.dumps((ROOT / 'builder/core.mjs').as_uri())
+        request = dict(profile=config(), entries=entries, objects=objects, selections=selections)
+        result = subprocess.run(['node', '--input-type=module', '-e', script], input=json.dumps(request),
+                                capture_output=True, text=True, encoding='utf-8', cwd=ROOT, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        linked = json.loads(result.stdout)
+        trigger = [name for name, service in services.items() if service == 'played_pad']
+        self.assertEqual(len(trigger), 1)
+        for selection, names in zip(selections, linked):
+            with self.subTest(selection=selection):
+                expected = any(kits[name].sdk >= (1, 21) for name in selection)
+                self.assertEqual(trigger[0] in names, expected)
+                self.assertTrue(any(services.get(name) == 'drums' for name in names))

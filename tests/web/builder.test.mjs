@@ -12,6 +12,11 @@ import {outsideCheckout} from '../../vite.config.mjs';
 process.env.OPEN_XY_KIT = '';
 process.env.OPEN_XY_OUT_DIR = '';
 const configFile = fileURLToPath(new URL('../../vite.config.mjs', import.meta.url));
+async function builtCollection(directory) {
+  const bytes = await readFile(join(directory,'kit.json.gz'));
+  assert.ok(bytes.length < 25 * 1024 * 1024, 'catalog asset fits Cloudflare');
+  return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).json();
+}
 test('dev server serves browser sources and rejects private paths and writes', async () => {
   const server = await createServer({configFile,mode:'test',logLevel:'silent',server:{port:0}});
   try {
@@ -22,17 +27,24 @@ test('dev server serves browser sources and rejects private paths and writes', a
     const html = await page.text();
     assert.match(html,/@vite\/client/);
     assert.match(html,/src="\/entry.mjs"/);
-    for (const path of ['/entry.mjs','/style.css','/app.mjs','/browser.mjs','/wizard.mjs','/ferret.mjs','/mtp.mjs','/visuals.mjs','/audition.mjs']) {
+    for (const path of ['/entry.mjs','/style.css','/app.mjs','/graphics-configuration.mjs','/machine-snapshots.mjs','/graphics-dialog.mjs','/browser.mjs','/wizard.mjs','/ferret.mjs','/mtp.mjs','/visuals.mjs','/audition.mjs']) {
       const response = await fetch(url+path); assert.equal(response.status,200,path);
     }
     // Vite's client and the shared renderers load through /@fs/ on every platform.
     const clientEnv = fileURLToPath(new URL('../../node_modules/vite/dist/client/env.mjs', import.meta.url));
-    const shared = ['display.mjs','controls.mjs'].map(name =>
-      fileURLToPath(new URL('../../sdk/browser/' + name, import.meta.url)));
+    const shared = [...['display.mjs','controls.mjs','graphics.mjs'].map(name =>
+      fileURLToPath(new URL('../../sdk/browser/' + name, import.meta.url))),
+      // core.mjs imports the init preset template it shares with the tooling.
+      fileURLToPath(new URL('../../tooling/default_preset.json', import.meta.url))];
+    const fsPath = file => '/@fs/' + file.replaceAll('\\', '/').replace(/^\//, '');
     for (const file of [clientEnv, ...shared]) {
-      const path = '/@fs/' + file.replaceAll('\\', '/').replace(/^\//, '');
-      assert.equal((await fetch(url + path)).status, 200, path);
+      assert.equal((await fetch(url + fsPath(file))).status, 200, fsPath(file));
+      // As the browser asks for a JSON module.
+      if (file.endsWith('.json')) assert.equal((await fetch(url + fsPath(file) + '?import')).status, 200);
     }
+    // Only that file of the tooling.
+    const tooling = fsPath(fileURLToPath(new URL('../../tooling/catalog.py', import.meta.url)));
+    assert.equal((await fetch(url + tooling)).status, 404, tooling);
     for (const path of ['/kit.json','/.env.local','/local/inputs/os.ldr','/builder/../local/inputs/os.ldr',
       '/%2e%2e/local/inputs/os.ldr','/@fs/C:/Windows/win.ini','/@fs/etc/passwd','/@fs//etc/passwd','/vite.config.mjs','/__open-in-editor?file=README.md']) {
       const response = await fetch(url+path); assert.equal(response.status,404,path);
@@ -49,8 +61,9 @@ test('public UI build works without a collection; release build requires one', a
     assert.match(html,/assets\//);
     const headers = await readFile(join(directory,'_headers'),'utf8');
     assert.match(headers,/Permissions-Policy: midi=\(self\), usb=\(self\)/);
-    assert.match(headers,/\/kit\.json\n  Cache-Control: no-cache/);
+    assert.match(headers,/\/kit\.json\.gz\n  Cache-Control: no-cache/);
     await assert.rejects(readFile(join(directory,'kit.json')),/ENOENT/);
+    await assert.rejects(readFile(join(directory,'kit.json.gz')),/ENOENT/);
     await assert.rejects(build({configFile,mode:'release',logLevel:'silent',build:{outDir:directory}}),/OPEN_XY_KIT/);
   } finally { await rm(directory,{recursive:true,force:true}); }
 });
@@ -62,8 +75,10 @@ test('collection builds require fresh external output, including config override
   const screenTemplate = await readFile(new URL('../../sdk/platform/opxy-1.2.1/screen.svg',import.meta.url),'utf8');
   const collection = {format:'opxy-browser-kit/1',version:'0.0.2',profile:JSON.parse(profileSource),
     profileSource:profileSource.toString('base64'),objects:[],stockCatalog:'',screenTemplate,
-    fixed:{fixture:{engine:34,page:82}},
-    machines:[{id:'fixture',kind:'synth',identity:{engine:34,page:82},origin:'personal'}]};
+    fixed:{fixture:{engine:34,page:82}}, linked:['fixture'],
+    machines:[{id:'fixture',kind:'synth',identity:{engine:34,page:82},origin:'personal',
+      description:'catalog text '.repeat(2300000)}]};
+  assert.ok(JSON.stringify(collection).length > 25 * 1024 * 1024, 'exercise an oversized collection');
   const source = join(directory,'kit.json');
   const external = join(directory,'site');
   try {
@@ -78,9 +93,10 @@ test('collection builds require fresh external output, including config override
     await assert.rejects(readFile(join(inside,'kit.json')),/ENOENT/);
     await assert.rejects(build({configFile,mode:'release',logLevel:'silent',build:{emptyOutDir:true}}),/must not empty/);
     await build({configFile,mode:'release',logLevel:'silent'});
-    assert.deepEqual(JSON.parse(await readFile(join(external,'kit.json'),'utf8')),collection);
+    assert.deepEqual(await builtCollection(external),collection);
+    await assert.rejects(readFile(join(external,'kit.json')),/ENOENT/);
     await assert.rejects(build({configFile,mode:'release',logLevel:'silent'}),/fresh, empty output/);
-    assert.deepEqual(JSON.parse(await readFile(join(external,'kit.json'),'utf8')),collection);
+    assert.deepEqual(await builtCollection(external),collection);
     // Development remains possible without configuring a build destination.
     process.env.OPEN_XY_OUT_DIR = '';
     const server = await createServer({configFile,mode:'test',logLevel:'silent',server:{port:0}});
@@ -99,7 +115,7 @@ test('collection builds require fresh external output, including config override
       });
     assert.equal(deploy.status,0,deploy.stdout + deploy.stderr);
     assert.match(deploy.stdout,/dry.run/i);
-    assert.deepEqual(JSON.parse(await readFile(join(deployOutput,'kit.json'),'utf8')),collection);
+    assert.deepEqual(await builtCollection(deployOutput),collection);
   } finally {
     process.env.OPEN_XY_KIT = '';
     process.env.OPEN_XY_OUT_DIR = '';

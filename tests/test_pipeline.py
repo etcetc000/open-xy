@@ -1,4 +1,5 @@
 """Public tests use synthetic containers; private integration fixtures are opt-in."""
+from dataclasses import replace
 import copy
 import json
 import os
@@ -59,10 +60,11 @@ class Services(unittest.TestCase):
         from tooling.firmware import patch_active
         profile = config()
         timing = [p for p in profile['patches'] if p.get('profiling') is False]
-        self.assertEqual(len(timing), 10)
+        self.assertEqual(len(timing), 11)  # ten voice-renderer timers, the tap timer
         for p in timing:
-            self.assertFalse(patch_active(p, {'samples'}))
-            self.assertTrue(patch_active(p, set(), False))
+            self.assertFalse(patch_active(p, {'samples', 'octaves'}))
+            # The tap timer's skip belongs to the block_trims capability too.
+            self.assertTrue(patch_active(p, {p['service']} if 'service' in p else set(), False))
             tagged = dict(p, service='samples')
             self.assertFalse(patch_active(tagged, set(), False))
             self.assertTrue(patch_active(tagged, {'samples'}, False))
@@ -85,20 +87,52 @@ class Services(unittest.TestCase):
         from machine_fixtures import NAMES, fixture
         profile = config()
         self.assertEqual(active_services(profile, ['synth', 'effect']), set())
-        self.assertEqual(active_services(profile, ['sample']), {'samples'})
+        self.assertEqual(active_services(profile, ['sample']), {'samples', 'octaves'})
+        self.assertEqual(active_services(profile, ['drum']), {'samples', 'octaves', 'drums'})
         self.assertEqual(active_services(profile, ['synth', 'extension']), {'extensions'})
         from tooling.extensions import extension_at
         from tooling.pipeline import ROOT
         probe = extension_at(ROOT / 'tests/fixtures/extension_probe')
         # Every kind and an extension, as a full collection holds.
-        machines = native.Collection([fixture(name) for name in NAMES], [probe])
+        machines = native.Collection([fixture(name) for name in NAMES] +
+                                     [replace(fixture('probesynth'), kind='drum', id='probedrum')], [probe])
         self.assertTrue(any(m.kind == 'sample' for m in machines))
         steps = lambda selection: [step for _name, m, step in native.plan(selection)
                                    if m is None and not step.startswith('extension:')]
-        self.assertEqual(steps(machines), list(native.SDK_UNITS))  # full collections keep the link order
-        without = [m for m in machines if m.kind != 'sample']  # nor any extension
-        self.assertEqual(steps(without), [u for u in native.SDK_UNITS if u not in native.UNIT_SERVICES])
-        self.assertEqual(set(native.object_services(machines).values()), {'samples', 'extensions'})
+        # The fixtures declare no track control, hidden pages, aux tracks, players, per-key
+        # sends, a padMix kit's step locks, a synth's Shift row or track stage, no extension a
+        # Drumline page, no settings extension a CPU capability, and their kit declares
+        # an SDK before 1.21 (no played-pad snapshot) and none of the drum-kit controls:
+        # those services stay off. None includes the sample kernel's header, so no unit
+        # tied to a header is linked either.
+        units = [u for u in native.SDK_UNITS if u not in native.UNIT_HEADERS]
+        self.assertIn('sample_kernel', native.SDK_UNITS)
+        self.assertNotIn('sample_kernel', units)
+        self.assertEqual(steps(machines), [u for u in units if native.UNIT_SERVICES.get(u) not in
+                                          ('control', 'aux', 'players', 'master_filter', 'drum_sends', 'track_stage', 'drum_locks',
+                                           'drumline', 'synth_shift', 'played_pad', 'idle', 'block_trims',
+                                           'output_slack', 'kit_controls', 'amp_envelope')])
+        self.assertEqual(active_services(profile, ['drum', 'kitControls']), {'samples', 'octaves', 'drums', 'kit_controls'})
+        self.assertEqual(active_services(profile, ['drum', 'kitControls', 'ampEnvelope']),
+                         {'samples', 'octaves', 'drums', 'kit_controls', 'amp_envelope'})
+        self.assertEqual(active_services(profile, ['drum', 'padMix']), {'samples', 'octaves', 'drums', 'drum_sends', 'track_call', 'drum_locks'})
+        self.assertEqual(active_services(profile, ['drum', 'hidePages', 'padMix']),
+                         {'samples', 'octaves', 'drums', 'drum_sends', 'track_call', 'drum_locks', 'control'})
+        self.assertEqual(active_services(profile, ['master_filter']), {'master_filter'})
+        # A drumline_page extension uses the drum hooks it extends and its own.
+        self.assertEqual(active_services(profile, ['synth', 'drumline_page']),
+                         {'samples', 'octaves', 'drums', 'drum_sends', 'track_call', 'drum_locks', 'drumline'})
+        page = replace(probe, drumline_page=[dict(label='FX I', choices=['TRK'] * 8, default=0, role=1, shift=0, bits=3)])
+        paged = native.Collection(machines, [page])
+        self.assertNotIn('drumline_page', native.service_users(machines))
+        self.assertIn('drumline_page', native.service_users(paged))
+        self.assertEqual(steps(paged), [u for u in units if native.UNIT_SERVICES.get(u) not in
+                                        ('control', 'aux', 'players', 'master_filter', 'track_stage', 'synth_shift', 'played_pad',
+                                         'idle', 'block_trims', 'output_slack', 'kit_controls', 'amp_envelope')])
+        self.assertEqual(native.subset(paged, paged[:1]).extensions, (page,))
+        without = [m for m in machines if m.kind not in ('sample', 'drum')]  # nor any extension
+        self.assertEqual(steps(without), [u for u in units if u not in native.UNIT_SERVICES])
+        self.assertEqual(set(native.object_services(machines).values()), {'samples', 'octaves', 'drums', 'extensions'})
         self.assertEqual(native.object_services(without), {})
 
     def test_only_a_service_edit_may_stay_stock(self):
@@ -112,6 +146,15 @@ class Services(unittest.TestCase):
             check_patch_boundaries(profile, len(profile['patches']))
         plain.pop('after'); tagged['service'] = 'missing'
         with self.assertRaisesRegex(ValueError, 'Undeclared service'):
+            check_patch_boundaries(profile, len(profile['patches']))
+        # So may a service's text edit (an MTP allowlist edit), but not a fixed one.
+        profile = copy.deepcopy(config())
+        tagged = next(p for p in profile['patches'] if p['kind'] == 'text' and p.get('service'))
+        plain = next(p for p in profile['patches'] if p['kind'] == 'text' and not p.get('service'))
+        tagged['after'] = tagged['before']
+        check_patch_boundaries(profile, len(profile['patches']))
+        plain['after'] = plain['before']
+        with self.assertRaisesRegex(ValueError, 'Invalid instruction edit'):
             check_patch_boundaries(profile, len(profile['patches']))
 
 
@@ -167,6 +210,27 @@ class SourceContracts(unittest.TestCase):
                 fresh_output(path)
             self.assertEqual((path / 'keep.txt').read_text(), 'keep')
 
+    def test_overwrite_wipes_the_output_folder(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'existing'
+            (path / 'nested').mkdir(parents=True)
+            (path / 'nested' / 'stale.txt').write_text('stale')
+            self.assertEqual(fresh_output(path, overwrite=True), path.resolve())
+            self.assertEqual(list(path.iterdir()), [])
+            self.assertEqual(fresh_output(Path(directory) / 'new', overwrite=True), (Path(directory) / 'new').resolve())
+
+    def test_overwrite_refuses_what_it_must_not_wipe(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'input').mkdir()
+            (root / 'file').write_text('x')
+            (root / 'link').symlink_to(root / 'input', target_is_directory=True)
+            for path, keep in ((root, [root / 'input']), (root / 'file', ()), (root / 'link', ()),
+                               (ROOT, ()), (ROOT / 'sdk', ()), (Path.home(), ()), (Path.cwd(), ())):
+                with self.subTest(path=path), self.assertRaises(ValueError):
+                    fresh_output(path, overwrite=True, keep=keep)
+            self.assertTrue((root / 'input').is_dir() and (ROOT / 'sdk').is_dir())
+
     def test_release_host_has_tools_and_compiler(self):
         pins = pipeline.toolchains()
         release = pins['hosts'][pins['release']]
@@ -184,12 +248,50 @@ class SourceContracts(unittest.TestCase):
             with self.subTest(system=system), mock.patch('platform.system', return_value=system),                     mock.patch('platform.machine', return_value='x86_64'):
                 self.assertEqual(pipeline.host_platform(), 'windows-x86_64')
 
+    def test_windows_host_survives_an_empty_machine_query(self):
+        for build, key in (('win-amd64', 'windows-x86_64'), ('win-arm64', 'windows-arm64')):
+            with self.subTest(build=build), mock.patch('platform.system', return_value='Windows'),                     mock.patch('platform.machine', return_value=''),                     mock.patch('sysconfig.get_platform', return_value=build):
+                self.assertEqual(pipeline.host_platform(), key)
+
     def test_release_kits_only_on_release_host(self):
         release = pipeline.toolchains()['release']
         with mock.patch.object(pipeline, 'host_platform', return_value=release):
             pipeline.require_release_host()
         with mock.patch.object(pipeline, 'host_platform', return_value='other-host'),                 self.assertRaisesRegex(ValueError, 'on ' + release + ', not other-host'):
             pipeline.require_release_host()
+
+    def test_own_screen_sample_engines_keep_their_words_where_stock_neutralizes_them(self):
+        # Both ask the sample predicate, then set a sampler's eight words to 0x40000000.
+        hooks = {p['address']: p for p in config()['patches'] if p.get('symbol') == 'sdk_sample_neutral_engine'}
+        self.assertEqual(sorted(hooks), ['0x8d581eb2', '0x8d588df2'])
+        self.assertEqual(hooks['0x8d588df2']['before'], '01e3e775')  # CALL 8d5b79c0
+        self.assertEqual(hooks['0x8d581eb2']['before'], '01e387ad')  # CALL 8d5b79c0
+        for hook in hooks.values():
+            self.assertEqual((hook['service'], hook['length'], hook['call']), ('samples', 4, True))
+
+
+class DrumNoteStart(unittest.TestCase):
+    def test_note_start_packs_the_played_pad_for_owned_kits(self):
+        # Without this alias the note word carries pad index 0, so every key
+        # renders the first pad's stored values.
+        hooks = [p for p in config()['patches'] if p.get('address') == '0x8d595a4c']
+        self.assertEqual(len(hooks), 1)
+        self.assertEqual(hooks[0]['symbol'], 'extensions_drum_note_region')
+        self.assertEqual(hooks[0]['service'], 'drums')
+        self.assertEqual(hooks[0]['before'], '22601008')  # R2 = 4; CC = R0 == R2
+        stub = (ROOT / 'sdk/platform/opxy-1.2.1/drum_hooks.s').read_text()
+        self.assertIn('extensions_drum_note_region:', stub)
+
+    def test_project_load_gives_owned_kits_neutral_track_offsets(self):
+        # Stock neutralizes a loaded Drumline track's parameters; a kit that
+        # skips it keeps zero, and every note decodes 64 below its values.
+        hooks = [p for p in config()['patches'] if p.get('address') == '0x8d588ec8']
+        self.assertEqual(len(hooks), 1)
+        self.assertEqual(hooks[0]['symbol'], 'extensions_drum_load_parameters')
+        self.assertEqual(hooks[0]['service'], 'drums')
+        self.assertEqual(hooks[0]['before'], '88a10808')  # R0 = [P1 + 0x18]; CC = R0 == R1
+        stub = (ROOT / 'sdk/platform/opxy-1.2.1/drum_hooks.s').read_text()
+        self.assertIn('extensions_drum_load_parameters:', stub)
 
 
 if __name__ == '__main__':

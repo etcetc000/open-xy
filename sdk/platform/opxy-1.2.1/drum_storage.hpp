@@ -1,0 +1,279 @@
+// A drum key's model and eight controls in stock Drumline's saved pad fields.
+// Stock presets write each of the four parameter words >> 16 and restore it
+// << 16, so nonnegative Q15 integers preserve 60 bits. A kit of up to 16
+// models stores eight 7-bit controls (56 bits) and a 4-bit model; a larger kit
+// (up to 64) stores every control at 7 bits too, in a prefix code (DrumCodec).
+// The pad's model byte (Drumline's
+// instrument type in its low nibble, its choke group in the high one) marks
+// the layout with type 7, which stock's editor skips and its default kit never
+// uses; the choke group stays stock's.
+#pragma once
+#include <opxy/types.hpp>
+
+namespace opxy { namespace platform {
+const u32 kDrumControlCount = 8;
+const u32 kDrumStorageWords = 4;
+const u32 kDrumModelLimit = 64;   // models a kit can store
+const u32 kDrumNarrowModels = 16; // up to this many, the 4-bit model layout
+const u32 kDrumFullModels = 15;   // a larger kit's models with eight controls
+const u32 kDrumModelMark = 7;     // the model byte's low nibble on a kit's pad
+
+// Enum-bin midpoint using only 32-bit division. For at most 128 models the
+// rounding error is below 256 Q31 units, far from either Q15 bin boundary.
+inline i32 drum_model_q31(u32 model, u32 count) {
+    return count && count <= 128 && model < count
+        ? static_cast<i32>((0x40000000u / count) * (2 * model + 1)) : 0;
+}
+
+// The pad's model byte, marked; stock's choke groups (high nibble 0..5) stay.
+inline u8 drum_mark(u8 byte) {
+    const u32 group = byte >> 4;
+    return static_cast<u8>(((group > 5 ? 0u : group) << 4) | kDrumModelMark);
+}
+inline bool drum_marked(u8 byte) { return (byte & 15u) == kDrumModelMark && (byte >> 4) <= 5; }
+
+// A key's choke group, as Shift offers it: none, then
+// 1..3. The high nibble is stock's play mode, as presets name it: gate 0,
+// oneshot 1, mute1 2, loop 3, mute2 4, mute3 5. Pads sharing a mute cut each
+// other off; gate and loop read as none.
+const u32 kDrumChokeChoices = 4;
+const u8 kDrumChokeGroups[kDrumChokeChoices] = {1, 2, 4, 5};
+inline u32 drum_choke(u8 byte) {
+    const u32 group = byte >> 4;
+    for (u32 i = 0; i < kDrumChokeChoices; ++i)
+        if (kDrumChokeGroups[i] == group) return i;
+    return 0;
+}
+inline u8 drum_mark_choke(u32 choice) {
+    return static_cast<u8>((kDrumChokeGroups[choice < kDrumChokeChoices ? choice : 0] << 4) | kDrumModelMark);
+}
+// A pad's own pan and level, stock Drumline's (per-key editor 8d4d5f60, its
+// table at 84039070): pan the signed byte at +0x1e, -100..100 with 0 centred,
+// moved (event[2] + 1) * event[1] a turn (8d4d60b0); level the signed byte at
+// +0x1d in whole dB, -30..+20, one a detent (8d4d60d8). Stock's payload
+// builder (8d5ad660) turns pan into the note payload's word 5, which stock's
+// drum renderer applies to every voice, and level into word 7, Q27 with 0 dB
+// unity: 10^(dB / 20) / 16 * 2^31 (8d5ad604). A padMix kit edits level as a
+// cut, -30..0 dB, and plays any stored boost at 0 dB.
+const u32 kDrumPan = 0x1e, kDrumLevel = 0x1d;
+const i32 kDrumPanLimit = 100, kDrumLevelFloor = -30, kDrumLevelCeiling = 0;
+const u32 kDrumGainWord = 7;
+const i32 kDrumUnityGain = 1 << 27;
+inline i32 drum_pan(const void* record) {
+    return record ? static_cast<signed char>(static_cast<const unsigned char*>(record)[kDrumPan]) : 0;
+}
+inline i32 drum_level(const void* record) {
+    const i32 db = record ? static_cast<signed char>(static_cast<const unsigned char*>(record)[kDrumLevel]) : 0;
+    return db < kDrumLevelFloor ? kDrumLevelFloor : db > kDrumLevelCeiling ? kDrumLevelCeiling : db;
+}
+
+// A key's pad fields (SDK 1.10), in bits 16..30 of stock's pad word +0x14:
+// the kit's pad controls (resources.padControls), up to two small fields
+// packed from bit 16 in declaration order, at most 9 bits; then two 3-bit
+// send steps, FX I at bits 25..27 and FX II at 28..30, for every padMix kit (0
+// follows the track's send; since SDK 1.15 a key's amount is in a byte of the
+// record beside it, drum_send.hpp kDrumSendByte). 0 in every field is neutral. A field may be
+// signed, two's complement in its bits.
+//
+// Stock saves the pad record in projects byte for byte (8d598ce8 writes the
+// pattern's 24 pad entries, +0x394c, as one block) and delivers the word as the
+// note payload's word 6, max(word, 0) on a kit (8d5ad738), which an owned kit
+// otherwise ignores. Stock fills the word itself. Preset import (8d4e35a8)
+// first copies the preset object's 24 entries over the pattern's (8d4e3690):
+// stock's preset reader (8d4e4074) cleared them (8d4e47b2) and gave each
+// region's word 0 unless the region holds a sample's framecount or fades
+// (8d4e49f0..8d4e4a04, 8d4e4cba). For each region it then parses, import
+// writes `random` as max(random << 16, 0) (8d4e3558, stored at 8d4e3b9e) only
+// when the region names it (8d4e38b4), so a kit's region without one keeps 0.
+// A key with no region, or with one import rejects (no `model` or `params`),
+// takes its default kit's whole entry instead (8d4e391c..8d4e3960): the word
+// (table 8403a7b4: 0x26660000 on the last key, 0 on the rest) and a stock
+// model byte, never type 7, so such a key is never marked. Stock's preset
+// writer names `random`, the word >> 16, whenever the word is nonzero
+// (8d4e7322), so on every key the SDK has set up. Its Drumline editor writes
+// a Q31 of 200 steps, b * 10737418 + 5368709 (8d4d6098, 8d4d6cc8). Kits
+// before SDK 1.10 never wrote the word and ignored
+// the level byte, so their keys hold whatever stock left in both. The SDK
+// marks a key it has set up with kDrumPadReady in the word's low half and bit
+// 31 clear. No stock writer gives that: each leaves a low half of 0 or one of
+// the editor's 200, and none of those is the mark. Only a ready key plays its
+// level, pad controls and sends; any other plays as before SDK 1.10, at 0 dB
+// with every field neutral. A padMix kit's first edit of a key sets it up:
+// fields and level neutral, so it sounds as it did, and the mark. Presets
+// keep the word's top half (`random`), the level (`gain`) and pan but not the
+// mark, so a padMix kit's preset load sets up every key it marked
+// (drum_setup_loaded): a preset plays the per-key settings it was saved with.
+const u32 kDrumPadWord = 0x14, kDrumPadPayload = 6;
+// A pattern's machine word and its 24 pad entries (8d58781c, 8d58926c).
+const u32 kDrumPatternMachine = 0x18, kDrumPatternPadsAt = 0x394c, kDrumPatternPadBytes = 0x80, kDrumPatternPads = 24;
+const u32 kDrumPadReady = 0x4d4b;
+const u32 kDrumPadFields = 4;              // the second Shift row's positions
+const u32 kDrumKitPadFields = 2, kDrumKitPadBits = 9, kDrumPadShift = 16;
+const u32 kDrumSendLow = 25, kDrumSendBits = 3;   // FX I at 25, FX II at 28
+const u32 kDrumPadMask = 0x7fffu << kDrumPadShift;   // bits 16..30
+// A pad word the SDK set up, as the record holds it or as payload word 6.
+inline bool drum_pad_ready(i32 word) { return (static_cast<u32>(word) & 0x8000ffffu) == kDrumPadReady; }
+// A key's record the SDK set up: marked, with the mark in its pad word.
+inline bool drum_ready(const void* record) {
+    const unsigned char* bytes = static_cast<const unsigned char*>(record);
+    return record && drum_marked(bytes[24]) && drum_pad_ready(static_cast<const i32*>(record)[kDrumPadWord / 4]);
+}
+// A key a padMix kit's preset has just loaded: set up as the preset holds it.
+// Preset import writes `random` as max(random << 16, 0), or leaves 0 for a
+// region without one, so bits 16..30 are the preset's fields (0 for none) and
+// bit 31 is clear; the mark goes in the low half. Level and
+// pan stay as imported. An unmarked key (not the kit's) or one set up stays.
+inline bool drum_setup_loaded(void* record) {
+    unsigned char* bytes = static_cast<unsigned char*>(record);
+    if (!record || !drum_marked(bytes[24]) || drum_ready(record)) return false;
+    i32* word = static_cast<i32*>(record) + kDrumPadWord / 4;
+    *word = static_cast<i32>((static_cast<u32>(*word) & kDrumPadMask) | kDrumPadReady);
+    return true;
+}
+inline u32 drum_pad_low(u32 field, const u8* bits) {
+    u32 low = kDrumPadShift;
+    for (u32 i = 0; i < field; ++i) low += bits[i];
+    return low;
+}
+inline i32 drum_field_min(u32 bits, bool sign) { return sign ? -(1 << (bits - 1)) : 0; }
+inline i32 drum_field_max(u32 bits, bool sign) { return sign ? (1 << (bits - 1)) - 1 : (1 << bits) - 1; }
+inline i32 drum_field_get(i32 word, u32 low, u32 bits, bool sign) {
+    const u32 raw = (static_cast<u32>(word) >> low) & ((1u << bits) - 1u);
+    return sign && (raw >> (bits - 1)) ? static_cast<i32>(raw) - (1 << bits) : static_cast<i32>(raw);
+}
+inline i32 drum_field_set(i32 word, u32 low, u32 bits, i32 value) {
+    const u32 mask = ((1u << bits) - 1u) << low;
+    return static_cast<i32>((static_cast<u32>(word) & ~mask) | ((static_cast<u32>(value) << low) & mask));
+}
+// A kit pad control by its index, as the adapter decodes it.
+inline i32 drum_pad_get(i32 word, u32 field, const u8* bits, u32 signs) {
+    return drum_field_get(word, drum_pad_low(field, bits), bits[field], (signs >> field & 1u) != 0);
+}
+
+// The note payload's first word: stock's Q31 of the model byte, 6 type + group
+// over 66 bins (8d5ad6ec). Type 7 is bins 42..47.
+inline bool drum_marked_q31(i32 word) {
+    if (word < 0) return false;
+    const u32 bin = ((static_cast<u32>(word) >> 16) * 66u) >> 15;
+    return bin >= 6 * kDrumModelMark && bin < 6 * kDrumModelMark + 6;
+}
+
+// The values a note plays: each stored control plus its track parameter as an
+// offset around Q31 0.5, clamped to 0..127. Step locks and modulation reach a
+// kit's controls only as these offsets; null parameters are neutral. The model has none.
+inline void drum_offset(const u8* controls, const i32* parameters, u8* live) {
+    for (u32 i = 0; i < kDrumControlCount; ++i) {
+        i32 value = controls[i];
+        if (parameters) value += static_cast<i32>((parameters[i] < 0 ? 0u : static_cast<u32>(parameters[i])) >> 24) - 64;
+        live[i] = static_cast<u8>(value < 0 ? 0 : value > 127 ? 127 : value);
+    }
+}
+
+// Bit k of the 60 is bit k % 15 of word k / 15, each word shifted up 16.
+inline bool drum_words(const u32* packed, i32* words) {
+    for (u32 i = 0; i < kDrumStorageWords; ++i) words[i] = static_cast<i32>(packed[i] << 16);
+    return true;
+}
+inline bool drum_bits(const i32* words, u32* packed) {
+    for (u32 i = 0; i < kDrumStorageWords; ++i) {
+        if (words[i] < 0 || (static_cast<u32>(words[i]) & 65535u)) return false;
+        packed[i] = static_cast<u32>(words[i]) >> 16;
+    }
+    return true;
+}
+inline void drum_put(u32* packed, u32 at, u32 bits, u32 value) {
+    for (u32 b = 0; b < bits; ++b) packed[(at + b) / 15] |= ((value >> b) & 1u) << ((at + b) % 15);
+}
+// Runs on every block of a marked key, so no division: the Blackfin's is a software call.
+inline u32 drum_get(const u32* packed, u32 at, u32 bits) {
+    u32 word = 0;
+    while (at >= 15) { at -= 15; ++word; }
+    u32 value = packed[word] >> at;
+    if (at + bits > 15) value |= packed[word + 1] << (15 - at);
+    return value & ((1u << bits) - 1u);
+}
+
+// A kit of up to 16 models: the controls in bits 0..55, 7 each, and the model
+// in 56..59.
+inline bool drum_pack(u32 model, const u8* controls, i32* words) {
+    if (!controls || !words || model >= kDrumNarrowModels) return false;
+    for (u32 i = 0; i < kDrumControlCount; ++i)
+        if (controls[i] > 127) return false;
+    u32 packed[kDrumStorageWords] = {};
+    for (u32 i = 0; i < kDrumControlCount; ++i) drum_put(packed, 7 * i, 7, controls[i]);
+    drum_put(packed, 56, 4, model);
+    return drum_words(packed, words);
+}
+
+// The caller checks the mark first. Failure leaves the outputs untouched, so
+// the caller keeps its defaults.
+inline bool drum_unpack(const i32* words, u8* model, u8* controls) {
+    u32 packed[kDrumStorageWords];
+    if (!words || !model || !controls || !drum_bits(words, packed)) return false;
+    *model = static_cast<u8>(drum_get(packed, 56, 4));
+    for (u32 i = 0; i < kDrumControlCount; ++i) controls[i] = static_cast<u8>(drum_get(packed, 7 * i, 7));
+    return true;
+}
+
+// A kit of more than 16 models keeps every control at 7 bits in the same 60
+// bits, by a prefix code. Its full models, those using all eight controls
+// (parameter_count 8), number at most 15: a key on one stores its rank among
+// them in bits 56..59 and its eight controls in 0..55. A key on any other
+// model stores 15 there, the model in bits 49..54 and its first seven
+// controls in 0..48; its eighth is unused (the model's count is at most
+// seven), so it reads the caller's value, the key's default. Decoding is
+// shifts and masks only. Keys are read in their kit's current layout: a kit
+// that grows past 16 models does not carry over the keys it saved before.
+struct DrumCodec {
+    u32 models;                 // the kit's model count
+    u32 fulls;                  // its full models, in model order (more than 15: it does not fit)
+    u8 full[kDrumFullModels];
+    u8 rank[kDrumModelLimit];   // a full model's place among them, else kDrumFullModels
+    bool wide() const { return models > kDrumNarrowModels; }
+    bool fits() const { return models >= 1 && models <= kDrumModelLimit && (!wide() || fulls <= kDrumFullModels); }
+};
+inline DrumCodec drum_codec(u32 models, u32 (*count)(u32)) {
+    DrumCodec codec = {};
+    codec.models = models;
+    for (u32 m = 0; m < kDrumModelLimit; ++m) codec.rank[m] = kDrumFullModels;
+    for (u32 m = 0; models <= kDrumModelLimit && m < models; ++m) {
+        if (count(m) < kDrumControlCount) continue;
+        if (codec.fulls < kDrumFullModels) {
+            codec.full[codec.fulls] = static_cast<u8>(m);
+            codec.rank[m] = static_cast<u8>(codec.fulls);
+        }
+        ++codec.fulls;
+    }
+    return codec;
+}
+
+inline bool drum_pack(u32 model, const u8* controls, i32* words, const DrumCodec& codec) {
+    if (!codec.wide()) return drum_pack(model, controls, words);
+    if (!controls || !words || !codec.fits() || model >= codec.models) return false;
+    const u32 rank = codec.rank[model], stored = rank < kDrumFullModels ? 8 : 7;
+    for (u32 i = 0; i < stored; ++i)
+        if (controls[i] > 127) return false;
+    u32 packed[kDrumStorageWords] = {};
+    for (u32 i = 0; i < stored; ++i) drum_put(packed, 7 * i, 7, controls[i]);
+    if (rank < kDrumFullModels) {
+        drum_put(packed, 56, 4, rank);
+    } else {
+        drum_put(packed, 49, 6, model);
+        drum_put(packed, 56, 4, kDrumFullModels);
+    }
+    return drum_words(packed, words);
+}
+
+inline bool drum_unpack(const i32* words, u8* model, u8* controls, const DrumCodec& codec) {
+    if (!codec.wide()) return drum_unpack(words, model, controls);
+    u32 packed[kDrumStorageWords];
+    if (!words || !model || !controls || !codec.fits() || !drum_bits(words, packed)) return false;
+    const u32 rank = drum_get(packed, 56, 4);
+    if (rank < kDrumFullModels && rank >= codec.fulls) return false;
+    const u32 m = rank < kDrumFullModels ? codec.full[rank] : drum_get(packed, 49, 6);
+    const u32 stored = rank < kDrumFullModels ? 8 : 7;
+    *model = static_cast<u8>(m);
+    for (u32 i = 0; i < stored; ++i) controls[i] = static_cast<u8>(drum_get(packed, 7 * i, 7));
+    return true;
+}
+}}

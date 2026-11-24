@@ -2,8 +2,9 @@
 
 1. Fetch every published catalog machine at its pinned commit, confirming
    its tag (sdk.py catalog fetch --tags).
-2. Export the release kit from the bundled machines plus those (sdk.py kit, with
-   release verification on the release host).
+2. Export the release kit from the bundled machines plus those, and the SDK's own
+   extensions (extensions/, such as cpu), with release verification on the release host
+   (sdk.py kit).
 3. Build the site around the kit and deploy it to Cloudflare: --deploy beta
    from staging (beta.open-xy.com), --deploy production from main
    (open-xy.com). --dry-run builds and checks everything without publishing.
@@ -18,7 +19,7 @@ import sys
 
 from .formats import require
 from .native import STOCK_CONTENT
-from .pipeline import NO_WINDOW, ROOT, fresh_output
+from .pipeline import NO_WINDOW, ROOT, add_overwrite_argument, fresh_output
 
 # The site each deployment publishes, and the branch it comes from (docs/builder.md).
 TARGETS = {'beta': ('staging', ['--env', 'beta']), 'production': ('main', [])}
@@ -58,6 +59,7 @@ def main(argv=None):
     parser.add_argument('--stock-content', type=Path, default=STOCK_CONTENT,
                         help="the folder holding op1_factory.json (default: this repository's copy)")
     parser.add_argument('--out', type=Path, required=True, help='new folder outside every checkout: kit and site')
+    add_overwrite_argument(parser)
     parser.add_argument('--deploy', choices=sorted(TARGETS), help='publish the site to this Cloudflare environment')
     parser.add_argument('--dry-run', action='store_true', help='build and check the deployment without publishing')
     parser.add_argument('--preview-cxx', default='clang++', help='Clang++ with wasm32/wasm-ld')
@@ -72,11 +74,15 @@ def main(argv=None):
             source, _options = TARGETS[args.deploy]
             require(branch() == source, f'Deploy {args.deploy} from {source}; this checkout is on {branch()}')
             require(published(source), f'Deploy exactly origin/{source}: commit, push or pull first')
-        out = fresh_output(args.out)
+        out = fresh_output(args.out, args.overwrite,
+                           [args.stock_os, args.stock_content, *filter(None, (args.toolchain, args.compiler))])
         python = sys.executable
         run([python, 'sdk.py', 'catalog', 'fetch', '--tags'])
         kit = out / 'kit'
-        run([python, 'sdk.py', 'kit', '--collection', ROOT / 'local/catalog/collection.json',
+        # The SDK's own extensions ship with the SDK, not the catalog (browser_kit.sdk_extension).
+        own = [arg for name in sorted(git('ls-files', ':(glob)extensions/*/extension.json').split())
+               for arg in ('--extension', ROOT / Path(name).parent)]
+        run([python, 'sdk.py', 'kit', '--collection', ROOT / 'local/catalog/collection.json', *own,
              '--stock-os', args.stock_os.resolve(), '--stock-content', args.stock_content.resolve(),
              '--preview-cxx', args.preview_cxx, '--host-cxx', args.host_cxx, '--out', kit,
              *(['--toolchain', args.toolchain] if args.toolchain else []),

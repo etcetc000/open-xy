@@ -16,11 +16,13 @@ const char* volatile sdk_benchmark_engine __asm__("sdk_benchmark_engine") = null
 
 namespace {
 struct Test { u32 engine; const char* name; u32 setup; u32 parameter; };
+// callback: a machine's one isolated run. run: one of a drum kit's, a row each.
 struct Machine { const char* name; const char* id; int (*ready)();
-                 opxy::benchmark::Stats (*callback)(); u32 metric; };
+                 opxy::benchmark::Stats (*callback)(); u32 metric;
+                 opxy::benchmark::Stats (*run)(u32); u32 argument; };
 const Machine machines[] = {
 @MACHINES@
-    {0, 0, 0, 0, 0}
+    {0, 0, 0, 0, 0, 0, 0}
 };
 // A build with --sweep: after a synth's standard run, one run per setting, each
 // control in turn through its positions with the others at their defaults
@@ -78,7 +80,7 @@ void release(void* block) { stock<void(void*)>(0x8d4d2910)(block); }
 // Publish the isolated callback at its declared metric; never label it as a
 // whole stock voice. An inactive/failed fixture emits zero and the host refuses it.
 static void callback_report(const Machine& machine) {
-    const opxy::benchmark::Stats value = machine.callback();
+    const opxy::benchmark::Stats value = machine.run ? machine.run(machine.argument) : machine.callback();
     stock<void()>(0x8c0c7908)();
     if (value.audible && value.count == opxy::benchmark::blocks) {
         volatile u32* record = timing_record(machine.metric);
@@ -106,7 +108,7 @@ void sdk_benchmark_run() {
         // Unselected browser-kit callbacks return 0. Recheck actual ownership
         // after stock setup; never benchmark a foreign or failed registration.
         if (machine.ready() != 1) continue;
-        if (machine.callback) { callback_report(machine); ++index; continue; }
+        if (machine.callback || machine.run) { callback_report(machine); ++index; continue; }
         const Test test = {static_cast<u32>(reinterpret_cast<Address>(machine.id)),
                            machine.name, 19, 0x40000000};
         run(&test, index++, total);

@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from tooling import machines
+from tooling import adapters, machines
 from tooling.pipeline import config
 from machine_fixtures import FOLDER, NAMES, fixture, fixture_entries
 
@@ -32,6 +32,160 @@ def identity(kind, **changes):
     return dict(value, **changes)
 
 
+class DrumPresets(unittest.TestCase):
+    def preset(self):
+        return {'version': 4, 'platform': 'OP-XY', 'type': 'kit', 'engine': {'params': [16384]*8},
+                'regions': [{'model': 'fm slap', 'params': [0, 1, 16384, 32767],
+                             'playmode': 'oneshot', 'hikey': 53+i} for i in range(24)]}
+
+    def test_sample_free_drum_regions_are_retained_without_mutation(self):
+        value = self.preset()
+        expected = copy.deepcopy(value)
+        self.assertIs(machines.check_preset(value, 'kit', kind='drum'), value)
+        self.assertEqual(value, expected)
+        from tooling.browser_kit import kit_presets
+        self.assertEqual(kit_presets(replace(fixture('probesynth'), kind='drum', presets={'kit': value})), {'kit': expected})
+        for kind in ('synth', 'sample'):
+            with self.assertRaisesRegex(ValueError, 'sample regions'):
+                machines.check_preset(value, 'kit', kind=kind)
+
+    def test_a_padmix_kit_keeps_empty_regions(self):
+        # A padMix kit's records would carry each key's level and pad word (gain,
+        # random), which the SDK does not check: refused, however well-formed.
+        value = self.preset()
+        with self.assertRaisesRegex(ValueError, 'padMix'):
+            machines.check_preset(value, 'kit', kind='drum', pad_mix=True)
+        for region in value['regions']:
+            region.update(gain=0, random=0)
+        for pad_mix in (False, True):
+            with self.subTest(pad_mix=pad_mix), self.assertRaises(ValueError):
+                machines.check_preset(value, 'kit', kind='drum', pad_mix=pad_mix)
+        empty = dict(self.preset(), regions=[])
+        self.assertIs(machines.check_preset(empty, 'kit', kind='drum', pad_mix=True), empty)
+
+    def test_drum_features_require_sdk_1_21(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve() / 'probesynth'
+            shutil.copytree(FOLDER / 'probesynth', root)
+            record_path, definition_path = root / 'machine.json', root / 'definition.json'
+            record = json.loads(record_path.read_text())
+            record.update(kind='drum', sdk='1.21')
+            record.pop('identity', None)
+            definition = json.loads(definition_path.read_text())
+            definition['presets'] = {}
+            for control, parameter in enumerate(copy.deepcopy(definition['parameters'])):
+                parameter.update(id=parameter['id'] + '_alt', label='Alt ' + str(control), control=control)
+                definition['parameters'].append(parameter)
+            definition['resources']['modelCount'] = 2
+            for feature in ('parameterEdit', 'presets'):
+                with self.subTest(feature=feature):
+                    current = copy.deepcopy(record)
+                    settings = copy.deepcopy(definition)
+                    if feature == 'parameterEdit':
+                        settings['resources']['parameterEdit'] = 1
+                    else:
+                        current['presets'] = 'presets'
+                        (root / 'presets').mkdir(exist_ok=True)
+                        value = self.preset(); value['type'] = 'probesynth'
+                        (root / 'presets/default.json').write_text(json.dumps(value))
+                    definition_path.write_text(json.dumps(settings))
+                    record_path.write_text(json.dumps(current))
+                    loaded = machines.machine_at(root)
+                    if feature == 'presets':
+                        self.assertEqual(loaded.presets['default']['regions'], value['regions'])
+                        # The same preset on a padMix kit (machine_at reads the flag).
+                        mixed = copy.deepcopy(settings)
+                        mixed['resources']['padMix'] = 1
+                        definition_path.write_text(json.dumps(mixed))
+                        with self.assertRaisesRegex(ValueError, 'padMix'):
+                            machines.machine_at(root)
+                        definition_path.write_text(json.dumps(settings))
+                    # Refused by every earlier SDK, the last one before 1.21 included.
+                    for earlier in ('1.20', '1.17', '1.10'):
+                        current['sdk'] = earlier
+                        record_path.write_text(json.dumps(current))
+                        with self.subTest(sdk=earlier), self.assertRaisesRegex(ValueError, '1.21'):
+                            machines.machine_at(root)
+
+    def test_the_fixture_kits_differ_only_in_their_sdk(self):
+        # probekit16 and probekit21 build the kit rows of an image-size comparison. Their
+        # ids and names are the same length and every file is the same but for them and
+        # the declared SDK, so a build differs only by what SDK 1.21 opts into.
+        from tooling import native
+        old, new = fixture('probekit16'), fixture('probekit21')
+        self.assertEqual((old.kind, old.sdk, new.kind, new.sdk), ('drum', (1, 16), 'drum', (1, 21)))
+        self.assertEqual((len(old.id), len(old.name), old.description), (len(new.id), len(new.name), new.description))
+        for name in sorted(path.name for path in (FOLDER / 'probekit16').iterdir()):
+            with self.subTest(file=name):
+                self.assertEqual(sorted(path.name for path in (FOLDER / 'probekit16').iterdir()),
+                                 sorted(path.name for path in (FOLDER / 'probekit21').iterdir()))
+                text = lambda kit, digits: ((FOLDER / kit / name).read_text(encoding='utf-8')
+                                            .replace(kit, 'ID').replace('Probe Kit ' + digits, 'NAME')
+                                            .replace('"sdk": "1.%s"' % digits, '"sdk": SDK'))
+                self.assertEqual(text('probekit16', '16'), text('probekit21', '21'))
+        units = lambda m: {step for _name, owner, step in native.plan(native.Collection([m])) if owner is None}
+        self.assertEqual(units(new) - units(old), {'drum_trigger'})
+        self.assertEqual(units(old) - units(new), set())
+
+    def test_any_preset_with_records_needs_sdk_1_21(self):
+        # The gate is on the kit, not on each preset: one preset with records among
+        # empty ones needs SDK 1.21, whichever order the folder lists them in.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve() / 'probesynth'
+            shutil.copytree(FOLDER / 'probesynth', root)
+            record_path, definition_path = root / 'machine.json', root / 'definition.json'
+            record = json.loads(record_path.read_text())
+            record.update(kind='drum', presets='presets')
+            record.pop('identity', None)
+            definition = json.loads(definition_path.read_text())
+            definition['presets'] = {}
+            for control, parameter in enumerate(copy.deepcopy(definition['parameters'])):
+                parameter.update(id=parameter['id'] + '_alt', label='Alt ' + str(control), control=control)
+                definition['parameters'].append(parameter)
+            definition['resources']['modelCount'] = 2
+            definition_path.write_text(json.dumps(definition))
+            records = self.preset(); records['type'] = 'probesynth'
+            empty = dict(copy.deepcopy(records), regions=[])
+            cases = (('records first', [records, empty]), ('records last', [empty, records]),
+                     ('records in the middle', [empty, records, empty]),
+                     ('two of three with records', [records, empty, records]),
+                     ('every preset with records', [records, records]), ('none with records', [empty, empty, empty]))
+            for name, values in cases:
+                shutil.rmtree(root / 'presets', ignore_errors=True)
+                (root / 'presets').mkdir()
+                for index, value in enumerate(values):
+                    (root / 'presets' / ('preset%d.json' % index)).write_text(json.dumps(value))
+                with_records = any(value['regions'] for value in values)
+                for sdk in ('1.10', '1.17', '1.20', '1.21'):
+                    record_path.write_text(json.dumps(dict(record, sdk=sdk)))
+                    with self.subTest(case=name, sdk=sdk):
+                        if with_records and sdk != '1.21':
+                            with self.assertRaisesRegex(ValueError, 'Sample-free drum-kit preset records.*1.21'):
+                                machines.machine_at(root)
+                        else:
+                            loaded = machines.machine_at(root)
+                            self.assertEqual([loaded.presets['preset%d' % i]['regions'] for i in range(len(values))],
+                                             [value['regions'] for value in values])
+
+    def test_drum_region_bounds_and_sample_exclusion(self):
+        bad_regions = [[], [0]*3, [0, 1, 2, 32768], [0, 1, 2, -1], [True, 1, 2, 3], [1.5, 1, 2, 3]]
+        cases = [{'params': params} for params in bad_regions]
+        cases += [{'sample': 'private.wav'}, {'path': '/user/samples/kick.wav'}, {'model': 'kick'},
+                  {'playmode': 'unknown'}, {'playmode': None}, {'hikey': 54}, {'hikey': True}]
+        for change in cases:
+            value = self.preset(); value['regions'][0].update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                machines.check_preset(value, 'kit', kind='drum')
+        # Each record valid on its own (no hikey, which a 25th could not match): only the count is wrong.
+        keyless = [{k: v for k, v in region.items() if k != 'hikey'} for region in self.preset()['regions']]
+        value = self.preset(); value['regions'] = keyless
+        self.assertIs(machines.check_preset(value, 'kit', kind='drum'), value)
+        for size in (1, 23, 25):
+            value = self.preset(); value['regions'] = (keyless*2)[:size]
+            with self.subTest(size=size), self.assertRaises(ValueError):
+                machines.check_preset(value, 'kit', kind='drum')
+
+
 class Identity(unittest.TestCase):
     def test_fixed_numbers_are_valid_and_distinct(self):
         # Open-XY's first machines keep the numbers its first firmware gave them, in every layout.
@@ -52,7 +206,7 @@ class Identity(unittest.TestCase):
     def test_stock_occupied_or_sentinel_ids_are_rejected(self):
         for kind, change in (('synth', dict(engine=33)), ('synth', dict(engine=2)), ('synth', dict(engine=256)),
                              ('synth', dict(page=81)), ('synth', dict(page=256)), ('synth', dict(engine=True)),
-                             ('sample', dict(engine=26)), ('sample', dict(page=82)),
+                             ('sample', dict(engine=26)), ('sample', dict(page=81)), ('sample', dict(page=256)),
                              ('effect', dict(effect=0)), ('effect', dict(effect=5)), ('effect', dict(page=20))):
             with self.subTest(kind=kind, change=change), self.assertRaises(ValueError):
                 machines.check_identity(RULES, kind, identity(kind, **change))
@@ -62,6 +216,17 @@ class Identity(unittest.TestCase):
         for page in (2, 21, 50, 81):
             with self.subTest(page=page), self.assertRaises(ValueError):
                 machines.check_identity(RULES, 'synth', identity('synth', page=page))
+
+    def test_a_sample_engine_drawing_its_own_screen_holds_a_relocated_page(self):
+        own = identity('sample', page=90)
+        self.assertEqual(machines.check_identity(RULES, 'sample', own), own)
+        self.assertEqual(machines.check_identity(RULES, 'sample', own, 'drawing'), own)
+        self.assertIn(('page', 90), machines.occupied(RULES, own))
+        self.assertNotIn(('page', 2), machines.occupied(RULES, identity('sample', page=2)))
+        for value, display in ((own, 'stock'), (identity('sample', page=2), 'drawing'), (identity('sample', page=81), None),
+                               (identity('sample', page=256), None), (identity('sample', screen=90), None)):
+            with self.subTest(value=value, display=display), self.assertRaises(ValueError):
+                machines.check_identity(RULES, 'sample', value, display)
 
     def test_names_and_fields_are_checked(self):
         # The folder name is the stock name, so identity holds only IDs.
@@ -126,6 +291,43 @@ class Identity(unittest.TestCase):
         with mock.patch.object(Path, 'read_text',
                                lambda self, *a, **k: json.dumps(value) if self == path else real(self, *a, **k)):
             self.assertIsNone(fixture('probefx').dry_parameter)
+
+    def test_dry_level_fixes_the_source_dry_instead(self):
+        real = Path.read_text
+        path = FOLDER / 'probefx/machine.json'
+        plain = {k: v for k, v in json.loads(real(path)).items() if k not in ('dryParameter', 'identity')}
+        cases = ((dict(plain, sdk='1.7', dryLevel=0), 0), (dict(plain, sdk='1.7', dryLevel=0.5), 0x40000000),
+                 (dict(plain, sdk='1.7', dryLevel=1.5), 'dryLevel'), (dict(plain, sdk='1.7', dryLevel='0'), 'dryLevel'),
+                 (dict(plain, sdk='1.7', dryLevel=0, dryParameter='dry'), 'dryLevel'),
+                 (dict(plain, sdk='1.6', dryLevel=0), '"sdk": "1.7"'))
+        for value, expected in cases:
+            with self.subTest(value=value), mock.patch.object(
+                    Path, 'read_text', lambda self, *a, **k: json.dumps(value) if self == path else real(self, *a, **k)):
+                if isinstance(expected, str):
+                    with self.assertRaisesRegex(ValueError, expected):
+                        fixture('probefx')
+                else:
+                    self.assertEqual(fixture('probefx').dry_level, expected)
+
+    def test_more_than_sixteen_text_slots_need_sdk_1_7(self):
+        real = Path.read_text
+        root = FOLDER / 'probesynth'
+        plain = {k: v for k, v in json.loads(real(root / 'machine.json')).items() if k != 'identity'}
+        definition = json.loads(real(root / 'definition.json'))
+        for version, texts, expected in (('1.6', 16, None), ('1.6', 17, '"sdk": "1.7"'), ('1.7', 32, None),
+                                         ('1.7', 33, 'Display texts must be 0..32')):
+            files = {'machine.json': json.dumps(dict(plain, sdk=version)),
+                     'definition.json': json.dumps(dict(definition, resources=dict(definition['resources'], display=dict(
+                         definition['resources']['display'], texts=texts))))}
+            with self.subTest(version=version, texts=texts), mock.patch.object(
+                    Path, 'read_text',
+                    lambda self, *a, **k: files[self.name] if self.parent == root and self.name in files
+                    else real(self, *a, **k)):
+                if expected:
+                    with self.assertRaisesRegex(ValueError, expected):
+                        machines.machine_at(root)
+                else:
+                    self.assertEqual(machines.machine_at(root).id, 'probesynth')
 
 
 class OutsideMachines(unittest.TestCase):
@@ -211,7 +413,7 @@ class OutsideMachines(unittest.TestCase):
         for version in ('1.1', '1.2', '1.3', '1.4'):
             self.rename('fmcopy', self.free, version)
             self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
-        for version in ('1.5', '1.6'):
+        for version in ('1.5', '1.6', '1.7', '1.8', '1.9', '1.10', '1.11', '1.12'):
             self.numberless(self.folder, sdk=version)
             self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
         future = '%d.%d' % (machines.SDK_VERSION[0], machines.SDK_VERSION[1] + 1)
@@ -227,6 +429,46 @@ class OutsideMachines(unittest.TestCase):
         self.rename('fm2op', machines.FIXED_NUMBERS['fm2op'])
         self.assertEqual(machines.collection(machines.read_collection(None, [self.folder]))[0].identity,
                          machines.FIXED_NUMBERS['fm2op'])
+
+    def test_track_control_needs_the_sdk_that_adds_it(self):
+        (self.folder / 'control.cpp').write_text('', encoding='utf-8')
+        definition = json.loads((self.folder / 'definition.json').read_text(encoding='utf-8'))
+        definition['resources']['trackControl'] = {'stateBytes': 8, 'stateAlignment': 4, 'unique': True, 'aux': [12]}
+        (self.folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(self.folder, sdk='1.8')
+        with self.assertRaisesRegex(ValueError, 'Track control'):
+            machines.machine_at(self.folder)
+        self.numberless(self.folder, sdk='1.9')
+        self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
+
+    def test_a_drum_kits_pad_mix_needs_the_sdk_that_adds_it(self):
+        path = self.folder / 'definition.json'
+        definition = json.loads(path.read_text(encoding='utf-8'))
+        definition['presets'] = {}
+        for control, parameter in enumerate(json.loads(json.dumps(definition['parameters']))):
+            parameter.update(id=parameter['id'] + '_alt', label='Alt ' + str(control), control=control)
+            definition['parameters'].append(parameter)
+        definition['resources'].update(modelCount=12, padMix=1)
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(self.folder, kind='drum', sdk='1.9')
+        with self.assertRaisesRegex(ValueError, 'per-key mixer'):
+            machines.machine_at(self.folder)
+        self.numberless(self.folder, kind='drum', sdk='1.10')
+        self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
+        definition['resources']['padMix'] = 0
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(self.folder, kind='drum', sdk='1.9')
+        self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
+
+    def test_hidden_pages_need_the_sdk_that_adds_them(self):
+        definition = json.loads((self.folder / 'definition.json').read_text(encoding='utf-8'))
+        definition['hidePages'] = ['envelope']
+        (self.folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(self.folder, sdk='1.8')
+        with self.assertRaisesRegex(ValueError, 'Hidden stock pages'):
+            machines.machine_at(self.folder)
+        self.numberless(self.folder, sdk='1.9')
+        self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
 
     def numberless(self, folder, **changes):
         """A machine.json in SDK 1.5 form: no identity; `changes` adds or (None) removes fields."""
@@ -245,6 +487,67 @@ class OutsideMachines(unittest.TestCase):
         folder = self.folder.parent / name
         shutil.copytree(FOLDER / name, folder)
         return folder
+
+    def test_more_than_256_display_nodes_need_sdk_1_8(self):
+        path = self.folder / 'definition.json'
+        definition = json.loads(path.read_text(encoding='utf-8'))
+        definition['resources']['display']['nodes'] = 300
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(self.folder, sdk='1.7')
+        with self.assertRaisesRegex(ValueError, 'More than 256 display nodes'):
+            machines.machine_at(self.folder)
+        self.numberless(self.folder, sdk='1.8')
+        self.assertEqual(machines.machine_at(self.folder).id, 'fmcopy')
+
+    def test_an_effect_bus_shift_needs_sdk_1_16(self):
+        effect = self.copy('probefx')
+        path = effect / 'definition.json'
+        definition = json.loads(path.read_text(encoding='utf-8'))
+        definition['resources']['busShift'] = 9
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(effect, sdk='1.15')
+        with self.assertRaisesRegex(ValueError, 'busShift.*needs "sdk": "1.16"'):
+            machines.machine_at(effect)
+        self.numberless(effect, sdk='1.16')
+        self.assertEqual(machines.machine_at(effect).definition['resources']['busShift'], 9)
+        # 0 is the default, at any version.
+        definition['resources']['busShift'] = 0
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(effect, sdk='1.7')
+        self.assertEqual(machines.machine_at(effect).definition['resources']['busShift'], 0)
+
+    def test_a_sample_engine_below_256_voices_needs_sdk_1_17(self):
+        sample = self.copy('probesample')
+        path = sample / 'definition.json'
+        definition = json.loads(path.read_text(encoding='utf-8'))
+        definition['resources']['voiceCapacity'] = 32
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(sample, sdk='1.16')
+        with self.assertRaisesRegex(ValueError, 'fewer than 256 voices.*needs "sdk": "1.17"'):
+            machines.machine_at(sample)
+        self.numberless(sample, sdk='1.17', base='drumSampler')
+        self.assertEqual(machines.machine_at(sample).definition['resources']['voiceCapacity'], 32)
+        # 256 is what every sample engine declared before, at any version.
+        definition['resources']['voiceCapacity'] = 256
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(sample, sdk='1.10')
+        self.assertEqual(machines.machine_at(sample).definition['resources']['voiceCapacity'], 256)
+
+    def test_an_effect_tail_needs_its_sdk_version(self):
+        effect = self.copy('probefx')
+        path = effect / 'definition.json'
+        definition = json.loads(path.read_text(encoding='utf-8'))
+        for tail in (0, 44100, 'unbounded'):
+            with self.subTest(tail=tail):
+                definition['resources']['tailFrames'] = tail
+                path.write_text(json.dumps(definition), encoding='utf-8')
+                # The version before the tail's has no tailFrames.
+                major, minor = machines.IDLE_SDK
+                self.numberless(effect, sdk=f'{major}.{minor - 1}')
+                with self.assertRaisesRegex(ValueError, f'tailFrames.*needs "sdk": "{major}.{minor}"'):
+                    machines.machine_at(effect)
+                self.numberless(effect, sdk=f'{major}.{minor}')
+                self.assertEqual(machines.machine_at(effect).definition['resources']['tailFrames'], tail)
 
     def test_sdk_1_5_machines_name_no_numbers(self):
         self.numberless(self.folder)
@@ -308,6 +611,319 @@ class OutsideMachines(unittest.TestCase):
         self.numberless(folder, base=None, sdk='1.4', identity={'engine': 47, 'page': 2})
         self.assertEqual(machines.machine_at(folder).identity, {'engine': 47, 'page': 2})
 
+    def test_a_sample_engine_forking_the_sampler_may_draw_its_own_screen(self):
+        folder = self.copy('probesample')
+        definition = json.loads((folder / 'definition.json').read_text(encoding='utf-8'))
+        for name in ('padSettings', 'drumControls'):
+            definition['resources'].pop(name)
+        synth = json.loads((FOLDER / 'probesynth/definition.json').read_text(encoding='utf-8'))
+        definition['resources']['display'] = synth['resources']['display']
+        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(folder, base='drumSampler', sdk='1.8')
+        with self.assertRaisesRegex(ValueError, 'Only a sample engine forking the sampler'):
+            machines.machine_at(folder)
+        # Every released SDK that builds an earlier version refuses a sample engine's
+        # display, so a machine declaring one must name the version that first has it.
+        for version in ('1.5', '1.6', '1.7'):
+            self.numberless(folder, base='sampler', sdk=version)
+            with self.subTest(version=version), self.assertRaisesRegex(
+                    ValueError, r'''A sample engine's own screen \(resources.display\) needs "sdk": "1.8"'''):
+                machines.machine_at(folder)
+        # The form before SDK 1.5 names no version that has the feature, and gives no page.
+        self.numberless(folder, base=None, sdk='1.4', identity={'engine': 47, 'page': 2, 'screen': 90})
+        with self.assertRaisesRegex(ValueError, 'needs "sdk": "1.8"'):
+            machines.machine_at(folder)
+        self.numberless(folder, base=None, sdk='1.8', identity={'engine': 47, 'page': 2, 'screen': 90})
+        with self.assertRaisesRegex(ValueError, 'Remove "identity"'):
+            machines.machine_at(folder)
+        self.numberless(folder, base='sampler', sdk='1.8')
+        m = machines.machine_at(folder)
+        self.assertEqual((m.display, m.identity), ('drawing', {'engine': None, 'page': None}))
+        # The layout gives the screen a page from its own place, as it gives a synth's,
+        # and the engine stays on the sampler's page.
+        built = machines.collection(machines.read_collection(None, [folder]))[0]
+        self.assertIn(built.identity['page'], machines.number_pools(RULES)['page'])
+        self.assertEqual(built.sample_page, 2)
+        # Without a display it keeps the stock page it forks, and may not ask for another.
+        definition['resources'].pop('display')
+        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(folder, base='sampler', sdk='1.8')
+        self.assertEqual(machines.machine_at(folder).identity, {'engine': None, 'page': 2})
+        self.numberless(folder, base=None, sdk='1.4', identity={'engine': 47, 'page': 90})
+        with self.assertRaisesRegex(ValueError, 'stock sample page'):
+            machines.machine_at(folder)
+
+    def test_shift_on_a_sample_engines_own_screen_may_go_to_the_stock_sampler(self):
+        folder = self.copy('probesample')
+        definition = json.loads((folder / 'definition.json').read_text(encoding='utf-8'))
+        for name in ('padSettings', 'drumControls'):
+            definition['resources'].pop(name)
+
+        def declare(stock_shift, display=True, sdk='1.10'):
+            resources = {k: v for k, v in definition['resources'].items() if k not in ('display', 'stockShift')}
+            if display:
+                synth = json.loads((FOLDER / 'probesynth/definition.json').read_text(encoding='utf-8'))
+                resources['display'] = synth['resources']['display']
+            if stock_shift is not None:
+                resources['stockShift'] = stock_shift
+            (folder / 'definition.json').write_text(json.dumps(dict(definition, resources=resources)), encoding='utf-8')
+            self.numberless(folder, base='sampler', sdk=sdk)
+
+        def table():
+            with tempfile.TemporaryDirectory() as out:
+                adapters.generate_synth_controls(out, [machines.machine_at(folder)])
+                return (Path(out) / 'synth_control_table.cpp').read_text(encoding='utf-8')
+        # Shift's stock controls belong to an own screen, which took the sampler page's encoders.
+        declare(['start'], display=False)
+        with self.assertRaisesRegex(ValueError, 'stockShift .* needs resources.display'):
+            machines.machine_at(folder)
+        declare(['start'], sdk='1.9')
+        with self.assertRaisesRegex(ValueError, r'''\(stockShift\) needs "sdk": "1.10"'''):
+            machines.machine_at(folder)
+        for bad, message in ((['pitch'], 'stockShift names "pitch"'), (['crossfade'], "can't name crossfade"),
+                             ([], 'at most four names'),
+                             (['', '', '', '', 'gain'], 'at most four names'), ('gain', 'at most four names'),
+                             (['', ''], 'names no stock control'), (['gain', '', 'gain'], 'twice')):
+            declare(bad)
+            with self.assertRaisesRegex(ValueError, message):
+                machines.machine_at(folder)
+        # Each encoder takes any one of the stock page's eight turns or a window;
+        # an empty name, or one past the list, keeps Shift's fine turn.
+        declare(['end', 'loopWindow', '', 'start'])
+        self.assertIn(', 0, {1, 1, 1, 1}, nullptr, {4, 10, 0, 1}},', table())
+        declare(['direction', 'tune', '', 'gain'])
+        self.assertIn('nullptr, {5, 6, 0, 8}},', table())
+        declare(['window', 'loopStart', 'loopEnd'])
+        self.assertIn('nullptr, {9, 2, 3, 0}},', table())
+        # Without it the row leaves every code zero, and Shift turns stay fine steps.
+        declare(None)
+        self.assertNotIn('{1, 1, 1, 1}, nullptr', table())
+
+    def test_the_sample_kernel_needs_sdk_1_17(self):
+        include = '#include <opxy/sample_kernel.hpp>\n'
+        sample = self.copy('probesample')
+        source = sample / 'sample.cpp'
+        source.write_text(include + source.read_text(encoding='utf-8'), encoding='utf-8')
+        self.numberless(sample, sdk='1.16', base='drumSampler')
+        with self.assertRaisesRegex(ValueError, r'The sample kernel \(opxy/sample_kernel.hpp\) needs "sdk": "1.17"'):
+            machines.machine_at(sample)
+        self.numberless(sample, sdk='1.17', base='drumSampler')
+        self.assertEqual(machines.machine_at(sample).id, sample.name)
+        # In its tests it's the machine's own business, at any version.
+        source.write_text(source.read_text(encoding='utf-8').replace(include, ''), encoding='utf-8')
+        (sample / 'tests').mkdir(exist_ok=True)
+        (sample / 'tests/kernel.cpp').write_text(include, encoding='utf-8')
+        self.numberless(sample, sdk='1.10', base='drumSampler')
+        self.assertEqual(machines.machine_at(sample).id, sample.name)
+
+    def test_only_a_sample_engines_own_screen_reads_the_overview_from_sdk_1_8(self):
+        include = '#include <opxy/sample_overview.hpp>\n'
+        # A synth at its own version, or one the header doesn't yet exist in.
+        synth = self.copy('probesynth')
+        source = synth / 'display.cpp'
+        source.write_text(include + source.read_text(encoding='utf-8'), encoding='utf-8')
+        self.numberless(synth, sdk='1.7')
+        with self.assertRaisesRegex(ValueError, r'A sample overview \(opxy/sample_overview.hpp\) needs "sdk": "1.8"'):
+            machines.machine_at(synth)
+        self.numberless(synth, sdk='1.8')
+        with self.assertRaisesRegex(ValueError, "Only a sample engine's own screen"):
+            machines.machine_at(synth)
+        # In its tests or tools it's the machine's own business.
+        (synth / 'tests').mkdir(exist_ok=True)
+        (synth / 'tests/screen.cpp').write_text(include, encoding='utf-8')
+        source.write_text(source.read_text(encoding='utf-8').replace(include, ''), encoding='utf-8')
+        self.assertEqual(machines.machine_at(synth).id, synth.name)
+        # A sample engine without a display of its own has none to read it from.
+        folder = self.copy('probesample')
+        definition = json.loads((folder / 'definition.json').read_text(encoding='utf-8'))
+        definition['resources'].pop('padSettings')
+        definition['resources'].pop('drumControls')
+        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        (folder / 'display.cpp').write_text(include, encoding='utf-8')
+        self.numberless(folder, base='sampler', sdk='1.8')
+        with self.assertRaisesRegex(ValueError, "Only a sample engine's own screen"):
+            machines.machine_at(folder)
+        # With one, it may.
+        synth_definition = json.loads((FOLDER / 'probesynth/definition.json').read_text(encoding='utf-8'))
+        definition['resources']['display'] = synth_definition['resources']['display']
+        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        self.assertEqual(machines.machine_at(folder).display, 'drawing')
+
+    def sampler(self, samples, presets, sdk='1.10', folder='samples'):
+        """probesample as an SDK 1.10 sample engine forking the sampler, with its own samples and presets."""
+        root = self.copy('probesample')
+        definition = json.loads((root / 'definition.json').read_text(encoding='utf-8'))
+        definition['resources'].pop('padSettings')
+        definition['resources'].pop('drumControls')
+        (root / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(root, base='sampler', sdk=sdk, samples=folder, presets='presets')
+        for name, files in (('samples', samples), ('presets', presets)):
+            (root / name).mkdir()
+            for file, value in files.items():
+                data = value if isinstance(value, bytes) else json.dumps(value).encode()
+                (root / name / file).write_bytes(data)
+        return root
+
+    @staticmethod
+    def wav(frames=100, channels=1, rate=44100, width=2):
+        import io, wave
+        out = io.BytesIO()
+        with wave.open(out, 'wb') as w:
+            w.setnchannels(channels); w.setsampwidth(width); w.setframerate(rate)
+            w.writeframes(bytes(frames * channels * width))
+        return out.getvalue()
+
+    def region(self, **changes):
+        value = {'sample': 'content/samples/probesample/pad.wav', 'framecount': 100, 'sample.start': 0,
+                 'sample.end': 100, 'pitch.keycenter': 48, 'hikey': 127, 'gain': 0, 'tune': 0, 'reverse': False,
+                 'loop.start': 0, 'loop.end': 100, 'loop.crossfade': 0, 'loop.onrelease': False}
+        return {key: v for key, v in {**value, **changes}.items() if v is not None}
+
+    @staticmethod
+    def riff(fmt, data, extra=b''):
+        """A WAV file from its fmt and data chunk bodies, with `extra` chunks between them."""
+        chunk = lambda tag, body: tag + len(body).to_bytes(4, 'little') + body + b'\0' * (len(body) & 1)
+        body = b'WAVE' + chunk(b'fmt ', fmt) + extra + chunk(b'data', data)
+        return b'RIFF' + len(body).to_bytes(4, 'little') + body
+
+    @staticmethod
+    def fmt(tag=1, channels=1, rate=44100, bits=16, extensible=False):
+        align = channels * bits // 8
+        value = b''.join(n.to_bytes(size, 'little') for n, size in (
+            (0xfffe if extensible else tag, 2), (channels, 2), (rate, 4), (rate * align, 4), (align, 2), (bits, 2)))
+        if extensible:  # cbSize, valid bits, channel mask and the PCM subformat GUID
+            value += (22).to_bytes(2, 'little') + bits.to_bytes(2, 'little') + (4).to_bytes(4, 'little') + \
+                     bytes.fromhex('0100000000001000800000aa00389b71')
+        return value
+
+    def test_a_sample_engine_ships_its_own_samples_for_its_presets(self):
+        sample = self.preset(type='probesample', regions=[self.region()])
+        stereo = self.preset(type='probesample', regions=[self.region(
+            sample='content/samples/probesample/loop-2.wav', framecount=50, **{'sample.end': 50, 'loop.end': 50})])
+        root = self.sampler({'pad.wav': self.wav(), 'loop-2.wav': self.wav(50, 2), 'README.md': b'# Samples'},
+                            {'default.json': sample, 'empty.json': self.preset(type='probesample'), 'wide.json': stereo})
+        m = machines.machine_at(root)
+        self.assertEqual({name: (s.frames, s.channels) for name, s in m.samples.items()},
+                         {'loop-2': (50, 2), 'pad': (100, 1)})
+        self.assertEqual(m.presets['default']['regions'], [self.region()])
+        self.assertEqual(machines.sample_path(m.id, 'pad'), 'content/samples/probesample/pad.wav')
+        # The build installs each sample once, as it is, beside the presets naming it.
+        from tooling import native
+        from tooling.pipeline import config
+        catalog = (machines.ROOT / 'profiles/opxy-1.2.1/content/op1_factory.json').read_bytes()
+        outputs = native.prepare_assets(catalog, config(), [m])
+        self.assertEqual(outputs['content/samples/probesample/pad.wav'], self.wav())
+        self.assertEqual(sorted(p for p in outputs if p.startswith('content/samples/')),
+                         ['content/samples/probesample/loop-2.wav', 'content/samples/probesample/pad.wav'])
+        self.assertEqual(json.loads(outputs['content/presets/probesample/default.json'])['regions'], [self.region()])
+
+    def test_a_sample_is_read_from_its_wav_chunks(self):
+        # Chunks before the data, an odd-sized one padded, are skipped: the frames are the data's.
+        listed = self.riff(self.fmt(channels=2), bytes(40), extra=b'LIST' + (3).to_bytes(4, 'little') + b'abc\0')
+        root = self.sampler({'pad.wav': listed}, {'a.json': self.preset(type='probesample', regions=[
+            self.region(framecount=10, **{'sample.end': 10, 'loop.end': 10})])})
+        self.assertEqual((machines.machine_at(root).samples['pad'].frames, machines.machine_at(root).samples['pad'].channels),
+                         (10, 2))
+        self.assertEqual(machines.wav_format(self.wav(7, 2)), (1, 2, 44100, 16, 28, 4))
+
+    def test_a_sample_engines_own_samples_are_checked(self):
+        ok = {'pad.wav': self.wav()}
+        preset = lambda *regions: self.preset(type='probesample', regions=list(regions))
+        used = {'a.json': preset(self.region())}
+        cases = {
+            'old sdk': (ok, {'a.json': preset()}, '1.9', 'samples\\) needs "sdk": "1.10"'),
+            'empty': ({}, {'a.json': preset()}, '1.10', '1 to 4 samples'),
+            'too many': ({f's{i}.wav': self.wav() for i in range(5)}, {'a.json': preset()}, '1.10', '1 to 4 samples'),
+            'name': ({'Pad 1.wav': self.wav()}, {'a.json': preset()}, '1.10', 'Invalid sample file'),
+            'suffix': ({'pad.aif': self.wav()}, {'a.json': preset()}, '1.10', 'Invalid sample file'),
+            'not wav': ({'pad.wav': b'RIFF'}, {'a.json': preset()}, '1.10', 'not a PCM WAV'),
+            'rate': ({'pad.wav': self.wav(rate=48000)}, {'a.json': preset()}, '1.10', '16-bit PCM at 44100'),
+            'width': ({'pad.wav': self.wav(width=3)}, {'a.json': preset()}, '1.10', '16-bit PCM at 44100'),
+            'size': ({'pad.wav': self.wav(600000, 2)}, {'a.json': preset()}, '1.10', 'at most 2097152 bytes'),
+            # Python's wave module reads extensible WAVs from 3.12 only: refused on every version.
+            'extensible': ({'pad.wav': self.riff(self.fmt(extensible=True), bytes(200))}, used, '1.10',
+                           'WAVE_FORMAT_EXTENSIBLE'),
+            'float': ({'pad.wav': self.riff(self.fmt(tag=3, bits=32), bytes(400))}, used, '1.10', '16-bit PCM'),
+            'truncated': ({'pad.wav': self.wav()[:-10]}, used, '1.10', 'not a PCM WAV.*past the end'),
+            'odd data': ({'pad.wav': self.riff(self.fmt(channels=2), bytes(6))}, used, '1.10', '16-bit PCM'),
+            'no data': ({'pad.wav': self.wav(0)}, used, '1.10', '16-bit PCM'),
+            'no presets': (ok, None, '1.10', 'loaded by one of its presets.*pad'),
+            'unused': ({'pad.wav': self.wav(), 'tail.wav': self.wav()}, used, '1.10', 'none loads tail'),
+            'other sample': (ok, {'a.json': preset(self.region(sample='content/samples/probesample/kick.wav'))},
+                             '1.10', "machine's own samples"),
+            'user sample': (ok, {'a.json': preset(self.region(sample='/fat32/samples/user/a.wav'))}, '1.10',
+                            "machine's own samples"),
+            'framecount': (ok, {'a.json': preset(self.region(framecount=99))}, '1.10', 'framecount'),
+            'range': (ok, {'a.json': preset(self.region(**{'sample.end': 101}))}, '1.10', 'framecount'),
+            'loop': (ok, {'a.json': preset(self.region(**{'loop.end': 101}))}, '1.10', 'loop lies inside'),
+            'loop past end': (ok, {'a.json': preset(self.region(**{'sample.end': 80}))}, '1.10', 'loop lies inside'),
+            'loop before start': (ok, {'a.json': preset(self.region(**{'sample.start': 10}))}, '1.10',
+                                  'loop lies inside its sample.start..sample.end \\(10..100\\)'),
+            'gain high': (ok, {'a.json': preset(self.region(gain=21))}, '1.10', 'gain is -30..20'),
+            'gain low': (ok, {'a.json': preset(self.region(gain=-31))}, '1.10', 'gain is -30..20'),
+            'tune': (ok, {'a.json': preset(self.region(tune=12))}, '1.10', 'tune, pan.*at 0'),
+            'pan': (ok, {'a.json': preset(self.region(pan=-20))}, '1.10', 'tune, pan.*at 0'),
+            'crossfade': (ok, {'a.json': preset(self.region(**{'loop.crossfade': 100}))}, '1.10', 'at 0'),
+            'key': (ok, {'a.json': preset(self.region(hikey=128))}, '1.10', '0..127'),
+            'field': (ok, {'a.json': preset(self.region(slices=[]))}, '1.10', 'stock region fields'),
+            'value': (ok, {'a.json': preset(self.region(reverse=0))}, '1.10', 'region values'),
+            'missing': (ok, {'a.json': preset(self.region(framecount=None))}, '1.10', 'stock region fields'),
+            'two regions': (ok, {'a.json': preset(self.region(), self.region())}, '1.10', 'at most 1 sample region'),
+        }
+        for case, (samples, presets, sdk, error) in cases.items():
+            with self.subTest(case=case), self.assertRaisesRegex(ValueError, error):
+                root = self.sampler(samples, presets or {}, sdk)
+                if presets is None:
+                    self.numberless(root, base='sampler', sdk=sdk, samples='samples', presets=None)
+                machines.machine_at(root)
+            shutil.rmtree(self.folder.parent / 'probesample')
+        # Gain at its ends is kept.
+        for gain in (-30, 20):
+            root = self.sampler(ok, {'a.json': preset(self.region(gain=gain))})
+            self.assertEqual(machines.machine_at(root).presets['a']['regions'][0]['gain'], gain)
+            shutil.rmtree(root)
+        # Only a sample engine forking the sampler ships samples: not a synth, and not the
+        # drum sampler, whose pad regions save fields these checks don't cover yet.
+        drum = self.copy('probesample')
+        (drum / 'samples').mkdir()
+        (drum / 'samples/pad.wav').write_bytes(self.wav())
+        self.numberless(drum, base='drumSampler', sdk='1.10', samples='samples')
+        with self.assertRaisesRegex(ValueError, 'forking the sampler'):
+            machines.machine_at(drum)
+        (self.folder / 'samples').mkdir()
+        (self.folder / 'samples/pad.wav').write_bytes(self.wav())
+        self.numberless(self.folder, sdk='1.10', samples='samples')
+        with self.assertRaisesRegex(ValueError, 'forking the sampler'):
+            machines.machine_at(self.folder)
+
+    def test_a_kit_offers_a_sample_engine_without_its_own_samples(self):
+        """The builder doesn't install a machine's own samples yet: a kit made from a collection
+        holding such a machine still lists it and its presets, which load no sample there."""
+        import contextlib, io
+        from tooling import browser_kit
+        sample = self.preset(type='probesample', regions=[self.region()])
+        empty = self.preset(type='probesample')
+        self.sampler({'pad.wav': self.wav()}, {'default.json': sample, 'tape.json': sample, 'empty.json': empty})
+        self.copy('probefx')
+        listed = self.folder.parent / 'collection.json'
+        listed.write_text(json.dumps({'schema': 1, 'machines': [{'path': 'probefx'}, {'path': 'probesample'}]}),
+                          encoding='utf-8')
+        found = machines.collection(machines.read_collection(listed))
+        self.assertEqual([m.id for m in found if m.samples], ['probesample'])
+        notes = io.StringIO()
+        with contextlib.redirect_stderr(notes):
+            entries = {m.id: browser_kit.machine_entry(m, config(), {}, self.folder.parent / 'kit', 'clang++')
+                       for m in found}
+        self.assertEqual(set(entries), {'probefx', 'probesample'})
+        # Every preset, its own default included, with no sample region (core.mjs presetFiles).
+        self.assertEqual(entries['probesample']['presets'], {'default': empty, 'tape': empty, 'empty': empty})
+        self.assertIn('probesample: the kit leaves out its own samples; its presets default, tape load no sample',
+                      notes.getvalue())
+        # The machine's own presets are left as they are, for sdk.py build.
+        m = next(m for m in found if m.id == 'probesample')
+        self.assertEqual(m.presets['tape']['regions'], [self.region()])
+        self.assertEqual(browser_kit.kit_presets(replace(m, presets={'empty': empty})), {'empty': empty})
+
     def preset(self, **changes):
         value = {'engine': {'params': [0, 16384, 32767, 0, 0, 0, 0, 0], 'volume': 16384}, 'platform': 'OP-XY',
                  'regions': [], 'type': 'fmcopy', 'version': 4}
@@ -364,7 +980,7 @@ class OutsideMachines(unittest.TestCase):
         value = dict(json.loads(real(path)), sdk='1.3', presets='.')
         with mock.patch.object(Path, 'read_text',
                                lambda self, *a, **k: json.dumps(value) if self == path else real(self, *a, **k)):
-            with self.assertRaisesRegex(ValueError, 'effects have none'):
+            with self.assertRaisesRegex(ValueError, 'instrument preset folder'):
                 machines.machine_at(FOLDER / 'probefx')
 
 

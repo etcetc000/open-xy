@@ -7,6 +7,8 @@ struct Callbacks {
     void* context;
     void (*confirm)(void*, u32 index);
     void (*cancel)(void*); // Optional; called on close without confirmation.
+    // Optional: every highlight stock reports, as its mode and the row's or item's id.
+    void (*highlight)(void*, u32 mode, i32 id);
 };
 namespace detail {
 struct String { u32 allocator; char text[16]; u32 length, capacity; };
@@ -45,6 +47,7 @@ struct Session {
     char title[16];
     u32 count, candidate;
     bool accepted, closing;
+    bool columns;  // rows with items: the second column's controls are on
 };
 static_assert(sizeof(String) == 28, "Stock inline string ABI");
 static_assert(sizeof(Address) != 4 || sizeof(Item) == 36, "Stock browser item ABI");
@@ -52,7 +55,14 @@ static_assert(sizeof(Address) != 4 || sizeof(Row) == 72, "Stock browser row ABI"
 static_assert(sizeof(Address) != 4 || sizeof(Catalog) == 20, "Stock browser catalog ABI");
 static_assert(sizeof(Methods) == 16 * sizeof(void(*)()), "Stock browser delegate ABI");
 bool open(Session&, Row*, u32 count, const char* title,
-          const char* const* labels, u32 initial, Callbacks);
+          const char* const* labels, u32 initial, Callbacks, i32 track = -1);
+// Rows the caller filled, each possibly holding items (a second column): the
+// same modal as open. name() fills a stock string from 1..15 printable characters.
+bool name(String&, const char*);
+// With columns, the browser's second column (the rows' items) gets its controls,
+// as stock's preset browser has them: knobs 2-4 scroll and press it.
+bool open_rows(Session&, Row*, u32 count, const char* title, u32 initial, Callbacks, i32 track = -1,
+               bool columns = false);
 }
 // Declare as a zero-initialized static aggregate. Storage and callback context
 // must outlive the modal. Titles and labels are copied, printable ASCII 1..15.
@@ -64,6 +74,12 @@ template<u32 N> struct StockSelector {
     detail::Session session;
     bool open(const char* title, const char* const (&labels)[N], u32 initial, Callbacks callbacks) {
         return detail::open(session, rows, N, title, labels, initial, callbacks);
+    }
+    // The same with the first `count` rows, 1..N, and the heading's track
+    // number shown under the title as stock's own selectors show it (-1: none).
+    bool open(const char* title, const char* const* labels, u32 count, u32 initial, Callbacks callbacks,
+              i32 track = -1) {
+        return count <= N && detail::open(session, rows, count, title, labels, initial, callbacks, track);
     }
 };
 }}}

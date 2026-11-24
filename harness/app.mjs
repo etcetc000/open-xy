@@ -14,7 +14,7 @@ const customPreview = previewManifest.kind === 'cpp-browser-custom-preview';
 if (customPreview) {
   document.getElementById('preview-mode').textContent = 'Local authoring preview. This audition does not qualify a firmware build.';
 }
-import { createControls, editedShown, shownControls, VIEWS } from '../sdk/browser/controls.mjs';
+import { createControls, editedShown, pressedShown, shownControls, VIEWS } from '../sdk/browser/controls.mjs';
 const controls = createControls(previewManifest.definition);
 const { definition, parameters, positions, defaults, presets, displayValue, makePatch, readPatch, validateParameters, q31 } = controls;
 import { renderScreen as renderBase } from './screen.mjs';
@@ -22,10 +22,26 @@ import { bindKnob } from './knobs.mjs';
 import { createAudioActivation } from './audio-activation.mjs';
 import { createOutputMute } from './audio-output.mjs';
 import { PreviewDisplay, SvgDisplay, NoteActivity } from '../sdk/browser/display.mjs';
+import { selectArtwork } from '../sdk/browser/graphics.mjs';
+import { createGraphicsSelector } from './graphics.mjs';
+import { EncoderActivity } from '../sdk/browser/encoder_activity.mjs';
 const noteActivity = new NoteActivity();
-const renderScreen = (...args) => renderBase(...args, controls, shown, scene?.header);
+// An extended display's encoder activity and whole-screen canvas.
+const encoderActivity = new EncoderActivity();
+const fullCanvas = previewManifest.definition.resources?.display?.fullCanvas === 1;
+const renderScreen = (...args) => renderBase(...args, controls, shown, scene?.header, shiftHeld, fullCanvas);
 const $ = id => document.getElementById(id);
-const controlId = id => customPreview ? `custom-control-${parameters.findIndex(p => p.id === id)}` : id;
+// A synth's Shift row (SDK 1.13): its present entries, each under page i >> 2, position i & 3.
+const shiftControls = controls.shift.map((p, i) => ({ p, i })).filter(({ p }) => !p.absent);
+const controlId = id => {
+  if (!customPreview) return id;
+  const main = parameters.findIndex(p => p.id === id);
+  return `custom-control-${main >= 0 ? main : 8 + controls.shift.findIndex(p => p.id === id)}`;
+};
+// Whether the preview shows the Shift row, as holding Shift does on the device: from an
+// edit of one of its entries until a control of the page is edited, or while the
+// Shift button is on.
+let shiftHeld = false;
 // Page copy comes from the machine: its definition and machine.json description.
 document.querySelector('.instrument-top h1').textContent = definition.name;
 document.title = definition.name + ' · Open-XY Machine Workbench';
@@ -37,6 +53,7 @@ if (customPreview) {
 }
 // The parameter each control position shows: the one last edited there.
 let values = defaults(), view = VIEWS[0], octave = 3, shown = [0, 1, 2, 3];
+let artworkChoice = null, graphicsMode = 'colorful';
 let visualNotes = 0, display = null, scene = null, displayBackend = null;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 let context, processor, gain, muteGain, analyser, samples, starting;
@@ -66,19 +83,67 @@ function playbackStatus() {
     : 'Play a key or phrase to start audio';
 }
 
-for (const [i, param] of parameters.entries()) {
+function addControl(param, position, label, edited, slot = null) {
   const id = controlId(param.id);
   const item = document.createElement('div');
   item.className = 'control';
-  item.dataset.controlPosition = positions[i] + 1;
-  item.innerHTML = `<label for="${id}">${param.label}</label><svg id="knob-${id}" class="dial" viewBox="0 0 60 60" role="slider" tabindex="0" aria-label="${param.label} knob" aria-valuemin="0" aria-valuemax="1" aria-orientation="vertical"><title>Drag up or down to adjust. Hold Shift for fine control.</title><circle class="dial-ring" cx="30" cy="30" r="27"/><circle class="dial-cap" cx="30" cy="30" r="18"/><line id="dial-${id}" x1="30" y1="16" x2="30" y2="23"/></svg><output id="value-${id}" for="${id}"></output><input id="${id}" type="range" min="0" max="1" step="0.001" aria-label="${param.label}">`;
+  item.dataset.controlPosition = position + 1;
+  item.innerHTML = `<label for="${id}">${label}</label><svg id="knob-${id}" class="dial" viewBox="0 0 60 60" role="slider" tabindex="0" aria-label="${label} knob" aria-valuemin="0" aria-valuemax="1" aria-orientation="vertical"><title>Drag up or down to adjust. Hold Shift for fine control.</title><circle class="dial-ring" cx="30" cy="30" r="27"/><circle class="dial-cap" cx="30" cy="30" r="18"/><line id="dial-${id}" x1="30" y1="16" x2="30" y2="23"/></svg><output id="value-${id}" for="${id}"></output><input id="${id}" type="range" min="0" max="1" step="0.001" aria-label="${label}">`;
   $('controls').append(item);
+  // A physical gesture on the control: the display's encoder activity and last control touched.
+  const gesture = event => {
+    if (slot !== null) display?.controlInteraction(0, position, slot, parameterWords()[slot], event);
+    return encoderActivity.record(position, event);
+  };
+  for (const type of ['pointerdown', 'keydown']) $(id).addEventListener(type, event => { if (gesture(event)) draw(); });
   $(id).addEventListener('input', event => {
     values[param.id] = Number(event.target.value);
-    shown = editedShown(shown, positions, i, previewManifest.definition.press === 'page');
+    edited();
+    gesture(event);
     update();
   });
-  bindKnob($(`knob-${id}`), $(id));
+  bindKnob($(`knob-${id}`), $(id), event => { if (gesture(event)) draw(); });
+}
+for (const [i, param] of parameters.entries()) {
+  addControl(param, positions[i], param.label, () => {
+    shiftHeld = false;
+    shown = editedShown(shown, positions, i, previewManifest.definition.press === 'page');
+  }, i);
+}
+// The Shift row's entries: an edit shows the row on its page, as Shift and that page's encoder do.
+for (const { p, i } of shiftControls) {
+  addControl(p, i & 3, 'Shift + ' + p.label, () => {
+    shiftHeld = true;
+    const next = [0, 1, 2, 3];
+    if (i >= 4) positions.forEach((position, slot) => { if (position !== null && slot >= 4) next[position] = slot; });
+    shown = next;
+  });
+}
+// Shift and an encoder press, for a synth with a Shift row: Shift holds the row in the
+// header, and a press switches pages with Shift held or not, as on the device, so
+// the row shown follows the page.
+if (shiftControls.length) {
+  const encoders = document.createElement('div');
+  encoders.className = 'segmented';
+  encoders.setAttribute('aria-label', 'Encoders');
+  encoders.innerHTML = '<button id="shift-hold" aria-pressed="false">Shift</button><button id="encoder-press">Press</button>';
+  document.querySelector('.screen-toolbar').insertBefore(encoders, document.querySelector('.zoom-label'));
+  $('shift-hold').addEventListener('click', () => { shiftHeld = !shiftHeld; update(); });
+  $('encoder-press').addEventListener('click', () => {
+    shown = pressedShown(shown, positions, 0, previewManifest.definition.press === 'page');
+    update();
+    status(`Page ${shown.some(s => s >= 4) ? 2 : 1}${shiftHeld ? ' · Shift row' : ''}`);
+  });
+}
+// A drum kit's model, chosen on the device with Shift.
+let model = 0;
+const models = previewManifest.definition?.resources?.modelCount ?? 0;
+if (models) {
+  const item = document.createElement('div');
+  item.className = 'control';
+  item.innerHTML = `<label for="drum-model">Shift / Model</label><output id="value-drum-model">1</output><input id="drum-model" type="range" min="0" max="${models - 1}" step="1" value="0" aria-label="Model">`;
+  $('controls').append(item);
+  $('drum-model').addEventListener('input', event => { model = Number(event.target.value); update(); });
 }
 for (const [name, preset] of Object.entries(presets)) {
   const button = document.createElement('button');
@@ -88,9 +153,15 @@ for (const [name, preset] of Object.entries(presets)) {
 }
 function draw(elapsed = 0) {
   if (display) {
-    const input = shownControls(parameterWords(), shown);
+    const words = parameterWords();
+    const input = shownControls(words.slice(0, 8), shown);
+    // A synth's Shift row: held while the preview shows it, on the page the encoders are on.
+    const row = shiftControls.length ? { held: shiftHeld ? 1 : 0, line: shown.some(s => s >= 4) ? 1 : 0, values: words.slice(8) } : null;
     try {
-      scene.apply(display.tick(input, elapsed, visualNotes, 0, reducedMotion.matches, noteActivity));
+      scene.apply(display.tick(input, elapsed, visualNotes, 0, reducedMotion.matches, noteActivity, model, 0, [0, 0, 0, 0],
+                               null, { pan: 0, level: 0 }, 0, row, encoderActivity.snapshot()));
+      // A gesture's immediate redraw has no elapsed time; the next timed frame still sees it.
+      if (elapsed > 0) encoderActivity.clear();
     }
     catch (error) { display = scene = displayBackend = null; status(`Display stopped: ${error.message}`); }
   }
@@ -98,25 +169,41 @@ function draw(elapsed = 0) {
 }
 async function loadPreview() {
   const manifest = previewManifest;
-  const responses = await Promise.all([fetch('/preview/engine.wasm'), fetch('/preview/panel.svg')]);
+  const paths = ['/preview/engine.wasm', '/preview/panel.svg'];
+  if (manifest.graphics.grayscale_sha256) paths.push('/preview/panel.grayscale.svg');
+  const responses = await Promise.all(paths.map(path => fetch(path)));
   if (responses.some(response => !response.ok)) throw new Error('Compiled preview or artwork is unavailable.');
-  const [bytes, artwork] = await Promise.all(responses.map(response => response.arrayBuffer()));
+  const [bytes, artwork, grayscale] = await Promise.all(responses.map(response => response.arrayBuffer()));
   const digestOf = async buffer => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', buffer)),
     byte => byte.toString(16).padStart(2, '0')).join('');
   const [digest, artDigest] = await Promise.all([digestOf(bytes), digestOf(artwork)]);
   if (digest !== manifest.wasm_sha256 || artDigest !== manifest.graphics.asset_sha256) throw new Error('Preview identity mismatch.');
+  if (grayscale && await digestOf(grayscale) !== manifest.graphics.grayscale_sha256) throw new Error('Grayscale preview identity mismatch.');
+  const choice = {artwork:new TextDecoder().decode(artwork), preview:{graphics:manifest.graphics}};
+  if (grayscale) choice.grayscaleArtwork = new TextDecoder().decode(grayscale);
   const module = await WebAssembly.compile(bytes);
   const readyDisplay = new PreviewDisplay(module);
-  const readyScene = new SvgDisplay(new TextDecoder().decode(artwork), manifest.graphics);
+  const readyScene = new SvgDisplay(selectArtwork(choice, graphicsMode), manifest.graphics);
+  artworkChoice = choice;
+  $('graphics').disabled = false;
   display = readyDisplay;
   scene = readyScene;
   displayBackend = { backend: 'cpp-wasm', stateBytes: display.stateBytes, frameBytes: readyDisplay.frame.byteLength, wasmSha256: digest };
   draw();
   return { manifest, digest, module };
 }
+const graphicsSelect = createGraphicsSelector(next => {
+  if (!artworkChoice || !display) return;
+  try {
+    const replacement = new SvgDisplay(selectArtwork(artworkChoice, next), previewManifest.graphics);
+    scene = replacement; graphicsMode = next; draw();
+    status(next === 'colorful' ? 'Original artwork' : artworkChoice.grayscaleArtwork ? 'Grayscale · developer artwork' : 'Grayscale · automatic conversion');
+  } catch (error) { graphicsSelect.value = graphicsMode; status('Graphics unchanged: ' + error.message); }
+});
+
 let preview;
 function update() {
-  for (const p of parameters) {
+  for (const p of [...parameters, ...shiftControls.map(({ p }) => p)]) {
     const id = controlId(p.id);
     $(id).value = values[p.id];
     $(id).setAttribute('aria-valuetext', displayValue(p.id, values));
@@ -129,7 +216,9 @@ function update() {
     button.setAttribute('aria-pressed', String(parameters.every(p => presets[button.textContent][p.id] === values[p.id])));
   }
   for (const mode of VIEWS) $(mode).setAttribute('aria-pressed', String(mode === view));
+  if (shiftControls.length) $('shift-hold').setAttribute('aria-pressed', String(shiftHeld));
   send({ type: 'parameters', value: parameterWords() });
+  if (models) { $('value-drum-model').textContent = String(model + 1); send({ type: 'model', value: model }); }
   draw();
 }
 async function enableAudio() {
@@ -144,7 +233,8 @@ async function enableAudio() {
         const [{ manifest, digest, module }] = await Promise.all([preview, context.resume()]);
         await context.audioWorklet.addModule('/harness/processor.mjs');
         processor = new AudioWorkletNode(context, 'opxy-engine', { numberOfInputs: 0, numberOfOutputs: 1,
-          outputChannelCount: [1], processorOptions: { module, parameters: parameterWords() } });
+          outputChannelCount: [new WebAssembly.Instance(module).exports.opxy_output_channels?.() ?? 1],
+          processorOptions: { module, parameters: parameterWords() } });
         const ready = new Promise((resolve, reject) => {
           const timeout = setTimeout(() => reject(new Error('Audio processor did not start.')), 5000);
           processor.onprocessorerror = () => {
@@ -170,6 +260,7 @@ async function enableAudio() {
           if (context.state !== 'running') panic();
         };
         send({ type: 'parameters', value: parameterWords() });
+        if (models) send({ type: 'model', value: model });
         await Promise.all([context.resume(), ready]);
       }
       await context.resume();
@@ -302,7 +393,7 @@ $('file').addEventListener('change', async () => {
   } catch (error) { status(`Import rejected: ${error.message}`); }
   finally { $('file').value = ''; }
 });
-$('reset').addEventListener('click', () => { panic(); values = defaults(); shown = [0, 1, 2, 3]; update(); status('Controls reset'); });
+$('reset').addEventListener('click', () => { panic(); values = defaults(); shown = [0, 1, 2, 3]; shiftHeld = false; update(); status('Controls reset'); });
 // Stable local automation surface: uses the same validation and note lifecycle as UI.
 window.machineLab = Object.freeze({
   getPatch: () => makePatch(values, view),

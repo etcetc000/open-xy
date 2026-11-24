@@ -5,8 +5,10 @@ import os
 from pathlib import Path
 import platform
 import re
+import shutil
 import subprocess
 import sys
+import sysconfig
 import xml.etree.ElementTree as ET
 
 from .formats import elf32, header, ldr, mapped_offset, require, sha
@@ -36,7 +38,7 @@ PROTECTED = (
 )
 
 
-PATCH_KINDS = ('heap', 'table', 'text', 'hook', 'startup')
+PATCH_KINDS = ('heap', 'table', 'limit', 'text', 'hook', 'startup')
 
 
 def check_patch_boundaries(profile, count):
@@ -56,12 +58,13 @@ def check_patch_boundaries(profile, count):
                 'Invalid profiling hook')
         if 'after' in patch:
             after = bytes.fromhex(patch['after'])
-            # Optional hooks stay stock in builds that leave them out.
+            # Optional hooks, and a service's text and limit edits, stay stock in builds that leave them out.
             require(len(after) == len(before) and (after != before or
-                    (kind == 'hook' and ('service' in patch or 'profiling' in patch))),
+                    (kind == 'hook' and ('service' in patch or 'profiling' in patch)) or
+                    (kind in ('text', 'limit') and 'service' in patch)),
                     'Invalid instruction edit')
         else:
-            require(kind in ('hook', 'startup'), 'Heap, table and text edits carry their reviewed bytes')
+            require(kind in ('hook', 'startup'), 'Heap, table, limit and text edits carry their reviewed bytes')
         if kind == 'text':
             # A stock string rewritten in place: printable text, then at least one NUL.
             for data in (before, bytes.fromhex(patch['after'])):
@@ -70,6 +73,16 @@ def check_patch_boundaries(profile, count):
         if kind == 'hook':
             require(isinstance(patch.get('symbol'), str) and patch['symbol'] and type(patch.get('call')) is bool,
                     'A hook names its module symbol and call/jump form')
+        # A site several services need has one hook (firmware.hook_symbol): `symbols` maps
+        # each service to the handler a build with it enters, the first active one winning.
+        # Whenever the record's service is active one of them is, so `symbol` is one of them.
+        if 'symbols' in patch:
+            shared, services = patch['symbols'], profile.get('services', {})
+            require(kind == 'hook' and 'service' in patch and isinstance(shared, dict) and shared and
+                    all(s in services and isinstance(v, str) and v for s, v in shared.items()) and
+                    patch['symbol'] in shared.values() and
+                    set(services[patch['service']]) == {u for s in shared for u in services[s]},
+                    'A shared hook maps the services that use its site to module symbols')
         # Protected code is only ever redirected into the module by a hook whose
         # destination the build verifies, or by the separately reviewed startup label.
         require(kind != 'startup' or startup_label_allowed(profile, patch), 'Unexpected startup label edit')
@@ -127,6 +140,12 @@ def host_platform():
     system, machine = platform.system().lower(), platform.machine().lower()
     if system.startswith(('msys_nt', 'cygwin', 'mingw')):
         system = 'windows'  # MSYS2/Cygwin Python runs the same Windows executables
+    if system == 'windows' and not machine:
+        # Windows Python asks WMI for the processor and falls back to PROCESSOR_ARCHITECTURE;
+        # under parallel builds the query can fail in a shell without that variable, leaving
+        # it empty. A native Windows interpreter's own build platform (win-amd64, win-arm64)
+        # still holds; MinGW and 32-bit builds keep failing with the no-tools message.
+        machine = sysconfig.get_platform().rpartition('-')[2]
     return system + '-' + {'amd64': 'x86_64', 'aarch64': 'arm64'}.get(machine, machine)
 
 
@@ -188,8 +207,29 @@ def hidden_process():
     return dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
 
 
-def fresh_output(path):
+def add_overwrite_argument(parser):
+    parser.add_argument('--overwrite', action='store_true',
+                        help='first delete --out with everything in it if it already exists')
+
+
+def wipe_output(path, keep):
+    """Delete an existing output folder, refusing any that holds the checkout, the working folder, home or an input."""
+    require(path.is_dir(), f'Output exists and is not a folder: {path}')
+    protected = [Path.cwd().resolve(), Path.home().resolve(), ROOT, *(Path(os.path.abspath(k)).resolve() for k in keep)]
+    require(not any(p.is_relative_to(path) for p in protected),
+            f'Refusing to overwrite a folder holding the working folder, the checkout, your home or an input: {path}')
+    require(not path.is_relative_to(ROOT) or path.is_relative_to(ROOT / 'local'),
+            'Inside the checkout, only local/ can be overwritten')
+    shutil.rmtree(path)
+
+
+def fresh_output(path, overwrite=False, keep=()):
+    """A new empty folder; with `overwrite`, an existing one is deleted first. `keep` lists inputs it must not hold."""
+    given = Path(os.path.abspath(path))
+    if overwrite and given.exists():
+        require(not given.is_symlink(), f'Refusing to overwrite a link: {given}')
+        wipe_output(given.resolve(), keep)
     path = Path(path).resolve()
-    require(not path.exists(), f'Output already exists; choose a new directory: {path}')
+    require(not path.exists(), f'Output already exists; choose a new directory or pass --overwrite: {path}')
     path.mkdir(parents=True)
     return path

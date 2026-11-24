@@ -92,6 +92,70 @@ def selftest():
     if len(frame(0x21, 9)) > 64:
         raise ValueError('frame bounds')
 
+def readout(decoded):
+    """The readout's table and summary lines for decoded reports (tooling.benchmark.decode):
+    each machine's heaviest mean and worst block, a synth's track stage added once to them
+    (tooling.cpu_measurement.track_cost), never compared with its voice runs."""
+    from tooling.cpu_measurement import recommendation
+    from tooling.benchmark import case_label, combined_label, combined_positions
+    lines = ['| Machine | Scope | Setting | Mean block budget | Worst observed block |', '| --- | --- | --- | ---: | ---: |']
+    heaviest, peaks, swept, stages = {}, {}, {}, {}
+    for item in decoded:
+        metrics = item['metrics']
+        suffix = ' (insufficient activity)' if item['insufficient_voice_activity'] else ''
+        case = item['machine']
+        scope = ('track stage callback' if case.get('stage') else
+                 'whole voice' if case.get('kind', 'synth') == 'synth' else case['kind'] + ' callback')
+        metric = metrics[case.get('metric', 5)]
+        value = metric['average_budget_percent']
+        setting = case.get('setting')
+        if setting:
+            swept.setdefault(case['name'], []).append((setting, metric['encoded_average']))
+        label = (combined_label(combined_positions(swept.get(case['name'], []))) if case.get('combined')
+                 else case_label(case))
+        peak = metric['maximum_budget_percent']
+        peak_text = '>=100% (clipped; exact peak unavailable)' if metric['maximum_clipped'] else f'{peak:.3f}%'
+        lines.append(f"| {case['name']}{suffix} | {scope} | {label} | {value:.3f}% | {peak_text} |")
+        # A silent run says nothing about cost; a saturated one is the heaviest of all.
+        # As profile report: a swept setting counts if it timed anything; others must sound.
+        sounded = metric['encoded_average'] > 0 and (setting or not item['insufficient_voice_activity'])
+        # A synth's track stage runs once per track beside its voices: its figures are
+        # added to a voice's below (tooling.cpu_measurement.track_cost), never compared.
+        if case.get('stage'):
+            if case.get('source') == 'sdk':
+                stages[case['name']] = (value, peak, metric['maximum_clipped']) if sounded else None
+            continue
+        if case.get('source') == 'sdk' and sounded and peak > peaks.get(case['name'], (0, ''))[0]:
+            peaks[case['name']] = (peak, label, metric['maximum_clipped'])
+        # A kit's recommendation is for one voice; its whole-kit runs are listed above.
+        whole_kit = case.get('drum', {}).get('run', 'voice') != 'voice'
+        if case.get('source') == 'sdk' and sounded and not whole_kit and value > heaviest.get(case['name'], (0, ''))[0]:
+            heaviest[case['name']] = (value, label + (' (saturated: at or above the whole budget)'
+                                                      if metric['encoded_average'] >= 65535 else ''))
+    lines.append('')
+    for name, stage in stages.items():
+        if stage is None:
+            lines.append(f'- {name}: its track stage run failed or was silent; the figures below leave it out.')
+            continue
+        mean, peak, clipped = stage
+        staged = ' with its track stage'
+        if name in heaviest:
+            heaviest[name] = (round(heaviest[name][0] + mean, 6), heaviest[name][1] + staged)
+        if name in peaks:
+            voice, label, voice_clipped = peaks[name]
+            peaks[name] = (round(voice + peak, 6), label + staged, voice_clipped or clipped)
+    for name, (value, label) in heaviest.items():
+        warning = recommendation(value, 'at ' + label, 'Mean')
+        lines.append(f'- {name}: heaviest {value:.3f}% at {label} in this run.' +
+                     (f' **{warning[0].upper() + warning[1:]}.**' if warning else ''))
+    for name, (peak, label, clipped) in peaks.items():
+        warning = recommendation(peak, 'at ' + label, 'Worst observed block peak')
+        peak_text = f'>={peak:.3f}% (clipped; exact peak unavailable)' if clipped else f'{peak:.3f}%'
+        lines.append(f'- {name}: worst observed block {peak_text} at {label} in this run.' +
+                     (f' **{warning}.**' if warning else ''))
+    return lines
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('mode', choices=['selftest', 'probe', 'benchmark', 'report'])
@@ -257,36 +321,9 @@ def main(argv=None):
         (a.out / 'messages.txt').write_text('\n'.join((f['text'] for f in record['frames'])), encoding='utf-8')
     if expected is not None:
         decoded = decode(record, expected)
-        results = {'package': package_identity, 'engines': decoded, 'normalization': '100 * encoded average / 65535; stock 580352-cycle block budget', 'workload': 'Versioned workloads in docs/profiling.md; synth: stock note 60/midpoint, then in a sweep build each control through its positions; effect/sample: isolated default-setting callback fixtures', 'limitations': ['Synthetic test, not live project utilization or maximum polyphony.', 'Results assigned by build order and exact packet count; device firmware hash is not attested.', 'Machine settings affect cost; a sweep moves one control at a time, then combines each control at its heaviest position; other combinations and presets are not run.', 'Graphics are excluded. Effect/sample callback tests exclude stock mixing, preparation and allocation.', 'Whole voice includes oscillator; do not add the two.', 'A maximum of 65535 is clipped; insufficient voice activity is flagged.']}
+        results = {'package': package_identity, 'engines': decoded, 'normalization': '100 * encoded average or maximum / 65535; stock 580352-cycle block budget', 'workload': 'Versioned workloads in docs/profiling.md; synth: stock note 60/midpoint, then in a sweep build each control through its positions; effect/sample: isolated default-setting callback fixtures; a synth track stage: its stage callback alone, on a state of its own', 'limitations': ['Synthetic test, not live project utilization or maximum polyphony.', 'Results assigned by build order and exact packet count; device firmware hash is not attested.', 'Machine settings affect cost; a sweep moves one control at a time, then combines each control at its heaviest position; other combinations and presets are not run.', 'Graphics are excluded. Effect/sample callback tests exclude stock mixing, preparation and allocation.', 'Whole voice includes oscillator; do not add the two.', 'A maximum of 65535 is clipped; insufficient voice activity is flagged.']}
         (a.out / 'results.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
-        from tooling.cpu_measurement import recommendation
-        from tooling.benchmark import case_label, combined_label, combined_positions
-        lines = ['| Machine | Scope | Setting | Mean block budget |', '| --- | --- | --- | ---: |']
-        heaviest, swept = {}, {}
-        for item in decoded:
-            metrics = item['metrics']
-            suffix = ' (insufficient activity)' if item['insufficient_voice_activity'] else ''
-            case = item['machine']
-            scope = 'whole voice' if case.get('kind', 'synth') == 'synth' else case['kind'] + ' callback'
-            metric = metrics[case.get('metric', 5)]
-            value = metric['average_budget_percent']
-            setting = case.get('setting')
-            if setting:
-                swept.setdefault(case['name'], []).append((setting, metric['encoded_average']))
-            label = (combined_label(combined_positions(swept.get(case['name'], []))) if case.get('combined')
-                     else case_label(case))
-            lines.append(f"| {case['name']}{suffix} | {scope} | {label} | {value:.3f}% |")
-            # A silent run says nothing about cost; a saturated one is the heaviest of all.
-            # As profile report: a swept setting counts if it timed anything; others must sound.
-            sounded = metric['encoded_average'] > 0 and (setting or not item['insufficient_voice_activity'])
-            if case.get('source') == 'sdk' and sounded and value > heaviest.get(case['name'], (0, ''))[0]:
-                heaviest[case['name']] = (value, label + (' (saturated: at or above the whole budget)'
-                                                          if metric['encoded_average'] >= 65535 else ''))
-        lines.append('')
-        for name, (value, label) in heaviest.items():
-            warning = recommendation(value, 'at ' + label)
-            lines.append(f'- {name}: heaviest {value:.3f}% at {label} in this run.' +
-                         (f' **{warning[0].upper() + warning[1:]}.**' if warning else ''))
+        lines = readout(decoded)
         lines += ['', 'Workload: ' + results['workload'] + '.', '', 'Normalization: ' + results['normalization'] + '.',
                   '', *('- ' + item for item in results['limitations']), '',
                   'Firmware SHA-256: `' + package_identity['firmware_sha256'] + '`']

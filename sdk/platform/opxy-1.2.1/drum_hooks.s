@@ -1,0 +1,208 @@
+/* OS 1.2.0 guarded Drumline transport branches. The track and registration
+ * retain the actual machine ID; only the local classification is aliased.
+ * Every patch replaces whole decoded instructions on the authenticated image.
+ */
+.include "sdk/platform/opxy-1.2.1/hook.inc"
+.section .text
+.align 2
+.extern sdk_drum_alias
+.extern sdk_preset_alias
+.extern sdk_synth_shift_export
+.extern sdk_drum_load_engine
+.extern stock_drum_classify_tail
+.extern sdk_drum_export_random
+.extern sdk_drum_import_random
+
+.macro DRUM_ALIAS_R0
+    HOOK_SAVE
+    CALL sdk_drum_alias;
+    HOOK_RESULT R0
+    HOOK_RESTORE
+.endm
+
+/* The preset sites' class: an owned kit, or a synth whose Shift row (SDK 1.13) a
+ * preset keeps in its first pad record, as Drumline (drum_machines.cpp). */
+.macro PRESET_ALIAS_R0
+    HOOK_SAVE
+    CALL sdk_preset_alias;
+    HOOK_RESULT R0
+    HOOK_RESTORE
+.endm
+
+/* 8d5b79f0: entry of the predicate for drum (3) or Drumline (4). */
+.global extensions_drum_classify
+.type extensions_drum_classify, STT_FUNC
+extensions_drum_classify:
+    DRUM_ALIAS_R0
+    CC = R0 < 3 (IU);
+    LINK 0;
+    JUMP.L stock_drum_classify_tail;
+.size extensions_drum_classify, .-extensions_drum_classify
+
+/* 8d4e36a8: preset region import, R3 is the constant 4. */
+.global extensions_drum_preset_import
+.type extensions_drum_preset_import, STT_FUNC
+extensions_drum_preset_import:
+    R0 = [P1 + 0x128];
+    PRESET_ALIAS_R0
+    CC = R0 == R3;
+    RTS;
+.size extensions_drum_preset_import, .-extensions_drum_preset_import
+
+/* 8d4e39c0: import's neutral track offsets, which a kit alone takes: a synth's
+ * eight controls load as they are. */
+.global extensions_drum_compare_r0
+.type extensions_drum_compare_r0, STT_FUNC
+extensions_drum_compare_r0:
+    DRUM_ALIAS_R0
+    R1 = 4;
+    CC = R0 == R1;
+    RTS;
+.size extensions_drum_compare_r0, .-extensions_drum_compare_r0
+
+/* 8d4e74b0: the preset writer's choice of a pattern's regions (R0 its machine, P1
+ * the pattern's track object). A kit's, or a synth's with a Shift row, whose row
+ * sdk_synth_shift_export first packs into its first pad record, export as
+ * Drumline's. */
+.global extensions_preset_export_regions
+.type extensions_preset_export_regions, STT_FUNC
+extensions_preset_export_regions:
+    HOOK_SAVE
+    R1 = P1;
+    CALL sdk_synth_shift_export;
+    CALL sdk_drum_alias;
+    HOOK_RESULT R0
+    HOOK_RESTORE
+    R1 = 4;
+    CC = R0 == R1;
+    RTS;
+.size extensions_preset_export_regions, .-extensions_preset_export_regions
+
+/* 8d4e6aa8: include the region even with an empty sample filename. */
+.global extensions_drum_export_empty
+.type extensions_drum_export_empty, STT_FUNC
+extensions_drum_export_empty:
+    R0 = [P1 + 0x18];
+    PRESET_ALIAS_R0
+    R1 = 4;
+    CC = R0 == R1;
+    RTS;
+.size extensions_drum_export_empty, .-extensions_drum_export_empty
+
+/* 8d4e6bd0: model/params/random export, R1 is already the constant 4. */
+.global extensions_drum_export_parameters
+.type extensions_drum_export_parameters, STT_FUNC
+extensions_drum_export_parameters:
+    R0 = [P1 + 0x18];
+    PRESET_ALIAS_R0
+    CC = R0 == R1;
+    RTS;
+.size extensions_drum_export_parameters, .-extensions_drum_export_parameters
+
+/* 8d4e73ac: the preset writer's call of random's converter 8d4e3ece(&word), the
+ * word >>> 16, with P4 the pad record: a padMix kit's key also exports its send
+ * amounts above bit 16 (drum_synthesis_stock.cpp). */
+.global extensions_drum_export_random
+.type extensions_drum_export_random, STT_FUNC
+extensions_drum_export_random:
+    R1 = P4;
+    JUMP.L sdk_drum_export_random;
+.size extensions_drum_export_random, .-extensions_drum_export_random
+
+/* 8d4e3b9a: preset import's call of random's converter 8d4e3558(value), stored
+ * at P5 + 0x10 (the pad word; P5 is the pad record + 4): the send amounts above
+ * bit 16 go into the record's bytes too (drum_synthesis_stock.cpp). */
+.global extensions_drum_import_random
+.type extensions_drum_import_random, STT_FUNC
+extensions_drum_import_random:
+    R1 = P5;
+    JUMP.L sdk_drum_import_random;
+.size extensions_drum_import_random, .-extensions_drum_import_random
+
+/* 8d4e6e08: Drumline's optional gain field, R2 is the constant 4. */
+.global extensions_drum_export_gain
+.type extensions_drum_export_gain, STT_FUNC
+extensions_drum_export_gain:
+    R0 = [P1 + 0x18];
+    PRESET_ALIAS_R0
+    CC = R0 == R2;
+    RTS;
+.size extensions_drum_export_gain, .-extensions_drum_export_gain
+
+/* 8d588ec8: project load's track check, R1 is already the constant 4. Stock
+ * resets a Drumline track's eight parameters to neutral offsets there; a kit
+ * that missed it kept whatever load left, zero, so every value lost 64. P1 is
+ * the pattern's track object: sdk_drum_load_engine also gives a padMix kit's
+ * lock words (drum_locks.hpp) their neutral base there, and answers the alias. */
+.global extensions_drum_load_parameters
+.type extensions_drum_load_parameters, STT_FUNC
+extensions_drum_load_parameters:
+    R0 = [P1 + 0x18];
+    HOOK_SAVE
+    R1 = P1;
+    CALL sdk_drum_load_engine;
+    HOOK_RESULT R0
+    HOOK_RESTORE
+    CC = R0 == R1;
+    RTS;
+.size extensions_drum_load_parameters, .-extensions_drum_load_parameters
+
+/* 8d595a4c: note start's Drumline test (R2 = 4; CC = R0 == R2). Only that
+ * branch finds the played pad's region and packs its index into the note;
+ * otherwise every voice renders pad index 0. R0 keeps the real engine, which
+ * the region router receives next. */
+.global extensions_drum_note_region
+.type extensions_drum_note_region, STT_FUNC
+extensions_drum_note_region:
+    HOOK_SAVE
+    CALL sdk_drum_alias;
+    [SP + 20] = R0;
+    HOOK_RESTORE
+    R2 += -4;
+    CC = R2 == 0;
+    R2 = 4;
+    RTS;
+.size extensions_drum_note_region, .-extensions_drum_note_region
+
+/* 8d589296: local engine classification in the 24-region key lookup. Save
+ * the aliased value into the saved R3 while preserving the track pointer R0,
+ * index R1, and CC from stock's preceding key==0 test. */
+.global extensions_drum_region_lookup
+.type extensions_drum_region_lookup, STT_FUNC
+extensions_drum_region_lookup:
+    R3 = [P1 + 0x18];
+    HOOK_SAVE
+    R0 = R3;
+    CALL sdk_drum_alias;
+    [SP + 24] = R0;
+    HOOK_RESTORE
+    B[P5] = R1;
+    RTS;
+.size extensions_drum_region_lookup, .-extensions_drum_region_lookup
+
+/* 8c0b1456: the absolute eight-byte call also displaces IF !CC JUMP 0x30
+ * at 8c0b145c. Fallthrough is the call's return address 8c0b145e; stock's
+ * non-drum branch is 0x2e bytes after it. Preserve R0 while redirecting RETS.
+ * R2 is transient: the editor replaces it with the event after the test. */
+.global extensions_drum_editor_classify
+.type extensions_drum_editor_classify, STT_FUNC
+extensions_drum_editor_classify:
+    R2 = [FP + 8];
+    HOOK_SAVE
+    R0 = R2;
+    CALL sdk_drum_alias;
+    [SP + 20] = R0;
+    HOOK_RESTORE
+    R1 = 4;
+    CC = R2 == R1;
+    IF CC JUMP .Ldrum_editor_return;
+    [--SP] = ASTAT;
+    [--SP] = R0;
+    R0 = RETS;
+    R0 += 0x2e;
+    RETS = R0;
+    R0 = [SP++];
+    ASTAT = [SP++];
+.Ldrum_editor_return:
+    RTS;
+.size extensions_drum_editor_classify, .-extensions_drum_editor_classify

@@ -38,6 +38,32 @@ class Generation(unittest.TestCase):
             validate_definition(timed, 'sample')
         definition['resources'] = {'voiceCapacity': 256}
         validate_definition(definition, 'sample')
+        # Stock passes its 27 voice wrappers' numbers as indices: 27 covers them.
+        for capacity in (27, 32):
+            definition['resources'] = {'voiceCapacity': capacity}
+            validate_definition(definition, 'sample')
+        definition['resources'] = {'voiceCapacity': 26}
+        with self.assertRaisesRegex(ValueError, 'voiceCapacity 27 or more'):
+            validate_definition(definition, 'sample')
+
+    def test_a_refused_index_gets_an_inert_object_only_below_256(self):
+        plain = fixture('probesample')
+        def adapter(capacity):
+            m = replace(plain, identity=dict(engine=46, page=2),
+                        definition=dict(plain.definition, resources=dict(plain.definition['resources'], voiceCapacity=capacity)))
+            with tempfile.TemporaryDirectory() as directory:
+                return adapters.generate_sample_voice(directory, m).read_text(encoding='utf-8')
+        full = adapter(256)
+        self.assertIn('    if (index >= 256) return nullptr;', full)
+        self.assertNotIn('refused', full)
+        small = adapter(32)
+        self.assertIn('    if (index >= 32) return refused();', small)
+        self.assertIn('probesample_voice_refusals', small)
+        # Apart from the refusal, the adapter is the same text.
+        stereo = plain.definition['resources'].get('stereoOutput', 0)
+        self.assertEqual(small.replace(adapters.sample_refusal('probesample', stereo), '')
+                         .replace('if (index >= 32) return refused();', 'if (index >= 256) return nullptr;')
+                         .replace('voices[32]', 'voices[256]'), full)
 
     def test_analysis_budgets_share_one_collection_limit(self):
         def analyzing(name, budget):
@@ -85,6 +111,14 @@ class Generation(unittest.TestCase):
         self.assertIn('probesample_engine_id, probesample_page_id, 1};', text)
         self.assertIn('int probesample_ready() { return sdk_engine_ready(&record, nullptr); }', text)
         self.assertNotIn('screen', text)
+
+    def test_a_drawing_engine_stays_on_the_samplers_page(self):
+        m = replace(fixture('probesample'), display='drawing', identity=dict(engine=46, page=90))
+        self.assertEqual(m.sample_page, 2)
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertIn('probesample_engine_id, 2, probesample_ready',
+                          adapters.generate_sample_callbacks(directory, [m]).read_text(encoding='utf-8'))
+        self.assertEqual(fixture('probesample').sample_page, fixture('probesample').identity['page'])
 
     def test_catalog_entry_and_stock_page_startup(self):
         entry = json.loads(adapters.catalog_entry(fixture('probesample')).strip().lstrip(','))

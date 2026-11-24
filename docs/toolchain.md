@@ -67,6 +67,24 @@ refuses other Homebrew versions and `build-linux.sh` other Debian package
 versions. A rebuilt tool gets a new reviewed entry and
 a new `TOOLCHAINS_SHA256`; never relax a hash to admit it.
 
+Machines that use floating-point or 64-bit arithmetic may need compiler
+helpers. The SDK selects only the required arithmetic members and their
+dependencies from the hash-checked `lib/gcc/bfin-elf/8.0.0/libgcc.a`; it
+keeps the SDK's existing integer division implementations. Browser kits
+select the same helpers for each chosen collection. Builds that need no
+helpers gain no runtime objects.
+
+The Windows compiler profile includes this archive. The current macOS
+profile does not, so a native build needing these helpers fails with
+`no authenticated arithmetic runtime`. Other macOS builds are unaffected.
+
+These helpers are part of GCC, licensed under GPL-3.0-or-later with the GCC
+Runtime Library Exception. The toolchain download includes the license
+texts in `licenses/` and identifies the corresponding source in `SOURCES.md`;
+the source archive is published alongside it as described below. Browser kits
+that include these helpers bundle the full license and exception in their
+notices, from [`runtime.LICENSE`](../sdk/platform/blackfin/runtime.LICENSE).
+
 ## Release downloads
 
 `python sdk.py toolchain fetch` downloads this host's archive, checks its
@@ -98,3 +116,46 @@ the reviewed bundle, a checkout of the fork and the runtime source packages
 listed with their hashes in
 [`tools/gcc/release-sources.json`](../tools/gcc/release-sources.json). Both
 assets are reproducible from the same inputs.
+
+## Build and link pitfalls
+
+Each of these has failed a build that passed somewhere else first.
+
+- **One definition for shared code.** The native build compiles each source
+  file on its own and turns its weak definitions into global ones
+  ([`normalize_object`](../tooling/native.py)), so nothing is merged at link
+  time. An inline function the compiler keeps out of line, or a static inside
+  one, is then defined once per file that uses it, and two of them fail to
+  link: a machine's `engine.cpp` and `display.cpp`, or two machines in one
+  firmware sharing a header. `draw.hpp`'s free helpers, such as
+  `opxy::draw::sine`, are `static inline`, so each file keeps its own copy.
+  The arithmetic headers' helpers (`q15.hpp`, `q31.hpp`, `divide.hpp` and
+  the like) are still plain `inline`; none clashes today. Make a free helper in your own shared
+  headers `static inline`, and move a static out of an inline function to
+  one definition at file scope. A class's member functions can't be
+  file-local, so they still need care. A build fails, naming both machines
+  and the symbol, when two machines in its collection define the same one.
+  Check a set links with `sdk.py compile`, giving every machine that will
+  share the firmware.
+- **Define tables once.** A `static` table in a header is copied into every
+  file that includes it: one machine's memory fell from 242 to 139 KiB when
+  its tables became one `extern` definition in one file.
+- **No 64-bit or bit-count helpers.** A 64-bit multiply or divide, including
+  a widening `(long long)a * b`, and `__builtin_clz` call libgcc helpers
+  (`__muldi3`, `__divdi3`, `__clzsi2`) that the module doesn't have, so the
+  link fails with `undefined reference`. 32-bit `/` and `%` link, from the
+  SDK's [own helpers](../sdk/platform/blackfin/divide.s), but are slow
+  ([CPU](api.md#cpu)). Keep products in 32 bits or split them, as
+  [`q31.hpp`](../sdk/include/opxy/q31.hpp) does, and find a top bit with a
+  table or a binary search.
+- **Unused functions fail.** Native builds and `sdk.py test`'s host tests use
+  `-Wall -Werror`, so an unused `static` function stops the build; the browser
+  preview allows it. GCC doesn't warn about an unused `static inline` one.
+- **Include what you use.** A generated repository's CI compiles host tests
+  with `--host-cxx g++`, where `sdk.py test` defaults to `c++`, often Clang.
+  GCC needs `<algorithm>` for `std::sort` where Clang compiled without it.
+- **Platform assembly needs a firmware build.** Machines contain no assembly,
+  but SDK changes to the platform's `.s` files are not assembled by
+  `sdk.py check` without its native inputs: an out-of-range immediate passed
+  it and failed only in the firmware build. Build firmware after changing
+  them, as [release verification](build.md#release-verification) does.

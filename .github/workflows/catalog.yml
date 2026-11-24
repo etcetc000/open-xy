@@ -19,7 +19,9 @@ concurrency:
   cancel-in-progress: true
 jobs:
   machines:
-    runs-on: ubuntu-latest
+    # A fixed image: the host compiles use -Wall -Werror, and a new image's compiler can
+    # turn yesterday's clean machine test into an error. Move it on purpose, in its own change.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -116,6 +118,10 @@ jobs:
           key: toolchain-${{ runner.os }}-${{ hashFiles('profiles/toolchains.json') }}
       - name: Pinned Blackfin tools
         run: python sdk.py toolchain fetch
+      - name: Multiple-player native link regression
+        env:
+          PYTHONPATH: tests
+        run: python -m unittest test_players.PlayerNativeLink
       - name: Restore fetched machines
         uses: actions/cache/restore@v4
         with:

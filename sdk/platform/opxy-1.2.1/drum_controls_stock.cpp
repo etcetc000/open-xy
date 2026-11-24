@@ -3,7 +3,10 @@
 // the press and key hooks arrive through drum_page.s and sample_hooks.s.
 // Machine policy is in the generated sample callbacks.
 #include "sample_machines.hpp"
+#include "drum_machines.hpp"
+#include "keyboard_octaves.hpp"
 #include "stock.hpp"
+#include "synth_controls.hpp"
 #include "stock_sample.hpp"
 #include "sample_preview.hpp"
 #include "barrier.hpp"
@@ -20,9 +23,14 @@ opxy::u32 sdk_sample_edit(void*, opxy::u32, opxy::i32, opxy::u32) __asm__("sdk_s
 opxy::u32 sdk_sample_ui_engine(opxy::u32) __asm__("sdk_sample_ui_engine");
 opxy::u32 sdk_sample_press_engine_owned(opxy::u32, opxy::u32) __asm__("sdk_sample_press_engine_owned");
 opxy::u32 sdk_sample_region_control(opxy::u32, opxy::u32, const opxy::u32*, opxy::u32) __asm__("sdk_sample_region_control");
+opxy::u32 sdk_sample_page_turn(opxy::u32, opxy::u32, const opxy::u32*) __asm__("sdk_sample_page_turn");
+opxy::u32 sdk_sample_page_shift() __asm__("sdk_sample_page_shift");
+opxy::u32 sdk_sample_param_engine(opxy::u32) __asm__("sdk_sample_param_engine");
+opxy::u32 sdk_sample_neutral_engine(opxy::u32) __asm__("sdk_sample_neutral_engine");
+opxy::u32 sdk_screen_visible(opxy::u32) __asm__("sdk_screen_visible");
+opxy::u32 sdk_screen_sample_page() __asm__("sdk_screen_sample_page");
 opxy::u32 sdk_sample_selected_engine() __asm__("sdk_sample_selected_engine");
 opxy::u32 sdk_sample_live_pitch_kind(opxy::u32) __asm__("sdk_sample_live_pitch_kind");
-opxy::u32 sdk_sample_octave_store(opxy::u32, opxy::i32) __asm__("sdk_sample_octave_store");
 opxy::u32 sdk_sample_key(opxy::u32, opxy::u32) __asm__("sdk_sample_key");
 opxy::u32 sdk_sample_slice_start(void*, opxy::u32, opxy::u32, opxy::u32, const void*) __asm__("sdk_sample_slice_start");
 opxy::u32 sdk_sample_slice_stop(void*, opxy::u32, opxy::u32, opxy::u32) __asm__("sdk_sample_slice_stop");
@@ -35,13 +43,22 @@ void sdk_sample_slice_config(opxy::platform::SamplePreviewRange*, opxy::u32, opx
 opxy::u32 sdk_sample_slice_clock_rate(opxy::u32, const opxy::platform::SamplePreviewRange*, opxy::u32) __asm__("sdk_sample_slice_clock_rate");
 opxy::u32 sdk_sample_create_voice(opxy::u32, void**, opxy::u32, opxy::u32) __asm__("sdk_sample_create_voice");
 }
-volatile opxy::i32 sdk_sample_drum_octaves[8];
 
 namespace {
 using opxy::i32;
 using opxy::u32;
 using namespace opxy::platform;
 const u32 kNotOwned = 0xffffffffu;
+// The project stock's encoder handlers pass to its parameter editor (8c0b15a2).
+const u32 kProject = 0x86bd027c;
+// An owned page-2 engine drawing its own screen: its controls are in the synth
+// control table (tooling/adapters.py), and its page's encoders edit them.
+const SynthControls* own_controls(u32 id) {
+    if (sample_page(id) != 2) return nullptr;
+    for (u32 i = 0; i < sdk_synth_control_count; ++i)
+        if (sdk_synth_controls[i].engine() == id && !sdk_synth_controls[i].effect) return &sdk_synth_controls[i];
+    return nullptr;
+}
 u32 clipboard_engine = kNoEngine;
 // These are separate role-local objects. The stock note packet transports the
 // source snapshot from GUI to audio; module globals are not a cross-role bus.
@@ -118,11 +135,6 @@ u32 region_control(u32 key, u32 control, const u32* event, u32 fine) {
 u32 publish(u32 key) {
     const u32 zero[3] = {0, 0, 0};
     return region_control(key, 5, zero, 0);
-}
-void publish_octave(u32 track, i32 octave) {
-    if (track >= kTracks) return;
-    sdk_sample_drum_octaves[track] = octave;
-    barrier();
 }
 // The multi editor enumerates canonical pad indices; the region lookup and
 // publisher expect played notes and apply the track octave themselves.
@@ -297,8 +309,14 @@ u32 sdk_sample_ui_engine(u32 track) {
 // stock's held-pad actions; the latter must also recognize the engine so
 // releasing the pad clears the overlay. Stock copies the complete pad record
 // for both clipboard and slices, retaining the tagged settings word.
+// An owned drum kit answers as Drumline (4): stock then keeps its held-pad mode
+// (8c0b2068, the overlay flag at controller + 0x2c) for a kit's pads too, so with a
+// pad held M1..M4 scramble, copy, paste and reset it (table 0x8400e36c), each
+// through the SDK's kit versions where stock's would write Drumline's own
+// (drum_synthesis_stock.cpp sdk_drum_pad_scramble, sdk_drum_pad_reset).
 u32 sdk_sample_pad_key_engine(u32 track) {
     const u32 id = track_engine(track);
+    if (track < kTracks && sdk_drum_machine(id)) return 4;
     return track < kTracks ? sdk_sample_drum_alias(id) : id;
 }
 
@@ -330,15 +348,6 @@ u32 sdk_sample_pad_paste(u32 track, u32 key) {
     return result;
 }
 
-// 8d58f5c2: after stock clamps the octave, mirror its stored value immediately.
-// SDK IDs use stock's single-octave keyboard spacing. No engine/project getter:
-// this setter also runs while loading a project or preset. A sample lookup may
-// be cached, so it cannot be the only place that publishes octave changes.
-u32 sdk_sample_octave_store(u32 track, i32 octave) {
-    const u32 result = stock<u32(u32, i32)>(0x8d58573c)(track, octave);
-    publish_octave(track, octave);
-    return result;
-}
 
 // Stock's key-to-region lookup (through sample_hooks.s): stock's sampler (2)
 // keeps its one sample in region 0 for every key, the multisampler a region
@@ -347,10 +356,12 @@ u32 sdk_sample_octave_store(u32 track, i32 octave) {
 // GUI-side lookup has a valid project context, so it also publishes the
 // octave for audio. Returns kNotOwned to let stock continue.
 u32 sdk_sample_key(u32 track, u32 key) {
-    if (track < kTracks && sample_page(track_engine(track)) == 2) return 0;
-    if (track >= kTracks || sample_page(track_engine(track)) != 7) return kNotOwned;
+    if (track >= kTracks) return kNotOwned;
+    const u32 engine = track_engine(track);
+    if (sample_page(engine) == 2) return 0;
+    if (sample_page(engine) != 7 && !sdk_drum_machine(engine)) return kNotOwned;
     const i32 octave = stock<i32(u32)>(0x8d58f65c)(track);
-    publish_octave(track, octave);
+    sdk_publish_octave(track, octave);
     return stock<u32(u32, i32)>(0x8d5b8688)(key, octave) + 53;
 }
 
@@ -359,6 +370,7 @@ u32 sdk_sample_key(u32 track, u32 key) {
 // stepping and lock publication. Keep the real engine ID and all other
 // parameter paths unchanged; a conflicting/unowned registration stays stock.
 u32 sdk_sample_live_pitch_kind(u32 id) {
+    if (sdk_drum_machine(id)) return 0;
     if (drum_controls(id)) return 1;
     return stock<u32(u32)>(0x8d5b79f0)(id);
 }
@@ -370,6 +382,12 @@ u32 sdk_sample_live_pitch_kind(u32 id) {
 u32 sdk_sample_press_engine_owned(u32 track, u32 button) {
     if (track >= kTracks) return kNoEngine;
     const u32 id = track_engine(track);
+    // A Shift press on a kit with a second Shift row switches the row
+    // (synth_controls.cpp); stock's own action does nothing for the kit. Any
+    // other press takes the path below, as before SDK 1.10.
+    if (button >= 4 && button < 8 && shift_held() && sdk_drum_shift_press(track, button - 4)) return id;
+    // An own screen's press switches its controls' page (synth_controls.cpp), never stock's mode.
+    if (own_controls(id)) return id;
     if (!pad_settings(id)) return sdk_sample_alias(id);
     const bool shifted = shift_held();
     if (drum_controls(id) && (shifted ? button == 5 || button == 6 : button == 4 || button == 7)) {
@@ -402,6 +420,132 @@ u32 sdk_sample_region_control(u32 key, u32 control, const u32* event, u32 fine) 
         return 0;
     }
     return region_control(key, control, event, fine);
+}
+
+// 8c0b12f2: the sample page's encoder turn (object, encoder, event) first asks
+// 8d5b7c28, a mode flag taking no arguments, and returns at once when it is
+// set. On an owned page-2 engine drawing its own screen, on its engine page,
+// every turn edits the control its position shows (an encoder press switches
+// pages, synth_controls.cpp) through stock's parameter editor, which owns
+// stepping, locks and publication, and the sample page edits nothing more.
+// Shift turns a continuous control in tenths of a step, as on a synth's page.
+// The same handler turns the track's other pages, its envelope, filter and
+// LFO (the instrument page word, 1..3): there, and otherwise, stock asks its
+// flag as before.
+//
+// An engine declaring stockShift gives the Shift turns of the encoders its map
+// names to stock instead, on its engine page only: each replays through this
+// handler (8c0b12e4) as the stock sampler page's own encoder, with or without
+// Shift (stock_shift codes, synth_controls.hpp). Stock picks its row of four
+// functions from its Shift test (8c0b13e6, sdk_sample_page_shift), which the
+// replay answers, and then edits, steps and saves the region as on its own
+// page. A window moves a pair of markers by the same turn, the leading one
+// first and the other only if the pair changed, so the window keeps its
+// length and stops at the sample's ends. An encoder the map leaves out keeps
+// Shift's fine turn of the machine's own control; unshifted turns are always
+// the machine's.
+const u32 kInstrumentPage = 0x080238bc;  // 0 on the engine page, 1..3 on the others
+namespace {
+bool replaying, replay_shifted;
+// One turn through stock's handler as its own encoder `stock_encoder`, with
+// Shift held or not as far as the handler's row is concerned.
+void replay(u32 object, u32 encoder, u32 stock_encoder, bool shifted, const u32* event) {
+    replaying = true;
+    replay_shifted = shifted;
+    stock<u32(u32, u32, const u32*)>(0x8c0b12e4)(object, (encoder & ~3u) | stock_encoder, event);
+    replaying = false;
+}
+// Two of the selected track's GUI region words, the markers a window moves:
+// the outer pair (start, end) or the loop pair (loop start, loop end).
+struct Pair { i32 a, b; bool operator!=(const Pair& o) const { return a != o.a || b != o.b; } };
+Pair markers(u32 track, u32 first) {
+    const i32* raw = static_cast<const i32*>(pad_region(track, 0));
+    return raw ? Pair{raw[first], raw[first + 1]} : Pair{0, 0};
+}
+void stock_shift_turn(u32 object, u32 encoder, opxy::u8 code, u32 track, const u32* event) {
+    if (code < stock_shift::kWindow) {
+        const u32 function = code - 1;
+        replay(object, encoder, function & 3, function >= 4, event);
+        return;
+    }
+    // The start and end are stock's encoders 0 and 3, the loop start and end 1 and 2.
+    const bool loop = code == stock_shift::kLoopWindow;
+    const u32 low = loop ? 1 : 0, high = loop ? 2 : 3;
+    const u32 first = loop ? pad_record::kLoopStart : pad_record::kStart;
+    const bool later = *reinterpret_cast<const i32*>(event) > 0;  // the turn's signed step
+    const Pair before = markers(track, first);
+    replay(object, encoder, later ? high : low, false, event);
+    if (markers(track, first) != before) replay(object, encoder, later ? low : high, false, event);
+}
+}
+u32 sdk_sample_page_turn(u32 object, u32 encoder, const u32* event) {
+    if (replaying) return stock<u32()>(0x8d5b7c28)();
+    const u32 track = byte(kSelectedTrack);
+    const u32 id = track < kTracks && word(kInstrumentPage) == 0 ? track_engine(track) : kNoEngine;
+    const SynthControls* controls = own_controls(id);
+    // The handler reads the encoder as its low two bits; negative means none.
+    if (controls && static_cast<i32>(encoder) >= 0 && event && shift_held()) {
+        if (const opxy::u8 code = controls->stock_shift[encoder & 3]) {
+            stock_shift_turn(object, encoder, code, track, event);
+            return 1;
+        }
+    }
+    if (controls && static_cast<i32>(encoder) >= 0 && event) {
+        opxy::u8 shown[opxy::page_controls];
+        sdk_synth_shown(track, shown);
+        const u32 index = shown[encoder & 3];
+        const bool continuous = (controls->continuous >> index & 1) != 0;
+        const i32* source = reinterpret_cast<const i32*>(event);
+        const i32 fine[3] = {source[0] / 10, source[1], source[2]};
+        const bool tenths = shift_held() && continuous;
+        stock<u32(u32, u32, u32, u32)>(0x8d5ad5bc)(kProject, track, index,
+            static_cast<u32>(reinterpret_cast<Address>(tenths ? fine : source)));
+        return 1;
+    }
+    (void)object;
+    return stock<u32()>(0x8d5b7c28)();
+}
+
+// 8c0b13e6: the sample page's turn handler asks 8d51f184 whether Shift is
+// held, which picks its second row of functions. A replayed Shift turn
+// (sdk_sample_page_turn) answers for the row it replays; any other asks stock.
+u32 sdk_sample_page_shift() {
+    return replaying ? (replay_shifted ? 1 : 0) : stock<u32()>(0x8d51f184)();
+}
+
+// 8d5acf3e: stock's parameter writer 8d5acf28 (project, track, index, value)
+// asks the track's engine only to classify it (8d5b79c0, 8d5b79f0). There are
+// two tables, as synth_controls.cpp names them: the stored word a project saves
+// (project + 0x4080 + track * 0xe8 + index * 4) and the track's current word,
+// which stock's editor 8d5ad5bc reads and steps (track object + 0x3864 + index * 4).
+// For an index below 8 of an engine either classifier accepts, a sample engine's
+// through its alias, the writer sets the stored word alone, so the current word
+// stays put and turns never add up; for any other engine it sets the current
+// word (8d587a20) and the stored one. An owned page-2 engine drawing its own
+// screen answers 0, which both classifiers reject, so its controls are saved
+// and played like a synth's.
+u32 sdk_sample_param_engine(u32 track) {
+    const u32 id = track_engine(track);
+    return own_controls(id) ? 0 : id;
+}
+
+// 8d5214b0: whether the compositor paints `page` this frame, stock's answer
+// (8d51fc78: the selected page or its companion), and also a sample engine's
+// own screen while its stock sample page is selected.
+u32 sdk_screen_visible(u32 page) {
+    if (stock<u32(u32)>(0x8d51fc78)(page)) return 1;
+    return page && page == sdk_screen_sample_page();
+}
+
+// 8d588df2, project load's check of each track, and 8d581eb2, in what reads as
+// stock's track paste: 8d581d48 copies a whole track object (0x53f4 bytes) to the
+// buffer at 84ffd208 and marks it kind 3, and 8d581da0, on kind 3, writes its 58 words
+// back through the writer. Both ask the sample predicate, through its alias for a
+// sample engine, and on a yes set the track's eight words to neutral (0x40000000),
+// which a stock sampler's page doesn't use. An owned page-2 engine drawing its own
+// screen holds its controls in them, so it answers no, as a synth does.
+u32 sdk_sample_neutral_engine(u32 id) {
+    return own_controls(id) ? 0 : stock<u32(u32)>(0x8d5b79c0)(id);
 }
 
 // 8c094710: stock's edit-multiple controller already iterates its selection

@@ -19,10 +19,12 @@ const numbers = {probefx: {effect: 6, page: 21}};
 
 async function fixture(selectedMachines = machines) {
   // Authored menu fixture with its own insertion points; no captured firmware or factory content.
-  const text = '{"engine_types":[{"type":"existing"}\n    ],"fx_types":[{"type":"existing-fx"}\n    ]}';
+  const text = '{"engine_types":[{"type":"existing"}\n    ],"fx_types":[{"type":"existing-fx"}\n    ],"seq_types":[{"type":"maestro"}\n    ]}';
   const catalog = new TextEncoder().encode(text);
-  const stock_catalog_inserts = {engine_types: text.indexOf('\n    ]'), fx_types: text.lastIndexOf('\n    ]')};
-  return {kit: {machines:selectedMachines, profile:{stock_catalog_sha256:await sha256(catalog), stock_catalog_inserts}}, catalog};
+  const stock_catalog_inserts = {engine_types: text.indexOf('\n    ]'), fx_types: text.indexOf('\n    ]', text.indexOf('fx_types')), seq_types: text.lastIndexOf('\n    ]')};
+  // The reviewed profile's stock content names, which every build is checked against.
+  const {stock_content} = JSON.parse(read('profiles/opxy-1.2.1.json'));
+  return {kit: {machines:selectedMachines, profile:{stock_catalog_sha256:await sha256(catalog), stock_catalog_inserts, stock_content}}, catalog};
 }
 
 test('all selections include only their instrument presets with native names and definition defaults', async () => {
@@ -54,9 +56,40 @@ test('all selections include only their instrument presets with native names and
   assert.deepEqual(machines,original);
 });
 
+test('presetDefaults sets the init preset track volume, as the native generator does', async () => {
+  const louder = {...machines[0], presetDefaults: {...machines[0].presetDefaults, volume: 20000}};
+  const {kit, catalog} = await fixture([louder]);
+  const files = await buildAssets(kit, [louder.id], catalog, numbers);
+  const preset = JSON.parse(new TextDecoder().decode(files[presetPath(louder)]));
+  assert.equal(preset.engine.volume, 20000);
+  const plain = JSON.parse(new TextDecoder().decode((await buildAssets((await fixture()).kit, [machines[0].id],
+    (await fixture()).catalog, numbers))[presetPath(machines[0])]));
+  assert.equal(plain.engine.volume, 16384);  // tooling/default_preset.json's
+  for (const volume of [32768, -1, true, 1.5, '20000']) {
+    const bad = {...louder, presetDefaults: {volume}};
+    const {kit: badKit, catalog: badCatalog} = await fixture([bad]);
+    await assert.rejects(buildAssets(badKit, [bad.id], badCatalog, numbers), /Invalid preset volume default/);
+  }
+});
+
 // A machine's own presets as tooling.machines.read_presets passes them on.
 const own = (changes = {}) => ({engine: {params: [1, 2, 3, 4, 5, 6, 7, 8], volume: 9000}, platform: 'OP-XY',
   regions: [], type: 'probesynth', version: 4, ...changes});
+
+test('full-canvas effect assets match native composition without synth preview metadata', async () => {
+  const effect = {...machines[3], artwork:'<g id="probefx_panel"/>', asset:'probefx.svg', fullCanvas:1};
+  const {kit, catalog} = await fixture([effect]);
+  kit.screenTemplate = read('sdk/platform/opxy-1.2.1/screen.svg');
+  kit.profile.screen_template_sha256 = JSON.parse(read('profiles/opxy-1.2.1.json')).screen_template_sha256;
+  const files = await buildAssets(kit, ['probefx'], catalog, numbers);
+  assert.equal(new TextDecoder().decode(files['content/display/probefx.svg']),
+    '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220"><g id="probefx_panel"/></svg>');
+  effect.fullCanvas = 0;
+  const ordinary = await buildAssets(kit, ['probefx'], catalog, numbers);
+  assert.match(new TextDecoder().decode(ordinary['content/display/probefx.svg']), /id="titles"/);
+  effect.fullCanvas = true;
+  await assert.rejects(buildAssets(kit, ['probefx'], catalog, numbers), /full canvas/);
+});
 
 test("a machine's own presets install beside its init preset, unchanged", async () => {
   const synth = {...machines[0], presets: {'warm-pad': own(), bass_2: own({octave: -1})}};
@@ -75,6 +108,51 @@ test("a machine's own presets install beside its init preset, unchanged", async 
   // Its own default replaces the generated init preset.
   const authored = presetFiles({...machines[0], presets: {default: own({octave: 1})}});
   assert.deepEqual(authored, {'content/presets/probesynth/default.json': own({octave: 1})});
+});
+
+test("a padMix kit's init preset has stock's filter, M3 off", () => {
+  // M3 is the kit's real track filter (drum_filter.hpp): its init preset is the shared template's,
+  // fx.active false. The per-hit lock words (36..38) have no preset key: stock loads them neutral.
+  const kit = {...machines[0], id: 'probekit', kind: 'drum', catalog: entry('probekit', [0, 0, 0, 0, 0, 0, 0, 0]),
+    features: ['drum_sends', 'drum_locks', 'padMix']};
+  const preset = presetFiles(kit)['content/presets/probekit/default.json'];
+  const template = JSON.parse(read('tooling/default_preset.json'));
+  assert.deepEqual(preset.fx, template.fx);
+  assert.equal(preset.fx.active, false);
+});
+
+// Placeholder pending #234, which defines trackControl's real shape.
+test('an aux track-control machine keeps no instrument preset folder', () => {
+  // An aux machine has no catalog entry (tooling.browser_kit); its presets are aux presets.
+  const aux = {...machines[0], catalog: ''};
+  assert.equal(presetPath(aux), null);
+  assert.deepEqual(presetFiles(aux), {});
+});
+
+test('drum presets retain all 24 sample-free pads and reject sample paths and malformed pad words', async () => {
+  const regions = Array.from({length:24},(_,i) => ({model:'fm slap',params:[0,1,16384,32767],playmode:'oneshot',hikey:53+i}));
+  const preset = own({regions});
+  const drum = {...machines[0],kind:'drum',presets:{default:preset}};
+  const {kit,catalog} = await fixture([drum]);
+  const files = await buildAssets(kit,[drum.id],catalog,numbers);
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(files[presetPath(drum)])),preset);
+  for (const kind of ['synth','sample']) assert.throws(() => presetFiles({...drum,kind}),/Invalid machine preset/);
+  // A padMix kit keeps empty regions: its records would carry each key's level and pad word.
+  assert.throws(() => presetFiles({...drum,features:['padMix']}),/Invalid machine preset/);
+  assert.deepEqual(Object.keys(presetFiles({...drum,features:['padMix'],presets:{default:own({regions:[]})}})),[presetPath(drum)]);
+  for (const change of [{sample:'private.wav'},{path:'/user/samples/kick.wav'},{model:'kick'},
+    {params:[0]},{params:[0,1,2,32768]},{params:[0,1,2,-1]},{params:[true,1,2,3]},
+    {hikey:54},{playmode:'unknown'},{playmode:null}]) {
+    const bad = structuredClone(preset); Object.assign(bad.regions[0],change);
+    assert.throws(() => presetFiles({...drum,presets:{default:bad}}),/Invalid machine preset/);
+  }
+  // Each record valid on its own (no hikey, which a 25th could not match): only the count is wrong.
+  const keyless = regions.map(({hikey,...region}) => region);
+  assert.doesNotThrow(() => presetFiles({...drum,presets:{default:{...preset,regions:keyless}}}));
+  for (const size of [1,23,25]) {
+    const bad = {...preset,regions:[...keyless,...keyless].slice(0,size)};
+    assert.throws(() => presetFiles({...drum,presets:{default:bad}}),/Invalid machine preset/);
+  }
 });
 
 test("a machine's own presets are checked again before they reach a device", async () => {
@@ -97,4 +175,26 @@ test('preset generation rejects unsafe paths, foreign kinds and invalid engine p
   }
   const {kit,catalog}=await fixture([{id:'example',kind:'synth',catalog:',{"type":"../bad","default_params":[0,0,0,0,0,0,0,0]}'}]);
   await assert.rejects(buildAssets(kit,['example'],catalog,numbers),/preset engine or defaults/);
+});
+
+test("an aux machine's presets install as files, with the init of the role it replaces", () => {
+  const preset = type => JSON.stringify({params: Array(8).fill(0), platform: 'OP-XY', type, version: 1});
+  const auxPresets = {'content/aux_presets/cv/init.json': JSON.stringify({platform: 'OP-XY', type: 'cv', version: 1}),
+    'content/aux_presets/morph/soft.json': preset('morph')};
+  assert.deepEqual(Object.keys(presetFiles({id: 'morph', catalog: '', auxPresets})).sort(), Object.keys(auxPresets).sort());
+  for (const [path, type] of [['content/aux_presets/cv/init.json', 'morph'], ['content/aux_presets/morph/a.json', 'cv'],
+    ['content/aux_presets/brain/init.json', 'brain'], ['content/aux_presets/other/a.json', 'other'],
+    ['content/aux_presets/morph/../a.json', 'morph']])
+    assert.throws(() => presetFiles({id: 'morph', catalog: '', auxPresets: {[path]: preset(type)}}), /Invalid aux preset/);
+});
+
+test('a build refuses more aux presets than the OP-XY lists', async () => {
+  const preset = type => JSON.stringify({params: Array(8).fill(0), platform: 'OP-XY', type, version: 1});
+  const auxPresets = n => Object.fromEntries([['content/aux_presets/cv/init.json',
+    JSON.stringify({platform: 'OP-XY', type: 'cv', version: 1})],
+    ...Array.from({length: n}, (_, i) => [`content/aux_presets/probesynth/p${i}.json`, preset('probesynth')])]);
+  const ok = await fixture([{...machines[0], catalog: '', auxPresets: auxPresets(63)}]);
+  await buildAssets(ok.kit, ['probesynth'], ok.catalog, numbers);
+  const over = await fixture([{...machines[0], catalog: '', auxPresets: auxPresets(64)}]);
+  await assert.rejects(buildAssets(over.kit, ['probesynth'], over.catalog, numbers), /OP-XY lists 64/);
 });

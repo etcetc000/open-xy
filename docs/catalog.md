@@ -20,14 +20,78 @@ effect and page numbers are not the catalog's: each firmware's
 | `maintainer` | The GitHub user who maintains it |
 | `status` | `reserved`: the ID is held for a machine being written. `draft`: its release is pinned for review but not built into kits or firmware. `published`: built from its release. `retired`: no longer built; its ID stays held |
 | `repository`, `tag`, `commit`, `path` | A draft or published machine's release: `https://github.com/<owner>/<repo>`, the tag, its full commit SHA, and the machine's folder in the repository (`.` at the root). A retired entry may keep them |
+| `keywords` | One to five words from the [keyword list](#keywords) that people can filter the builder's machine list by. A new or updated draft or published machine lists at least one; an entry from before keywords keeps none until it changes. Machines only, not extensions |
 
-New or changed draft/published entries also require a `cpu` record generated
-from [hardware profiling](profiling.md), for every machine kind; a synth's is a
-control sweep that records its heaviest setting. Results above the recommended
-3.5% of the block budget are accepted with a warning. That guide owns
+### Keywords
+
+`keywords` describe a machine for browsing; they are not its release `tag`. They
+come from one list, `KEYWORDS` in [`tooling/catalog.py`](../tooling/catalog.py),
+which `builder/core.mjs` repeats (a test compares them):
+
+| Keyword | A machine that |
+| --- | --- |
+| `additive` | builds its sound from summed partials |
+| `ambient` | suits slow, atmospheric textures |
+| `analog` | sounds like analogue subtractive synthesis: detuned oscillators, filters, drift |
+| `bass` | is made for bass lines |
+| `bell` | rings with bell, chime or metallic tones |
+| `chord` | plays or stacks chords from one key |
+| `delay` | repeats the sound in time: echo, ping-pong, tape delay |
+| `drone` | sustains or carries notes across others |
+| `emulation` | recreates a specific instrument, module or effect, or is openly modelled after one ("after X") |
+| `experimental` | follows an unusual model or idea more than a familiar instrument |
+| `fm` | uses frequency or phase modulation between oscillators |
+| `granular` | plays grains of sound |
+| `lofi` | adds deliberate grit: tape wear, low bit depth, noise |
+| `modulation` | is chorus, phaser, ring modulation or another modulation effect |
+| `noise` | uses noise as a main source |
+| `pad` | suits long, evolving pads |
+| `percussion` | is struck or made for drums and hits |
+| `physical` | models a physical object: strings, plates, resonators |
+| `pluck` | plays short, plucked notes |
+| `reverb` | adds space: spring, plate, room or diffusion |
+| `vocal` | uses formants, vowels or voices |
+
+Keywords are the catalog maintainer's call, as names are: a pull request can
+propose them, and review decides. A change to keywords alone is not an update:
+`catalog check --base` asks no new `cpu` record for it, and
+`catalog test --changed-from` does not test it again, so review is its only check.
+That also holds for keywords changed on someone else's entry.
+
+To propose a word the list lacks (such as `filter`, `distortion` or `stereo`),
+open a pull request against `staging` that adds it to both lists and to the table
+above, and to the entries of the machines it fits. A word is added only when it
+describes several machines and no listed word already does.
+
+Note players carry no audio-render CPU record; their note transforms are not
+covered by the profiler.
+
+New or changed draft/published instrument/effect entries require a `cpu` record generated
+from [hardware profiling](profiling.md), for synths, drum kits, sample engines and effects,
+including average cost and the worst observed block peak. A synth's control
+sweep reports both, which may occur at different settings. Average or peak results above the recommended
+3.5% each of the block budget are accepted with a warning; clipped peaks cannot be
+published as exact measurements. That guide owns
 the field schema, workloads and contributor commands. Unchanged legacy entries
 may remain without a record until their next update; measurements are never
 backfilled with host estimates.
+
+The builder labels a machine **CPU-high** when its reported worst case is above
+4.5% of an audio block (`HIGH_PERCENT` in
+[`tooling/cpu_measurement.py`](../tooling/cpu_measurement.py), which
+`builder/core.mjs` repeats as `CPU_HIGH_PERCENT`). The worst case is the record's
+`peak_percent`, or its `block_percent` average when it reports no peak, and for a
+synth with a [track stage](api.md#track-stage) that figure plus its stage's
+(`stage_peak_percent`, or `stage_percent`): one voice and its track's stage; the
+label immediately explains on hover or keyboard focus that higher CPU usage may reduce the number of simultaneous voices. A drum kit is judged by its
+worst single sound, never its whole-kit, choke or ceiling runs: its
+`voice_peak_percent`, the worst block of its single-voice runs, or, in a record
+without one, its `block_percent`, the heaviest single voice's average
+([profiling](profiling.md)). Its `peak_percent` includes whole-kit runs at full
+polyphony and is not used. `profile report` writes `voice_peak_percent`; a kit
+measured before it has none until it is measured again. The label is derived from
+the `cpu` record, never written in an entry, and `catalog check` notes it for the
+entries it reviews.
 
 IDs are unique across the catalog. Open-XY's own machines are entries like
 any other, published from the [core machines](https://github.com/etcetc000/open-xy-core-machines).
@@ -41,8 +105,10 @@ does not publish a catalog entry. Import code only from authors you trust:
 native machine code is not sandboxed or reviewed by Open-XY.
 
 A pack extends the site's exact machine collection. It cannot replace existing
-machines, change the SDK runtime or add extensions. Its compiled registration,
-control and sample callback tables accompany the added machines, so independent
+machines, change the SDK runtime or add extensions, and it adds synths, effects
+and sample engines only: drum kits, players and aux machines cannot be imported
+yet. Its compiled registration, control and callback tables accompany the added
+machines, so independent
 packs cannot be combined: export the desired custom machines together. Importing
 another pack replaces the previous pack. **Remove imported machines** under
 **About machine ZIPs** restores
@@ -92,7 +158,7 @@ show a short notice about support and possible instability or unexpected audio.
 
 | Command | Does |
 | --- | --- |
-| `python sdk.py catalog check [--base <ref>] [--allow-control-changes]` | Validates the catalog. With `--base`, also against an earlier catalog: every entry stays, with its kind, and its status only moves forward, except published back to draft; a published machine whose commit moved is fetched at both commits and its [controls compared](#controls) |
+| `python sdk.py catalog check [--base <ref>] [--allow-control-changes]` | Validates the catalog. With `--base`, also against an earlier catalog: every entry stays, with its kind, and its status only moves forward, except published back to draft; a published machine whose commit moved is fetched at both commits and its [controls compared](#controls); and each new or moved synth release, and each new or changed sweep record's release, is fetched to check that it has [stage fields](profiling.md#add-the-catalog-field) exactly when the release declares a track stage |
 | `python sdk.py catalog fetch [--tags] [--prune]` | Fetches every published machine at exactly its commit into `local/catalog/`, checks it matches its entry and writes `local/catalog/collection.json`: every published machine, in catalog order. `--tags` also confirms each tag still names its commit; `--prune` then deletes fetched folders the catalog no longer pins |
 | `python sdk.py catalog test [--tags] [--changed-from <revision>] [--jobs <n>] [--no-cpu]` | Fetches, then runs [`sdk.py test`](first-machine.md#what-you-own) on every published machine. `--changed-from` tests only the entries that differ from the catalog at that git revision, as CI does for a pull request that changes only the catalog; `--jobs` checks several folders at once |
 
@@ -128,7 +194,13 @@ python sdk.py compile --collection local/catalog/collection.json --out <folder>
 5. **Tag the measured commit and submit it.** Push a release tag such as
    `v1.0.0`. Change the catalog entry to `draft` for review or `published` for
    inclusion, adding `repository`, `tag`, the full tagged `commit` and `path`
-   from the field table. Add the generated `cpu` member from `catalog-cpu.json`.
+   from the field table, and one to five `keywords` that describe it. Add the
+   complete generated `cpu` member from `catalog-cpu.json`, including both
+   `block_percent` (average cost) and `peak_percent` (worst observed block).
+   An average-only record fails a new submission. The heaviest setting by mean
+   need not be the setting with the largest spike; the report lists both.
+   Existing complete captures can be reprocessed with `sdk.py profile report`
+   to obtain the peak without another device run, if source and package still match.
    A new CPU record's commit must equal the tagged machine commit. If you link a
    report, keep it in an issue/comment or separate evidence location so adding
    the readout does not change the machine commit after measurement.
@@ -143,7 +215,9 @@ Updates follow the same checks: tag a new machine revision, remeasure it and
 update `tag`, `commit` and `cpu` together. For a change that cannot affect CPU
 cost, a catalog maintainer can approve keeping the previous `cpu` record unchanged
 (still naming the commit it measured) by adding the `cpu-carried` label; the
-workflow runs again and passes `--allow-carried-cpu`. Preserve the published
+workflow runs again and passes `--allow-carried-cpu`. A release that adds a
+[track stage](api.md#track-stage) can't carry its record: the stage was never
+measured, so it is remeasured. Preserve the published
 [control contract](#controls). Removal marks an entry `retired`; its ID is never
 reused, and retirement needs no new measurement.
 
@@ -151,7 +225,9 @@ reused, and retirement needs no new measurement.
 
 A machine submission from a fork changes only `catalog/machines.json`; CI
 refuses one that changes anything else. Changes the SDK needs for a machine are
-a separate pull request.
+a separate pull request. A pull request that changes only the catalog files is
+labelled `catalog` automatically, and loses the label if it later changes anything
+else ([Catalog label](../.github/workflows/catalog-label.yml)).
 
 The [Catalog workflow](../.github/workflows/catalog.yml) runs on every pull
 request that changes `catalog/` or anything published machines build against
@@ -178,13 +254,19 @@ A maintainer then reviews a new machine once, in full:
 - It uses only the public headers: no assembly, raw addresses or platform code.
 - Its audio callbacks never allocate, block, log or do I/O.
 - Its name is sensible, and its licence allows redistribution.
+- A sample engine's [own samples](api.md#own-samples) are audio its maintainer
+  made or may redistribute under the machine's licence, never stock OP-XY content
+  or commercial or library sounds, and the samples folder's `README.md` states
+  each one's provenance and licence.
 - New synths follow the [control and header conventions](ux.md): five to eight
   controls use two fixed rows and whole-page switching, with repeated shared
   controls where the second page has no alternate.
 - It sounds right in the browser preview from its CI.
 
-An update moves `tag` and `commit` and is reviewed as a diff. The workflow
-compares the catalog with the pull request's target branch: a change of `kind`
+An update moves `tag` and `commit` and is reviewed as a diff. A sample engine's
+update keeps each sample an earlier release shipped and gives new audio a new
+name, since projects load [its own samples](api.md#own-samples) by name. The
+workflow compares the catalog with the pull request's target branch: a change of `kind`
 is refused, and a removed machine becomes `retired`, never deleted.
 A new `repository` or `maintainer` is a handover: it fails the check, and a
 catalog maintainer approves it in a pull request of its own.

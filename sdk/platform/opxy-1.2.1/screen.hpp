@@ -7,6 +7,10 @@
 #include "opxy/types.hpp"
 #include "stock.hpp"
 #include "synth_controls.hpp"
+#include "drum_machines.hpp"
+#include "drum_storage.hpp"
+#include "drum_send.hpp"
+#include "drum_hold_strip.hpp"
 
 namespace opxy { namespace screen { namespace {
 
@@ -33,8 +37,8 @@ struct PathNode {
 struct Command { i32 x, y; u32 stock8[4]; unsigned char type, stock25[7]; };
 // The loaded artwork: its fill (4-byte) and stroke (20-byte) palette records.
 struct Document { u32 stock0[25]; Vector fills; u32 stock112[5]; Vector strokes; };
-// The stock control parameter vector: eight Q31 words from begin.
-struct Parameters { u32 stock0; u32 begin, end; };
+// The stock control parameter vector: eight Q31 words from begin (stock.hpp).
+typedef platform::TrackParameters Parameters;
 static_assert(sizeof(Leaf) == 40 && __builtin_offsetof(PathNode, fill) == 112 &&
               __builtin_offsetof(PathNode, stroke) == 114 && __builtin_offsetof(PathNode, commands) == 120 &&
               sizeof(Command) == 32 && __builtin_offsetof(Command, type) == 24 &&
@@ -64,13 +68,27 @@ inline void bind_controls(Base* o) { stock<void(Leaf**, Base*, u32)>(0x8d521704)
 inline void* find(Base* o, const char* id) { return platform::find_node(o, id); }
 inline void draw(Base* o) { stock<void(Base*, u32)>(0x8d51fe1c)(o, 0); }
 inline u32 selected_track() { return platform::selected_track(); }
-inline const Parameters* parameters(u32 track) { return stock<const Parameters*(u32)>(0x8d4d72a8)(track); }
+// On an owned drum kit's track, a held pad's strip over the page just drawn
+// (drum_hold_strip.hpp); elapsed is the frame's, in Q10 seconds.
+inline void draw_hold_strip(u32 track, i32 elapsed) {
+    if (track < platform::kTracks && sdk_drum_machine(platform::track_engine(track)))
+        platform::drum_hold_strip(elapsed);
+}
+inline const Parameters* parameters(u32 track) { return platform::track_parameters(track); }
 inline void update_controls(Base* o, u32 track, const Parameters* p) {
     stock<void(Leaf**, u32, const Parameters*)>(0x8d5466ac)(o->values, track, p);
 }
 inline u32 note_serial(u32 track) { return stock<u32(u32)>(0x8d4d6c08)(track); }
 inline void set_matrix(Leaf* node, const i32* matrix) { stock<void(Leaf*, const i32*)>(0x8d5f06a6)(node, matrix); }
 inline void set_text(Leaf* node, const char* text) { platform::set_text(node, text); }
+// Anchors a text leaf at the middle of its x, as text-anchor="middle". Stock keeps the anchor at
+// +96 (0 start, 1 middle, 2 end) and measures the shown text when it draws. The low half of +88 is
+// the x adjustment of an earlier anchor, cleared as the drum page does.
+inline void anchor_middle(Leaf* node) {
+    unsigned char* bytes = reinterpret_cast<unsigned char*>(node);
+    *reinterpret_cast<word*>(bytes + 88) &= 0xffff0000u;
+    *reinterpret_cast<word*>(bytes + 96) = 1;
+}
 inline void set_fill(PathNode* node, u32 id) { stock<void(PathNode*, u32)>(0x8d5fa986)(node, id); }
 inline void set_stroke(PathNode* node, u32 id) { stock<void(PathNode*, u32)>(0x8d5fa966)(node, id); }
 inline void invalidate(PathNode* node) { stock<void(PathNode*)>(0x8d5fa9c4)(node); }
@@ -138,6 +156,14 @@ struct Controls {
     u8 shown[page_controls];
     i32 values[page_controls];
     i32 slots[parameter_slots];
+    u32 model;   // a drum kit's selected key's model; 0 otherwise
+    u32 pad;     // a drum kit's selected canonical pad, 53..76; 0 otherwise
+    bool choosing;   // a drum kit's Shift page: the cells name what Shift chooses (DrumMachine::shift)
+    u32 shift;       // an effect's page: Shift held on its shift row
+    u8 choices[4];   // that row's choices, or a drum kit's (see draw::Input::choices)
+    i32 pan, level;  // a padMix kit's selected key's pan (-100..100) and level (dB, -30..0)
+    u32 line;        // the row the encoders (and on a padMix kit Shift) edit: 0 the first, 1 the second
+    i32 pads[platform::kDrumPadFields];  // a padMix kit's selected key's pad fields: pad controls, FX I, FX II; 0 otherwise
 };
 
 // Fills controls.slots and values from the stock parameter vector,
@@ -158,6 +184,43 @@ inline bool read_shown(const Parameters* p, Controls& controls, u32 (&view)[para
     return true;
 }
 
+// An effect's own page on send track 14 or 15 (SDK 1.7): stock shows the page
+// its record names there, and names and captions nothing on it, so the page
+// does, each frame: the effect's titles and captions, or its shift row's.
+inline bool send_controls(Base* o, Controls& controls) {
+    platform::SendView view;
+    if (!sdk_send_view(controls.track, &view)) return false;
+    for (u32 i = 0; i < parameter_slots; ++i) controls.slots[i] = view.slots[i];
+    for (u32 i = 0; i < page_controls; ++i) {
+        controls.shown[i] = view.shown[i];
+        controls.values[i] = view.values[i];
+        set_text(o->titles[i], view.titles[i]);
+        set_text(o->values[i], view.texts[i]);
+    }
+    controls.shift = view.shift;
+    for (u32 i = 0; i < 4; ++i) controls.choices[i] = view.choices[i];
+    controls.valid = true;
+    return true;
+}
+
+// A Shift cell's value: a name of at most eight characters, or a signed
+// whole number and its unit, as "-6dB" or "0" (without a plus, as stock).
+inline void copy_text(char (&out)[16], const char* text) {
+    u32 n = 0;
+    for (; text && text[n] && n + 1 < sizeof(out); ++n) out[n] = text[n];
+    out[n] = 0;
+}
+inline void drum_number(char (&out)[16], i32 value, const char* unit) {
+    u32 n = 0;
+    if (value < 0) { out[n++] = '-'; value = -value; }
+    if (value > 999) value = 999;
+    if (value >= 100) out[n++] = static_cast<char>('0' + value / 100);
+    if (value >= 10) out[n++] = static_cast<char>('0' + value / 10 % 10);
+    out[n++] = static_cast<char>('0' + value % 10);
+    for (u32 i = 0; unit[i] && n + 1 < sizeof(out); ++i) out[n++] = unit[i];
+    out[n] = 0;
+}
+
 // The shared opening of every frame: once the artwork and all four value and
 // title nodes exist, stock updates the control titles and percentage values of
 // the shown parameters. False when there is nothing to draw yet.
@@ -166,7 +229,16 @@ inline bool refresh_controls(Base* o, Controls& controls) {
     for (u32 i = 0; i < 4; ++i)
         if (!o->values[i] || !o->titles[i]) return false;
     controls.track = selected_track();
+    controls.shift = 0;
+    controls.choosing = false;
+    controls.model = controls.pad = 0;
+    controls.pan = controls.level = 0;
+    controls.line = 0;
+    for (u32 i = 0; i < platform::kDrumPadFields; ++i) controls.pads[i] = 0;
+    for (u32 i = 0; i < 4; ++i) controls.choices[i] = 0;
+    if (send_controls(o, controls)) return true;
     sdk_synth_shown(controls.track, controls.shown);
+    controls.line = controls.shown[0] >= page_controls ? 1 : 0;
     for (u32 i = 0; i < page_controls; ++i) controls.values[i] = 0;
     for (u32 i = 0; i < parameter_slots; ++i) controls.slots[i] = 0;
     const Parameters* stock_vector = parameters(controls.track);
@@ -174,12 +246,120 @@ inline bool refresh_controls(Base* o, Controls& controls) {
     const Parameters view = {0, static_cast<u32>(reinterpret_cast<platform::Address>(words)),
                              static_cast<u32>(reinterpret_cast<platform::Address>(words + parameter_slots))};
     controls.valid = read_shown(stock_vector, controls, words);
+    u8 model = 0, drum_values[8];
+    const platform::DrumMachine* drum = controls.track < 8
+        ? sdk_drum_machine(platform::track_engine(controls.track)) : nullptr;
+    if (drum && !sdk_drum_values(controls.track, &model, drum_values)) drum = nullptr;
+    controls.model = drum ? model : 0;
+    if (drum) {
+        const u32 choke = sdk_drum_choke_choice(controls.track);
+        const u32 group = drum->group(model);
+        const u32 grouped[4] = {group, model - drum->group_first(group), choke, 0}, plain[4] = {model, choke, 0, 0};
+        for (u32 i = 0; i < 4; ++i) controls.choices[i] = static_cast<u8>(drum->group_count ? grouped[i] : plain[i]);
+        if (drum->pad_mix) {
+            controls.pan = sdk_drum_pan(controls.track);
+            controls.level = sdk_drum_level(controls.track);
+        }
+        if (drum->pad_mix) sdk_drum_pad_values(controls.track, controls.pads);
+    }
+    controls.pad = drum ? sdk_drum_selected_pad(controls.track) : 0;
+    if (drum) {
+        // Stock's vector holds the track parameters a held step locks: show
+        // the values that step plays, as the audio adapter decodes them.
+        i32 offsets[parameter_slots];
+        const bool whole = stock_vector && stock_vector->begin && !(stock_vector->begin & 3) &&
+                           stock_vector->end >= stock_vector->begin + 4 * parameter_slots;
+        for (u32 i = 0; i < parameter_slots; ++i)
+            offsets[i] = whole ? reinterpret_cast<const i32*>(stock_vector->begin)[i] : 0;
+        u8 stored[8];
+        for (u32 i = 0; i < 8; ++i) stored[i] = drum_values[i];
+        platform::drum_offset(stored, whole ? offsets : nullptr, drum_values);
+        controls.valid = true;
+        for (u32 i = 0; i < parameter_slots; ++i) {
+            controls.slots[i] = drum_values[i] == 127 ? 0x7fffffff : static_cast<i32>(static_cast<u32>(drum_values[i]) << 24);
+            words[i] = static_cast<u32>(controls.slots[i]);
+        }
+        for (u32 i = 0; i < page_controls; ++i) {
+            controls.values[i] = controls.slots[controls.shown[i]];
+            words[i] = static_cast<u32>(controls.values[i]);
+        }
+    }
     update_controls(o, controls.track, controls.valid ? &view : stock_vector);
     if (controls.valid) {
+        // While Shift is held, each encoder names and shows what it chooses
+        // for the selected key (DrumMachine::shift): the model, as on stock
+        // Drumline, the group with groups and no padMix, the choke group, and with
+        // padMix the key's pan and level, or on its second row the key's pad
+        // fields. An encoder that chooses nothing is blank.
+        const bool choosing = drum && platform::shift_held();
+        controls.choosing = choosing;
+        // A sample engine's own screen whose Shift gives encoders to the stock
+        // sampler page sees Shift as a shift row's page does, to show what Shift edits.
+        if (!drum && sdk_sample_stock_shift(controls.track) && platform::shift_held()) controls.shift = 1;
+        // Filled one by one: a zeroed aggregate could become a memset call.
+        const char* titles[page_controls];
+        char values[page_controls][16];
+        for (u32 i = 0; i < page_controls; ++i) {
+            titles[i] = "";
+            values[i][0] = 0;
+            if (!choosing) continue;
+            switch (drum->shift(i, controls.line != 0)) {
+            case platform::DrumMachine::kShiftGroup:
+                titles[i] = "KIT"; copy_text(values[i], drum->group_names[drum->group(model)]); break;
+            case platform::DrumMachine::kShiftModel:
+                // A padMix kit with groups scrolls every model, its title the
+                // model's group: "TRX" over "BD". Both words do not fit a value.
+                titles[i] = drum->pad_mix && drum->group_count ? drum->group_names[drum->group(model)] : "MACHINE";
+                copy_text(values[i], drum->model_name(model));
+                break;
+            case platform::DrumMachine::kShiftChoke:
+                titles[i] = "CHOKE"; copy_text(values[i], sdk_drum_choke(controls.track)); break;
+            case platform::DrumMachine::kShiftPan:
+                titles[i] = "PAN"; drum_number(values[i], controls.pan, ""); break;
+            case platform::DrumMachine::kShiftLevel:
+                titles[i] = "LEVEL"; drum_number(values[i], controls.level, "dB"); break;
+            case platform::DrumMachine::kShiftNone: break;
+            default: {
+                // A pad field: its label, and the kit's caption or the number;
+                // a send TRK or its percent.
+                const u32 field = drum->shift(i, controls.line != 0) - platform::DrumMachine::kShiftPad;
+                if (field >= platform::kDrumPadFields) break;
+                titles[i] = drum->pad_label(field);
+                const i32 value = controls.pads[field];
+                if (field >= platform::kDrumKitPadFields) {
+                    // A send's index (drum_send.hpp): the key's own amount, 0..100
+                    // percent of a full send, or TRK, following the track's.
+                    const i32 percent = platform::drum_send_percent(static_cast<u32>(value));
+                    if (percent >= 0) drum_number(values[i], percent, "");
+                    else copy_text(values[i], "TRK");
+                } else if (!drum->pad_text || !drum->pad_text(field, value, values[i])) {
+                    drum_number(values[i], value, "");
+                }
+                values[i][15] = 0;
+                break;
+            }
+            }
+        }
         for (u32 i = 0; i < page_controls; ++i) {
             char text[16];
             if (sdk_synth_value(controls.track, controls.shown[i], controls.values[i], text))
                 set_text(o->values[i], text);
+            if (!drum) continue;
+            if (choosing) {
+                set_text(o->titles[i], titles[i]);
+                set_text(o->values[i], values[i]);
+                continue;
+            }
+            const u32 slot = controls.shown[i];
+            set_text(o->titles[i], drum->label(model, slot));
+            u32 value = drum_values[slot];
+            char digits[4];
+            u32 n = 0;
+            if (value >= 100) { digits[n++] = '1'; value -= 100; }
+            if (n || value >= 10) digits[n++] = static_cast<char>('0' + value / 10);
+            digits[n++] = static_cast<char>('0' + value % 10);
+            digits[n] = 0;
+            set_text(o->values[i], drum->used(model, slot) ? digits : "");
         }
     }
     return true;

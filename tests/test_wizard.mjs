@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createWizard} from '../builder/wizard.mjs';
+import {createBuilder} from '../builder/app.mjs';
 import {Session} from '../builder/ferret.mjs';
 import {supportsDeviceApis} from '../builder/browser.mjs';
 import * as Visuals from '../builder/visuals.mjs';
@@ -20,7 +21,7 @@ class Element {
   focus() {}
 }
 
-function sourceFlow(t, {fake, bytes, hash, usb = true}) {
+function sourceFlow(t, {fake, bytes, hash, usb = true, files = {}}) {
   const html = readFileSync(new URL('../builder/index.html', import.meta.url), 'utf8');
   const elements = new Map([...html.matchAll(/<[^>]*\bid="([^"]+)"[^>]*>/g)].map(([tag, id]) =>
     [id, Object.assign(new Element(), {hidden: /\bhidden\b/.test(tag)})]));
@@ -39,7 +40,7 @@ function sourceFlow(t, {fake, bytes, hash, usb = true}) {
     t.after(() => previous ? Object.defineProperty(globalThis, name, previous) : delete globalThis[name]);
   }
   const wizard = createWizard({getKit: () => ({profile: {stock_bytes: bytes.length, stock_sha256: hash}, machines: []}),
-    getSelected: () => [], hasDownload: () => true, getFiles: () => ({}),
+    getSelected: () => [], hasDownload: () => true, getFiles: () => files,
     onFirmware: async (file, isCurrent) => { assert.equal(isCurrent(), true); accepted.push(new Uint8Array(await file.arrayBuffer())); return true; }});
   const click = label => {
     const button = $('flow-actions').children.find(b => b.id === label || b.textContent === label);
@@ -226,10 +227,10 @@ test('missing OS recovery disables the menu before reinstalling, then restarts t
     assert.equal($('recovery-downloads').hidden, true);
     await click('recovery-disable');
     assert.equal(connects, 1); assert.equal(disables, 1);
-    assert.equal($('flow-title').textContent, 'Power cycle and reinstall OS 1.2.1.');
+    assert.equal($('flow-title').textContent, 'Reinstall official OS 1.2.1.');
     assert.equal($('recovery-downloads').hidden, false);
     assert.equal($('flow-back').hidden, true);
-    assert.ok($('flow-instructions').children.some(li => li.children[0].textContent.includes('hold COM')));
+    assert.ok($('flow-instructions').children.some(li => li.children[0].textContent.toLowerCase().includes('hold com')));
     $('recovery-disable-again').onclick();
     assert.equal($('device-flow').dataset.stage, 'missing-os');
     assert.equal($('recovery-downloads').hidden, true);
@@ -307,6 +308,9 @@ test('stopping a Mac read discards it and releases USB before a retry', async t 
   const f = sourceFlow(t, {fake, bytes, hash: await sha256(bytes)});
   f.reachTransfer('mac'); f.click('field-kit-closed'); const reading = f.click('mtp-read');
   while (!fake.state.abort) await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(f.$('mtp-help-button').disabled, true);
+  f.$('mtp-help-button').onclick();
+  assert.equal(f.$('device-flow').dataset.stage, 'transfer');
   assert.equal(f.$('missing-os-help').disabled, true);
   f.$('missing-os-help').onclick();
   assert.equal(f.$('device-flow').dataset.stage, 'transfer');
@@ -359,6 +363,7 @@ test('installation links preview the edited steps without a build or device acce
 
   for (const hash of ['#preview/mac/transfer', '#preview/windows/transfer']) {
     assert.equal(wizard.previewLink(hash), true);
+    assert.equal(wizard.previewPage(), 4);
     assert.equal($('flow-install-reminder').hidden, false);
     assert.equal($('flow-preview-note').hidden, false);
     assert.equal($('flow-download').hidden, true);
@@ -404,6 +409,16 @@ test('installation links preview the edited steps without a build or device acce
     assert.equal(wizard.previewLink(hash), false);
     assert.equal($('device-flow').dataset.stage, 'enable');
   }
+  wizard.previewLink('#preview/mac/mtp-help');
+  action('format-start').onclick(); action('Connected and at te-boot').onclick();
+  action('menu-yes').onclick();
+  assert.equal($('device-flow').dataset.stage, 'format-drive');
+  action('Format finished · Reinstall OS 1.2.1').onclick();
+  assert.equal($('recovery-disable-again').hidden, true);
+  action('recovery-retry').onclick();
+  assert.equal(action('dev-enable').disabled, true);
+  await action('dev-enable').onclick();
+  assert.equal(deviceRequests, 0);
   wizard.previewLink('#preview/mac/restart');
   assert.equal(action('dev-disable').disabled, true);
   await action('dev-disable').onclick();
@@ -418,11 +433,9 @@ test('installation links preview the edited steps without a build or device acce
 
   // Run the actual app startup against the same DOM. It must render a valid
   // preview before waiting for acknowledgement, without booting the builder.
-  const source = readFileSync(new URL('../builder/app.mjs', import.meta.url), 'utf8').replace(/^import .*\r?\n/gm, '');
-  const AsyncFunction = Object.getPrototypeOf(async function() {}).constructor;
   let startupError;
   navigator.usb = undefined; // Unsupported browser; previews must still work.
-  new AsyncFunction('Wizard', 'Visuals', 'supportsDeviceApis', source)({createWizard}, Visuals, supportsDeviceApis).catch(error => { startupError = error; });
+  createBuilder({wizardApi:{createWizard}, visuals:Visuals, supportsBrowser:supportsDeviceApis}).catch(error => { startupError = error; });
   await Promise.resolve();
   assert.ifError(startupError);
   assert.equal($('risk-gate').hidden, true);
@@ -461,4 +474,158 @@ test('installation links preview the edited steps without a build or device acce
   assert.equal($('risk-gate').hidden, true);
   assert.equal(action('mtp-read').disabled, true);
   assert.equal(pages[0].hidden, false);
+});
+
+
+test('MTP format guidance requires acknowledgement and resumes the original copy or install route', async t => {
+  for (const purpose of ['source', 'install']) await t.test(purpose, async t => {
+    let enables = 0, disables = 0;
+    for (const [name, replacement] of Object.entries({connect: async () => {},
+      enable: async () => enables++, disable: async () => disables++})) {
+      const original = Session.prototype[name]; Session.prototype[name] = replacement;
+      t.after(() => { Session.prototype[name] = original; });
+    }
+    const f = sourceFlow(t, {fake: fakeDevice(), bytes: new Uint8Array(1), hash: ''});
+    const {$, click} = f;
+    f.reachTransfer('mac'); click('field-kit-closed');
+    if (purpose === 'install') {
+      click('mtp-manual'); click('Files copied · Choose files');
+      f.wizard.navigate(4);
+      $('route-mac').onclick({preventDefault() {}, currentTarget: $('route-mac')});
+      click('field-kit-closed');
+    }
+    assert.equal($('mtp-help-button').hidden, false);
+    $('mtp-help-button').onclick();
+    assert.equal($('device-flow').dataset.stage, 'mtp-help');
+    assert.equal($('mtp-faq').hidden, false);
+    assert.equal($('recovery-downloads').hidden, false);
+    assert.equal($('recovery-disable-again').hidden, true);
+    assert.equal(enables + disables + f.requests(), 0);
+    click('format-start'); click('Connected and at te-boot'); click('menu-no');
+    await click('dev-enable');
+    click('System menu is open'); click('I’m back at te-boot'); click('dev-confirm');
+    assert.equal($('device-flow').dataset.stage, 'format-drive');
+    assert.equal($('flow-back').hidden, true);
+    assert.equal(enables, 1); assert.equal(f.requests(), 0);
+    click('Format finished · Reinstall OS 1.2.1');
+    assert.equal($('device-flow').dataset.stage, 'format-upload');
+    assert.equal($('recovery-downloads').hidden, false);
+    assert.equal($('recovery-disable-again').hidden, true);
+    assert.equal(disables, 0);
+    assert.ok(!$('flow-actions').children.some(b => b.id === 'recovery-disable'));
+    click('recovery-retry');
+    await click('dev-enable');
+    click('System menu is open'); click('I’m back at te-boot'); click('dev-confirm');
+    assert.equal($('device-flow').dataset.stage, 'open-dev-menu');
+    click('Dev menu is open'); click('I see "mtp mode active"'); click('field-kit-closed');
+    assert.equal($('flow-title').textContent, purpose === 'source'
+      ? 'Read the original OS from your OP–XY.' : 'Send the files to your OP–XY.');
+    assert.equal(f.requests(), 0);
+  });
+});
+
+
+test('leaving format preparation resets the next installation route', async t => {
+  const f = sourceFlow(t, {fake: fakeDevice(), bytes: new Uint8Array(1), hash: ''});
+  const {$, click} = f;
+  f.reachTransfer('mac');
+  $('mtp-help-button').onclick(); click('format-start');
+  $('flow-exit').onclick(); $('source-device').onclick();
+  click('Connected and at te-boot'); click('menu-yes');
+  assert.equal($('device-flow').dataset.stage, 'open-dev-menu');
+  assert.equal(f.requests(), 0);
+});
+
+test('expert build-and-copy chooses USB in the gesture, builds before opening, verifies content then OS', async t => {
+  const fake = fakeDevice({files: {'user/keep.txt': Uint8Array.of(42)}}), files = {};
+  const f = sourceFlow(t, {fake, bytes: new Uint8Array(1), hash: '', files});
+  await f.wizard.quickInstall(async () => {
+    assert.equal(f.requests(), 1);
+    assert.equal(fake.state.opened, false);
+    files['os.ldr'] = Uint8Array.of(1, 2, 3);
+    files['content/op1_factory.json'] = Uint8Array.of(4, 5);
+    return true;
+  });
+  assert.deepEqual(fake.state.read('os.ldr'), files['os.ldr']);
+  assert.deepEqual(fake.state.read('user/keep.txt'), Uint8Array.of(42));
+  const log = f.$('mtp-log').children.map(e => e.textContent).join('\n');
+  assert.match(log, /op1_factory.json.*verified/);
+  assert.match(log, /os.ldr.*verified/);
+  assert.ok(log.indexOf('Added content/') < log.indexOf('Added os.ldr'));
+  assert.match(f.$('flow-title').textContent, /Files verified/);
+  assert.equal(f.$('device-flow').dataset.quick, 'true');
+  assert.equal(f.$('flow-exit').textContent, 'Back to expert mode');
+  assert.equal(fake.state.opened, false);
+});
+
+test('expert build failures and cancellation before completion cannot write any files', async t => {
+  const fake = fakeDevice(), files = {'os.ldr': Uint8Array.of(1)};
+  const f = sourceFlow(t, {fake, bytes: new Uint8Array(1), hash: '', files});
+  await f.wizard.quickInstall(async () => false);
+  assert.deepEqual(fake.state.ops, []);
+  assert.match(f.$('dev-status').textContent, /Build failed/);
+  let finish;
+  const waiting = f.wizard.quickInstall(() => new Promise(resolve => { finish = resolve; }));
+  while (!finish) await new Promise(resolve => setImmediate(resolve));
+  f.$('dev-cancel').onclick(); finish(true); await waiting;
+  assert.deepEqual(fake.state.ops, []);
+  assert.equal(fake.state.opened, false);
+  await f.wizard.quickInstall(async () => true);
+  assert.deepEqual(fake.state.read('os.ldr'), files['os.ldr']);
+  assert.match(f.$('flow-title').textContent, /Files verified/);
+});
+
+test('retry waits for a cancelled USB claim to finish and release the interface', async t => {
+  const fake = fakeDevice(), {device, state} = fake;
+  const claim = device.claimInterface.bind(device), open = device.open.bind(device);
+  const {promise: claiming, resolve: claimStarted} = Promise.withResolvers();
+  const {promise: releaseClaim, resolve: finishClaim} = Promise.withResolvers();
+  let opens = 0;
+  device.open = async () => {
+    opens++;
+    if (state.opened) throw new DOMException('USB is already open', 'InvalidStateError');
+    await open();
+  };
+  device.claimInterface = async number => {
+    if (opens === 1) { claimStarted(); await releaseClaim; }
+    assert.equal(state.opened, true);
+    await claim(number);
+  };
+  const files = {'os.ldr': Uint8Array.of(1)};
+  const f = sourceFlow(t, {fake, bytes: new Uint8Array(1), hash: '', files});
+  const first = f.wizard.quickInstall(async () => true);
+  await claiming;
+  f.$('dev-cancel').onclick();
+  const retry = f.click('mtp-send');
+  try {
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(opens, 1);
+    assert.equal(state.opened, true);
+    assert.equal(state.read('os.ldr'), undefined);
+  } finally {
+    finishClaim();
+    await Promise.all([first, retry]);
+  }
+  assert.equal(opens, 2);
+  assert.deepEqual(state.read('os.ldr'), files['os.ldr']);
+  assert.match(f.$('flow-title').textContent, /Files verified/);
+  assert.equal(state.opened, false);
+});
+
+test('expert copy stops on corrupt readback before writing the OS', async t => {
+  const fake = fakeDevice({corrupt: bytes => { bytes[12] ^= 1; }});
+  const files = {'content/op1_factory.json': Uint8Array.of(4, 5), 'os.ldr': Uint8Array.of(1)};
+  const f = sourceFlow(t, {fake, bytes: new Uint8Array(1), hash: '', files});
+  await f.wizard.quickInstall(async () => true);
+  assert.match(f.$('dev-status').textContent, /Readback mismatch/);
+  assert.equal(fake.state.read('os.ldr'), undefined);
+  assert.doesNotMatch(f.$('flow-title').textContent, /Files verified/);
+  assert.equal(fake.state.opened, false);
+});
+
+test('expert copy without WebUSB never builds or requests a device', async t => {
+  const f = sourceFlow(t, {fake: fakeDevice(), bytes: new Uint8Array(1), hash: '', usb: false});
+  assert.equal(f.wizard.supportsQuickInstall(), false);
+  await f.wizard.quickInstall(() => { throw new Error('Should not build'); });
+  assert.equal(f.requests(), 0);
 });

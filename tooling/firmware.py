@@ -5,11 +5,12 @@ from .pipeline import check_patch_boundaries
 from . import startup_label
 
 
-def active_services(profile, kinds):
-    """Profile services a collection or selection needs; each names the machine kinds that use it,
-    or 'extension' for selected extensions."""
-    kinds = set(kinds)
-    return {name for name, users in profile.get('services', {}).items() if kinds & set(users)}
+def active_services(profile, uses):
+    """Profile services a collection or selection needs; each names the machine kinds, the
+    features machines declare (tooling.native.service_users), or 'extension' for selected
+    extensions, that use it."""
+    uses = set(uses)
+    return {name for name, users in profile.get('services', {}).items() if uses & set(users)}
 
 
 def patch_active(patch, services, profiling=True):
@@ -19,6 +20,16 @@ def patch_active(patch, services, profiling=True):
             'Invalid profiling hook')
     return (('service' not in patch or patch['service'] in services) and
             ('profiling' not in patch or patch['profiling'] is profiling))
+
+
+def hook_symbol(patch, services):
+    """The module symbol a hook enters. A stock site has one hook: when several services
+    need it, the record's `symbols` maps each of them to the handler a build with it
+    enters, and the first one active wins: a handler shared by several services runs
+    them all in a fixed order (builder/core.mjs hookSymbol). Otherwise the record's
+    `symbol`."""
+    return next((symbol for service, symbol in patch.get('symbols', {}).items() if service in services),
+                patch['symbol'])
 
 
 def hooks(profile):
@@ -59,8 +70,8 @@ def hook_instruction(patch, target):
     """Reviewed absolute/relative call or branch, with zero NOP padding."""
     site, length, call = int(patch['address'], 16), patch['length'], patch['call']
     if length in (8, 12):
-        require(call, 'Wide hook must be an absolute call')
-        return absolute_call(target) + bytes(length - 8)
+        require(type(call) is bool and (call or length == 8), 'Invalid absolute hook policy')
+        return (absolute_call(target) if call else startup_label.jump(target)[:8]) + bytes(length - 8)
     require(length in (4, 6), 'Unsupported relative-hook footprint')
     return branch_instruction(site, target, call) + bytes(length - 4)
 
@@ -70,9 +81,35 @@ def hook_target(patch, instruction):
     if patch['length'] in (8, 12):
         require(len(instruction) == patch['length'] and instruction[8:] == bytes(patch['length'] - 8),
                 'Changed absolute-hook padding')
-        return absolute_target(instruction[:8]), True
+        if patch['call']: return absolute_target(instruction[:8]), True
+        require(patch['length'] == 8 and instruction == startup_label.jump(startup_label.destination(instruction + bytes(2)))[:8],
+                'Invalid absolute entry branch')
+        return startup_label.destination(instruction + bytes(2)), False
     require(instruction[4:] == bytes(patch['length'] - 4), 'Changed hook padding')
     return decode_branch(int(patch['address'], 16), instruction[:4])
+
+
+def check_edit(patch, original, services, profiling, low, module_bytes):
+    """One built edit against the profile's: an inactive edit keeps stock, a hook or the
+    startup label targets the module, a capability setting holds one of its reviewed
+    choices, and every other edit holds its reviewed `after`."""
+    require(all(patch[k] == original[k] for k in ('kind', 'address', 'before', 'file_offset', 'length')),
+            'Changed patch boundary')
+    after = bytes.fromhex(patch['after'])
+    require(all(patch.get(k) == original.get(k) for k in ('service', 'profiling', 'symbol', 'symbols', 'call')),
+            'Changed patch policy')
+    if not patch_active(original, services, profiling):
+        require(patch['after'] == original['before'], 'An inactive hook changed stock')
+    elif original['kind'] == 'startup':
+        target = startup_label.destination(after)
+        require(low <= target < low + module_bytes, 'Startup hook does not target module')
+    elif original['kind'] == 'hook':
+        target, call = hook_target(original, after)
+        require(call == original['call'] and low <= target < low + module_bytes, 'Hook does not target module')
+    elif 'choices' in original:
+        require(patch['after'] in original['choices'].values(), 'Unreviewed capability setting bytes')
+    else:
+        require(patch['after'] == original['after'], 'Changed heap reservation or table edit')
 
 
 def assemble(stock, module, profile, original_profile, edits, services, profiling=True):
@@ -83,21 +120,7 @@ def assemble(stock, module, profile, original_profile, edits, services, profilin
     require(len(profile['patches']) == len(original_profile['patches']) == edits, f'Expected {edits} edit intervals')
     low = original_profile['module_base']
     for patch, original in zip(profile['patches'], original_profile['patches']):
-        require(all(patch[k] == original[k] for k in ('kind', 'address', 'before', 'file_offset', 'length')),
-                'Changed patch boundary')
-        after = bytes.fromhex(patch['after'])
-        require(all(patch.get(k) == original.get(k) for k in ('service', 'profiling', 'symbol', 'call')),
-                'Changed patch policy')
-        if not patch_active(original, services, profiling):
-            require(patch['after'] == original['before'], 'An inactive hook changed stock')
-        elif original['kind'] == 'startup':
-            target = startup_label.destination(after)
-            require(low <= target < low + len(module), 'Startup hook does not target module')
-        elif original['kind'] == 'hook':
-            target, call = hook_target(original, after)
-            require(call == original['call'] and low <= target < low + len(module), 'Hook does not target module')
-        else:
-            require(patch['after'] == original['after'], 'Changed heap reservation or table edit')
+        check_edit(patch, original, services, profiling, low, len(module))
     check_patch_boundaries(profile, edits)
     blocks = ldr(stock)
     require(len(blocks) == original_profile['stock_records'], 'Unexpected stock records')

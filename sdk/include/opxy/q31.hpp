@@ -4,6 +4,16 @@
 namespace opxy { namespace q31 {
 // SDK-owned platform boundary. Engine source always calls the same operations.
 const i32 maximum = 2147483647;
+// Full signed 32 x 32 product, without a shift or saturation.
+inline i64 wide(i32 a, i32 b) {
+#if defined(__bfin__)
+    register i64 result __asm__("R0");
+    __asm__("(R1:0) = %1 * %2 (IS,NS);" : "=d"(result) : "d"(a), "d"(b) : "ASTAT", "CC");
+    return result;
+#else
+    return static_cast<i64>(a) * b;
+#endif
+}
 inline i32 multiply(i32 a, i32 b) {
 #if defined(__bfin__)
     // Blackfin's saturating, truncating (T) multiply: the same result as the
@@ -22,6 +32,33 @@ inline i32 multiply(i32 a, i32 b) {
 #endif
 }
 
+// Saturating addition (SDK 1.7): the sum, held within the Q31 range.
+inline i32 add(i32 a, i32 b) {
+#if defined(__bfin__)
+    // Blackfin's saturating add: the same result as the portable path below in one instruction.
+    i32 result;
+    __asm__("%0 = %1 + %2 (S);" : "=d"(result) : "d"(a), "d"(b) : "ASTAT");
+    return result;
+#else
+    const i64 sum = static_cast<i64>(a) + b;
+    return sum > maximum ? maximum : sum < -maximum - 1 ? -maximum - 1 : static_cast<i32>(sum);
+#endif
+}
+
+// Saturating left shift (SDK 1.16): value * 2^count, held within the Q31 range;
+// count 0..31.
+inline i32 shift_left(i32 value, u32 count) {
+#if defined(__bfin__)
+    // Blackfin's saturating shift: the same result as the portable path below in one instruction.
+    i32 result;
+    __asm__("%0 = ASHIFT %1 BY %2.L (S);" : "=d"(result) : "d"(value), "d"(count) : "ASTAT", "CC");
+    return result;
+#else
+    const i64 shifted = static_cast<i64>(value) * (static_cast<i64>(1) << count);
+    return shifted > maximum ? maximum : shifted < -maximum - 1 ? -maximum - 1 : static_cast<i32>(shifted);
+#endif
+}
+
 inline i32 half(i32 value) {
 #if defined(__bfin__)
     i32 result;
@@ -32,5 +69,38 @@ inline i32 half(i32 value) {
 #endif
 }
 
+// Like the helpers above, these update the arithmetic flags on the device but
+// never read, write or save ASTAT.
+const i32 minimum = -maximum - 1;
+
+// A 64-bit value held within the Q31 range.
+inline i32 saturate(i64 value) {
+    return value > maximum ? maximum : value < minimum ? minimum : static_cast<i32>(value);
+}
+
+// Saturating subtraction: a - b, held within the Q31 range.
+inline i32 subtract(i32 a, i32 b) {
+#if defined(__bfin__)
+    i32 result;
+    __asm__("%0 = %1 - %2 (S);" : "=d"(result) : "d"(a), "d"(b) : "ASTAT", "CC");
+    return result;
+#else
+    return saturate(static_cast<i64>(a) - b);
+#endif
+}
+
+// Arithmetic right shift: value / 2^count rounded toward minus infinity, as a
+// sign-filling shift does; count 0..31. Other counts are undefined and differ
+// between host and device.
+inline i32 shift_right(i32 value, u32 count) {
+#if defined(__bfin__)
+    i32 result;
+    __asm__("%0 >>>= %2;" : "=d"(result) : "0"(value), "d"(count) : "ASTAT", "CC");
+    return result;
+#else
+    const i64 divisor = static_cast<i64>(1) << count;
+    return static_cast<i32>(value >= 0 ? value / divisor : -1 - (-1 - static_cast<i64>(value)) / divisor);
+#endif
+}
 
 }} // namespace opxy::q31

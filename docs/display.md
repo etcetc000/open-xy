@@ -1,6 +1,7 @@
 # Display API
 
-A synth draws its own page. Display code runs separately from audio. Each
+A synth draws its own page, as from SDK 1.8 may a sample engine on the
+sampler's page ([own screen](api.md#own-screen)). Display code runs separately from audio. Each
 frame it fills a bounded frame, which the SDK's browser and native renderers
 apply to the machine's artwork, `panel.svg.fragment`. This is retained
 drawing: the artwork's elements are drawn by the device, and the frame moves,
@@ -16,7 +17,7 @@ patterns are the machine's own code filling nodes; see
 
 ## Declaration
 
-Each synth declares its frame's budget in `resources.display` of
+Each synth, or sample engine with its own screen, declares its frame's budget in `resources.display` of
 `definition.json` and names the same shape as its C++ frame type. The SDK sizes
 the native renderer, the browser renderer and the artwork bindings from that
 declaration; a mismatch fails to compile.
@@ -36,10 +37,12 @@ void display(DisplayState& state, const opxy::draw::Input& input, Frame& output)
 | --- | --- |
 | `paths` | 0..4 mutable outlines; they are nodes `0..paths-1` |
 | `points` | 2..64 points per outline; 0 when there are no paths |
-| `nodes` | `paths`..256 transformable elements |
-| `texts` | 0..16 text slots; more than 4 need `"sdk": "1.3"` |
+| `nodes` | `paths`..512 transformable elements; more than 256 need `"sdk": "1.8"` |
+| `texts` | 0..32 text slots; more than 4 need `"sdk": "1.3"`, more than 16 `"sdk": "1.7"` |
 | `palette` | 1..16 paint entries |
 | `stateBytes`, `stateAlignment` | `DisplayState` size (whole words) and alignment, checked against the compiled type |
+
+A synth or effect screen can go beyond these with [extended drawing](#extended-drawing).
 
 [draw.hpp](../sdk/include/opxy/draw.hpp) is the format definition.
 `DisplayState` is trivial, standard-layout data. Put it, with the frame type,
@@ -54,15 +57,30 @@ note-activity baselines. Continuing to show the same page and track does not
 reset it. Browser hosts call `PreviewDisplay.reset()` when reactivating a
 preview. Audio state, note routing and the drawing input ABI are unchanged.
 
+A display host that resets a parameter may notify the optional GUI-only callback
+`display_parameter_reset(DisplayState&, u32 slot)` through
+`draw::parameter_reset(state, slot)`. It can animate back to that parameter's
+default without resetting the whole display. Omitting it is supported. This
+lifecycle callback does not change `draw::Input` or its browser ABI.
+
 ## Input
 
 Input holds the Q31 value each of the four control positions shows, Q10 elapsed
 seconds, track identity, a uint32 note-start serial, the reduced-motion
 preference, `shown`, the declared parameter index each position shows (its own,
-or an [alternate](api.md#alternate-controls)), and `slots`, the Q31 value of
-every declared parameter by index (0 beyond the declared ones). A serial is a
+or an [alternate](api.md#alternate-controls)), `slots`, the Q31 value of
+every declared parameter by index (0 beyond the declared ones), note activity
+and the track's amp envelope. A serial is a
 snapshot, not a queue: several note starts between frames can coalesce.
-Initializing or changing track must not fabricate a note.
+Initializing or changing track must not fabricate a note. The serial of a
+synth, a sample engine or a drum kit declaring SDK 1.21 or later counts per
+track, not per key: where keys play different sounds, as a drum kit's do, an
+animation started by the serial alone also plays for keys that weren't hit.
+On a drum kit declaring SDK 1.21 or later, read which pad played from the
+[played-pad snapshot](#shift-and-a-drum-kits-machine-sdk-18). A drum kit
+declaring an SDK before 1.21 keeps the serial it was written against: it
+counts only the starts of pitches that map to the selected pad, and a start no
+held or released pitch accounts for (a sequenced note, say) counts as before.
 
 ### Note activity (SDK 1.1)
 
@@ -77,8 +95,8 @@ and amplitude release tails. On the device it follows stock's per-track
 note-on/off map, which stock also uses to illuminate its keyboard; it is not a
 physical-key sensor or a measurement of audible sound. Sequenced and live notes
 follow the same stock note routing. Sustain/latch behavior follows that routing;
-this API does not read the amplitude envelope or promise that sound ends at a
-note-off. Non-instrument tracks report zero.
+note activity does not promise that sound ends at a note-off (see the
+[amp envelope](#amp-envelope-sdk-110)). Non-instrument tracks report zero.
 
 Store a zero-initialized `opxy::draw::NoteTracker` in `DisplayState` and call
 `update(input)` once per frame. Call the tracker's `reset()` in
@@ -102,6 +120,8 @@ const bool held = input.held_notes <= 128 && input.held_notes != 0;
 The first update, an update after reset, and a track change establish a
 baseline and emit no events, even if notes are already held. While `held` is
 true, accumulate `elapsed` in the machine's state to measure animation time.
+Animate for as long as notes are held, then release: an animation of fixed
+length after a note start stops while a long note still sounds.
 These are frame snapshots: a complete press/release between frames can leave
 the held count unchanged, while both serials advance. Such a release still
 sets `note_released`; hold edges only describe the observed frames.
@@ -116,10 +136,130 @@ workbench and builder both supply activity, including releases with reduced
 motion enabled.
 
 Machines using these additions declare `"sdk": "1.1"` in `machine.json`.
-Existing SDK 1.0 source remains supported. New previews use drawing ABI 2 with
-a 76-byte input; the browser host also accepts existing ABI 1 previews, which
-retain their 68-byte input and do not receive activity. Rebuild old preview
-modules to use the new fields.
+Existing SDK 1.0 source remains supported. The browser host also accepts ABI 1
+previews, which retain their 68-byte input and do not receive activity.
+Rebuild old preview modules to use the new fields.
+
+### Amp envelope (SDK 1.10)
+
+`amp` holds the track's stock amplitude envelope, the one its envelope page
+edits, on a synth's page or a sample engine's own screen: `attack`, `decay`, `sustain` and `release`, each a Q31 word from 0 to
+`0x7fffffff` on the same scale as `slots`. Stock uses only each word's top
+seven bits (`word >> 24`). A larger attack or decay is a longer stage, and a
+larger sustain a higher level, as a linear gain. Release runs the other way: a
+larger release is a shorter release. Stock reads it through decay's table,
+mirrored, and its envelope page draws a larger release as a later start to a
+shorter slope, so a preset's `release: 32767` is stock's shortest release.
+These are control positions, not times, and stock maps them to times along its
+own curves. The values are the ones stock's envelope page draws, read once per
+frame on the GUI side: a snapshot for drawing, not a measurement of a voice's
+envelope. A drum kit's voices play no amp envelope: stock's drum renderer
+ignores these words, so a kit's voice plays until `finished`, a choke or a
+steal, whatever its envelope page shows, and a kit's screen shouldn't follow
+`amp`.
+
+When the envelope cannot be read, every word is `envelope_unavailable` (-1);
+`envelope_known(input.amp)` tests for it. Treat an unknown envelope as the
+default the machine would otherwise show.
+
+```cpp
+// Slow a strike animation for slow attacks; short attacks keep their speed.
+const opxy::i32 attack = opxy::draw::envelope_known(input.amp) ? input.amp.attack : 0;
+```
+
+Browser hosts pass `{attack, decay, sustain, release}` Q31 words as the
+optional tenth argument to `PreviewDisplay.tick`, after the drum model, Shift
+and its choices; omission reports the envelope as unknown, as the builder's
+preview and the SDK workbench do.
+
+Machines reading `amp` declare SDK 1.10 or newer. Drawing ABI 5 added
+`amp` after a drum kit's `model`; older ABIs keep their inputs and do not
+receive the envelope.
+
+### Effect pages (SDK 1.7)
+
+An effect may draw its own page on the send tracks, as a synth draws its
+engine page (see [the API](api.md#effect-pages)). Its input's `slots` hold all
+eight of its controls, `track` is the send (14 or 15), and two fields follow
+the note activity: `shift`, 1 while Shift is held on an effect with a
+[shift row](api.md#effect-pages-and-shift-rows), and `choices`, each shift
+control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
+
+### Shift and a drum kit's machine (SDK 1.8)
+
+| Field | Meaning |
+| --- | --- |
+| `shift` | 1 while Shift is held on a page with Shift controls (a drum kit's), else 0. |
+| `choices` | Each Shift control's choice, 0 beyond the declared ones. A drum kit with model groups gives its selected key's group, the model's place in the group and its choke group (0 none, 1..3); one without groups gives the model and the choke group. A [`padMix`](api.md#synthesis-drum-kits) kit gives the same, by whether it has groups, though its first Shift row is the model, the choke group, pan and level: read `model`, `pan` and `level` for those. A [`padVolume`](api.md#the-drum-kit-controls) kit's third choice is its selected key's volume as dB + 30 (0..50, 30 is 0 dB; with groups in the choke group's place) and a `padRandom` kit's fourth its key's random in percent, 0..100 (SDK 1.23). They hold whether or not Shift is held, so a screen can show them in its header either way. |
+| `model` | A drum kit's selected key's model. |
+| `pan`, `level` | A `padMix` kit's selected key's pan, -100..100 with 0 centred, and its level in whole dB as it plays, -30..0 (SDK 1.10; 0 dB on a key the kit has not set up); while a step is held, as that step plays them with its locks; 0 for other machines. |
+| `line` | The row the encoders edit, 0 the first and 1 the second; on a `padMix` kit, also the Shift row (SDK 1.10). |
+| `selected_key` | On a drum kit declaring SDK 1.23 or later, its selected key, 0..23 for pad 53 + n, the key `model`, `choices` and the stock header show; 0 for an older kit and other machines. It takes the input's byte at offset 107, which was a reserved 0, so the input's size and the drawing ABI stay as they were. |
+| `pad` | A `padMix` kit's selected key's [pad fields](api.md#synthesis-drum-kits): its two pad controls, a signed one negative below 0, then FX I and FX II (0 following the track's send; for a kit declaring SDK 1.15 or later its percent + 1, 1..101; for an older kit its step, 1..7 for 0, 17, 33, 50, 67, 83, 100, an amount as its nearest); while a step is held, as that step plays them with its locks (its sends' overrides included); 0 when neutral, on a key the kit has not set up and for other machines (SDK 1.10). |
+| `trigger_key`, `trigger_model`, `trigger_controls[8]` | On a drum kit declaring SDK 1.21 or later, the latest played drum pad on this track: canonical key 53..76, its model, and its eight controls with current GUI track offsets. `trigger_key` is 0 when unavailable, and all of it is 0 from the display's activation (its page selected, its track changed) until `note_serial` next moves; both come from one read of the track's counter, so the snapshot is never set in a frame whose `note_serial` has not moved since activation. After that it names the pad stock last recorded as played on the track, resolved on the current kit. What it shows after a project load is unknown until a device run ([ABI notes](abi-1.2.1.md#screens)). Use the snapshot when `note_serial` changes; it is independent of selection. Several hits between frames can coalesce to the last one, and this is not an audio-side step-lock history. 0 for an older kit and other machines (SDK 1.21). |
+
+Machines reading the played-pad snapshot declare SDK 1.21 or newer. Browser
+hosts pass `{key, model, controls}` as the optional fifteenth argument to
+`PreviewDisplay.tick`, after `amp`, `mix`, `line`, `shiftRow` and `encoders`; omission clears the snapshot.
+They pass a 1.23 kit's selected key, 0..23, as the optional sixteenth (the
+builder's kit preview gives the key last pressed); omission gives 0.
+
+A screen that draws its own header (the two-page header) shows the Shift
+controls while `shift` is 1. With two Shift rows, show both, stacked as the
+pages are: the first on top and the second under it, the one the encoders edit
+(`line`) bright, as a [synth's Shift row](#a-synths-shift-row) shows. The stock
+header shows only the edited row. The
+previews use drawing ABI 7, a 152-byte input with the played-pad snapshot after ABI 6's pad fields (112 bytes). ABI 5 (104 bytes) ends after the
+amp envelope, ABI 4 (88 bytes) after `model`, ABI 3 (84 bytes) after `choices`.
+A preview of an [extended](#extended-drawing) display also exports
+`opxy_display_extension()`: 0, or 4 when its input appends the encoder record
+after the ABI's input (152 bytes in ABI 7). A renderer that does not know a bit refuses the preview.
+
+While a pad is held on a drum kit (without Shift), the SDK draws stock's own
+held-pad strip over the kit's screen, as stock Drumline does: after 0.3 s it
+slides up from the bottom edge naming scramble, copy, paste and reset (M1..M4),
+and it goes when the pad is let go. It covers the bottom of the kit's art, which
+keeps drawing beneath it; the display gets no input for it.
+
+### A synth's Shift row (SDK 1.13)
+
+A synth with a [Shift row](api.md#a-synths-shift-row) reads it on its page
+through [`opxy/synth_shift.hpp`](../sdk/include/opxy/synth_shift.hpp), which
+leaves the drawing input unchanged:
+
+| `draw::shift_row(input)` field | Meaning |
+| --- | --- |
+| `held` | 1 while Shift is held on the engine page, when the encoders turn the row |
+| `line` | The page the encoders are on, 0 or 1: Shift turns entries `4 * line` to `4 * line + 3`. A press moves it, with Shift held too |
+| `values` | Each entry's Q31 word, as `render` receives it in `parameters[8 + i]`; 0 beyond the row and for an absent entry |
+
+`input.shift` stays 0 for a synth. The values hold whether or not Shift is
+held, so the drawing can follow them either way. Including the header needs
+`"sdk": "1.13"` and a Shift row. Browser hosts pass the row as the optional
+thirteenth argument to `PreviewDisplay.tick`, `{held, line, values}`, after
+`line`; a preview module of a synth with a Shift row exports
+`opxy_display_shift` for it.
+
+The [two-page header](#two-page-header) shows the row in both its rows while
+Shift is held, as a `padMix` kit's header shows its two Shift rows: page 1's
+entries (0..3) on top and page 2's (4..7) under them, the page the encoders are
+on (`line`) bright on the bar and the other small and grey. A press, with Shift
+held or not, moves the bar as it does without Shift; the rows keep their order.
+On release the header shows the page's titles and values again. Pass the row
+with its titles and captions, by entry; an absent entry, or one beyond the row,
+takes an empty title and caption. Shift's press and release change only the
+sixteen header texts and the four header strings, at most 20 elements, in one
+frame; nothing moves.
+
+```cpp
+const opxy::draw::ShiftRow& row = opxy::draw::shift_row(input);
+const char* const shift_titles[8] = {"noise", "drift", "octave", "lowcut", "slide", "", "ratio", "balance"};
+char shift_values[8][opxy::draw::header_capacity];
+for (opxy::u32 i = 0; i < 8; ++i)
+    opxy::draw::header_amount(shift_values[i], sizeof(shift_values[i]), row.values[i]);
+opxy::draw::page_header(state.header, input, frame, titles, values, first_node, pages,
+                        row, shift_titles, shift_values);
+```
 
 ## Frame
 
@@ -132,6 +272,17 @@ element. Both renderers apply only what changed.
 | `nodes[i]` | The element's whole transform, `x`, `y` (origin), `scale` (uniform) and `cos`, `sin` (a clockwise turn), plus `shade`, a palette entry, and `paint`: keep, stroke, or fill and stroke. |
 | `texts[i]` | `x`, `y`, `scale` like a node's, without turning, and up to 23 characters. |
 | `header[i]` | Text for control position `i` in place of the stock value, at its position and size: keep it to about five characters. An empty string keeps the stock value. |
+
+Standalone native hosts without the synth template can opt into the same header
+contract by authoring text leaves named `<prefix>_header_value_0` through
+`<prefix>_header_value_3`, and optional labels `<prefix>_header_title_0` through
+`<prefix>_header_title_3`. These leaves keep their authored position, font and
+paint; they do not consume or alias animated text slots. The shared platform
+header adapter binds them and applies `Frame.header`. A standalone host restores
+the shown parameter's declared label and normalized 0..100 value each frame;
+nonempty `Frame.header[i]` overrides that value. Supply mapped units and enum
+captions in the display callback. Missing leaves are supported and add no visual
+header. Synths retain their stock template and stock mapped-value formatting.
 
 | Field | Bounds |
 | --- | --- |
@@ -160,11 +311,14 @@ SDK 1.4 supplies `<opxy/page_header.hpp>` for synths using `"press": "page"`.
 `sdk.py new --controls 8` generates it with eight controls; `--controls 5`,
 `6` or `7` shares unchanged controls between the rows. The default four-control
 starter keeps the stock header. This helper uses the existing drawing ABI and
-the [UX layout](ux.md#more-than-four-controls).
+the [UX layout](ux.md#more-than-four-controls). A paged
+[note player](api.md#note-players) gets the same header from the SDK and
+calls nothing.
 
 Store `opxy::draw::PageHeader` in `DisplayState` and call its `reset()` from
 `display_reset`. It occupies 20 bytes with four-byte alignment. Reserve eight
-consecutive bar nodes and all sixteen text slots; keep the authored header
+consecutive bar nodes and text slots 0..15 (a machine on `"sdk": "1.7"`
+may declare up to 32 and use 16 onward for its own); keep the authored header
 block from the generated `panel.svg.fragment`. That block includes the stock
 header cover, stepped bar and bright/grey text at their resting sizes. If
 moving its node bindings, update both the artwork IDs and `first_node` below.
@@ -194,26 +348,46 @@ Initialization, track changes and reduced motion snap to the selected page.
 The helper reads every `shown` position, including layouts whose first
 column is shared. It does not touch the machine's audio or parameter state.
 
+### Sample overview
+
+From SDK 1.8, a sample engine's [own screen](api.md#own-screen) can draw its sample.
+[sample_overview.hpp](../sdk/include/opxy/sample_overview.hpp) gives display
+code `opxy_sample_overview()`, never null: the selected track's sample as the
+engine plays it.
+
+| Field | Contract |
+| --- | --- |
+| `generation` | Changes whenever a different overview is published, including when the same file is replaced or reloaded; never 0 once loaded. Redraw a waveform when it moves |
+| `assigned` | 0 while the track holds no sample: say how to load one |
+| `loaded` | 0 until the overview is ready, while the sample loads and the file worker reads it. The fields below it are then 0, never the last sample's |
+| `frames`, `rate`, `channels` | The whole sample's length, rate and channels |
+| `begin`, `end`, `reverse` | The outer markers, in frames, as the engine plays them, and 1 if it plays backwards. These follow edits in any frame |
+| `low`, `high` | 96 bins of equal length across the whole sample: the smallest and largest 16-bit value of any channel in each |
+| `gain` | SDK 1.10: the sample's gain, the one Shift + encoder 4 edits on the stock sampler's page (or a [`stockShift`](api.md#own-screen) `gain` encoder), in stock's whole steps: -30 at the bottom of its travel, +20 at the top, 0 as a sample is assigned. It follows edits in any frame. The level the engine receives (`SampleBlock.region.level`) follows it along stock's own curve. `gain_unavailable` while the track holds no sample |
+
+The file worker reads the sample in the background; the screen only copies the
+result, so a long sample never stalls a frame, and the overview follows the sample
+through replacement, eviction and reload. Audio callbacks never call it.
+In the browser preview it stays empty unless the host writes one through the
+`opxy_display_sample` export.
+
 ## Artwork
 
 Elements bind by index and the machine's symbol prefix:
 
 | Frame part | Artwork |
 | --- | --- |
-| Node `i` | `<prefix>_node_<i>`: a `path` or `circle`. Path nodes are a `path` of exactly `M`, `points - 1` `L` and `Z` with no fill, every point distinct: the OP-XY's SVG parser merges repeated points, leaving fewer than the frame binds, and the device then no longer reshapes the outline. |
+| Node `i` | `<prefix>_node_<i>`: a `path` or `circle`. Path nodes are a `path` of exactly `M`, `points - 1` `L` and `Z`, every point distinct: the OP-XY's SVG parser merges repeated points, leaving fewer than the frame binds, and the device then no longer reshapes the outline. |
 | Text slot `i` | `<prefix>_text_<i>`: a `text` with explicit font, positioned by its transform, with no `x` or `y` |
 | Palette entry `i` | `<prefix>_palette_<i>`: a `path` or `circle` with explicit `#RRGGBB` fill and stroke and a stroke width; it lends them to the nodes that select it. Park entries off screen. |
 
-Every outline a frame draws must enclose area. A line traced out and back over
-itself, or an outline that turns straight back at a point, has none there, and the
-OP-XY draws streaks from its ends. Draw a line as a thin closed ribbon: one edge
-out, the other back a fraction of a pixel away, every point distinct. `sdk.py test`
-warns about outlines that break this in its preview frames.
+Mutable paths may have an explicit `#RRGGBB` fill when their authored geometry encloses area.
+Use a nonzero initial fill for shapes that must stay opaque: both renderers
+preserve `fill="none"` as disabled when applying palette changes.
 
 Every frame sets a bound element's whole transform, so its authored transform
 is `matrix(1 0 0 1 x y)` or none: the pose before the first frame, which the
-frame then replaces. Fill-and-stroke paint changes a node's fill
-only when the artwork gives it one.
+frame then replaces.
 
 Use unique IDs, explicit paint on each leaf and the expected path topology.
 Authored numbers allow at most four fractional digits; exponent notation and
@@ -242,6 +416,145 @@ See [2op display.cpp](https://github.com/etcetc000/open-xy-core-machines/blob/ma
 [Macro display.cpp](https://github.com/etcetc000/open-xy-core-machines/blob/main/machines/macroosc/display.cpp) (segment characters,
 glow, dials and header text) for implementations.
 How screens reach stock is described in the [firmware ABI](abi-1.2.1.md#screens).
+
+### Drawing on the device
+
+The OP-XY draws some artwork differently from the browser preview. Each of
+these was found on hardware:
+
+- **Outlines enclose area.** A line traced out and back over itself, or an
+  outline that turns straight back at a point, has none there, and the OP-XY
+  draws streaks from its ends. Draw a line as a thin closed ribbon: one edge
+  out, the other back a fraction of a pixel away, every point distinct.
+  `sdk.py test` warns about outlines that break this in its preview frames.
+- **Avoid turns close to straight back.** A nearly reversing turn can draw too: on
+  the device, one thin tooth sent a long line up the screen. We treat under about
+  2.5° from straight back as a fault, an inferred limit: 2.57° has drawn fine. Thin,
+  tall shapes are the usual cause, so give a sharp tip a small flat end.
+- **Points stay 1/8 px apart.** Neighbouring points closer than 1/8 px merge,
+  as repeated points do, and the outline then stops reshaping. This holds for
+  a ribbon's two edges too.
+- **Start an outline where both edges are long.** A closing edge, from the
+  last point back to the first, shorter than 1/4 px draws as a long sliver
+  along the next edge.
+- **Fills come from the artwork.** Only an element authored with a fill is
+  ever filled. Fill-and-stroke paint recolours that fill but never adds or
+  removes one, so author solid parts with a fill. A mutable outline authored
+  `fill="none"` always draws hollow; one authored with a fill stays filled
+  (see above).
+- **One subpath, at most 64 points.** Keep every authored `path`, bound or
+  not, to one subpath of at most 64 points: artwork with dozens of subpaths
+  and hundreds of points in a path stopped the device at launch. Split a large
+  part into several elements.
+- **Parts that meet share an outline or a pivot.** Separately transformed
+  parts that touch in the preview can land apart on the device. Draw them as
+  one outline, or as nodes with the same origin and transform.
+
+## Grayscale artwork
+
+A synth targeting SDK 1.5, or an effect targeting SDK 1.7 that draws its own
+[page](api.md#effect-pages), can offer its own grayscale design:
+
+```json
+"sdk": "1.5",
+"graphics": {"grayscale": "panel.grayscale.svg.fragment"}
+```
+
+This is an optional machine.json entry. The path names a separate SVG fragment
+inside the machine, at most 64 KiB; redirects and paths outside the machine are
+rejected. Start with a copy of `panel.svg.fragment`, then choose grayscale fills,
+strokes, text colors and off-screen palette donors. Retain every bound node,
+text and palette ID and its element type. Retain bound origins, ancestor
+transforms, fill versus none, and mutable-outline topology and distinct points.
+Static geometry, stroke widths, labels and brightness can be designed for
+grayscale. Both versions use the same display.cpp, resource budget and sound.
+For palette choices and visual review, consider the optional
+[color design guidance](ux.md#color-design-guidance): prioritize meaningful
+hue-based distinctions over matching source brightness, with consistent roles
+across static artwork and animation palettes.
+
+`sdk.py test --machine <folder>` and preview builds validate both SVGs. All paint
+in the alternate, including decorative elements and animation palettes, must be
+grayscale. Invalid variants fail with an error; they are never silently converted.
+The workbench's Graphics selector previews both versions using the current
+controls and animation state. Check notes, releases, control extremes, page
+changes and reduced motion in both modes. Review meaningful hue-based
+distinctions, the closest gray tones and their backgrounds across the full
+animation palette. Validation alone cannot judge clarity.
+
+On the installer's **Extensions** page, **Grayscale machine graphics** keeps
+an already-grayscale original byte for byte; otherwise it uses the validated
+developer variant unchanged, or automatic conversion when no variant is declared.
+The checkbox reflects whether any selected custom screen is configured for
+grayscale. **Configure** can set individual screens to grayscale or original;
+checking or unchecking the option applies that choice to all selected custom screens.
+The automatic fallback builds one palette from every fill and stroke, including
+off-screen animation donors. It groups strongly chromatic colors into hue
+families and assigns separate gray ranges to those families, prioritizing hue
+distinctions over matching original brightness. Brightness remains a secondary
+cue within each range. Allocation adapts to the number of unique chromatic
+colors, hue families and shades: smaller palettes distinguish closer hues;
+single-color families consume no shade band, and multi-shade families share
+at most a quarter of the usable range. The rest separates hue families across
+gray levels 96–248, retaining visibility on black backgrounds. Repeated colors
+and aliases do not consume extra tones. Exact neutral grays remain unchanged;
+weak tints and palettes with only one hue family retain luminance-based
+conversion. This keeps subdued backgrounds and grids from becoming bright
+accents. The mapping is
+independent of SVG order and repeated paint usage, and stays fixed throughout
+animation. It is a palette heuristic: many hues, opacity and overlapping shapes
+can still limit visible separation. Supply a deliberate grayscale variant when
+automatic conversion does not preserve the intended distinctions.
+The selection happens while packaging, without a firmware drawing ABI change or
+a new saved sound parameter. Preview artifacts authenticate the variant's hash
+and source alongside the original; rebuilding is required after editing either.
+
+## Extended drawing
+
+A synth or effect screen can declare more paths and points than the table in
+[Declaration](#declaration) allows, and the optional keys below. Any of them
+makes the display *extended*: it needs `"sdk": "1.20"`, uses
+`draw::ExtendedFrame` (or one of its aliases) instead of `draw::Frame`, and is
+drawn by a separate renderer. A display that uses none of them keeps
+`draw::Frame`, its renderer and its generated code exactly as before.
+
+| Key | Meaning |
+| --- | --- |
+| `paths`, `points` | Up to 32 paths and 256 points per path, 256 coordinate pairs in all |
+| `affine: 1` | Full affine node transforms (`draw::AffineNode`, `draw::affine`); `palette` may be 0; path coordinates reach ±8192 pixels |
+| `fullCanvas: 1` | The machine owns the whole 480×220 screen: the SDK header is left out. Control values still arrive in the input |
+| `rgba: 1` | Per-node 32-bit colors (`draw::RgbaFrame`, `draw::rgba`); needs `affine` and `palette: 0` |
+| `cubic: 1` | Every path is one cubic Bézier: four points, start, two controls, end; authored as `M … C …` without `Z` |
+| `openPaths`, `segmentPaths` | Bit masks: open polylines (`M`, then `L`s, no `Z`), or separate segments between adjacent points. They never share a path or go with `cubic` |
+| `quadratic: 1`, `commands` | Paths whose line and quadratic commands change each frame (`draw::AffineQuadraticFrame`): `points: 0`, 2..128 `commands`, `affine`; authored as `M` and `commands - 1` `Q` commands |
+| `countedPaths: 1` | Paths with an active point count of 2..`points` (`draw::AffineCountedFrame`); needs `affine`; `paths * (8 + 8 * points)` at most 2816 bytes |
+| `encoderActivity: 1` | Which encoders were touched this frame ([below](#encoder-activity)) |
+
+[draw.hpp](../sdk/include/opxy/draw.hpp) defines the frames and checks every
+combination at compile time; `python sdk.py test` checks the declaration.
+The renderer keeps each path's authored allocation and changes only its
+coordinates and active length, without allocating or parsing SVG while it
+animates. Browser and device rasterization can differ at the edges.
+
+### Encoder activity
+
+With `encoderActivity: 1` the input is `draw::EncoderInput` from
+[`opxy/encoder_activity.hpp`](../sdk/include/opxy/encoder_activity.hpp).
+`encoders.available` is 1 when the host reports activity; bits 0..3 of
+`encoders.mask` are the physical encoders pressed or turned since the last
+frame, before any page or Shift mapping. On the device the SDK reads stock's
+own per-frame flags; in the browser only real gestures count, never preset
+loads or automation.
+
+### The last control touched
+
+A synth's screen can include
+[`opxy/control_interaction.hpp`](../sdk/include/opxy/control_interaction.hpp)
+and call `control_interaction::latest(track)` for the last control pressed or
+turned on that track: its physical encoder, parameter and value. Only a build
+whose machines include the header captures it. Encoder activity says which
+encoders moved this frame, for motion; this says which parameter was last
+edited and its value, and stays until the next edit.
 
 ## Migrating from before SDK 1.0
 

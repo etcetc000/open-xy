@@ -20,6 +20,21 @@ struct Stats {
     }
 };
 inline u32 cycles() { return sdk_benchmark_cycles(); }
+// Masks interrupts while it lives, around each timed block, as stock's synth runner
+// masks them around its render loop (8d57c9ee CLI .. 8d57ca88 STI): no handler's time
+// lands in a block's maximum. Anything pending runs between blocks, untimed. The
+// callbacks inside never wait on an interrupt.
+struct Masked {
+    u32 mask;
+#if defined(__bfin__)
+    Masked() { __asm__ __volatile__("CLI %0;" : "=d"(mask) : : "memory"); }
+    ~Masked() { __asm__ __volatile__("STI %0;" : : "d"(mask) : "memory"); }
+#else
+    Masked() : mask(0) {}
+#endif
+    Masked(const Masked&) = delete;
+    Masked& operator=(const Masked&) = delete;
+};
 // Same bounded stock heap calls used by sample_cache_stock.cpp; setup/cleanup
 // run with interrupts enabled, outside the measured callbacks.
 void* allocate(u32 bytes);

@@ -1,15 +1,19 @@
 import './style.css';
+import {Audition} from './audition.mjs';
 
 try {
-  const response = await fetch(import.meta.env.BASE_URL + 'kit.json', {cache:'no-store'});
+  const compressed = import.meta.env.PROD;
+  const response = await fetch(import.meta.env.BASE_URL + (compressed ? 'kit.json.gz' : 'kit.json'), {cache:'no-store'});
   if (!response.ok) throw new Error('Machine collection unavailable');
-  const kit = await response.json();
+  const collection = compressed ? new Response(response.body.pipeThrough(new DecompressionStream('gzip'))) : response;
+  const kit = await collection.json();
   document.getElementById('kit-data').textContent = JSON.stringify(kit);
 } catch (error) {
   console.error('open-xy: configure OPEN_XY_KIT with a verified export for a complete preview.', error);
 }
 try {
-  await import('./app.mjs');
+  const {createBuilder} = await import('./app.mjs');
+  await createBuilder({audition:Audition});
 } catch (error) {
   console.error('open-xy failed to load.', error);
   const notice = document.createElement('div');

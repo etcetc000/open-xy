@@ -2,6 +2,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <initializer_list>
+#include "drum_machines.hpp"
+// This fixture contains only a sample engine; synthesis-kit ownership is absent.
+const opxy::platform::DrumMachine* sdk_drum_machine(opxy::u32) { return nullptr; }
 // The probe's engine ID: on the device the linker supplies the symbol's value;
 // here it is the address of a definition, the same on every use.
 extern "C" { const char probe_engine_id[1] __asm__("probe_engine_id") = {}; }

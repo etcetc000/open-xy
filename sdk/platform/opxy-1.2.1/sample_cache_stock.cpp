@@ -5,6 +5,7 @@
 // site. Device-only: the host test fixture supplies its own doubles.
 #include "sample_cache.hpp"
 #include "sample_machines.hpp"
+#include "sample_overview.hpp"
 #include "stock.hpp"
 
 extern "C" {
@@ -81,6 +82,7 @@ void sdk_sample_cache_sample_release(u32 key) { stock<void(u32, u32)>(0x8d509df8
 // 8d50bc58: eviction found no remaining references. Release the analysis
 // before stock destroys the PCM.
 u32 sdk_sample_cache_destroy(void* object) {
+    sdk_sample_overview_release(object);
     sdk_sample_cache_release(object);
     return stock<u32(void*)>(0x8d508230)(object);
 }
@@ -105,6 +107,7 @@ u32 sdk_sample_cache_reset(u32 manager) {
 u32 sdk_sample_cache_worker(u32 manager) {
     const u32 result = stock<u32(u32)>(0x8d50bca0)(manager);
     if (analysis_ready()) sdk_sample_cache_prepare_keys();
+    sdk_sample_overview_prepare();
     return result;
 }
 // 8d4da9b2: stock's second path-sum gate ignores ownership. Re-send the exact

@@ -1,0 +1,6 @@
+{
+  "symbol": "probesources_native_gain",
+  "stackBytes": 0,
+  "range": "gain 0..32767, any count",
+  "reference": "probesources::gain_reference (native/gain.hpp)"
+}

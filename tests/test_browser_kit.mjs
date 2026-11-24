@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {activeServices, assignNumbers, checkedSelections, chosenByDefault, extensionChoices, extensionSelection, numberLayout, readLayout, readObject, linkKit, moduleBytes, openKit, patchFirmware, readLdr, recoverFirmware, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256, readMachinePack, importMachinePack} from '../builder/core.mjs';
+import {KIT_KEYS, kitChoices, kitGroup, kitHeader, kitKey, kitMix, kitModel, kitSelectedKey, kitWord} from '../builder/core.mjs';
+import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readSelection, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, imageSettings, unitSettings, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256, readMachinePack, importMachinePack} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -21,6 +22,7 @@ function elf() {
   return bytes;
 }
 function machine(id, engine, page, origin='personal') { return {id, prefix:id, kind:'synth', identity:{engine,page}, absent:{}, origin}; }
+const FOUR_MIB = 4 * 1024 ** 2;
 const profileBytes = readFileSync(new URL('../profiles/opxy-1.2.1.json',import.meta.url));
 function fixture() {
   const object = {...readObject(elf()), name:'a.o',owner:'a'};
@@ -37,15 +39,17 @@ async function packFixture() {
   }
   k.objects = [await object('a/voice.o', 'a', 'entry'), await object('sdk/memory.o', null, 'share'),
     await object('sdk/startup.o', null, 'start')];
-  const base = await openKit(k);
+  // The site's kit as exported, which the importer opens itself.
+  const base = k;
   const custom = id => ({...machine(id, null, null), name:id, description:'A custom machine',
     controls:['A', 'B', 'C', 'D'], positions:[0, 1, 2, 3], pages:false,
     catalog:', {"type":"' + id + '","default_params":[0,0,0,0,0,0,0,0]}',
     artwork:'<rect id="panel" width="1" height="1"/>', asset:id + '.svg'});
   const pack = {format:'opxy-machine-pack/1', version:k.version, profileSha256:await sha256(profileBytes),
     definitions:k.definitions, fixed:k.fixed, machines:[...k.machines, custom('custom'), custom('another')],
-    objects:[k.objects[0], await object('custom/voice.o', 'custom', 'other'),
-      await object('another/voice.o', 'another', 'third'), ...k.objects.slice(1)], extensions:[], notices:'Author license'};
+    // Separate copies, as a pack read from its ZIP holds.
+    objects:structuredClone([k.objects[0], await object('custom/voice.o', 'custom', 'other'),
+      await object('another/voice.o', 'another', 'third'), ...k.objects.slice(1)]), extensions:[], notices:'Author license'};
   return {base, pack};
 }
 
@@ -101,6 +105,38 @@ test('only the collection-specific glue may differ in a compatible machine pack'
   await importMachinePack(base, pack);
   pack.objects.at(-1).service = 'samples';
   await assert.rejects(importMachinePack(base, pack), /SDK runtime/);
+});
+
+test('a pack keeps the site kit unit sources and may differ only in collection tables', async () => {
+  const {base, pack} = await packFixture();
+  // The site's unit capability objects, as exported: the importer opens the kit as it was sent.
+  const unit = Buffer.from(pack.objects.at(-2).bytes, 'base64'); unit[52] ^= 1;
+  base.unitSources = {fast_helpers:{0:[{name:'sdk/memory.o', bytes:base.objects[1].bytes, sha256:base.objects[1].sha256}],
+    1:[{name:'sdk/memory.o', bytes:unit.toString('base64'), sha256:await sha256(unit)}]}};
+  const candidate = await importMachinePack(base, pack);
+  assert.equal(candidate.unitSources.fast_helpers['1'][0].path, 'unit-sources/fast_helpers/1/sdk/memory.o');
+  // A generated per-collection table may differ; a runtime member may not be added by a machine.
+  for (const name of ['sdk/track_stage_table.o', 'sdk/drum_callbacks.o']) {
+    const {base, pack} = await packFixture();
+    const table = async code => { const bytes = elf(); bytes.set(new TextEncoder().encode('table'), 89); bytes[52] ^= code;
+      return {name, owner:null, bytes:Buffer.from(bytes).toString('base64'), sha256:await sha256(bytes)}; };
+    base.objects.push(await table(0)); pack.objects.push(await table(1));
+    await importMachinePack(base, pack);
+  }
+  const {base:other, pack:changed} = await packFixture();
+  changed.objects[1].runtime = true;
+  await assert.rejects(importMachinePack(other, changed), /unowned machine objects/);
+});
+
+test('packs refuse kinds they cannot import and malformed services or heap voices', async () => {
+  for (const change of [m => { m.kind = 'drum'; }, m => { m.kind = 'player'; }, m => { m.features = ['Bad']; },
+    m => { m.features = 'control'; }, m => { m.heapVoices = -1; }, m => { m.heapVoices = 1.5; }]) {
+    const {base, pack} = await packFixture(); change(pack.machines[1]);
+    await assert.rejects(importMachinePack(base, pack), undefined, change.toString());
+  }
+  const {base, pack} = await packFixture();
+  Object.assign(pack.machines[1], {features:['control'], heapVoices:4096});
+  await importMachinePack(base, pack);
 });
 
 test('packs accept the SDK control counts, absent synth slots and source filenames', async () => {
@@ -166,17 +202,17 @@ test('machine ZIP reader rejects corruption, archive ambiguities and source/firm
 
 // An authored loader with two diagnostic hooks and one ordinary hook. No stock
 // instructions or firmware bytes are needed to exercise full reconstruction.
-async function profilingFixture() {
-  const kit = fixture(), stock = new Uint8Array(96), d = new DataView(stock.buffer);
+async function profilingFixture(extra = 0) {
+  const kit = fixture(), stock = new Uint8Array(96 + extra), d = new DataView(stock.buffer);
   const record = (at, flags, address, size, argument = 0) => {
     [0xad000000 | flags, address, size, argument].forEach((v, i) => d.setUint32(at + i * 4, v, true));
     stock[at + 2] = stock.subarray(at, at + 16).reduce((a, b) => a ^ b, 0);
   };
   record(0, 0x5004, 0x1000, 0, stock.length - 16);
-  record(16, 4, 0x1000, 32);
-  stock.set(Array.from({length:32}, (_, i) => i + 1), 32);
-  record(64, 0x104, 0x2000, 256);
-  record(80, 0x8004, 0, 0);
+  record(16, 4, 0x1000, 32 + extra);
+  stock.set(Array.from({length:32 + extra}, (_, i) => i + 1), 32);
+  record(64 + extra, 0x104, 0x2000, 256);
+  record(80 + extra, 0x8004, 0, 0);
   Object.assign(kit.profile, {stock_bytes:stock.length, stock_sha256:await sha256(stock), stock_records:4,
     module_base:0x2000, reserved_bytes:256, table_bytes:0, heap_fill_base:0x2000, heap_fill_bytes:256,
     patches:[0, 8, 16].map((offset, i) => ({kind:'hook', call:true, symbol:'entry', length:8,
@@ -204,13 +240,174 @@ test('profiling defaults on; disabling it changes only the reviewed diagnostic h
   }
   const restored = off.slice(); restored.set(on.subarray(32, 48), 32);
   assert.deepEqual(restored, on);
-  for (const image of [on, off]) assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a'], extensions:[]});
+  for (const image of [on, off]) assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a'], extensions:[], memory:'standard'});
+});
+
+test('a settings extension links no code, applies only its capability edits and is recovered from them', async () => {
+  const {kit, stock} = await profilingFixture();
+  const before = Buffer.from(stock.subarray(56, 64)).toString('hex');
+  kit.profile.services = {...kit.profile.services, long_samples:['long_samples']};
+  kit.profile.patches.push({kind:'limit', service:'long_samples', address:0x1018, file_offset:56, length:8,
+    before, after:'01da0f00ffff0000'});
+  kit.extensions = [{id:'longer', claims:[], actions:[], capabilities:['long_samples'], linked:false}];
+  const on = linkKit(kit, ['a'], null, ['longer']), off = linkKit(kit, ['a'], null, []);
+  assert.deepEqual([...on.services], ['long_samples']);  // no extension runtime
+  assert.deepEqual(on.module, off.module);
+  const longer = await patchFirmware(kit, on, stock), plain = await patchFirmware(kit, off, stock);
+  assert.equal(Buffer.from(longer.subarray(56, 64)).toString('hex'), '01da0f00ffff0000');
+  assert.equal(Buffer.from(plain.subarray(56, 64)).toString('hex'), before);
+  longer.subarray(56, 64).forEach((v, i) => { if (v !== plain[56 + i]) plain[56 + i] = v; });
+  assert.deepEqual(plain, longer);  // the capability's edit is the only difference
+  assert.deepEqual(await recoverFirmware(kit, longer), {stock, selected:['a'], extensions:['longer'], memory:'standard'});
+  assert.deepEqual(await recoverFirmware(kit, await patchFirmware(kit, off, stock)), {stock, selected:['a'], extensions:[], memory:'standard'});
+});
+
+// A helper object as a unit capability's sources make them (tooling.native UNIT_SOURCES): the fixture
+// ELF defining `helpr` with its four code bytes.
+function helper(code) { const bytes = elf(); bytes.set(Buffer.from('helpr'), 89); bytes.set(code, 52); return bytes; }
+const capsule = (name, bytes, extra = {}) => ({name, owner:null, ...extra, bytes:Buffer.from(bytes).toString('base64')});
+
+test('a kit carries a capability only with what the browser needs for it', async () => {
+  const k = fixture();
+  Object.assign(k, {format:'opxy-browser-kit/1', profileSource:profileBytes.toString('base64'), notices:'SDK',
+    stockCatalog:'', screenTemplate:readFileSync(new URL('../sdk/platform/opxy-1.2.1/screen.svg', import.meta.url), 'utf8')});
+  const objects = [capsule('a.o', elf(), {owner:'a'})];
+  for (const o of objects) o.sha256 = await sha256(Buffer.from(o.bytes, 'base64'));
+  k.objects = objects;
+  const meta = {name:'Settings', description:'Turns on a capability.', origin:'official', claim_labels:{}, claims:[], actions:[], linked:false};
+  const opens = async (capability, overrides = {}) => {
+    Object.assign(k, {objects, unitSources:undefined}, overrides);
+    k.extensions = [{...meta, id:'faster', capabilities:[capability]}];
+    return openKit(k);
+  };
+  // Image edits: long_samples, boot_log_fix, and load_governor's and pitch_constants' fixed bytes,
+  // which the profile marks as the build's: the browser writes them.
+  for (const capability of ['long_samples', 'boot_log_fix', 'load_governor', 'pitch_constants']) await opens(capability);
+  // Hooks into SDK code: only with that service's own objects in the kit, which the export compiles
+  // (block_trims, output_slack). idle changes every machine's generated code, so a kit never holds
+  // its objects (the export refuses it: tooling.browser_kit.refuse_adapter_capabilities);
+  // master_filter is no registry capability, so no kit object implements it as one.
+  for (const capability of ['block_trims', 'output_slack', 'idle', 'master_filter'])
+    await assert.rejects(opens(capability), /Invalid extension capabilities/, capability);
+  const hooks = capsule('sdk/track_hooks.o', helper([0, 96, 16, 0]), {service:'block_trims'});
+  hooks.sha256 = await sha256(Buffer.from(hooks.bytes, 'base64'));
+  await opens('block_trims', {objects:[...objects, hooks]});
+  await assert.rejects(opens('output_slack', {objects:[...objects, hooks]}), /Invalid extension capabilities/);
+  // fast_helpers has no edit: only with its units' objects for each value (kit.unitSources).
+  await assert.rejects(opens('fast_helpers'), /Invalid extension capabilities/);
+  const plain = capsule('sdk/divide.o', helper([0, 96, 16, 0])), fast = capsule('sdk/divide.o', helper([1, 96, 16, 0]));
+  for (const o of [plain, fast]) o.sha256 = await sha256(Buffer.from(o.bytes, 'base64'));
+  const withDivide = [...objects, plain];
+  const units = {fast_helpers:{'0':[{name:plain.name, bytes:plain.bytes, sha256:plain.sha256}],
+    '1':[{name:fast.name, bytes:fast.bytes, sha256:fast.sha256}]}};
+  const opened = await opens('fast_helpers', {objects:withDivide, unitSources:units});
+  assert.equal(opened.unitSources.fast_helpers['1'][0].path, 'unit-sources/fast_helpers/1/sdk/divide.o');
+  // Its setting: each value of its range has the kit's objects.
+  const setting = {label:'Fast helpers', unit:'0 off, 1 on', minimum:0, maximum:1, default:0, value:0};
+  k.extensions = [{...meta, id:'faster', capabilities:['fast_helpers'], settings:{fast_helpers:setting}}];
+  await openKit({...k, objects:withDivide, unitSources:units});
+  await assert.rejects(openKit({...k, objects:withDivide, unitSources:units,
+    extensions:[{...k.extensions[0], settings:{fast_helpers:{...setting, maximum:2}}}]}), /Invalid extension settings/);
+  for (const [why, unitSources, kitObjects] of [
+    ['a value missing', {fast_helpers:{'0':units.fast_helpers['0']}}, withDivide],
+    ['an object the kit lacks', units, objects],
+    ['a capability with edits', {...units, long_samples:units.fast_helpers}, withDivide],
+    ['another digest', {fast_helpers:{...units.fast_helpers, '1':[{...units.fast_helpers['1'][0], sha256:plain.sha256}]}}, withDivide],
+    ['values naming other objects', {fast_helpers:{...units.fast_helpers, '1':[{...units.fast_helpers['1'][0], name:'a.o'}]}}, withDivide]])
+    await assert.rejects(opens('fast_helpers', {objects:kitObjects, unitSources}), /unit sources|hash mismatch/, why);
+});
+
+test('a unit capability links its chosen value\'s objects in place of the build\'s, and is recovered with it', async () => {
+  const {kit, stock} = await profilingFixture();
+  const plain = helper([0, 96, 16, 0]), fast = helper([1, 96, 16, 0]);
+  kit.objects.push({...readObject(plain), name:'sdk/divide.o', owner:null});
+  kit.profile.services = {...kit.profile.services, fast_helpers:['fast_helpers']};
+  const variant = (value, bytes) => [{...readObject(bytes), name:'sdk/divide.o', owner:null, path:`unit-sources/fast_helpers/${value}/sdk/divide.o`}];
+  kit.unitSources = {fast_helpers:{'0':variant(0, plain), '1':variant(1, fast)}};
+  const setting = {label:'Fast helpers', unit:'0 off, 1 on', minimum:0, maximum:1, default:0};
+  kit.extensions = [{id:'faster', claims:[], actions:[], capabilities:['fast_helpers'], linked:false, settings:{fast_helpers:{...setting, value:0}}}];
+  const without = linkKit(kit, ['a']), own = linkKit(kit, ['a'], null, ['faster']);
+  const on = linkKit(kit, ['a'], null, ['faster'], {fast_helpers:1});
+  // Without the extension a chosen value is ignored: every build without it links the plain sources.
+  assert.deepEqual(linkKit(kit, ['a'], null, [], {fast_helpers:1}).module, without.module);
+  assert.deepEqual(own.module, without.module);
+  assert.deepEqual([without.units, own.units, on.units], [{fast_helpers:0}, {fast_helpers:0}, {fast_helpers:1}]);
+  assert.deepEqual(unitSettings(kit, ['faster'], {fast_helpers:1}), {fast_helpers:1});
+  // The same names in the same place: only the helper's bytes differ.
+  assert.deepEqual(on.objects.map(o => o.name), without.objects.map(o => o.name));
+  assert.equal(on.objects[1].path, 'unit-sources/fast_helpers/1/sdk/divide.o');
+  assert.deepEqual([...on.module].map((b, i) => b === without.module[i] ? 0 : i).filter(Boolean), [4]);
+  assert.deepEqual(on.globals, without.globals);
+  // The extension's own value is the default; a value outside the kit's is refused.
+  kit.extensions[0].settings.fast_helpers.value = 1;
+  assert.deepEqual(linkKit(kit, ['a'], null, ['faster']).module, on.module);
+  assert.throws(() => linkKit(kit, ['a'], null, ['faster'], {fast_helpers:2}), /outside its range/);
+  kit.extensions[0].settings.fast_helpers.value = 0;
+  // The OS is patched for the values the module was linked with.
+  await assert.rejects(patchFirmware(kit, on, stock), /linked for other capability settings/);
+  const image = await patchFirmware(kit, on, stock, {settings:{fast_helpers:1}});
+  // No image site shows the value: recovery tries each and reports the one that rebuilds it.
+  assert.deepEqual(imageSettings(kit, image), {});
+  assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a'], extensions:['faster'], memory:'standard', settings:{fast_helpers:1}});
+  // At 0 the image is the one without the extension, which recovery tries first.
+  assert.deepEqual(await recoverFirmware(kit, await patchFirmware(kit, own, stock)), {stock, selected:['a'], extensions:[], memory:'standard'});
+});
+
+test('a capability setting writes the reviewed bytes of its value and is recovered with it', async () => {
+  // As release_floor: a setting edit whose minimum is stock's bytes, and a fixed edit
+  // (stage 0 -> 5) that marks the capability on.
+  const {kit, stock} = await profilingFixture(8);
+  const before = Buffer.from(stock.subarray(56, 64)).toString('hex'), stage = Buffer.from(stock.subarray(64, 66)).toString('hex');
+  const choices = {'-40':'01da470114ae0000', '-48':'01da8200a6730000', '-66':before};
+  kit.profile.services = {...kit.profile.services, release_floor:['release_floor']};
+  kit.profile.patches.push({kind:'limit', service:'release_floor', setting:'release_floor', address:0x1018, file_offset:56,
+    length:8, before, after:choices['-48'], choices},
+  {kind:'limit', service:'release_floor', address:0x1020, file_offset:64, length:2, before:stage, after:'2860'});
+  const setting = {label:'Idle threshold', unit:'dB', minimum:-66, maximum:-20, default:-48};
+  kit.extensions = [{id:'idle', claims:[], actions:[], capabilities:['release_floor'], linked:false,
+    settings:{release_floor:{...setting, value:-40}}}];
+  const on = linkKit(kit, ['a'], null, ['idle']), off = linkKit(kit, ['a'], null, []);
+  const site = image => Buffer.from(image.subarray(56, 64)).toString('hex');
+  // The extension's own value, then a chosen one; without the extension, stock.
+  assert.equal(site(await patchFirmware(kit, on, stock)), choices['-40']);
+  const chosen = await patchFirmware(kit, on, stock, {settings:{release_floor:-66}});
+  assert.equal(site(chosen), before);
+  assert.equal(site(await patchFirmware(kit, off, stock)), before);
+  await assert.rejects(patchFirmware(kit, on, stock, {settings:{release_floor:-30}}), /outside its range/);
+  const built = await patchFirmware(kit, on, stock);
+  assert.deepEqual(imageSettings(kit, built), {release_floor:-40});
+  assert.deepEqual(await recoverFirmware(kit, built),
+    {stock, selected:['a'], extensions:['idle'], memory:'standard', settings:{release_floor:-40}});
+  // The minimum's bytes equal stock's, but the fixed edit says the capability is on.
+  assert.deepEqual(imageSettings(kit, chosen), {release_floor:-66});
+  assert.deepEqual(await recoverFirmware(kit, chosen),
+    {stock, selected:['a'], extensions:['idle'], memory:'standard', settings:{release_floor:-66}});
+  const plain = await patchFirmware(kit, off, stock);
+  assert.deepEqual(imageSettings(kit, plain), {});
+  assert.deepEqual(await recoverFirmware(kit, plain), {stock, selected:['a'], extensions:[], memory:'standard'});
+});
+
+test('two extensions may not choose the same capability setting', () => {
+  const setting = {label:'Idle threshold', unit:'dB', minimum:-66, maximum:-20, default:-48};
+  const idle = id => ({id, claims:[], actions:[], capabilities:['release_floor'], linked:false,
+    settings:{release_floor:{...setting, value:-40}}});
+  const kit = {extensions:[idle('quiet'), idle('quieter'), {id:'longer', claims:[], actions:[], capabilities:['long_samples'], linked:false}]};
+  assert.equal(sharedClaim(kit.extensions), 'setting:release_floor');
+  assert.throws(() => extensionSelection(kit, ['quiet', 'quieter']), /both use Idle threshold/);
+  assert.deepEqual(extensionSelection(kit, ['quiet', 'longer']), ['quiet', 'longer']);
+  // An extension that declares the capability without a value carries the default in its
+  // metadata (tooling.extensions.metadata) and counts too, as check_collection has it.
+  const plain = {id:'plainfloor', claims:[], actions:[], capabilities:['release_floor'], linked:false,
+    settings:{release_floor:{...setting, value:setting.default}}};
+  const mixed = {extensions:[idle('quiet'), plain]};
+  assert.equal(sharedClaim(mixed.extensions), 'setting:release_floor');
+  assert.throws(() => extensionSelection(mixed, ['quiet', 'plainfloor']), /both use Idle threshold/);
 });
 
 test('only an exact build restores its selection; others recover verified stock or are rejected', async () => {
   const {kit, linked, stock} = await profilingFixture();
   const on = await patchFirmware(kit, linked, stock), off = await patchFirmware(kit, linked, stock, {profiling:false});
-  const earlier = {stock, selected:null, earlier:true};
+  const earlier = {stock, selected:null, earlier:true, memory:'standard'};
   // Mixed modes, altered edits or altered linked code: stock is rebuilt from the
   // reviewed edits and verified by hash; the uploaded module is never used.
   const mixed = off.slice(); mixed.set(on.subarray(32, 40), 32);
@@ -226,6 +423,23 @@ test('only an exact build restores its selection; others recover verified stock 
   }
 });
 
+test('machines whose code lies within another present machine are tried without', () => {
+  const text = (owner, bytes) => ({owner, relocations:[], sections:[{group:'text', index:1, size:bytes.length, data:Uint8Array.from(bytes)}]});
+  const shared = Array.from({length:32}, (_, i) => i * 7 + 1);
+  const kit = {objects:[text('big', shared), text('inside', shared.slice(8, 24)), text('other', shared.map(b => b ^ 0x55))]};
+  // Only the machine whose largest code lies within another's is a lookalike.
+  assert.deepEqual(presentSelections(kit, ['big', 'inside', 'other']), [['big', 'inside', 'other'], ['big', 'other']]);
+  assert.deepEqual(presentSelections(kit, ['big', 'other']), [['big', 'other']]);
+  // Identical code: each could be the one built, or both; the selection never empties.
+  const twins = {objects:[text('a', shared), text('b', shared)]};
+  assert.deepEqual(presentSelections(twins, ['a', 'b']), [['a', 'b'], ['b'], ['a']]);
+  // Many lookalikes: fewest dropped first, up to the limit.
+  const many = Array.from({length:9}, (_, i) => 'm' + i), tried = presentSelections({objects:many.map(id => text(id, shared))}, many);
+  assert.equal(tried.length, RECOVERABLE_ALTERNATIVES);
+  assert.deepEqual(tried.slice(0, 3), [many, many.slice(1), [many[0], ...many.slice(2)]]);
+  assert.ok(tried.every((selection, i) => i === 0 || selection.length <= tried[i - 1].length));
+});
+
 test('an earlier release whose module loads elsewhere recovers stock OS 1.2.1', async () => {
   const {kit, linked, stock} = await profilingFixture();
   const image = await patchFirmware(kit, linked, stock, {profiling:false});
@@ -237,7 +451,152 @@ test('an earlier release whose module loads elsewhere recovers stock OS 1.2.1', 
   // A kit too large to search every selection still recovers stock.
   kit.machines = [...kit.machines, ...Array.from({length:10}, (_, i) => machine('m' + i, 35 + i, 83 + i))];
   const exact = await patchFirmware(kit, linked, stock, {profiling:false});
-  assert.deepEqual(await recoverFirmware(kit, exact), {stock, selected:null, earlier:true});
+  assert.deepEqual(await recoverFirmware(kit, exact), {stock, selected:null, earlier:true, memory:'standard'});
+});
+
+test('the experimental 4 MiB layout moves only the module base and the heap immediates', () => {
+  const profile = JSON.parse(profileBytes), expanded = expandedProfile(profile);
+  assert.equal(offersExpandedMemory(profile), true);
+  assert.equal(expanded.reserved_bytes, FOUR_MIB);
+  assert.equal(expanded.module_base, 0x8d0d0380);  // the same end as the reviewed reservation
+  assert.equal(expanded.module_base + expanded.reserved_bytes, profile.module_base + profile.reserved_bytes);
+  assert.equal(moduleBytes(expanded), 4080 * 1024);
+  for (const [i, edit] of expanded.patches.entries()) {
+    const reviewed = profile.patches[i];
+    if (edit.kind !== 'heap') { assert.equal(edit, reviewed); continue; }
+    // 20 MiB -> 16 MiB: the heap ends where the larger module begins.
+    assert.deepEqual({...edit, name:undefined, after:undefined}, {...reviewed, name:undefined, after:undefined});
+    assert.equal(edit.after, '01da000100000000');
+    assert.equal(edit.name, 'IN-MEMORY application heap 0x1400000 -> 0x1000000 (4 MiB module reservation, experimental)');
+    assert.equal(profile.heap_fill_base + 16 * 1024 ** 2, expanded.module_base);
+  }
+  assert.deepEqual(profile, JSON.parse(profileBytes));  // the reviewed profile is untouched
+  assert.equal(Object.hasOwn(expanded, 'experimental_memory'), false);  // the layout offers no further one
+  assert.equal(offersExpandedMemory(expanded), false);
+  const kit = fixture();
+  assert.equal(memoryKit(kit, false), kit);
+  assert.equal(memoryKit(kit, true).profile.module_base, expanded.module_base);
+  for (const value of [1, 'true', null, undefined]) assert.throws(() => memoryKit(kit, value), /must be a boolean/);
+  // Edits that do not describe the reviewed heap cannot be widened.
+  for (const change of [p => { p.patches = p.patches.filter(e => e.kind !== 'heap'); },
+    p => { p.patches.find(e => e.kind === 'heap').after = '01da300100000000'; },
+    p => { p.patches.find(e => e.kind === 'heap').before = 'e1a0400100000000'; },
+    p => { p.heap_fill_bytes += 4; }, p => { p.reserved_bytes = FOUR_MIB; },
+    p => { p.experimental_memory.module_base += 2; }, p => { p.experimental_memory.heap_after = '01dae00100000000'; },
+    p => { p.experimental_memory.extra = 1; }, p => { delete p.experimental_memory; },
+    // The larger heap must be loaded into the same register as the stock edit.
+    p => { p.experimental_memory.heap_after = '02da000100000000'; },
+    // A relative hook that cannot reach the lower module base.
+    p => { p.experimental_memory.module_base -= 0x1000000; p.experimental_memory.reserved_bytes += 0x1000000;
+      p.heap_fill_base -= 0x1000000; p.heap_fill_bytes += 0x1000000;
+      p.patches.filter(e => e.kind === 'heap').forEach(e => Object.assign(e, {before:'01da400200000000', after:'01da200200000000'})); },
+    // Lowercase hex only, as patching decodes it.
+    p => { p.experimental_memory.heap_after = '01DA000100000000'; },
+    // Sizes are whole MiB, as the builder names them.
+    p => { p.experimental_memory.module_base += 0x4000; p.experimental_memory.reserved_bytes -= 0x4000;
+      p.experimental_memory.heap_after = '01da000100400000'; },  // 16 MiB + 16 KiB, consistent otherwise
+    // A reservation larger than the heap fill would leave no heap at all.
+    p => Object.assign(p.experimental_memory, {module_base:p.heap_fill_base - 0x10000,
+      reserved_bytes:p.module_base + p.reserved_bytes - p.heap_fill_base + 0x10000})]) {
+    const altered = JSON.parse(profileBytes); change(altered);
+    assert.throws(() => expandedProfile(altered), /cannot offer more memory|Unexpected heap edit/);
+  }
+});
+
+// An authored loader whose heap fill holds the reservation, with the two heap
+// edits and one hook, so a 4 MiB build is patched and recovered end to end.
+async function heapFixture() {
+  const kit = fixture(), stock = new Uint8Array(112), d = new DataView(stock.buffer);
+  const record = (at, flags, address, size, argument = 0) => {
+    [0xad000000 | flags, address, size, argument].forEach((v, i) => d.setUint32(at + i * 4, v, true));
+    stock[at + 2] = stock.subarray(at, at + 16).reduce((a, b) => a ^ b, 0);
+  };
+  const heap = 0x800000, base = 0x100000, reserved = 2 * 1024 ** 2;
+  record(0, 0x5004, 0x1000, 0, stock.length - 16);
+  record(16, 4, 0x1000, 48);
+  stock.set(Array.from({length:8}, (_, i) => i + 1), 32);
+  const load = value => Buffer.from('01da' + Buffer.from(Uint16Array.of(value >>> 16, value & 0xffff).buffer).toString('hex') + '0000', 'hex');
+  stock.set(load(heap), 48); stock.set(load(heap), 64);
+  record(80, 0x104, base, heap);
+  record(96, 0x8004, 0, 0);
+  Object.assign(kit.profile, {stock_bytes:stock.length, stock_sha256:await sha256(stock), stock_records:4,
+    module_base:base + heap - reserved, reserved_bytes:reserved, table_bytes:0, heap_fill_base:base, heap_fill_bytes:heap,
+    experimental_memory:{module_base:base + heap - FOUR_MIB, reserved_bytes:FOUR_MIB, heap_after:load(heap - FOUR_MIB).toString('hex')},
+    patches:[{kind:'hook', call:true, symbol:'entry', length:8, address:0x1000, file_offset:32,
+      before:Buffer.from(stock.subarray(32, 40)).toString('hex')},
+      ...[16, 32].map(offset => ({kind:'heap', name:'heap', length:8, address:0x1000 + offset, file_offset:32 + offset,
+        before:load(heap).toString('hex'), after:load(heap - reserved).toString('hex')}))]});
+  return {kit, stock, load};
+}
+
+test('a 4 MiB build loads its module lower, shrinks the heap and restores its selection', async () => {
+  const {kit, stock, load} = await heapFixture();
+  const standard = await patchFirmware(kit, linkKit(kit, ['a']), stock, {profiling:false});
+  assert.deepEqual(await recoverFirmware(kit, standard), {stock, selected:['a'], extensions:[], memory:'standard'});
+  const expanded = memoryKit(kit, true), linked = linkKit(expanded, ['a']);
+  assert.equal(linked.sizes.available, FOUR_MIB - linked.sizes.allocated);
+  const image = await patchFirmware(expanded, linked, stock, {profiling:false});
+  const module = readLdr(image).at(-2);
+  assert.equal(module.target, kit.profile.module_base + kit.profile.reserved_bytes - FOUR_MIB);
+  const heap = module.target - kit.profile.heap_fill_base;
+  for (const at of [48, 64]) assert.deepEqual(Buffer.from(image.subarray(at, at + 8)), load(heap));
+  assert.notDeepEqual(image, standard);
+  assert.deepEqual(await recoverFirmware(kit, image), {stock, selected:['a'], extensions:[], memory:'expanded'});
+  // A module linked for one layout never passes as the other.
+  const moved = image.slice(), at = module.offset, view = new DataView(moved.buffer);
+  view.setUint32(at + 4, kit.profile.module_base, true);
+  moved[at + 2] = 0; moved[at + 2] = moved.subarray(at, at + 16).reduce((a, b) => a ^ b, 0);
+  assert.deepEqual(await recoverFirmware(kit, moved), {stock, selected:null, earlier:true});
+  // A 4 MiB build this kit cannot rebuild still reports its memory choice.
+  const other = image.slice(); other[module.offset + 16] ^= 1;
+  assert.deepEqual(await recoverFirmware(kit, other), {stock, selected:null, earlier:true, memory:'expanded'});
+  // A module at the 4 MiB base whose heap edits still write the standard size is no 4 MiB build.
+  const standardHeap = other.slice();
+  for (const at of [48, 64]) standardHeap.set(load(kit.profile.module_base - kit.profile.heap_fill_base), at);
+  assert.deepEqual(await recoverFirmware(kit, standardHeap), {stock, selected:null, earlier:true});
+  // A module linked for 4 MiB never patches into the standard layout.
+  await assert.rejects(patchFirmware(kit, linked, stock), /Hook destination outside module/);
+  // State that fits only the 4 MiB layout is refused by the standard one.
+  const large = {...kit, objects:[...kit.objects, {...readObject(elf()), name:'b.o', owner:'a', symbols:[],
+    relocations:[], sections:[{index:1, name:'.bss', group:'bss', type:8, alignment:4, size:3 * 1024 ** 2, data:new Uint8Array()}]}]};
+  assert.throws(() => linkKit(large, ['a']), e => e.capacity === true && /need more than the 2048 KiB available/.test(e.message));
+  const big = linkKit(memoryKit(large, true), ['a']);
+  assert.ok(big.sizes.allocated > kit.profile.reserved_bytes);
+  await assert.rejects(patchFirmware(kit, big, stock), /Module exceeds its profile/);
+  assert.equal(readLdr(await patchFirmware(memoryKit(large, true), big, stock)).at(-2).target, module.target);
+  // Recovery's search skips selections that cannot fit, here 'b' tried before 'a'.
+  const order = {...large, machines:[machine('b', 35, 83), ...kit.machines],
+    objects:large.objects.map(o => o.name === 'b.o' ? {...o, owner:'b'} : o)};
+  const small = await patchFirmware(order, linkKit(order, ['a']), stock, {profiling:false});
+  assert.deepEqual(await recoverFirmware(order, small), {stock, selected:['a'], extensions:[], memory:'standard'});
+  // Layouts record the choice; readLayout reports whether this site offers it.
+  const size = FOUR_MIB, layoutOf = extra => ({format:'opxy-layout/1', profile:kit.profile.id, machines:{}, ...extra});
+  assert.deepEqual(readLayout(kit, layoutOf({memory:'expanded', reserved_bytes:size})), {machines:{}, selected:null, expanded:true});
+  // A layout from another experimental size is not taken for this one.
+  assert.deepEqual(readLayout(kit, layoutOf({memory:'expanded', reserved_bytes:2 * 1024 ** 2})), {machines:{}, selected:null, memoryUnavailable:2 * 1024 ** 2});
+  assert.deepEqual(readLayout(kit, layoutOf({memory:'expanded', reserved_bytes:6 * 1024 ** 2})), {machines:{}, selected:null, memoryUnavailable:6 * 1024 ** 2});
+  for (const bad of [{memory:'expanded'}, {reserved_bytes:size}, {memory:'expanded', reserved_bytes:'4'},
+    {memory:'expanded', reserved_bytes:5}, {memory:'expanded', reserved_bytes:0}, {memory:'expanded', reserved_bytes:size + 4}])
+    assert.throws(() => readLayout(kit, layoutOf(bad)), /Invalid memory/);
+  assert.deepEqual(readLayout(kit, {format:'opxy-layout/1', profile:kit.profile.id, machines:{}}), {machines:{}, selected:null});
+  assert.throws(() => readLayout(kit, {format:'opxy-layout/1', profile:kit.profile.id, machines:{}, memory:'large'}), /Invalid memory/);
+  // A site without the option keeps the layout's numbers and reports the choice it left out.
+  const plain = fixture(); delete plain.profile.experimental_memory;
+  assert.deepEqual(readLayout(plain, {format:'opxy-layout/1', profile:plain.profile.id, machines:{a:{engine:34,page:82}}, memory:'expanded', reserved_bytes:FOUR_MIB}),
+    {machines:{a:{engine:34,page:82}}, selected:null, memoryUnavailable:FOUR_MIB});
+  assert.throws(() => memoryKit(plain, true), /cannot offer more memory/);
+});
+
+test('heap voices link with standard memory only', async () => {
+  const {kit} = await heapFixture();
+  const heavy = {...kit, machines:kit.machines.map(m => m.id === 'a' ? {...m, heapVoices:147567} : m)};
+  assert.ok(linkKit(heavy, ['a']).sizes.allocated > 0);
+  assert.throws(() => linkKit(memoryKit(heavy, true), ['a']),
+    e => e.heapVoices === true && e.capacity === undefined && /stock heap.*standard memory/.test(e.message));
+  // Without heap voices the experimental memory links as before.
+  assert.ok(linkKit(memoryKit(kit, true), ['a']).sizes.allocated > 0);
+  assert.equal(memoryKit(kit, true).experimental, true);
+  assert.equal(kit.experimental, undefined);
 });
 
 test('profiling option and profile hook condition must be exact booleans', async () => {
@@ -264,6 +623,21 @@ test('inactive profiling hooks retain stock mapping and overlap guards', async (
 test('ELF parsing reads symbols and little-endian instructions', () => {
   const o = readObject(elf()); assert.equal(o.symbols[1].name,'entry'); assert.equal(o.symbols[1].size,4);
   assert.deepEqual([...o.sections[1].data],[0,96,16,0]);
+});
+test('runtime objects enter only selections that import their arithmetic helpers', () => {
+  const kit = fixture(), baseline = linkKit(kit, ['a']);
+  kit.machines.push(machine('b', 35, 85));
+  const consumer = {...readObject(elf()), name:'b.o', owner:'b'};
+  consumer.symbols[1].name = 'b_entry';
+  consumer.symbols.push({name:'___muldi3', binding:1, section:0, type:2, value:0, size:0});
+  const helper = {...readObject(elf()), name:'sdk/runtime/_muldi3.o', owner:null, runtime:true};
+  helper.symbols[1].name = '___muldi3';
+  kit.objects.push(consumer, helper);
+  const integers = linkKit(kit, ['a']), arithmetic = linkKit(kit, ['b']);
+  assert.deepEqual(integers.module, baseline.module);
+  assert.deepEqual(integers.objects.map(o => o.name), ['a.o']);
+  assert.deepEqual(arithmetic.objects.map(o => o.name), ['b.o', 'sdk/runtime/_muldi3.o']);
+  assert(arithmetic.globals.has('___muldi3'));
 });
 test('truncated sections, wrong architectures, merge flags, constructors and COMMON fail closed', () => {
   assert.throws(()=>readObject(elf().slice(0,200)),/section table/);
@@ -302,6 +676,27 @@ test('extensions omit code/state and resolve only shared registry imports to an 
   assert.throws(() => linkKit(k, ['a'], null, []), /Unresolved import/);
 });
 
+test('master processors are independently selectable and omitted accessors resolve safely', () => {
+  const k=fixture();k.definitions.kit_absent=k.profile.module_base;
+  k.extensions=['first','second'].map(id=>({id,claims:[],actions:[],master_processor:{state_id:id}}));
+  assert.deepEqual(extensionSelection(k,['second','first']),['first','second']);
+  const registry=k.objects[0];registry.owner=null;
+  for(const id of ['first','second']) {
+    const object={...readObject(elf()),name:id+'.o',owner:null,extension:id};
+    object.symbols[1].name='sdk_extension_'+id+'_hooks';
+    for(const suffix of ['processor','panel'])object.symbols.push({...object.symbols[1],name:'sdk_extension_'+id+'_'+suffix});
+    object.sections.push({index:5,name:'.bss',group:'bss',type:8,size:128,alignment:4});
+    k.objects.push(object);
+    for(const suffix of ['hooks','processor','panel'])registry.symbols.push({name:'sdk_extension_'+id+'_'+suffix,section:0,value:0,size:0,binding:1,type:0});
+  }
+  const both=linkKit(k,['a'],null,['second','first']),one=linkKit(k,['a'],null,['second']),none=linkKit(k,['a'],null,[]);
+  assert.equal(both.sizes.bss,256);assert.equal(one.sizes.bss,128);assert.equal(none.sizes.bss,0);
+  for(const suffix of ['hooks','processor','panel']) {
+    assert.equal(one.aliases.get('sdk_extension_first_'+suffix),k.definitions.kit_absent);
+    assert.equal(one.aliases.has('sdk_extension_second_'+suffix),false);
+  }
+});
+
 test('extension selections preserve collection order, empty choices and exclusive gestures', () => {
   const k = {extensions:[{id:'observer', claims:[]}, {id:'capture', claims:['record_double_tap']}, {id:'replace', claims:['record_double_tap']}]};
   assert.deepEqual(extensionSelection(k, []), []);
@@ -311,6 +706,19 @@ test('extension selections preserve collection order, empty choices and exclusiv
   for (const selection of [['missing'], ['capture','capture'], null, 'capture'])
     assert.throws(() => extensionSelection(k, selection), /available extension/);
   assert.deepEqual(extensionSelection({}), []);
+});
+
+test('one selected extension owns stock Drumline\'s second page, as a claim', () => {
+  // tooling.extensions.metadata marks a drumline_page extension; check_collection allows one per build.
+  const k = {extensions:[{id:'filters', claims:[], drumline_page:true}, {id:'observer', claims:[]},
+    {id:'grit', claims:['record_double_tap'], claim_labels:{record_double_tap:'Record double-tap'}, drumline_page:true}]};
+  assert.equal(sharedClaim([k.extensions[0], k.extensions[1]]), null);
+  assert.equal(sharedClaim([k.extensions[0], k.extensions[2]]), 'drumline_page');
+  assert.equal(claimLabel(k.extensions, 'drumline_page'), 'Drumline page 2');
+  assert.equal(claimLabel(k.extensions, 'record_double_tap'), 'Record double-tap');
+  assert.deepEqual(extensionSelection(k, ['observer','filters']), ['filters','observer']);
+  assert.throws(() => extensionSelection(k, ['grit','filters']), /both use Drumline page 2\. Choose only one\./);
+  assert.deepEqual(extensionChoices(k), [[], ['filters'], ['observer'], ['filters','observer'], ['grit'], ['observer','grit']]);
 });
 
 test('declared callbacks of unselected machines resolve to fallbacks only for SDK objects', () => {
@@ -330,13 +738,31 @@ test('declared callbacks of unselected machines resolve to fallbacks only for SD
 test('SDK objects of a profile service link only when a selected machine uses it', () => {
   const k=fixture();
   assert.deepEqual([...activeServices(k.profile,[{kind:'synth'},{kind:'effect'}])],[]);
-  assert.deepEqual([...activeServices(k.profile,[{kind:'synth'},{kind:'sample'}])],['samples']);
+  assert.deepEqual([...activeServices(k.profile,[{kind:'synth'},{kind:'sample'}])],['samples', 'octaves']);
   // The service object redefines `entry`, so linking it would be a duplicate global.
   k.objects.push({...k.objects[0],name:'service.o',owner:null,service:'samples'});
   const linked=linkKit(k,['a']);
   assert.deepEqual(linked.objects.map(o=>o.name),['a.o']); assert.equal(linked.services.size,0);
   k.machines.push({...machine('b',46,7),kind:'sample'});
   assert.throws(()=>linkKit(k,['a','b']),/Duplicate global symbol: entry/);
+});
+test('track control and hidden pages use the control service, whose entry points fall back while unused', () => {
+  const k=fixture(), o=k.objects[0];
+  assert.deepEqual([...activeServices(k.profile,[{kind:'synth',features:['trackControl']}])],['control']);
+  assert.deepEqual([...activeServices(k.profile,[{kind:'synth',features:['hidePages']}])],['control']);
+  assert.deepEqual([...activeServices(k.profile,[{kind:'synth'}])],[]);
+  // Shared startup calls the control service's saved data, which only a control build links.
+  k.definitions.fallback=k.profile.module_base;
+  o.owner=null;
+  o.symbols.push({name:'sdk_control_kept_write',section:0,value:0,size:0,binding:1,type:0});
+  o.relocations.push({section:1,offset:0,type:18,symbol:o.symbols.length-1,addend:0});
+  assert.throws(()=>linkKit(k,['a']),/Unresolved import/);
+  k.serviceFallbacks={control:{sdk_control_kept_write:'fallback'}};
+  assert.doesNotThrow(()=>linkKit(k,['a']));
+  k.machines[0].features=['trackControl'];
+  assert.throws(()=>linkKit(k,['a']),/Unresolved import/);
+  k.serviceFallbacks={control:{sdk_control_kept_write:'undefined_fallback'}}; delete k.machines[0].features;
+  assert.throws(()=>linkKit(k,['a']),/Invalid service fallback/);
 });
 test('empty, unknown, repeated selections, duplicate globals and memory exhaustion are rejected', () => {
   const k=fixture(); for(const s of [[],['missing'],['a','a']]) assert.throws(()=>linkKit(k,s),/Choose each machine once/);
@@ -373,6 +799,15 @@ test('numbers follow the layout, not the selection order, and unselected machine
   assert.deepEqual([linked.definitions.a_engine_id,linked.definitions.b_engine_id,linked.definitions.c_engine_id,
     linked.definitions.c_page_id],[34,0,246,204]);
   assert.deepEqual(linked.numbers.b,{engine:215,page:221});
+});
+test("a sample engine drawing its own screen links its page apart from the sampler's", () => {
+  const k=fixture(); k.machines.push({id:'g',prefix:'g',kind:'sample',identity:{engine:null,page:null},absent:{},origin:'personal'});
+  const numbers=assignNumbers(k,['a','g']);
+  assert.ok(numbers.g.page>81 && numbers.g.page<256);
+  const linked=linkKit(k,['a','g'],numbers).definitions;
+  assert.deepEqual([linked.g_engine_id,linked.g_page_id,linked.g_screen_page_id],[numbers.g.engine,2,numbers.g.page]);
+  const absent=linkKit(k,['a'],numbers).definitions;
+  assert.deepEqual([absent.g_engine_id,absent.g_page_id,absent.g_screen_page_id],[0,0,0]);
 });
 test('saved layouts restore numbers and selections, including older saved selections', () => {
   const k=fixture(), id=k.profile.id;
@@ -444,7 +879,7 @@ test('SDK 1.5 machines ask for no numbers and the selection gives them', async (
   for (const identity of [{engine:null,page:82},{engine:null,page:null,base:'sampler'}]) {
     k.machines[1].identity=identity; await assert.rejects(openKit(k),/Machine numbers/);
   }
-  k.machines[1].identity={engine:null,page:null}; k.machines[2].identity={engine:null,page:null};
+  k.machines[1].identity={engine:null,page:null}; k.machines[2].identity={engine:null,page:21};
   await assert.rejects(openKit(k),/Machine numbers/);
   k.machines[2].identity={engine:null,page:7}; k.machines[0].identity={engine:34,page:83};
   await assert.rejects(openKit(k),/Fixed machine numbers differ/);
@@ -476,6 +911,158 @@ test('a machine says where it comes from: a catalog release or a personal folder
   k.fixed={a:{engine:35,page:83}}; await assert.rejects(openKit(k), /Fixed machine numbers differ: a/); k.fixed={};
   k.machines[0].source = {...source, repository:'https://evil.example/a/b'};
   await assert.rejects(openKit(k), /Invalid machine origin/);
+  k.machines[0].source = source;
+  // Catalog keywords are words from one list, at most five, each once.
+  for (const keywords of [['fm', 'bell'], undefined]) { k.machines[0].keywords = keywords; await openKit(k); }
+  for (const keywords of [[], ['fm', 'fm'], ['FM'], ['<b>'], 'fm', ['fm', 'bell', 'pad', 'bass', 'lofi', 'noise']]) {
+    k.machines[0].keywords = keywords;
+    await assert.rejects(openKit(k), /Invalid machine keywords/, JSON.stringify(keywords));
+  }
+});
+test('a kit with a machine named after stock content is refused when it opens', async () => {
+  const k=fixture(); k.format='opxy-browser-kit/1'; k.profileSource=profileBytes.toString('base64');
+  k.objects=[]; k.stockCatalog=''; k.screenTemplate=readFileSync(new URL('../sdk/platform/opxy-1.2.1/screen.svg',import.meta.url),'utf8');
+  k.fixed={}; await openKit(k);
+  // A kit exported before the profile listed stock's names carries that older profile.
+  const older = JSON.parse(profileBytes); delete older.stock_content;
+  const olderSource = Buffer.from(JSON.stringify(older, null, 2) + '\n').toString('base64');
+  await assert.rejects(openKit({...k, profile:older, profileSource:olderSource}),
+    /not the reviewed profile: .*Export the kit again with this SDK/);
+  for (const [id, stock] of [['monitor', 'content/display/monitor.svg'], ['pad', 'content/presets/pad'], ['snare', 'content/samples/snare']]) {
+    k.machines[0] = machine(id, 34, 82);
+    await assert.rejects(openKit(k), new RegExp(`Machine ${id}: its ID names the OP-XY’s own ${stock}\\. `), id);
+  }
+});
+test('machines are found by name, author, kind, description and keyword, in a chosen order', () => {
+  const by = (maintainer, name = 'x') => ({repository:'https://github.com/' + maintainer + '/' + name, tag:'v1', commit:'a'.repeat(40), maintainer});
+  const machines = [
+    {id:'zeta', name:'Zeta', kind:'synth', origin:'catalog', description:'Bright pads.', source:by('bob', 'OP-XY-Hexagon'), keywords:['pad', 'fm']},
+    {id:'alpha', name:'alpha', kind:'effect', origin:'catalog', description:'A tape delay.', source:by('Carol'), keywords:['delay']},
+    {id:'core', name:'Mid', kind:'synth', origin:'official', description:'Plucked strings.', source:by('etc'), keywords:['pluck']},
+    {id:'mine', name:'Beta 10', kind:'drum', origin:'personal', description:'Kicks.'},
+    {id:'beta2', name:'Beta 2', kind:'synth', origin:'catalog', description:'Granular clouds.', source:by('bob')},
+  ];
+  const ids = options => browseMachines(machines, options).map(({m}) => m.id);
+  // Open-XY's own first, then the rest, each by name; each row keeps its collection index (its colour).
+  assert.deepEqual(ids(), ['core', 'alpha', 'beta2', 'mine', 'zeta']);
+  assert.deepEqual(browseMachines(machines).map(({index}) => index), [2, 1, 4, 3, 0]);
+  assert.deepEqual(ids({sort:'name'}), ['alpha', 'beta2', 'mine', 'core', 'zeta']);
+  // By maintainer, ignoring case; a personal machine has none and comes first.
+  assert.deepEqual(ids({sort:'author'}), ['mine', 'beta2', 'zeta', 'alpha', 'core']);
+  assert.deepEqual(ids({sort:'kind'}), ['beta2', 'core', 'zeta', 'mine', 'alpha']);
+  assert.deepEqual(ids({sort:'unknown'}), ids());
+  assert.deepEqual(ids({query:'BOB'}), ['beta2', 'zeta']);
+  assert.deepEqual(ids({query:'  tape   delay '}), ['alpha']);
+  assert.deepEqual(ids({query:'pad bob'}), ['zeta']);
+  assert.deepEqual(ids({query:'drum'}), ['mine']);
+  // A collection by its repository's name, and kinds by the words the builder shows for them.
+  assert.deepEqual(ids({query:'hexagon'}), ['zeta']);
+  assert.deepEqual(ids({query:'drums'}), ['mine']);
+  assert.deepEqual(ids({query:'fx'}), ['alpha']);
+  assert.deepEqual(ids({query:'synthesizer'}), ['core', 'beta2', 'zeta']);
+  assert.deepEqual(ids({query:'nothing'}), []);
+  assert.deepEqual(ids({kind:'synth'}), ['core', 'beta2', 'zeta']);
+  assert.deepEqual(ids({keywords:['pad']}), ['zeta']);
+  assert.deepEqual(ids({keywords:['pad', 'delay']}), []);
+  assert.deepEqual(ids({favorites:new Set(['alpha', 'mine', 'gone'])}), ['alpha', 'mine']);
+  assert.deepEqual(ids({kind:'synth', query:'b', sort:'name'}), ['beta2', 'zeta']);
+  assert.equal(machineAuthor(machines[3]), '');
+  assert.equal(machineAuthor(machines[1]), 'Carol');
+  assert.ok(MACHINE_KEYWORDS.length && MACHINE_KEYWORDS.every(keyword => /^[a-z]+$/.test(keyword)));
+  // Most used first, then by name: the order keyword filters are kept when only some fit.
+  assert.deepEqual(keywordsByUse([...machines, {id:'pads', keywords:['pad', 'bass']}]),
+    [{keyword:'pad', count:2}, {keyword:'bass', count:1}, {keyword:'delay', count:1}, {keyword:'fm', count:1}, {keyword:'pluck', count:1}]);
+  assert.deepEqual(keywordsByUse([{id:'none'}]), []);
+});
+test('the CPU-high label follows the reported peak, or the average when no peak is reported', () => {
+  assert.equal(CPU_HIGH_PERCENT, 4.5);
+  // The peak decides when there is one, even under a heavier average.
+  assert.deepEqual(cpuWorstCase({cpu:{block_percent:4.8, peak_percent:4.4}}), {percent:4.4, metric:'peak'});
+  assert.equal(cpuHigh({cpu:{block_percent:4.8, peak_percent:4.4}}), null);
+  const peak = cpuHigh({cpu:{block_percent:3.69, peak_percent:6.314183}});
+  assert.equal(peak.metric, 'peak');
+  assert.equal(peak.detail, 'worst observed block peak 6.31% of an audio block, above 4.5%');
+  assert.equal(peak.text, 'CPU-high: ' + peak.detail);
+  // Without a peak, the average, and the text says so.
+  const average = cpuHigh({cpu:{block_percent:8.54963}});
+  assert.equal(average.metric, 'average');
+  assert.equal(average.text, 'CPU-high: average 8.55% of an audio block, above 4.5% (no peak reported)');
+  // A drum kit, by its worst single sound: its peak includes whole-kit runs and is ignored,
+  // so a heavy kit of light sounds is not labelled; its single-voice peak decides, or
+  // without one its heaviest voice's average.
+  const kit = {kind:'drum', cpu:{block_percent:2.7, peak_percent:48.163577, kit_percent:23.7, ceiling_percent:41.9}};
+  assert.deepEqual(cpuWorstCase(kit), {percent:2.7, metric:'average'});
+  assert.equal(cpuHigh(kit), null);
+  assert.equal(cpuHigh({...kit, cpu:{...kit.cpu, voice_peak_percent:4.2}}), null);
+  const sound = cpuHigh({...kit, cpu:{...kit.cpu, voice_peak_percent:7.25}});
+  assert.equal(sound.metric, 'peak');
+  assert.equal(sound.text, 'CPU-high: worst single sound peak 7.25% of an audio block, above 4.5%');
+  // A synth's record has no single-voice peak field; a stray one is not read.
+  assert.equal(cpuHigh({kind:'synth', cpu:{block_percent:2, peak_percent:3, voice_peak_percent:9}}), null);
+  for (const cpu of [{block_percent:5, peak_percent:48}, {block_percent:5}])
+    assert.equal(cpuHigh({kind:'drum', cpu}).text,
+      'CPU-high: worst single sound average 5% of an audio block, above 4.5% (no single-sound peak recorded)');
+  // A synth with a track stage: one voice and its track's stage (tooling.cpu_measurement.track_cost).
+  const staged = {kind:'synth', cpu:{block_percent:2, peak_percent:2.5, stage_percent:1, stage_peak_percent:2.1}};
+  assert.deepEqual(cpuWorstCase(staged), {percent:4.6, metric:'peak', stage:true});
+  assert.equal(cpuHigh(staged).text, 'CPU-high: worst observed block peak 4.6% of an audio block, above 4.5% (a voice with its track stage)');
+  assert.equal(cpuHigh({kind:'synth', cpu:{...staged.cpu, stage_peak_percent:2}}), null);
+  assert.deepEqual(cpuWorstCase({kind:'synth', cpu:{block_percent:2, stage_percent:2.6, stage_peak_percent:3}}),
+    {percent:4.6, metric:'average', stage:true});
+  // Only a synth's record carries them; a kit's stray fields are not read.
+  assert.deepEqual(cpuWorstCase({kind:'drum', cpu:{block_percent:2, stage_percent:3, stage_peak_percent:4}}),
+    {percent:2, metric:'average'});
+  // Strictly above the threshold; no record, or no usable figure, is no label.
+  assert.equal(cpuHigh({cpu:{block_percent:4.5}}), null);
+  assert.equal(cpuHigh({cpu:{block_percent:3, peak_percent:4.5}}), null);
+  for (const m of [{}, {cpu:null}, {cpu:'5'}, {cpu:{block_percent:'9'}}, {cpu:{block_percent:NaN}}]) assert.equal(cpuHigh(m), null, JSON.stringify(m));
+  assert.deepEqual(cpuWorstCase({cpu:{block_percent:5, peak_percent:'x'}}), {percent:5, metric:'average'});
+  // Derived from every catalog entry's record, so it changes only when a report does.
+  const catalog = JSON.parse(readFileSync(new URL('../catalog/machines.json', import.meta.url), 'utf8')).machines;
+  for (const entry of catalog.filter(e => e.cpu)) {
+    // A kit's worst single sound: its single-voice peak, else its heaviest voice's average;
+    // anything else, its peak or else its average.
+    const worst = entry.kind === 'drum' ? entry.cpu.voice_peak_percent ?? entry.cpu.block_percent
+      : entry.cpu.peak_percent ?? entry.cpu.block_percent;
+    assert.equal(Boolean(cpuHigh(entry)), worst > CPU_HIGH_PERCENT, entry.id);
+  }
+});
+test('machine presets save, replace, delete and choose named selections by ID', () => {
+  let presets = savePreset([], '  Night   set ', ['moth', 'fm2op']);
+  assert.deepEqual(presets, [{name:'Night set', machines:['moth', 'fm2op']}]);
+  presets = savePreset(presets, 'ambient 2', ['bloom']);
+  presets = savePreset(presets, 'Ambient 10', ['wane']);
+  // By name, numbers by value; saving a name again in any case replaces it in place.
+  assert.deepEqual(presets.map(p => p.name), ['ambient 2', 'Ambient 10', 'Night set']);
+  presets = savePreset(presets, 'NIGHT SET', ['karplus', 'karplus']);
+  assert.deepEqual(presets.map(p => [p.name, p.machines]), [['ambient 2', ['bloom']], ['Ambient 10', ['wane']], ['NIGHT SET', ['karplus']]]);
+  for (const [name, machines, message] of [['', ['moth'], /Name the preset/], ['   ', ['moth'], /Name the preset/],
+    ['x'.repeat(PRESET_NAME_LIMIT + 1), ['moth'], /40 characters/], ['empty', [], /at least one machine/]])
+    assert.throws(() => savePreset(presets, name, machines), message, name);
+  let many = [];
+  for (let i = 0; i < 50; i++) many = savePreset(many, 'p' + i, ['moth']);
+  assert.throws(() => savePreset(many, 'one more', ['moth']), /at most 50/);
+  savePreset(many, 'P7', ['bloom']);  // replacing one is still allowed
+  assert.deepEqual(deletePreset(presets, 'night set').map(p => p.name), ['ambient 2', 'Ambient 10']);
+  // Update saves the selection under the preset's own name; a matching selection, in any order, changes nothing.
+  const night = {name:'Night', machines:['moth', 'fm2op']};
+  assert.ok(presetMatches(night, ['fm2op', 'moth']) && presetMatches(night, ['moth', 'fm2op', 'moth']));
+  for (const machines of [['moth'], ['moth', 'fm2op', 'bloom'], ['moth', 'bloom'], []])
+    assert.ok(!presetMatches(night, machines), machines.join());
+  assert.deepEqual(savePreset([night], night.name, ['bloom']), [{name:'Night', machines:['bloom']}]);
+  // Reading what a browser kept drops what is malformed, repeated or too long.
+  assert.deepEqual(readPresets(null), []);
+  assert.deepEqual(readPresets('[]'), []);
+  assert.deepEqual(readPresets([{name:'b', machines:['moth']}, {name:'B', machines:['bloom']}, {name:'a', machines:['moth']},
+    {name:'', machines:['moth']}, {name:'c', machines:[]}, {name:'d', machines:['Moth']}, {name:'e', machines:['moth', 'moth']},
+    {name:'f', machines:'moth'}, {name:'x'.repeat(41), machines:['moth']}, {name:3, machines:['moth']}, null, 'g',
+    {name:'h', machines:[['moth']]}, {name:'i', machines:['a'.repeat(16)]}]),
+    [{name:'a', machines:['moth']}, {name:'b', machines:['moth']}]);
+  assert.equal(readPresets(Array.from({length:60}, (_, i) => ({name:'p' + i, machines:['moth']}))).length, 50);
+  // Choosing one selects the machines this kit has, in collection order, and names the rest.
+  const kit = {machines:[{id:'fm2op'}, {id:'karplus'}, {id:'moth'}]};
+  assert.deepEqual(applyPreset(kit, {name:'n', machines:['moth', 'gone', 'fm2op']}), {selected:['fm2op', 'moth'], missing:['gone']});
+  assert.deepEqual(applyPreset(kit, {name:'n', machines:['gone']}), {selected:[], missing:['gone']});
 });
 test('malformed loader records and unsafe ZIP paths are rejected', () => {
   for(const bytes of [new Uint8Array(),new Uint8Array(16),elf()]) assert.throws(()=>readLdr(bytes));
@@ -509,4 +1096,78 @@ test('the release checks the linked machines, each other machine beside the offi
   assert.deepEqual(selections.slice(0, 3), [1n << 33n, 1n << 39n, core]);
   assert.equal(selections.length, 3 + 38);
   assert.ok(selections.slice(3).every(mask => (mask & core) === core));
+});
+
+
+test('players have stable separate types and share the relocated page pool', () => {
+  const profile = JSON.parse(readFileSync(new URL('../profiles/opxy-1.2.1.json', import.meta.url), 'utf8'));
+  const rules = profile.identities;
+  const machines = [['probeplayer', 'player', {player: null, page: null}], ['second', 'player', {player: null, page: null}]];
+  const layout = numberLayout(rules, [], null, machines);
+  assert.notEqual(layout.probeplayer.player, layout.second.player);
+  assert.notEqual(layout.probeplayer.page, layout.second.page);
+  assert.deepEqual(numberLayout(rules, [], layout, machines.slice().reverse()), layout);
+  assert.deepEqual([...activeServices(profile, [{kind: 'player'}])].sort(), ['octaves', 'players']);
+  assert.throws(() => numberLayout(rules, [], {probeplayer: {player: 4, page: 84}}, machines), /cannot use/);
+});
+
+
+test('saved selections retain empty choices and available entries after catalog changes', () => {
+  const kit = {profile:{id:'test'}, machines:[{id:'a'}, {id:'b'}, {id:'new'}],
+    extensions:[{id:'observer',claims:[]}, {id:'capture',claims:['record_double_tap']}]};
+  const saved = {format:'opxy-selection/1',profile:'test',selected:['b','missing','a','a'],extensions:['missing','capture']};
+  assert.deepEqual(readSelection(kit,saved), {selected:['a','b'],extensions:['capture']});
+  assert.deepEqual(readSelection(kit,{...saved,selected:[],extensions:[]}), {selected:[],extensions:[]});
+  for (const invalid of [null, {...saved,profile:'other'}, {...saved,selected:'a'}, {...saved,extensions:[null]}])
+    assert.throws(() => readSelection(kit,invalid), /Invalid saved selection/);
+});
+
+test('new extension conflicts preserve saved machines and remain visible until resolved', () => {
+  const kit = {profile:{id:'test'}, machines:[{id:'kept'}], extensions:[
+    {id:'first',claims:['record_double_tap']}, {id:'second',claims:['record_double_tap']},
+    {id:'third',claims:['record_double_tap']}]};
+  const saved = {format:'opxy-selection/1',profile:'test',selected:['kept'],extensions:['third','second','first']};
+  const restored = readSelection(kit,saved);
+  assert.deepEqual(restored, {selected:['kept'],extensions:['first','second','third']});
+  assert.throws(() => extensionSelection(kit,restored.extensions), /record double tap/);
+  assert.deepEqual(readSelection(kit,{...saved,...restored}),restored);
+  assert.deepEqual(extensionSelection(kit,['first']),['first']);
+});
+
+test("a kit's keys, models and header read as the device's adapter reads them", () => {
+  assert.deepEqual([KIT_KEYS[0], KIT_KEYS.at(-1), KIT_KEYS.length], [53, 76, 24]);
+  // Stored 0..127, played as Q31: 127 is full scale.
+  assert.deepEqual([0, 1, 64, 126, 127].map(kitWord), [0, 0x1000000, 0x40000000, 0x7e000000, 0x7fffffff]);
+  const kit = {models:33, padMix:true, groups:[{label:'TRX', count:13}, {label:'EFM', count:8}, {label:'P-I', count:9}, {label:'GND', count:3}]};
+  assert.deepEqual([0, 12, 13, 20, 21, 32].map(model => kitChoices(kit, model, 2)),
+    [[0, 0, 2, 0], [0, 12, 2, 0], [1, 0, 2, 0], [1, 7, 2, 0], [2, 0, 2, 0], [3, 2, 2, 0]]);
+  assert.deepEqual(kitGroup(kit, 30), {group:3, place:0, label:'GND'});
+  assert.deepEqual(kitChoices({models:12}, 7), [7, 0, 0, 0]);
+  // The drum-kit controls (SDK 1.23): a key not set up reads 0 dB (30) and no random; with
+  // groups the volume takes the choke group's place.
+  assert.deepEqual(kitChoices({models:12, padVolume:true, padRandom:true}, 7, 2), [7, 2, 30, 0]);
+  assert.deepEqual(kitChoices({models:5, padVolume:true, groups:[{label:'A', count:2}, {label:'B', count:3}]}, 3, 1),
+    [1, 1, 30, 0]);
+  assert.deepEqual([kitSelectedKey({models:2, selectedKey:true}, 76), kitSelectedKey({models:2}, 76)], [23, 0]);
+  assert.equal(kitGroup({models:12}, 7).label, '');
+  assert.deepEqual(kitMix(kit), {pan:0, level:0, pad:[0, 0, 0, 0]});
+  assert.deepEqual(kitMix({models:12}), {pan:0, level:0});
+  const memory = {buffer:new ArrayBuffer(256)}, bytes = new Uint8Array(memory.buffer);
+  bytes.set(new TextEncoder().encode('BD\0PTCH\0'), 100);
+  const api = {memory, opxy_drum_defaults:key => { bytes.set([key - 53, 200, 127, 0, 1, 2, 3, 4, 5], 8); return 8; },
+    opxy_drum_model_name:() => 100, opxy_drum_label:(model, slot) => slot === 0 ? 103 : slot === 1 ? 0 : 102, opxy_drum_count:() => 9};
+  assert.deepEqual(kitKey(api, kit, 55), {key:55, model:2, controls:[127, 127, 0, 1, 2, 3, 4, 5], choke:0});
+  // A model beyond the kit reads as its first.
+  assert.equal(kitKey(api, kit, 76).model, 23);
+  assert.equal(kitKey(api, {models:20}, 76).model, 0);
+  assert.throws(() => kitKey(api, kit, 52), /Invalid kit key/);
+  // Eight slots at most; a null or empty label is an unused slot.
+  const names = kitModel(api, kit, 0);
+  assert.deepEqual(names, {name:'BD', labels:['PTCH', '', '', '', '', '', '', ''], used:[true, false, false, false, false, false, false, false]});
+  assert.throws(() => kitModel(api, kit, 33), /Invalid kit model/);
+  assert.deepEqual(kitHeader(names, [9, 8, 7, 6, 5, 4, 3, 2], [0, 1, 6, 3]), [['PTCH', '', '', ''], ['9', '', '', '']]);
+  // Unterminated or out-of-range text fails closed.
+  bytes.fill(65, 200);
+  assert.throws(() => kitModel({...api, opxy_drum_model_name:() => 200}, kit, 0), /Unterminated kit text/);
+  assert.throws(() => kitModel({...api, opxy_drum_model_name:() => 4096}, kit, 0), /Invalid kit text/);
 });

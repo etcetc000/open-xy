@@ -1,17 +1,20 @@
 import {existsSync, readFileSync, readdirSync, realpathSync} from 'node:fs';
 import {basename, dirname, posix, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {gzipSync} from 'node:zlib';
 import {defineConfig, loadEnv, normalizePath} from 'vite';
 import {openKit} from './builder/core.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const browserRoot = resolve(root, 'builder');
-const renderers = ['controls.mjs', 'display.mjs', 'engine.mjs', 'processor.mjs'].map(name => resolve(root, 'sdk/browser', name));
-const browserFiles = ['index.html', 'entry.mjs', 'style.css', 'app.mjs', 'core.mjs', 'browser.mjs', 'wizard.mjs', 'ferret.mjs', 'mtp.mjs', 'visuals.mjs', 'audition.mjs'];
+const renderers = ['controls.mjs', 'display.mjs', 'encoder_activity.mjs', 'engine.mjs', 'processor.mjs', 'graphics.mjs'].map(name => resolve(root, 'sdk/browser', name));
+// Data core.mjs shares with the tooling: the init preset template (tooling.adapters.default_preset).
+const sharedData = [resolve(root, 'tooling/default_preset.json')];
+const browserFiles = ['index.html', 'entry.mjs', 'style.css', 'app.mjs', 'graphics-configuration.mjs', 'machine-snapshots.mjs', 'graphics-dialog.mjs', 'core.mjs', 'browser.mjs', 'wizard.mjs', 'ferret.mjs', 'mtp.mjs', 'visuals.mjs', 'audition.mjs'];
 // Vite's /@fs/ URLs: C:/x becomes /@fs/C:/x and /x becomes /@fs/x.
 const fsUrl = path => posix.join('/@fs/', normalizePath(path));
 const fsFile = url => { const path = url.slice(5); return /^[A-Za-z]:\//.test(path) ? path : '/' + path; };
-const kitKeys = new Set(['format','version','profile','profileSource','definitions','fixed','linked','machines','extensions','objects','notices','stockCatalog','screenTemplate']);
+const kitKeys = new Set(['format','version','profile','profileSource','definitions','fixed','linked','machines','extensions','objects','notices','stockCatalog','screenTemplate','serviceFallbacks','unitSources']);
 
 // Check both the supplied path and its physical destination, including a new
 // directory below an existing symlink/junction. Worktrees have a .git file.
@@ -58,7 +61,7 @@ export default defineConfig(async ({command, mode}) => {
   let kit = kitPath ? await readCollection(kitPath) : null;
   let releaseOutput;
   const clientDir = resolve(root, 'node_modules/vite/dist/client');
-  const allowedFs = [...renderers, resolve(clientDir, 'env.mjs')];
+  const allowedFs = [...renderers, ...sharedData, resolve(clientDir, 'env.mjs')];
   const paths = new Set(['/', '/index.html', '/kit.json', '/@vite/client', '/@vite/env',
     ...browserFiles.map(name => '/' + name),
     ...allowedFs.map(fsUrl)]);
@@ -69,7 +72,7 @@ export default defineConfig(async ({command, mode}) => {
     server: {
       host:'127.0.0.1', port:8918, strictPort:true,
       allowedHosts:['localhost'], cors:false,
-      fs:{strict:true, allow:[browserRoot, ...renderers, clientDir]},
+      fs:{strict:true, allow:[browserRoot, ...renderers, ...sharedData, clientDir]},
     },
     preview: {host:'127.0.0.1', port:8919, strictPort:true},
     build: {outDir:resolve(root, output || 'dist/open-xy'), emptyOutDir:!kit, target:'es2022', sourcemap:false},
@@ -143,13 +146,15 @@ export default defineConfig(async ({command, mode}) => {
           '  Permissions-Policy: midi=(self), usb=(self)',
           '/',
           '  Cache-Control: no-cache',
-          '/kit.json',
+          '/kit.json.gz',
           '  Cache-Control: no-cache',
           '/assets/*',
           '  Cache-Control: public, max-age=31536000, immutable',
           '',
         ].join('\n')});
-        if (kit) this.emitFile({type:'asset',fileName:'kit.json',source:kit});
+        // Compress the complete verified collection to stay within the host's per-asset limit.
+        // entry.mjs decodes the gzip file explicitly; no Content-Encoding override is needed.
+        if (kit) this.emitFile({type:'asset',fileName:'kit.json.gz',source:gzipSync(kit)});
       },
     }],
   };

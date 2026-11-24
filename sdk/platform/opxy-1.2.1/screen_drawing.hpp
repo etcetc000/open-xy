@@ -3,10 +3,18 @@
 // values. Include after the generated display_binding.hpp, which names the
 // frame shape.
 #pragma once
-#include "screen.hpp"
+#include "retained_drawing.hpp"
+#include "screen_header.hpp"
 #include "note_activity.hpp"
+#include "amp_envelope.hpp"
+#include "drum_send.hpp"
 
 extern "C" opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
+// A drum-kit control's Shift cell (drum_kit_controls.hpp; reached only by a kit declaring one).
+extern "C" bool sdk_drum_kit_readout(opxy::u32 track, opxy::u32 position, opxy::u8* choice, const char** title,
+                                     char* value) __asm__("sdk_drum_kit_readout");
+// Refreshes opxy_sample_overview for a sample engine's own screen (sample_overview.cpp).
+extern "C" void sdk_sample_overview_update(opxy::u32) __asm__("sdk_sample_overview_update");
 
 namespace opxy { namespace screen { namespace {
 // One typed GUI state, input and frame; never accessed by audio callbacks.
@@ -15,94 +23,105 @@ u32 display_activation;
 draw::Input display_input;
 binding::Frame display_frame;
 
-// Machine: ids[] names the artwork's nodes (the first are the mutable paths),
-// then its text slots, then its palette entries.
+// The track's note-start counter: stock counts live and sequenced note starts
+// alike. A synth's, a sample engine's and, from SDK 1.21, a drum kit's serial,
+// which reads the played pad from its snapshot (sdk_drum_trigger).
+u32 track_note_serial(const Controls& controls) {
+    return controls.track < 8 ? note_serial(controls.track) : 0;
+}
+// A drum kit declaring an SDK before 1.21 keeps the serial it was written
+// against: its display is struck only by its selected pad's notes. Audio and
+// GUI are separate roles, so this reads only GUI state: when stock's note
+// counter moves, the pitches that started since the last frame (newly held,
+// or released since) are mapped to their pads. A start no pitch accounts for
+// strikes as before, so the screen never misses a hit it cannot place.
+struct PadNotes { u32 track, valid, notes, serial; u8 held[128], released[128], now[128], now_released[128]; };
+PadNotes pad_notes;
+u32 selected_pad_serial(const Controls& controls) {
+    if (controls.track >= 8) return 0;
+    const u32 notes = note_serial(controls.track);
+    if (!controls.pad) {
+        pad_notes.valid = 0;
+        return notes;
+    }
+    PadNotes& s = pad_notes;
+    sdk_note_pitches(controls.track, s.now, s.now_released);
+    if (s.valid && s.track == controls.track && notes != s.notes) {
+        bool placed = false, struck = false;
+        for (u32 p = 0; p < 128 && !struck; ++p) {
+            const bool released = s.now_released[p] != s.released[p];
+            if (!(s.now[p] && !s.held[p]) && !(released && (s.now[p] || !s.held[p]))) continue;
+            placed = true;
+            struck = sdk_drum_pad(controls.track, p) == controls.pad;
+        }
+        if (struck || !placed) ++s.serial;
+    }
+    for (u32 p = 0; p < 128; ++p) {
+        s.held[p] = s.now[p];
+        s.released[p] = s.now_released[p];
+    }
+    s.track = controls.track;
+    s.notes = notes;
+    s.valid = 1;
+    return s.serial;
+}
+extern "C" void sdk_drum_trigger(u32, draw::Input*) __asm__("sdk_drum_trigger");
+// A 1.21 kit's played-pad snapshot names no pad (all zero) until the track's
+// serial moves after the screen's activation or a track change, so the screen
+// never shows a pad from stock's last-played byte before its first hit there
+// (that byte keeps an earlier track's or kit's key, or whatever it holds at
+// boot). Like the serial's own baseline, it fabricates no note. serial is the
+// value the frame gives the machine as note_serial, read once: a second read
+// could see a note start the machine's serial does not, and the machine would
+// then see its serial move with the snapshot still zero.
+struct PlayedPad { u32 track, serial, valid, moved; };
+PlayedPad played;
+void played_pad_snapshot(const Controls& controls, u32 serial, draw::Input& input) {
+    PlayedPad& s = played;
+    if (!s.valid || s.track != controls.track) s = {controls.track, serial, 1, 0};
+    else if (serial != s.serial) s.moved = 1;
+    if (s.moved) { sdk_drum_trigger(controls.track, &input); return; }
+    input.trigger_key = input.trigger_model = 0;
+    for (u32 i = 0; i < 8; ++i) input.trigger_controls[i] = 0;
+}
+
+// A kit's Shift cells of the drum-kit controls (padVolume, padRandom; SDK 1.23,
+// drum_kit_controls.cpp): each position the kit sets something on holds its choice in
+// controls.choices at all times (the key's volume as dB + 30, its random's percent)
+// and, while Shift is held, names and shows it, over what refresh_controls put there.
+void kit_cells(Base* o, Controls& controls) {
+    if (!controls.valid || !controls.pad) return;
+    for (u32 i = 0; i < 4; ++i) {
+        u8 choice = 0;
+        const char* title = "";
+        char value[16];
+        value[0] = 0;
+        if (!sdk_drum_kit_readout(controls.track, i, &choice, &title, value)) continue;
+        controls.choices[i] = choice;
+        if (!controls.choosing) continue;
+        value[15] = 0;
+        set_text(o->titles[i], title);
+        set_text(o->values[i], value);
+    }
+}
+
+// Machine: ids[] names mutable paths, other nodes, text slots, then palette entries.
 template <class Machine> struct Drawing {
     typedef binding::Frame Frame;
     enum { path_count = Frame::path_count, point_count = Frame::point_count, node_count = Frame::node_count,
            text_count = Frame::text_count, palette_count = Frame::palette_count };
     static_assert(sizeof(Machine::ids) / sizeof(Machine::ids[0]) == node_count + text_count + palette_count,
                   "Drawing artwork IDs");
-    struct Object {
-        Base base;
-        PathNode* nodes[node_count];  // path leaves, or 0 when missing or foreign
-        Leaf* texts[text_count > 0 ? text_count : 1];  // text leaves, or 0
-        char shown[text_count > 0 ? text_count : 1][draw::text_capacity];  // each slot's applied text
-        u32 palette[palette_count];    // packed palette entry IDs, or 0
-        i32 delta;               // elapsed time of the current frame, Q10 seconds
-        u32 geometry[path_count > 0 ? path_count : 1];  // each path's command vector as validated at init
-        u32 keys[path_count > 0 ? path_count : 1];      // each path's last applied key
-    };
-
-    // The path's command vector begin if it is exactly M, (points - 1) L, Z, or 0.
-    static u32 geometry(void* raw) {
-        const PathNode* node = path_node(raw);
-        if (!node) return 0;
-        const Vector& v = node->commands;
-        if (!v.begin || v.begin & 3 || v.end < v.begin || v.capacity < v.end) return 0;
-        if (v.end - v.begin != 32 * (point_count + 1) || v.capacity - v.begin > 4096) return 0;
-        const Command* command = reinterpret_cast<const Command*>(v.begin);
-        for (u32 i = 0; i < point_count; ++i)
-            if (command[i].type != (i ? 2 : 1)) return 0;
-        return command[point_count].type == 5 ? v.begin : 0;
-    }
-
+    using Renderer = RetainedDrawing<Frame>;
+    using Object = typename Renderer::Object;
     static void init(Object* o) {
         clear(o);
-        display_activation = 0;
-        binding::display_reset(&display_state, &display_frame);
-        if (!o->base.svg) return;
+        display_activation=0;
+        played.valid=0;
+        binding::display_reset(&display_state,&display_frame);
+        if(!o->base.svg)return;
         bind_controls(&o->base);
-        for (u32 i = 0; i < node_count; ++i) o->nodes[i] = path_node(find(&o->base, Machine::ids[i]));
-        for (u32 i = 0; i < text_count; ++i) {
-            o->texts[i] = text_node(find(&o->base, Machine::ids[node_count + i]));
-            o->shown[i][0] = 1;  // apply every slot on the first frame
-        }
-        for (u32 i = 0; i < palette_count; ++i)
-            o->palette[i] = palette_ids(find(&o->base, Machine::ids[node_count + text_count + i]), o->base.svg);
-        for (u32 i = 0; i < path_count; ++i) o->geometry[i] = geometry(o->nodes[i]);
-    }
-
-    // Copies a changed path's coordinates only while its topology is still the
-    // one validated at init; types and vector metadata stay intact.
-    static void apply_path(Object* o, u32 p) {
-        const typename Frame::path_type& path = display_frame.paths[p];
-        if (path.key == o->keys[p]) return;
-        const u32 begin = geometry(o->nodes[p]);
-        if (!begin || begin != o->geometry[p]) return;
-        Command* command = reinterpret_cast<Command*>(begin);
-        for (u32 i = 0; i < point_count; ++i) {
-            command[i].x = path.points[i].x;
-            command[i].y = path.points[i].y;
-        }
-        invalidate(o->nodes[p]);
-        o->keys[p] = path.key;
-    }
-
-    // Each node's matrix is its scale times its turn, at (x, y).
-    static void apply_node(Object* o, u32 i) {
-        const draw::Node& node = display_frame.nodes[i];
-        if (node.paint != draw::keep) paint(o->nodes[i], o->palette[node.shade], node.paint == draw::fill_and_stroke);
-        if (!o->nodes[i]) return;
-        const i32 a = draw::floor_q10(node.scale * node.cos), b = draw::floor_q10(node.scale * node.sin);
-        const u32 at[6] = {0, 1, 3, 4, 6, 7};
-        const i32 value[6] = {a, b, -b, a, node.x, node.y};
-        set_words(&o->nodes[i]->leaf, at, value);
-    }
-
-    static void apply_text(Object* o, u32 i) {
-        const draw::Text& text = display_frame.texts[i];
-        Leaf* leaf = o->texts[i];
-        if (!leaf) return;
-        const u32 at[6] = {0, 1, 3, 4, 6, 7};
-        const i32 value[6] = {text.scale, 0, 0, text.scale, text.x, text.y};
-        set_words(leaf, at, value);
-        char* shown = o->shown[i];
-        u32 n = 0;
-        while (n < draw::text_capacity && shown[n] == text.chars[n] && text.chars[n]) ++n;
-        if (n < draw::text_capacity && shown[n] == text.chars[n]) return;
-        for (n = 0; n < draw::text_capacity; ++n) shown[n] = text.chars[n];
-        set_text(leaf, shown);
+        Renderer::bind(o,Machine::ids);
     }
 
     static void animate(Object* o, const Controls& controls) {
@@ -113,26 +132,49 @@ template <class Machine> struct Drawing {
             // A reset may reuse earlier nonzero geometry keys with new points.
             for (u32 p = 0; p < path_count; ++p) o->keys[p] = 0;
             display_activation = activation;
+            played.valid = 0;
         }
         for (u32 i = 0; i < page_controls; ++i) {
             display_input.parameters[i] = controls.values[i];
             display_input.shown[i] = controls.shown[i];
         }
         for (u32 i = 0; i < parameter_slots; ++i) display_input.slots[i] = controls.slots[i];
+        display_input.model = controls.model;
+        display_input.pan = static_cast<i8>(controls.pan);
+        display_input.level = static_cast<i8>(controls.level);
+        display_input.line = static_cast<u8>(controls.line);
+        // A kit declaring SDK 1.23 or later: its selected key, 0..23 (pad 53 + n); 0 otherwise.
+        display_input.selected_key = Machine::selected_key && controls.pad >= 53 && controls.pad < 77
+            ? static_cast<u8>(controls.pad - 53) : 0;
+        const u32 pads = sizeof(controls.pads) / sizeof(controls.pads[0]);
+        for (u32 i = 0; i < 4; ++i) display_input.pad[i] = static_cast<i8>(i < pads ? controls.pads[i] : 0);
+        // FX I and FX II: a send's index (drum_send.hpp) as the kit's SDK reads it.
+        for (u32 i = platform::kDrumKitPadFields; i < 4 && i < pads; ++i)
+            display_input.pad[i] = static_cast<i8>(platform::drum_send_shown(static_cast<u32>(controls.pads[i]), Machine::percent_sends));
+        display_input.shift = controls.choosing ? 1 : controls.shift;
+        for (u32 i = 0; i < 4; ++i) display_input.choices[i] = controls.choices[i];
         display_input.elapsed = o->delta;
         display_input.track = controls.track;
-        display_input.note_serial = controls.track < 8 ? note_serial(controls.track) : 0;
+        // played_pad: a drum kit declaring SDK 1.21 or later, which reads the
+        // track's serial and, once it has moved since activation, the played
+        // pad's snapshot; selected_pad: an older kit, struck by its selected
+        // pad only. Other screens never write the snapshot, which stays zero.
+        if (Machine::selected_pad) {
+            display_input.note_serial = selected_pad_serial(controls);
+        } else {
+            display_input.note_serial = track_note_serial(controls);
+            if (Machine::played_pad) played_pad_snapshot(controls, display_input.note_serial, display_input);
+        }
         sdk_display_note_activity(controls.track, &display_input);
+        // A sample engine's own screen reads its sample (opxy_sample_overview).
+        if (Machine::sample) sdk_sample_overview_update(controls.track);
+        platform::amp_envelope(controls.track, display_input.amp);
         display_input.reduced_motion = 0;
         binding::display_render(&display_state, &display_input, &display_frame);
         if (!binding::display_valid(&display_frame)) return;
-        for (u32 p = 0; p < path_count; ++p) apply_path(o, p);
-        for (u32 i = 0; i < node_count; ++i) apply_node(o, i);
-        for (u32 i = 0; i < text_count; ++i) apply_text(o, i);
-        // Stock wrote every value this frame; a header string replaces its own.
-        for (u32 i = 0; i < page_controls; ++i)
-            if (display_frame.header[i][0])
-                if (Leaf* value = text_node(o->base.values[i])) set_text(value, display_frame.header[i]);
+        Renderer::apply(o,display_frame);
+        // Keep the drum Shift page blank; other screens share header overrides.
+        if (!controls.choosing) apply_header(&o->base, display_frame);
     }
 
     // Incoming elapsed time is the dispatcher's, in Q10 seconds.
@@ -140,8 +182,11 @@ template <class Machine> struct Drawing {
         o->delta = elapsed;
         Controls controls;
         if (!refresh_controls(&o->base, controls)) return;
+        if (Machine::kit_controls) kit_cells(&o->base, controls);
         animate(o, controls);
         draw(&o->base);
+        // A drum kit's held pad: Drumline's slide-up strip, over the page.
+        draw_hold_strip(controls.track, elapsed);
     }
 };
 }}} // namespace opxy::screen::<unnamed>
