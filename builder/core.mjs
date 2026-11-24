@@ -1570,7 +1570,7 @@ function checkPackMachine(m) {
     m.prefix === m.id && ['synth', 'effect', 'sample'].includes(m.kind) &&
     m.origin === 'personal' && m.source === undefined && m.cpu === undefined &&
     typeof m.name === 'string' && m.name.length > 0 && m.name.length <= 80 &&
-    typeof m.description === 'string' && m.description.length <= 160,
+    typeof m.description === 'string' && [...m.description].length <= 160,
     'Invalid custom machine metadata');
   check(Array.isArray(m.controls) && m.controls.length >= (m.kind === 'synth' ? 4 : 1) && m.controls.length <= 8 &&
     m.controls.every(c => typeof c === 'string' && c.length <= 80) &&
@@ -1592,9 +1592,12 @@ function checkPackMachine(m) {
     // An effect's entry carries its number (catalogEntry); an instrument's has none.
     (m.kind === 'effect' ? Number.isInteger(entry.id) : !Object.hasOwn(entry, 'id')), 'Invalid machine menu');
   presetFiles(m);
-  check(m.artwork === undefined || typeof m.artwork === 'string' && m.artwork.length <= 65536 &&
-    m.asset === m.id + '.svg' && !/<!DOCTYPE|<!ENTITY|<\/?(?:script|foreignObject|iframe|image|use|style)\b|\bon\w+\s*=|\bhref\s*=/i.test(m.artwork),
-    'Invalid machine artwork');
+  // Authored comments (which the exporter keeps) are not markup.
+  const safeArtwork = text => typeof text === 'string' && text.length <= 65536 &&
+    !/<!DOCTYPE|<!ENTITY|<\/?(?:script|foreignObject|iframe|image|use|style)\b|\bon\w+\s*=|\bhref\s*=/i
+      .test(text.replace(/<!--[\s\S]*?-->/g, ''));
+  check(m.artwork === undefined || safeArtwork(m.artwork) && m.asset === m.id + '.svg' &&
+    (m.grayscaleArtwork === undefined || safeArtwork(m.grayscaleArtwork)), 'Invalid machine artwork');
   check(m.kind !== 'synth' || typeof m.artwork === 'string', 'Missing synth artwork');
   // A synth's preview (tooling.browser_kit.machine_entry): no drum kit's, and a Shift row's
   // eight words only with that row.

@@ -104,7 +104,8 @@ marked **Yours**, initially unselected. The file stays in the browser; importing
 does not publish a catalog entry. Import code only from authors you trust:
 native machine code is not isolated or reviewed by Open-XY. While a pack is
 imported, every build links its registration and control tables, even when none
-of its machines is selected.
+of its machines is selected, and its browser previews run in the page when
+inspected.
 
 A pack extends the site's exact machine collection. It cannot replace existing
 machines, change the SDK runtime or add extensions, and it adds synths, effects

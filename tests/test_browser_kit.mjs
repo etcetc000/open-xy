@@ -196,6 +196,18 @@ test('an imported menu entry is rebuilt from its checked values in the exporter 
     '"default_params": [0, 0, 0, 0, 0, 0, 0, 0]\n        }\n');
 });
 
+test('packs take authored descriptions and artwork comments as the SDK does, and check grayscale artwork', async () => {
+  const {base, pack} = await packFixture(), m = pack.machines[1];
+  // 160 characters as machine.json counts them (code points), and a comment the exporter keeps.
+  Object.assign(m, {description:'\u{1F3B9}'.repeat(160), artwork:'<!-- one = first --><rect id="panel" width="1" height="1"/>'});
+  await importMachinePack(base, pack);
+  m.description += '.';
+  await assert.rejects(importMachinePack(base, pack), /metadata/);
+  m.description = 'A custom machine';
+  m.grayscaleArtwork = '<script>bad()</script>';
+  await assert.rejects(importMachinePack(base, pack), /artwork/);
+});
+
 test('packs refuse kinds they cannot import and malformed services or heap voices', async () => {
   for (const [change, error] of [[m => { m.kind = 'drum'; }, /metadata/], [m => { m.kind = 'player'; }, /metadata/],
     [m => { m.heapVoices = -1; }, /heap voices/], [m => { m.heapVoices = 1.5; }, /heap voices/],
