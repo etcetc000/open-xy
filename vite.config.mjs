@@ -10,6 +10,9 @@ const browserRoot = resolve(root, 'builder');
 const renderers = ['controls.mjs', 'display.mjs', 'encoder_activity.mjs', 'engine.mjs', 'processor.mjs', 'graphics.mjs'].map(name => resolve(root, 'sdk/browser', name));
 // Data core.mjs shares with the tooling: the init preset template (tooling.adapters.default_preset).
 const sharedData = [resolve(root, 'tooling/default_preset.json')];
+// Published unbundled at /sdk/<kit version>/ with the kit, so other sites can load the builder that matches it.
+const kitModules = ['builder/core.mjs', 'sdk/browser/graphics.mjs', 'tooling/default_preset.json'];
+const crossOrigin = '  Access-Control-Allow-Origin: https://xy-forever.trappar.com';
 const browserFiles = ['index.html', 'entry.mjs', 'style.css', 'app.mjs', 'graphics-configuration.mjs', 'machine-snapshots.mjs', 'graphics-dialog.mjs', 'core.mjs', 'browser.mjs', 'wizard.mjs', 'ferret.mjs', 'mtp.mjs', 'visuals.mjs', 'audition.mjs'];
 // Vite's /@fs/ URLs: C:/x becomes /@fs/C:/x and /x becomes /@fs/x.
 const fsUrl = path => posix.join('/@fs/', normalizePath(path));
@@ -148,13 +151,19 @@ export default defineConfig(async ({command, mode}) => {
           '  Cache-Control: no-cache',
           '/kit.json.gz',
           '  Cache-Control: no-cache',
+          crossOrigin,
+          '/sdk/*',
+          crossOrigin,
           '/assets/*',
           '  Cache-Control: public, max-age=31536000, immutable',
           '',
         ].join('\n')});
         // Compress the complete verified collection to stay within the host's per-asset limit.
         // entry.mjs decodes the gzip file explicitly; no Content-Encoding override is needed.
-        if (kit) this.emitFile({type:'asset',fileName:'kit.json.gz',source:gzipSync(kit)});
+        if (!kit) return;
+        this.emitFile({type:'asset',fileName:'kit.json.gz',source:gzipSync(kit)});
+        const {version} = JSON.parse(kit);
+        for (const file of kitModules) this.emitFile({type:'asset',fileName:`sdk/${version}/${file}`,source:readFileSync(resolve(root, file))});
       },
     }],
   };
