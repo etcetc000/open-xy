@@ -446,7 +446,7 @@ export class SvgDisplay {
       if (node.localName !== 'path' || node.getAttribute('fill') !== 'none') throw new Error('A glyph instance is a path with fill="none"');
       const records = glyphCommands(node.getAttribute('d') || '');
       if (records.length !== 16 || records.some(([verb], k) => verb !== (k ? 'L' : 'M')) ||
-          new Set(records.map(([, values]) => values.join(','))).size !== 16) throw new Error('Invalid glyph instance');
+          new Set(records.map(([, values]) => values.map(x => Math.trunc(x * 1024)).join(','))).size !== 16) throw new Error('Invalid glyph instance');
     }
     this.glyphApplied = Array(this.glyphCount).fill(-1);
     if (this.rgba) for (const node of this.nodes) {

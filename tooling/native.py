@@ -1260,10 +1260,10 @@ def check_glyphs(by_id, prefix, display):
         node = by_id.get(name)
         require(node is not None and node.tag == 'path' and node.get('fill') == 'none',
                 'A glyph instance node is a path with fill="none": ' + name)
-        # The stock parser merges repeated points, so the 16 reserved points are distinct.
+        # The stock parser merges repeated points, so the 16 reserved points are distinct in Q10.
         commands = glyph_commands(ET.Element('path', {'d': node.get('d', '')}))
         require(len(commands) == 16 and [v for v, _ in commands] == ['M'] + ['L'] * 15 and
-                len({tuple(float(x) for x in values) for _, values in commands}) == 16,
+                len({tuple(int(float(x) * 1024) for x in values) for _, values in commands}) == 16,
                 'A glyph instance node reserves M and 15 L to 16 distinct points: ' + name)
 
 
