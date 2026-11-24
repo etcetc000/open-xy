@@ -517,7 +517,7 @@ and source alongside the original; rebuilding is required after editing either.
 ## Extended drawing
 
 A synth or effect screen can declare more paths and points than the table in
-[Declaration](#declaration) allows, and the optional keys below. Any of them
+[Declaration](#declaration) allows, and the optional keys below. Any of them, declared even as 0,
 makes the display *extended*: it needs `"sdk": "1.20"`, uses
 `draw::ExtendedFrame` (or one of its aliases) instead of `draw::Frame`, and is
 drawn by a separate renderer. A display that uses none of them keeps
@@ -594,7 +594,9 @@ voice's `publish_word` replaces an earlier one's, and a snapshot can fall betwee
 two voices of a block, so combine voices with `add_packed16` into an accumulator
 word (`audioMode` 1, or the first `audioAccumulators` words in mode 2). Only
 those words restart from zero for each snapshot; `add_packed16` on any other
-word keeps summing until it saturates.
+word keeps summing until it saturates. A track's words are not cleared when its
+engine changes or a project loads: until the synth plays there again, its screen
+shows the words the track last held.
 
 An effect's words are its send's: the effect on each send has its own, cleared
 when stock places or resets it there, and its page reads the send it shows.

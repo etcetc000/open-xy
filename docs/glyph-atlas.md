@@ -41,7 +41,7 @@ zero records; unchanged definitions write nothing. Added native storage is
 must never alias. Initialization or preflight failure rejects the frame's
 paths, nodes and texts with its glyphs, so they never show beside stale glyphs:
 the screen keeps its last drawing (stock's header still updates) until a frame
-passes. The browser has no such failure and keeps
+passes; after an initialization failure none passes until the screen is opened again. The browser has no such failure and keeps
 drawing, so a frozen device screen with a moving preview points here.
 
 The browser snapshots the same source paths into exact Q10 outlines and applies
