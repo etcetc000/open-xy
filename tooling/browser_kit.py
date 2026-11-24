@@ -386,6 +386,7 @@ def main(argv=None):
         machines = native.configuration(native.selected_collection(args))[1]
         refuse_adapter_capabilities(native.extensions_of(machines))
         catalog_sources(machines, args.personal)
+        extension_origins(native.extensions_of(machines), args.personal)
     except ValueError as error:
         parser.exit(1, 'ERROR: ' + str(error) + '\n')
     out = fresh_output(args.out, args.overwrite, [args.stock_os, args.stock_content, args.toolchain, args.compiler,
