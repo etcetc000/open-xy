@@ -28,9 +28,10 @@ def notices(machines, runtime=False):
     if runtime:
         texts.append(read(ROOT / 'sdk/platform/blackfin/runtime.LICENSE').decode('utf-8'))
     for m in machines:
-        license_file = child(m.root, 'vendor/LICENSE')
-        if license_file.is_file():
-            texts.append(m.name + '\n\n' + read(license_file).decode('utf-8'))
+        for name in ('LICENSE', 'vendor/LICENSE'):
+            license_file = child(m.root, name)
+            if license_file.is_file():
+                texts.append(m.name + ' (' + name + ')\n\n' + read(license_file).decode('utf-8'))
     return '\n\n'.join(texts)
 
 
@@ -298,7 +299,8 @@ def write_builder(kit, output):
     exports = ('requireThat decode64 sha256 equal readObject readLayout readSelection assignNumbers chosenByDefault moduleBytes heapBytes offersExpandedMemory memoryKit openKit linkKit readLdr '
                'patchFirmware recoverFirmware extensionSelection sharedClaim claimLabel presetFiles artworkForGraphics selectArtwork graphicsForMachine buildAssets zipFiles sourceUrl sourceName '
                'KIT_KEYS kitWord kitKey kitModel kitGroup kitChoices kitSelectedKey kitMix kitHeader '
-               'MACHINE_KEYWORDS keywordsByUse browseMachines machineAuthor CPU_HIGH_PERCENT cpuWorstCase cpuHigh PRESET_NAME_LIMIT readPresets savePreset deletePreset presetMatches applyPreset').split()
+               'MACHINE_KEYWORDS keywordsByUse browseMachines machineAuthor CPU_HIGH_PERCENT cpuWorstCase cpuHigh PRESET_NAME_LIMIT readPresets savePreset deletePreset presetMatches applyPreset '
+               'MACHINE_PACK_LIMIT readMachinePack importMachinePack').split()
     bundled = 'const Graphics = (() => {\n' + read(ROOT / 'sdk/browser/graphics.mjs').decode(
         'utf-8').replace('export ', '') + '\nreturn {artworkForGraphics,selectArtwork};\n})();\n'
     bundled += 'const Core = (() => {\n' + script + '\nreturn {' + ','.join(exports) + '};\n})();\n'
@@ -374,8 +376,12 @@ def main(argv=None):
     parser.add_argument('--host-cxx', default='g++', help='host C++11 compiler for the release fixtures')
     parser.add_argument('--personal', action='store_true',
                         help='a kit for your own collection on any pinned host, without release verification')
+    parser.add_argument('--machine-pack', action='store_true',
+                        help='also export machines.zip for catalog import (requires --personal)')
     native.add_collection_arguments(parser)
     args = parser.parse_args(argv)
+    if args.machine_pack and not args.personal:
+        parser.error('--machine-pack requires --personal')
     try:
         if not args.personal:
             require_release_host()
@@ -402,16 +408,22 @@ def main(argv=None):
         if not args.personal:  # independent rebuild against the reference bytes
             subprocess.run([sys.executable, str(ROOT / 'sdk.py'), 'check', '--native-package', str(package), *options,
                             '--host-cxx', args.host_cxx], cwd=ROOT, check=True)
-        export(package, out, tool_paths(args.toolchain), args.preview_cxx, compiler=Path(args.compiler),
+        kit = export(package, out, tool_paths(args.toolchain), args.preview_cxx, compiler=Path(args.compiler),
                stock_catalog=read(Path(args.stock_content) / 'op1_factory.json'), personal=args.personal)
         # Validate firmware and content output against the independent Python writer.
         subprocess.run([sys.executable, str(ROOT / 'tools/check_browser_firmware.py'), str(out),
                         args.stock_os, args.stock_content], cwd=ROOT, check=True)
+        if args.machine_pack:
+            from .machine_pack import write
+            custom = {m['id'] for m in kit['machines'] if m['origin'] == 'personal'}
+            write(kit, out, notices([m for m in machines if m.id in custom]))
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         # The unnamed builder and its inputs stay in --out for inspection.
         parser.exit(1, f'ERROR: {error}\nIncomplete export left in {out}; use a new --out or --overwrite to retry.\n')
     (out / 'builder.pending.html').rename(out / 'opxy-builder.html')
     print('Browser builder: ' + str(out / 'opxy-builder.html'))
+    if args.machine_pack:
+        print('Machine pack: ' + str(out / 'machines.zip'))
     if args.personal:
         print('Personal kit: for your own collection and device; published kits come from release verification.')
     return 0
