@@ -199,6 +199,7 @@ def unit_sources(output, tools, compiler, profile, machines, objects):
         for value, units in values.items():
             for name, data in units.items():
                 chosen = built.get(name.removeprefix('sdk/').removesuffix('.o'))
+                require(name in objects, f'{capability}: the native build has no {name}')
                 if (chosen is not None) == (value == 1):
                     require(objects[name] == data, f"{capability} {value}: {name} differs from the native build's")
                 destination = child(output / 'objects/unit-sources', f'{capability}/{value}/{name}')

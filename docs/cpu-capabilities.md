@@ -441,7 +441,7 @@ no SDK assembly does, and no catalog machine's hand assembly calls anything (the
 catalog's pinned commits when this was written; a machine added later is not
 checked). `sdk.py settings show` cannot tell whether an image has them; the build's
 compile report can, and a builder download's `build.json` records the setting when it was
-moved from the extension's own value (`cpu`'s is 0).
+chosen in the builder or recovered from a loaded OS.
 
 Tests: host only. The instruction model runs both fast files' own text:
 quotients, remainders and the signed wrappers against C over edge and random
