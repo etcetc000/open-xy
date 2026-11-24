@@ -328,7 +328,7 @@ class Switches(unittest.TestCase):
         self.assertRegex(err.getvalue(), "change every machine's generated code.*: idle")
         self.assertFalse(output.exists())
 
-    def test_exporting_a_browser_kit_refuses_a_build_capability_before_writing(self):
+    def test_exporting_a_browser_kit_refuses_an_adapters_capability_before_writing(self):
         # browser_kit.export itself refuses, before reading the catalog or writing anything.
         from tooling import browser_kit
         output = Path(tempfile.mkdtemp())
