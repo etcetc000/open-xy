@@ -120,6 +120,9 @@ bool AudioEndpoint::receive(const u8* bytes, unsigned length, u32 now) {
             (h.mode == Mode::Packed16AndSnapshot && bytes[29] != packed_prefix_)) return false;
         flying_ = false;
         next_send_ = now + timing_.frame;
+        // An ACK is the screen still reading this selection, as a Request is: while
+        // snapshots stream, every screen frame may carry an ACK and no heartbeat.
+        last_request_ = now;
         return true;
     }
     if (h.kind != Kind::Request || !resolve_ || !critical_.enter || !critical_.leave) return false;
@@ -133,7 +136,7 @@ bool AudioEndpoint::receive(const u8* bytes, unsigned length, u32 now) {
     // Request.sequence is the last globally committed audio sequence, retained
     // by GUI across selection changes. It acknowledges the old flight without
     // requiring the old key and command to fit in the new selection request.
-    if (flying_ && h.sequence == flight_sequence_) flying_ = false;
+    if (flying_ && h.sequence == flight_sequence_) { flying_ = false; next_send_ = now + timing_.frame; }
     if (!ever_selected_ || !same(h.key, key_) || bank_ != bank) {
         if (!release_flight()) return false;
         bank_ = bank; key_ = h.key; mode_ = h.mode; count_ = h.total; packed_prefix_ = bank->packed_prefix;
@@ -143,21 +146,22 @@ bool AudioEndpoint::receive(const u8* bytes, unsigned length, u32 now) {
         // if its receipt is still missing, preserving GUI deduplication evidence.
         selected_ = true; next_send_ = now;
     }
+    // The selection above stands from here, so even a refused command keeps its lease.
+    last_request_ = now;
     // An older reordered request must not roll back a command. Zero means no
-    // command requested, never reset the producer's command state. A command the
-    // bank cannot take yet (another still pending, or the same command with another
-    // target) is left for a later request; the selection above stands and keeps its lease.
+    // command requested, never reset the producer's command state. The same command
+    // with another target is refused; a newer one while the producer has not applied
+    // the last waits for a later request.
     if (h.command) {
         Guard guard(critical_);
         const u32 target = h.mode == Mode::Packed16AndSnapshot ? get32(bytes + header_bytes) : 1;
-        const bool conflicting = h.command == bank_->requested_command && target != bank_->requested_target;
+        if (h.command == bank_->requested_command && target != bank_->requested_target) return false;
         const bool deferred = bank_->pending_command() && newer(h.command, bank_->requested_command);
-        if (!conflicting && !deferred && (!bank_->requested_command || newer(h.command, bank_->requested_command))) {
+        if (!deferred && (!bank_->requested_command || newer(h.command, bank_->requested_command))) {
             bank_->requested_target = target;
             bank_->requested_command = h.command;
         }
     }
-    last_request_ = now;
     return true;
 }
 bool AudioEndpoint::service(u32 now, Send send, void* context) {
@@ -250,7 +254,9 @@ bool GuiEndpoint::receive(const u8* bytes, unsigned length) {
 bool GuiEndpoint::service(u32 now, Send send, void* context) {
     if (!selected_ || !send) return false;
     Header h = {Kind::Request, mode_, key_, last_receipt_, reset_supported_ ? requested_command_ : 0, count_, 0, 0};
-    bool ack = ack_pending_;
+    // A new selection or reset goes first: its Request carries the last receipt,
+    // which acknowledges that flight as an ACK would.
+    bool ack = ack_pending_ && !request_dirty_;
     if (ack) { h.kind = Kind::Ack; h.sequence = delivered_; h.command = applied_command_; }
     else if (!request_dirty_ && !due(now, next_request_)) return false;
     Packet packet;
@@ -260,7 +266,10 @@ bool GuiEndpoint::service(u32 now, Send send, void* context) {
         return false;
     }
     if (ack) ack_pending_ = false;
-    else { next_request_ = now + timing_.heartbeat; request_dirty_ = false; }
+    else {
+        next_request_ = now + timing_.heartbeat; request_dirty_ = false;
+        if (last_receipt_ == delivered_) ack_pending_ = false;
+    }
     return true;
 }
 unsigned GuiEndpoint::take(u32* output, unsigned capacity) {

@@ -182,6 +182,26 @@ void deferred_command_keeps_lease() {
     f.registry.resettable.bank.command_applied(1);
     CHECK(f.audio.receive(second.bytes, second.size, 3002)); CHECK(f.registry.resettable.bank.pending_command() == 2);
 }
+void steady_stream_keeps_lease() {
+    // Snapshots every 16 ms and a screen frame every 34 ms: each frame carries an ACK,
+    // which holds the lease without heartbeats, and a reset still reaches the producer
+    // on the next frame.
+    Fixture f; f.select(4, 33, Mode::Persistent, 1, true); f.up.packets.clear();
+    u32 last_delivery = 0, command = 0, asked = 0;
+    for (u32 now = 1; now <= 4000; ++now) {
+        while (f.audio.service(now, Pipe::send, &f.down)) {}
+        while (!f.down.packets.empty()) { Packet p = f.down.pop(); f.receive(p); last_delivery = now; }
+        if (now % 34 == 0) {
+            if (now == 2006) { command = f.gui.request_reset(); asked = now; CHECK(command); }
+            if (f.gui.service(now, Pipe::send, &f.up)) { Packet p = f.up.pop(); CHECK(f.audio.receive(p.bytes, p.size, now)); }
+        }
+        if (now > 100) CHECK(now - last_delivery <= 50);
+        if (command && f.registry.resettable.bank.pending_command() == command) {
+            CHECK(now == asked); f.registry.resettable.bank.command_applied(command); command = 0;
+        }
+    }
+    CHECK(asked && !command);
+}
 void clock_wrap() {
     Fixture f; f.select(2, 16, Mode::Persistent, 0xffffffffu, false, 0xfffffff0u);
     Packet p = f.publish(0xfffffff0u); f.receive(p); f.ack(0xfffffff1u);
@@ -302,8 +322,8 @@ void atomic_queue_preflight() {
 int main() {
     wire_validation(); accumulator_loss_and_duplicate(); accumulator_backpressure_and_cancel();
     fragmented_coherence(); fragment_loss_retry_and_generation(); reset_acknowledgment();
-    deferred_command_keeps_lease(); clock_wrap(); producer_transaction(); lost_ack_selection_switch();
+    deferred_command_keeps_lease(); steady_stream_keeps_lease(); clock_wrap(); producer_transaction(); lost_ack_selection_switch();
     lost_ack_lease_resume(); undelivered_lease_resume(); atomic_queue_preflight();
-    std::puts("telemetry protocol: 13 scenarios passed");
+    std::puts("telemetry protocol: 14 scenarios passed");
     return 0;
 }

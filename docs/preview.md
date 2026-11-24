@@ -127,7 +127,7 @@ kit's renders play (other modules ignore it). A kit's module also exports `opxy_
 `opxy_drum_count(model)`; the contract check reads every key and model through them.
 An [extended display](display.md#extended-drawing)'s module exports `opxy_display_audio_words`, the audio
 words its input carries (0 without audio snapshots). A synth with [audio snapshots](display.md#audio-snapshots)
-exports `opxy_audio_words`, `opxy_audio_track` and `opxy_take_audio`, and with `audioTransport` also
+exports `opxy_audio_words`, `opxy_audio_track`, `opxy_take_audio`,
 `opxy_audio_capacity`, `opxy_audio_sequence` and the reset handshake's `opxy_audio_requested`,
 `opxy_audio_applied`, `opxy_audio_reset_supported` and `opxy_audio_reset`; the preview reads its screen's snapshot through them. The runner rejects imports, invalid
 layout and a sample-rate mismatch. The manifest binds the WASM, artwork and
