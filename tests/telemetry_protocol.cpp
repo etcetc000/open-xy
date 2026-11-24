@@ -169,6 +169,19 @@ void reset_acknowledgment() {
     CHECK(f.registry.resettable.bank.pending_command() == 2);
     CHECK(!f.audio.receive(request.bytes, request.size, 23));
 }
+void deferred_command_keeps_lease() {
+    // A newer reset while the producer has not applied the last (it has not played)
+    // waits for a later request, and the request still holds the selection's lease.
+    Fixture f; f.select(4, 33, Mode::Persistent, 1, true);
+    Header r = {Kind::Request, Mode::Persistent, {4,0,1}, 0, 1, 33, 0, 0}; Packet first; CHECK(encode(r, 0, first));
+    CHECK(f.audio.receive(first.bytes, first.size, 1)); CHECK(f.registry.resettable.bank.pending_command() == 1);
+    r.command = 2; Packet second; CHECK(encode(r, 0, second));
+    for (u32 now = 500; now <= 3000; now += 500) CHECK(f.audio.receive(second.bytes, second.size, now));
+    CHECK(f.registry.resettable.bank.pending_command() == 1);
+    CHECK(f.audio.service(3001, Pipe::send, &f.down));
+    f.registry.resettable.bank.command_applied(1);
+    CHECK(f.audio.receive(second.bytes, second.size, 3002)); CHECK(f.registry.resettable.bank.pending_command() == 2);
+}
 void clock_wrap() {
     Fixture f; f.select(2, 16, Mode::Persistent, 0xffffffffu, false, 0xfffffff0u);
     Packet p = f.publish(0xfffffff0u); f.receive(p); f.ack(0xfffffff1u);
@@ -289,8 +302,8 @@ void atomic_queue_preflight() {
 int main() {
     wire_validation(); accumulator_loss_and_duplicate(); accumulator_backpressure_and_cancel();
     fragmented_coherence(); fragment_loss_retry_and_generation(); reset_acknowledgment();
-    clock_wrap(); producer_transaction(); lost_ack_selection_switch();
+    deferred_command_keeps_lease(); clock_wrap(); producer_transaction(); lost_ack_selection_switch();
     lost_ack_lease_resume(); undelivered_lease_resume(); atomic_queue_preflight();
-    std::puts("telemetry protocol: 12 scenarios passed");
+    std::puts("telemetry protocol: 13 scenarios passed");
     return 0;
 }

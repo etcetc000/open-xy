@@ -405,9 +405,9 @@ UNIT_SERVICES.update(dict.fromkeys(('drumline', 'drumline_hooks'), 'drumline'))
 # A synth's Shift row (SDK 1.13): Shift and an encoder press switch its pages, as a
 # press does without Shift (synth_controls.cpp sdk_synth_shift_press).
 UNIT_SERVICES['synth_shift_hooks'] = 'synth_shift'
-# A synth's audio snapshots on the device (audioTransport, audio_transport_native.hpp):
+# A synth's or effect's audio snapshots on the device (audioTransport, audio_transport_native.hpp):
 # the wire protocol, both processors' endpoints, their two hooks and the registry of the
-# selected synths' banks.
+# selected synths' and effects' banks.
 UNIT_SERVICES.update(dict.fromkeys(('telemetry_protocol', 'telemetry_native', 'telemetry_hooks',
                                     'telemetry_registry'), 'telemetry'))
 # Track control and hidden pages run from the GUI tick hook; startup stands in for

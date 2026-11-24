@@ -575,7 +575,10 @@ effect) and publishes words with
 [`opxy/telemetry.hpp`](../sdk/include/opxy/telemetry.hpp). The SDK carries
 them between the audio and screen processors, outside `render`, and its display
 reads them from [`opxy/audio_transport.hpp`](../sdk/include/opxy/audio_transport.hpp):
-`audio_words` and `audio_count`, where a count of 0 means no snapshot.
+`audio_words` and `audio_count`, where a count of 0 means no snapshot. On the
+device a frame with no new delivery since the last reads count 0 in `audioMode` 1;
+the browser preview takes a snapshot every frame, so there it reads count 1 and
+a word of 0 when nothing was added. Treat count 0 as no new data, not as silence.
 `audioTransport` needs `audioWords` and `audioMode`, and the other audio keys
 need `audioTransport`; a definition missing one is refused.
 

@@ -205,7 +205,7 @@ def block_cost(m, host_cxx, scratch):
     audio = display.get('audioWords', 0)
     contract = '%d, %d, %s, %d' % (audio, display.get('audioMode', 0), 'true' if display.get('audioReset') else 'false',
                                    display.get('audioAccumulators', 1))
-    # A synth plays track 0; an effect publishes as on send 1 (track 14), as the device benchmark runs it.
+    # A synth plays track 0; an effect publishes as on the first send (track 14), as the device benchmark runs it.
     if audio and m.kind == 'effect':
         handshake = ('audio_handshake, audio_handshake + 1, audio_handshake + 2' if display.get('audioReset')
                      else 'nullptr, nullptr, nullptr')

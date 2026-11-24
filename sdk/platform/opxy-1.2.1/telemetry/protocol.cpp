@@ -144,13 +144,15 @@ bool AudioEndpoint::receive(const u8* bytes, unsigned length, u32 now) {
         selected_ = true; next_send_ = now;
     }
     // An older reordered request must not roll back a command. Zero means no
-    // command requested, never reset the producer's command state.
+    // command requested, never reset the producer's command state. A command the
+    // bank cannot take yet (another still pending, or the same command with another
+    // target) is left for a later request; the selection above stands and keeps its lease.
     if (h.command) {
         Guard guard(critical_);
         const u32 target = h.mode == Mode::Packed16AndSnapshot ? get32(bytes + header_bytes) : 1;
-        if (h.command == bank_->requested_command && target != bank_->requested_target) return false;
-        if (bank_->pending_command() && newer(h.command,bank_->requested_command)) return false;
-        if (!bank_->requested_command || newer(h.command, bank_->requested_command)) {
+        const bool conflicting = h.command == bank_->requested_command && target != bank_->requested_target;
+        const bool deferred = bank_->pending_command() && newer(h.command, bank_->requested_command);
+        if (!conflicting && !deferred && (!bank_->requested_command || newer(h.command, bank_->requested_command))) {
             bank_->requested_target = target;
             bank_->requested_command = h.command;
         }
