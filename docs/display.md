@@ -580,7 +580,7 @@ reads them from [`opxy/audio_transport.hpp`](../sdk/include/opxy/audio_transport
 need `audioTransport`; a definition missing one is refused.
 
 `audioMode` 0 keeps the words, 1 sums one packed accumulator, and 2 sums
-`audioAccumulators` words followed by kept ones. At most 16 words without
+`audioAccumulators` words (1 if absent) followed by kept ones. At most 16 words without
 `audioReset` give `draw::AudioInput`; more, or `audioReset: 1` (a reset request
 the producer applies in its own callback, modes 0 and 2), give
 `draw::TelemetryInput`.

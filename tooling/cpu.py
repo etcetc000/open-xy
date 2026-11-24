@@ -205,8 +205,15 @@ def block_cost(m, host_cxx, scratch):
     audio = display.get('audioWords', 0)
     contract = '%d, %d, %s, %d' % (audio, display.get('audioMode', 0), 'true' if display.get('audioReset') else 'false',
                                    display.get('audioAccumulators', 1))
-    audio_storage = ('    static opxy::HostTelemetryBank<%s> audio;\n'
-                     '    const opxy::AudioContext audio_context = audio.context(0);\n' % contract) if audio else ''
+    # A synth plays track 0; an effect publishes as on send 1 (track 14), as the device benchmark runs it.
+    if audio and m.kind == 'effect':
+        handshake = ('audio_handshake, audio_handshake + 1, audio_handshake + 2' if display.get('audioReset')
+                     else 'nullptr, nullptr, nullptr')
+        audio_storage = (f'    static volatile opxy::u32 audio_words[{audio}] = {{}}, audio_handshake[3] = {{}};\n'
+                         f'    const opxy::AudioContext audio_context(14, audio_words, {audio}, {handshake});\n')
+    else:
+        audio_storage = ('    static opxy::HostTelemetryBank<%s> audio;\n'
+                         '    const opxy::AudioContext audio_context = audio.context(0);\n' % contract) if audio else ''
     audio_argument = ', audio_context' if audio else ''
     positions = [sweep(p) for p in parameters]
     counts = [len(values) for values in positions] + [0] * (8 - len(positions))
