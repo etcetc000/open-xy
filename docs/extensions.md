@@ -179,6 +179,8 @@ a pull request that adds its entry to `catalog/extensions.json`: the same
 format as [machines](catalog.md#entries), with `"kind": "extension"` and no
 `cpu`. Origin follows the catalog: Open-XY's own (`catalog.OFFICIAL_EXTENSIONS`)
 show as Core, others as Community, and folders outside the catalog as Yours.
+The SDK's own extensions (`extensions/`, such as `cpu`, tracked and unchanged in
+the checkout) show as Core without a catalog entry ([builder](builder.md)).
 
 A build's collection lists its extensions after its machines; that order is the
 callback order. Native builds include the whole collection. The site's Extensions step follows

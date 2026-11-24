@@ -598,7 +598,8 @@ times that peak, the voice fades out (a synth over one block, through stock's
 own kill; a kit over two, through the adapter's choke fade) and is freed. A new note on the
 voice starts a new peak. With the setting off, or without `settled`, nothing
 changes, and a machine without it links none of the idle cut. Only a build that
-selects the `idle` capability ([CPU capabilities](cpu-capabilities.md)) asks
+selects the `idle` capability ([CPU capabilities](cpu-capabilities.md#idle); deprecated,
+not in the `cpu` extension, `sdk.py build` only) asks
 `settled` at all: without it the voice adapters carry none of the idle cut's
 state or calls, whatever the engine defines. A machine declaring an SDK before 1.22
 is never asked, even if its namespace defines a `settled`. The browser preview does
@@ -1564,7 +1565,8 @@ checks both limits at compile time. Effects use the stock FX page, with any cont
 
 ### Idle sends
 
-With the `idle` capability, a send with nothing to play is not processed.
+With the `idle` capability ([deprecated](cpu-capabilities.md#idle), not in the `cpu`
+extension; `sdk.py build` only), a send with nothing to play is not processed.
 Once its input, its effect's output and the send's result have all stayed
 below the idle floor (64 raw, 2^6, in raw bus units: silence on the send bus) for the effect's **hold**, with its controls, the tempo, the
 play state and the send's filter unchanged and no effect change, fade or

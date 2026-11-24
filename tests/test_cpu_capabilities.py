@@ -2,6 +2,7 @@
 capability is exactly its own edits and units, with every site stock while it is off."""
 import copy
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -311,6 +312,21 @@ class Switches(unittest.TestCase):
         for name in extensions.build_capabilities():
             with self.subTest(capability=name):
                 self.assertEqual(sources(base | {name}) != plain, bool(REGISTRY[name].get('adapters')))
+
+    def test_sdk_py_kit_refuses_an_adapters_capability_before_building(self):
+        # sdk.py kit refuses it from the collection alone, before the native build or any output.
+        from tooling import browser_kit
+        output = Path(tempfile.mkdtemp()) / 'kit'
+        self.addCleanup(shutil.rmtree, output.parent)
+        idle = folder(self, ['idle'])
+        with mock.patch.object(browser_kit, 'resolve_toolchain', return_value=('tools', 'compiler')), \
+                mock.patch.object(native, 'build', side_effect=AssertionError('built first')), \
+                mock.patch('sys.stderr', new_callable=io.StringIO) as err, self.assertRaises(SystemExit) as exit_:
+            browser_kit.main(['--personal', '--stock-os', 'os.ldr', '--out', str(output),
+                              '--machine', str(FIXTURES / 'probesynth'), '--extension', str(idle)])
+        self.assertEqual(exit_.exception.code, 1)
+        self.assertRegex(err.getvalue(), "change every machine's generated code.*: idle")
+        self.assertFalse(output.exists())
 
     def test_exporting_a_browser_kit_refuses_a_build_capability_before_writing(self):
         # browser_kit.export itself refuses, before reading the catalog or writing anything.
