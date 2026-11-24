@@ -133,6 +133,13 @@ bool AudioEndpoint::receive(const u8* bytes, unsigned length, u32 now) {
         (h.command && !bank->reset_supported) ||
         (h.mode == Mode::Packed16AndSnapshot && bytes[29] != bank->packed_prefix)) return false;
     if (h.sequence && (!next_sequence_ || newer(h.sequence, next_sequence_))) return false;
+    const u32 target = h.mode == Mode::Packed16AndSnapshot ? get32(bytes + header_bytes) : 1;
+    if (h.command) {
+        // The same command with another target is refused before it changes anything,
+        // so a refused Request never moves the selection.
+        Guard guard(critical_);
+        if (h.command == bank->requested_command && target != bank->requested_target) return false;
+    }
     // Request.sequence is the last globally committed audio sequence, retained
     // by GUI across selection changes. It acknowledges the old flight without
     // requiring the old key and command to fit in the new selection request.
@@ -146,16 +153,13 @@ bool AudioEndpoint::receive(const u8* bytes, unsigned length, u32 now) {
         // if its receipt is still missing, preserving GUI deduplication evidence.
         selected_ = true; next_send_ = now;
     }
-    // The selection above stands from here, so even a refused command keeps its lease.
     last_request_ = now;
     // An older reordered request must not roll back a command. Zero means no
-    // command requested, never reset the producer's command state. The same command
-    // with another target is refused; a newer one while the producer has not applied
-    // the last waits for a later request.
+    // command requested, never reset the producer's command state. A newer one
+    // while the producer has not applied the last waits for a later request, and
+    // the Request still holds the selection's lease.
     if (h.command) {
         Guard guard(critical_);
-        const u32 target = h.mode == Mode::Packed16AndSnapshot ? get32(bytes + header_bytes) : 1;
-        if (h.command == bank_->requested_command && target != bank_->requested_target) return false;
         const bool deferred = bank_->pending_command() && newer(h.command, bank_->requested_command);
         if (!deferred && (!bank_->requested_command || newer(h.command, bank_->requested_command))) {
             bank_->requested_target = target;

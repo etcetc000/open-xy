@@ -50,7 +50,7 @@ export class Audition {
     processor.connect(gain).connect(context.destination);
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Audio preview did not start.')), 5000);
-      const fail = message => { clearTimeout(timer); this.stop(); reject(new Error(message)); this.onState(false, message); };
+      const fail = message => { clearTimeout(timer); this.endAudio(); this.stop(); reject(new Error(message)); this.onState(false, message); };
       processor.onprocessorerror = () => fail('Audio preview stopped. Select the machine again to retry.');
       processor.port.onmessage = ({data}) => {
         if (data.ready) { this.audioReady = true; clearTimeout(timer); resolve(); }
@@ -80,7 +80,7 @@ export class Audition {
       if (this.held !== note) this.processor.port.postMessage({type:'off', note});
     } catch (error) {
       if (this.disposed || revision !== this.revision) return;
-      this.stop();
+      this.endAudio(); this.stop();
       this.processor?.disconnect(); this.processor?.port.close();
       await this.context?.close().catch(() => {});
       this.context = this.processor = this.gain = this.starting = null;
@@ -98,6 +98,13 @@ export class Audition {
     this.processor?.port.postMessage({type:'panic'});
     this.onState(false);
   }
+  // The worklet is gone or failed: a screen's pending and later snapshot requests read null
+  // at once, rather than each waiting out its timeout.
+  endAudio() {
+    this.audioReady = false;
+    for (const request of this.snapshots.values()) { clearTimeout(request.timer); request.resolve(null); }
+    this.snapshots.clear();
+  }
   setParameters(values) {
     this.parameters = [...values];
     this.processor?.port.postMessage({type:'parameters', value:this.parameters});
@@ -111,10 +118,7 @@ export class Audition {
     if (this.gain && this.playing) this.gain.gain.value = value;
   }
   destroy() {
-    this.disposed = true; this.stop();
-    this.audioReady = false;
-    for (const request of this.snapshots.values()) { clearTimeout(request.timer); request.resolve(null); }
-    this.snapshots.clear();
+    this.disposed = true; this.stop(); this.endAudio();
     this.processor?.disconnect(); this.processor?.port.close();
     this.context?.close().catch(() => {});
   }
