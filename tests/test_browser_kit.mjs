@@ -78,7 +78,8 @@ test('machine packs reject catalog replacement, runtime changes and malformed im
     p => { p.extensions.push({id:'injected'}); }, p => { p.stockCatalog = 'injected'; },
     p => { p.machines[0].name = 'replacement'; }, p => { p.machines.reverse(); },
     p => { p.machines[1].origin = 'official'; }, p => { p.machines[1].source = {repository:'https://evil.test'}; },
-    p => { p.machines[1].id = 'a'; }, p => { p.machines[1].prefix = 'a'; },
+    p => { p.machines[1].id = 'a'; p.machines[1].catalog = ', {"type":"a","default_params":[0,0,0,0,0,0,0,0]}'; },
+    p => { p.machines[1].prefix = 'a'; },
     p => { p.machines[1].asset = '../outside.svg'; }, p => { p.machines[1].artwork = '<script>bad()</script>'; },
     p => { p.machines[1].icon = '\"/><image href="https://evil.test"/>'; },
     p => { p.machines[1].catalog = ', {"type":"a","default_params":[]}'; },
@@ -128,6 +129,32 @@ test('a pack keeps the site kit unit sources and may differ only in collection t
   await assert.rejects(importMachinePack(other, changed), /unowned machine objects/);
 });
 
+test('packs extend site kits with aux machines and SDK extensions marked either way', async () => {
+  const {base, pack} = await packFixture();
+  // An aux machine has no menu entry; the pack and the site list the same machine.
+  base.machines[0].catalog = '';
+  await importMachinePack(base, pack);
+  // Whether cpu is the SDK's own depends on the exporting checkout (browser_kit.sdk_extension).
+  const extension = {id:'cpu', name:'CPU', description:'Settings', origin:'official', claims:[], actions:[],
+    claim_labels:{}, capabilities:['boot_log_fix'], linked:false};
+  base.extensions = [extension]; pack.extensions = [{...extension, origin:'personal'}];
+  await importMachinePack(base, pack);
+  pack.extensions = [{...extension, name:'Other'}];
+  await assert.rejects(importMachinePack(base, pack), /different Open-XY release/);
+});
+
+test('packs refuse menus without an effect number and IDs longer than layouts hold', async () => {
+  const cases = [
+    [p => { p.machines[1].kind = 'effect'; p.machines[1].identity = {effect:null, page:21}; }, /menu/],
+    [p => { p.machines[1].catalog = ', {"type":"custom","id":3,"default_params":[0,0,0,0,0,0,0,0]}'; }, /menu/],
+    [p => { for (const key of ['id', 'prefix']) p.machines[1][key] = 'custommachinelong'; }, /metadata/],
+  ];
+  for (const [change, error] of cases) {
+    const {base, pack} = await packFixture(); change(pack);
+    await assert.rejects(importMachinePack(base, pack), error, change.toString());
+  }
+});
+
 test('packs refuse kinds they cannot import and malformed services or heap voices', async () => {
   for (const change of [m => { m.kind = 'drum'; }, m => { m.kind = 'player'; }, m => { m.features = ['Bad']; },
     m => { m.features = 'control'; }, m => { m.heapVoices = -1; }, m => { m.heapVoices = 1.5; }]) {
@@ -143,7 +170,9 @@ test('packs accept the SDK control counts, absent synth slots and source filenam
   for (const kind of ['effect', 'sample']) for (const count of [1, 2, 3]) {
     const {base, pack} = await packFixture(), m = pack.machines[1];
     Object.assign(m, {kind, identity:kind === 'effect' ? {effect:null, page:21} : {engine:null, page:7},
-      controls:m.controls.slice(0, count), positions:m.positions.slice(0, count)});
+      controls:m.controls.slice(0, count), positions:m.positions.slice(0, count),
+      // An effect's menu entry carries the number its author's collection gave it.
+      ...(kind === 'effect' ? {catalog:', {"type":"custom","id":21,"default_params":[0,0,0,0,0,0,0,0]}'} : {})});
     await importMachinePack(base, pack);
     m.positions[0] = null;
     await assert.rejects(importMachinePack(base, pack), /controls/);

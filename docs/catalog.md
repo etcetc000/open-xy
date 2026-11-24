@@ -102,34 +102,45 @@ On the builder's **Choose machines** page, choose **Import machines ZIP** beside
 **Choose extensions**. An SDK-built pack adds one or more machines
 marked **Yours**, initially unselected. The file stays in the browser; importing
 does not publish a catalog entry. Import code only from authors you trust:
-native machine code is not sandboxed or reviewed by Open-XY.
+native machine code is not isolated or reviewed by Open-XY. While a pack is
+imported, every build links its registration and control tables, even when none
+of its machines is selected.
 
 A pack extends the site's exact machine collection. It cannot replace existing
 machines, change the SDK runtime or add extensions, and it adds synths, effects
 and sample engines only: drum kits, players and aux machines cannot be imported
 yet. Its compiled registration, control and callback tables accompany the added
-machines, so independent
-packs cannot be combined: export the desired custom machines together. Importing
-another pack replaces the previous pack. **Remove imported machines** under
-**About machine ZIPs** restores
-the site's collection. Both operations keep saved machine numbers reserved.
-Reloading clears the imported pack; keep its ZIP and your saved layout to use it
-again. Import the pack before loading a layout that selects its machines.
+machines, so independent packs cannot be combined: export the desired custom
+machines together. Importing another pack replaces the previous pack. **Remove
+imported machines** under **About machine ZIPs** restores the site's collection.
+Both operations keep saved machine numbers reserved.
+Reloading clears the imported pack and drops its machines from the remembered
+selection; keep its ZIP and your saved layout to use it again. Import the pack
+before loading a layout that selects its machines. An OS is recognized with the
+collection it was built from: with a pack imported, an OS built without it (or
+the reverse) is recovered like an earlier open-xy OS: its stock OS is kept and
+its machines are chosen again.
 
 ### Export a machine pack
 
-Use the SDK revision and catalog shipped by the destination site, the pinned
-native tools and your own stock OS. Fetch its catalog, then append your custom
-machine folders in one export (repeat `--machine` for additional machines):
+Build against exactly what the destination site was released from: check out
+the SDK revision it was built from, normally the release tag of the version the
+builder shows beside its name (`v0.0.7`; a catalog update published since then
+needs its later revision), with the pinned native tools and your own stock OS.
+Fetch that revision's catalog, then export the site's collection with the
+SDK's own extensions (each folder under `extensions/`, as `sdk.py release` adds
+them) and your custom machine folders appended (repeat `--machine` for more):
 
 ```sh
+git checkout v0.0.7
 python sdk.py catalog fetch --tags
-python sdk.py kit --personal --machine-pack --collection local/catalog/collection.json --machine ../mymachine --stock-os <stock-1.2.1>/os.ldr --out <external-builds>/machine-pack-001
+python sdk.py kit --personal --machine-pack --collection local/catalog/collection.json --extension extensions/cpu --machine ../mymachine --stock-os <stock-1.2.1>/os.ldr --out <external-builds>/machine-pack-001
 ```
 
 After native and browser verification passes, share only `machines.zip` from
 the output directory. It contains compiled objects, machine metadata, artwork,
-available browser previews and notices, with no firmware or stock content.
+your machines' browser previews and license notices, with no firmware or stock
+content.
 The surrounding kit and build directory contain stock inputs and must stay
 outside every checkout. The pack limit is 64 MiB. A source repository ZIP or
 firmware installation ZIP is not a machine pack.

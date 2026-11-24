@@ -1505,7 +1505,8 @@ const sameValue = (a, b) => canonical(a) === canonical(b);
 function machineContract(m) {
   const contract = Object.fromEntries(Object.entries(m ?? {})
     .filter(([key]) => !['preview', 'origin', 'source', 'cpu', 'keywords'].includes(key)));
-  if (typeof contract.catalog === 'string') {
+  // An aux machine has no menu entry ('').
+  if (typeof contract.catalog === 'string' && contract.catalog !== '') {
     contract.catalog = JSON.parse(contract.catalog.trim().replace(/^,/, ''));
     // This is the author's collection-assigned number, not the machine's
     // requested identity. The receiver uses its own saved per-selection layout.
@@ -1515,9 +1516,13 @@ function machineContract(m) {
 }
 const objectRecord = o => Object.fromEntries(['name', 'owner', 'bytes', 'sha256', 'service', 'extension', 'runtime']
   .filter(key => o[key] !== undefined).map(key => [key, o[key]]));
+const CRC_TABLE = Uint32Array.from({length:256}, (_, n) => {
+  for (let i = 0; i < 8; i++) n = n >>> 1 ^ (n & 1 ? 0xedb88320 : 0);
+  return n;
+});
 function crc32(bytes) {
   let c = 0xffffffff;
-  for (const b of bytes) { c ^= b; for (let i = 0; i < 8; i++) c = c >>> 1 ^ (c & 1 ? 0xedb88320 : 0); }
+  for (const b of bytes) c = CRC_TABLE[(c ^ b) & 0xff] ^ c >>> 8;
   return (c ^ 0xffffffff) >>> 0;
 }
 
@@ -1552,9 +1557,10 @@ export function readMachinePack(bytes) {
 }
 
 function checkPackMachine(m) {
-  const identifier = value => typeof value === 'string' && /^[a-z][a-z0-9_]{0,31}$/.test(value) &&
+  const identifier = (value, limit) => typeof value === 'string' && new RegExp(`^[a-z][a-z0-9_]{0,${limit - 1}}$`).test(value) &&
     !Object.hasOwn(Object.prototype, value);
-  check(m && identifier(m.id) && identifier(m.prefix) && ['synth', 'effect', 'sample'].includes(m.kind) &&
+  // An ID as layouts and presets hold it (MACHINE_ID); a prefix names its symbols.
+  check(m && identifier(m.id, 15) && identifier(m.prefix, 32) && ['synth', 'effect', 'sample'].includes(m.kind) &&
     m.origin === 'personal' && m.source === undefined && m.cpu === undefined &&
     typeof m.name === 'string' && m.name.length > 0 && m.name.length <= 80 &&
     typeof m.description === 'string' && m.description.length <= 2000,
@@ -1575,7 +1581,9 @@ function checkPackMachine(m) {
   const entry = JSON.parse(m.catalog.trim().slice(1));
   check(entry.type === m.id && Array.isArray(entry.default_params) && entry.default_params.length === 8 &&
     entry.default_params.every(n => Number.isInteger(n) && n >= 0 && n <= 32767) &&
-    Object.keys(entry).every(key => ['type', 'id', 'default_params'].includes(key)), 'Invalid machine menu');
+    Object.keys(entry).every(key => ['type', 'id', 'default_params'].includes(key)) &&
+    // An effect's entry carries its number (catalogEntry); an instrument's has none.
+    (m.kind === 'effect' ? Number.isInteger(entry.id) : !Object.hasOwn(entry, 'id')), 'Invalid machine menu');
   presetFiles(m);
   check(m.artwork === undefined || typeof m.artwork === 'string' && m.artwork.length <= 65536 &&
     m.asset === m.id + '.svg' && !/<!DOCTYPE|<!ENTITY|<\/?(?:script|foreignObject|iframe|image|use|style)\b|\bon\w+\s*=|\bhref\s*=/i.test(m.artwork),
@@ -1599,12 +1607,14 @@ function checkPackMachine(m) {
 // `base` is the site's kit as exported, before openKit: the candidate is opened from
 // it, keeping its unit sources and service fallbacks, which a pack cannot change.
 export async function importMachinePack(base, pack) {
-  const fields = ['format', 'version', 'profileSha256', 'definitions', 'fixed', 'machines', 'objects', 'extensions', 'notices'];
-  check(pack && typeof pack === 'object' && Object.keys(pack).sort().join() === fields.sort().join() &&
+  const keys = ['format', 'version', 'profileSha256', 'definitions', 'fixed', 'machines', 'objects', 'extensions', 'notices'];
+  check(pack && typeof pack === 'object' && Object.keys(pack).sort().join() === keys.sort().join() &&
     pack.format === 'opxy-machine-pack/1', 'Unsupported machine pack');
   check(pack.version === base.version && pack.profileSha256 === await sha256(decode64(base.profileSource)) &&
     sameValue(pack.definitions, base.definitions) && sameValue(pack.fixed, base.fixed) &&
-    sameValue(pack.extensions, base.extensions ?? []),
+    // Whether an extension is the SDK's own depends on the exporting checkout, not its contents.
+    Array.isArray(pack.extensions) && sameValue(pack.extensions.map(e => ({...e, origin:undefined})),
+      (base.extensions ?? []).map(e => ({...e, origin:undefined}))),
     'This pack targets a different Open-XY release or extension collection. Ask its author for a matching pack.');
   check(Array.isArray(pack.machines) && pack.machines.length > base.machines.length &&
     pack.machines.length <= base.profile.identities.engines &&
@@ -1640,6 +1650,9 @@ export async function importMachinePack(base, pack) {
     // alone. The user's combined selection is checked by the normal memory meter.
     linkKit(candidate, [m.id]);
   }
+  // The pack's shared tables name every added machine: a selection without them must
+  // still resolve each one's callbacks (its `absent` list).
+  linkKit(candidate, [base.machines[0].id]);
   return candidate;
 }
 

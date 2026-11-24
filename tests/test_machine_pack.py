@@ -9,6 +9,7 @@ import zipfile
 from types import SimpleNamespace
 
 from tooling.browser_kit import notices
+from tooling import machine_pack
 from tooling.machine_pack import write
 from tooling.formats import sha
 
@@ -41,6 +42,31 @@ class MachinePackTests(unittest.TestCase):
             self.assertEqual(result.stdout.strip(), 'opxy-machine-pack/1')
             with self.assertRaises(FileExistsError):
                 write(self.kit(), root)
+
+    def test_site_machines_leave_site_metadata_and_notices_to_the_site(self):
+        kit = self.kit()
+        site = dict(id='site', origin='catalog', catalog='', preview={'wasm': 'AAAA'}, source={'tag': 'v1'},
+                    cpu={'mean': 1}, keywords=['bass'], controls=['A'])
+        kit['machines'].insert(0, site)
+        with tempfile.TemporaryDirectory() as directory:
+            with zipfile.ZipFile(write(kit, directory, notices='Custom only')) as archive:
+                manifest = json.loads(archive.read('machines.json'))
+        self.assertEqual(manifest['machines'][0], dict(id='site', origin='catalog', catalog='', controls=['A']))
+        self.assertEqual(manifest['machines'][1], dict(id='custom', origin='personal'))
+        self.assertEqual(manifest['notices'], 'Custom only')
+
+    def test_archive_size_is_bounded(self):
+        kit = self.kit()
+        kit['notices'] = 'x' * 64
+        with tempfile.TemporaryDirectory() as directory:
+            limit = machine_pack.MAX_PACK_BYTES
+            try:
+                machine_pack.MAX_PACK_BYTES = 256
+                with self.assertRaisesRegex(ValueError, '64 MiB'):
+                    write(kit, directory)
+            finally:
+                machine_pack.MAX_PACK_BYTES = limit
+            self.assertFalse((Path(directory) / 'machines.zip').exists())
 
     def test_export_requires_a_custom_machine(self):
         kit = self.kit()

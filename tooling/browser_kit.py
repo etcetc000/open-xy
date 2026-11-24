@@ -415,7 +415,8 @@ def main(argv=None):
                         args.stock_os, args.stock_content], cwd=ROOT, check=True)
         if args.machine_pack:
             from .machine_pack import write
-            write(kit, out)
+            custom = {m['id'] for m in kit['machines'] if m['origin'] == 'personal'}
+            write(kit, out, notices([m for m in machines if m.id in custom]))
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         # The unnamed builder and its inputs stay in --out for inspection.
         parser.exit(1, f'ERROR: {error}\nIncomplete export left in {out}; use a new --out or --overwrite to retry.\n')
