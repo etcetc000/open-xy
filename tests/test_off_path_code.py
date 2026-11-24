@@ -16,7 +16,9 @@ class WithoutCapabilities(unittest.TestCase):
         names = set(cpu_capabilities(ROOT))
         extension = ROOT / 'extensions/cpu/extension.json'
         if extension.is_file():
-            self.assertEqual(cpu_capabilities(ROOT), document(extension)['capabilities'])
+            # idle is deprecated and out of cpu; its code is still the SDK's, so the copy removes it too.
+            self.assertEqual([c for c in cpu_capabilities(ROOT) if c != 'idle'], document(extension)['capabilities'])
+            self.assertIn('idle', names)
         with tempfile.TemporaryDirectory() as work:
             bare = without_capabilities(ROOT, Path(work) / 'bare')
             registry = document(bare / 'profiles/extensions.json')['capabilities']

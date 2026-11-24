@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 from .adapters import aux_preset_files, catalog_entry
 from .catalog import official
@@ -46,13 +47,30 @@ def catalog_sources(machines, personal, entries=None):
     return sources
 
 
+def sdk_extension(e):
+    """Whether an extension is one of the SDK's own (extensions/ of this checkout, such as cpu),
+    which ships with the SDK rather than through the catalog: its folder is tracked by this
+    checkout's git and unchanged from HEAD (a release is a published checkout, sdk.py release)."""
+    if e.root.parent != (ROOT / 'extensions').resolve():
+        return False
+    folder = 'extensions/' + e.root.name
+    try:
+        git = lambda *a: subprocess.run(['git', *a], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+        return bool(git('ls-files', '--', folder + '/extension.json').strip()) and \
+            not git('status', '--porcelain', '--ignored', '--', folder).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return False
+
+
 def extension_origins(extensions_, personal):
     """Each extension's origin, as for machines: official (Open-XY's own, catalog.
-    OFFICIAL_EXTENSIONS), catalog (a community release) or personal (any other folder)."""
+    OFFICIAL_EXTENSIONS, or the SDK's own), catalog (a community release) or personal (any
+    other folder)."""
     from .catalog import load_extensions
-    sources = catalog_sources(extensions_, personal, load_extensions())
-    return {e.id: 'personal' if e.id not in sources else 'official' if official(sources[e.id]) else 'catalog'
-            for e in extensions_}
+    own = {e.id for e in extensions_ if sdk_extension(e)}
+    sources = catalog_sources([e for e in extensions_ if e.id not in own], personal, load_extensions())
+    return {e.id: 'official' if e.id in own else 'personal' if e.id not in sources
+            else 'official' if official(sources[e.id]) else 'catalog' for e in extensions_}
 
 
 def kit_presets(m):
@@ -154,18 +172,47 @@ def machine_entry(m, profile, sources, output, preview_cxx):
     return entry
 
 
-def refuse_build_capabilities(extensions_):
-    """A browser kit carries image capabilities only: a build capability's sites and SDK code
-    are chosen when sdk.py builds the firmware, and a selection in the browser could not
-    undo or redo them consistently (docs/cpu-capabilities.md)."""
-    building = sorted({c for e in extensions_ for c in e.capabilities} & set(extensions.build_capabilities()))
-    require(not building, 'Build capabilities are chosen with sdk.py build; a browser kit cannot carry them: ' +
-            ', '.join(building))
+def refuse_adapter_capabilities(extensions_):
+    """A browser kit's objects are compiled once for every selection, so it cannot carry a capability
+    that changes every machine's generated code (extensions.adapter_capabilities: idle). Every other
+    capability it carries: image edits, and SDK units it links with the capability
+    (docs/builder.md#capabilities)."""
+    adapters = sorted({c for e in extensions_ for c in e.capabilities} & set(extensions.adapter_capabilities()))
+    require(not adapters, "These capabilities change every machine's generated code, so a browser kit cannot carry "
+                          'them; build with sdk.py build, or leave them out of the extension: ' + ', '.join(adapters))
 
 
-def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False):
+def unit_sources(output, tools, compiler, profile, machines, objects):
+    """kit.unitSources: for each unit capability the kit's extensions carry (fast_helpers), each
+    value's objects of the units it chooses the source of, which the builder links in place of
+    the native build's (builder/core.mjs linkKit). The value the native build chose must give
+    its own objects back. The objects are also written under objects/unit-sources/<capability>/
+    <value>/ for the GNU ld reference links (tools/check_browser_kit.mjs)."""
+    if not any(c in extensions.unit_capabilities() for e in native.extensions_of(machines) for c in e.capabilities):
+        return {}
+    require(compiler is not None, 'A kit with a unit capability needs the compiler to build its other sources')
+    built = native.unit_sources(machines, profile)
+    sources = {}
+    with tempfile.TemporaryDirectory(prefix='opxy-unit-sources-') as work:
+        variants = native.unit_variants(Path(work), tools, compiler, profile, machines)
+    for capability, values in variants.items():
+        for value, units in values.items():
+            for name, data in units.items():
+                chosen = built.get(name.removeprefix('sdk/').removesuffix('.o'))
+                require(name in objects, f'{capability}: the native build has no {name}')
+                if (chosen is not None) == (value == 1):
+                    require(objects[name] == data, f"{capability} {value}: {name} differs from the native build's")
+                destination = child(output / 'objects/unit-sources', f'{capability}/{value}/{name}')
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(data)
+                sources.setdefault(capability, {}).setdefault(str(value), []).append(
+                    dict(name=name, bytes=base64.b64encode(data).decode('ascii'), sha256=sha(data)))
+    return sources
+
+
+def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False, compiler=None):
     profile, machines, definitions = native.configuration(native.package_collection(package))
-    refuse_build_capabilities(native.extensions_of(machines))
+    refuse_adapter_capabilities(native.extensions_of(machines))
     sources = catalog_sources(machines, personal)
     require(sha(stock_catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     runtime_members = document(package / 'analysis/compile-report.json').get('runtime', [])
@@ -206,6 +253,10 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
     fallbacks = native.service_fallbacks(native.active_services(profile, native.service_users(machines)))
     if fallbacks:
         kit['serviceFallbacks'] = fallbacks
+    chosen_units = unit_sources(output, tools, compiler, profile, machines,
+                                {o['name']: base64.b64decode(o['bytes']) for o in objects})
+    if chosen_units:
+        kit['unitSources'] = chosen_units
     kit_path = output / 'kit.json'
     kit_path.write_text(json.dumps(kit, separators=(',', ':')), encoding='utf-8')
     # Reference validation exercises every subset against GNU ld. Failure leaves
@@ -334,7 +385,9 @@ def main(argv=None):
     try:
         # Refuse an unreviewed machine before the long build, not after it.
         machines = native.configuration(native.selected_collection(args))[1]
+        refuse_adapter_capabilities(native.extensions_of(machines))
         catalog_sources(machines, args.personal)
+        extension_origins(native.extensions_of(machines), args.personal)
     except ValueError as error:
         parser.exit(1, 'ERROR: ' + str(error) + '\n')
     out = fresh_output(args.out, args.overwrite, [args.stock_os, args.stock_content, args.toolchain, args.compiler,
@@ -349,7 +402,7 @@ def main(argv=None):
         if not args.personal:  # independent rebuild against the reference bytes
             subprocess.run([sys.executable, str(ROOT / 'sdk.py'), 'check', '--native-package', str(package), *options,
                             '--host-cxx', args.host_cxx], cwd=ROOT, check=True)
-        export(package, out, tool_paths(args.toolchain), args.preview_cxx,
+        export(package, out, tool_paths(args.toolchain), args.preview_cxx, compiler=Path(args.compiler),
                stock_catalog=read(Path(args.stock_content) / 'op1_factory.json'), personal=args.personal)
         # Validate firmware and content output against the independent Python writer.
         subprocess.run([sys.executable, str(ROOT / 'tools/check_browser_firmware.py'), str(out),

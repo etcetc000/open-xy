@@ -2,7 +2,7 @@
 with the CPU capabilities taken out of it.
 
 `without_capabilities` copies this checkout and removes from the copy everything the CPU capabilities
-(CPU_CAPABILITIES, the ones extensions/cpu names) add: their registry entries (profiles/extensions.json), their firmware profile services and
+(CPU_CAPABILITIES: the ones extensions/cpu names, and the deprecated idle) add: their registry entries (profiles/extensions.json), their firmware profile services and
 edits (profiles/opxy-1.2.1.json), the SDK units of their services and the sources a unit capability chooses, the
 template placeholders their code generation fills (@IDLE_*@), and the two places tooling/native.py names them
 (UNIT_SOURCES, the load governor's profile check). Each removal must find what it removes, so a change to the
@@ -48,14 +48,15 @@ FIXTURES = HERE / 'fixtures/machines'
 IGNORED = shutil.ignore_patterns('.git', 'node_modules', 'local', 'tests', 'docs', 'dist', '__pycache__')
 
 
-# The CPU capabilities, in the order extensions/cpu names them.
+# The CPU capabilities, in the order extensions/cpu names them; idle, deprecated, is no longer in it
+# (docs/cpu-capabilities.md#idle) but its code is still the SDK's.
 CPU_CAPABILITIES = ('boot_log_fix', 'idle', 'block_trims', 'output_slack', 'load_governor', 'pitch_constants',
                     'fast_helpers')
 
 
 def cpu_capabilities(root):
     """The CPU capabilities the checkout at `root` has: those of CPU_CAPABILITIES in its registry
-    (tests/test_off_path_code.py checks that they are what extensions/cpu names, once it exists)."""
+    (tests/test_off_path_code.py checks that they are what extensions/cpu names, and idle, once it exists)."""
     registry = json.loads((Path(root) / 'profiles/extensions.json').read_text(encoding='utf-8'))['capabilities']
     return [name for name in CPU_CAPABILITIES if name in registry]
 

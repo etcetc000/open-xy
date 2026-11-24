@@ -69,12 +69,17 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   // the selection would fit it (any failure there means no hint).
   // Only after a selection fails to fit: one more in-browser link, under a millisecond.
   const fitsLarger = (selection, layoutNumbers, extensions) => {
-    try { return Boolean(expandedKit && core.linkKit(expandedKit, selection, layoutNumbers, extensions)); } catch { return false; }
+    try { return Boolean(expandedKit && core.linkKit(expandedKit, selection, layoutNumbers, extensions, capabilitySettings(extensions))); }
+    catch { return false; }
   };
   // No hint while an OS is being checked: it sets the option itself.
   const roomHint = (message, then, ...selection) => (/[.!?]$/.test(message) ? message : message + '.') +
     (!checkingOs && fitsLarger(...selection) ? ` Turn on “Use ${expandedSize()} for machines” (experimental) ${then}.` : '');
   let kit, stock, catalog, selected = [], selectedExtensions = [], extensionSettings = {}, inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
+  // The settings chosen for the selected extensions' capabilities: the link (a unit capability
+  // chooses objects) and the OS edits both take them.
+  const capabilitySettings = extensions => Object.fromEntries(Object.entries(extensionSettings).filter(([c]) =>
+    (kit.extensions ?? []).some(e => extensions.includes(e.id) && e.settings?.[c])));
   // The machine numbers of this person's firmware (core.mjs assignNumbers): from their
   // last build here, or a layout.json they load. Kept in this browser as a convenience;
   // the layout.json in every download is the record.
@@ -820,7 +825,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     try {
       if (!selected.length) { $('room-value').textContent = 'Choose at least one machine'; $('capacity-details').replaceChildren(); ready(); return; }
       const memory = chosenKit();
-      linked = core.linkKit(memory, selected, numbers, selectedExtensions);
+      linked = core.linkKit(memory, selected, numbers, selectedExtensions, capabilitySettings(selectedExtensions));
       const allocations = kit.machines.filter(m => selected.includes(m.id)).map(m => ({name: m.name,
         size: linked.segments.filter(s => s.owner === m.id).reduce((n, s) => n + s.size, 0),
         color: colors[kit.machines.indexOf(m) % colors.length]}));
@@ -853,11 +858,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     const ticket = revision; $('build').disabled = true; status('Linking and checking your build…');
     try {
       const selection = [...selected], settings = graphicsConfiguration.settings(selectedMachines()), extensions = core.extensionSelection(kit, selectedExtensions);
-      const expanded = expandedMemory(), memory = kitFor(expanded), result = core.linkKit(memory, selection, numbers, extensions);
+      const chosen = capabilitySettings(extensions);
+      const expanded = expandedMemory(), memory = kitFor(expanded), result = core.linkKit(memory, selection, numbers, extensions, chosen);
       const files = await core.buildAssets(memory, selection, catalog, result.numbers, settings, result.extensions);
-      const capabilitySettings = Object.fromEntries(Object.entries(extensionSettings).filter(([c]) =>
-        (kit.extensions ?? []).some(e => result.extensions.includes(e.id) && e.settings?.[c])));
-      files['os.ldr'] = await core.patchFirmware(memory, result, stock, {profiling: false, settings: capabilitySettings});
+      files['os.ldr'] = await core.patchFirmware(memory, result, stock, {profiling: false, settings: chosen});
       const hashes = {};
       for (const [name, bytes] of Object.entries(files)) hashes[name] = await core.sha256(bytes);
       // Every number this firmware has given out, for the next build (core.readLayout).
@@ -866,7 +870,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const encode = value => new TextEncoder().encode(JSON.stringify(value, null, 2) + '\n');
       files['layout.json'] = encode(nextLayout);
       files['build.json'] = encode({format: 'opxy-kit-build/1', version: kit.version, source_sha256: kit.profile.stock_sha256,
-        settings, capability_settings: capabilitySettings, sizes: result.sizes, ...(expanded ? {reserved_bytes: memory.profile.reserved_bytes} : {}), files: hashes, hardware_qualified: false, cpu_measured: false});
+        settings, capability_settings: chosen, sizes: result.sizes, ...(expanded ? {reserved_bytes: memory.profile.reserved_bytes} : {}), files: hashes, hardware_qualified: false, cpu_measured: false});
       const zip = core.zipFiles(files);
       if (ticket !== revision) return false;
       layout = nextLayout; built = files; rememberNumbers(result.numbers); downloadUrl = URL.createObjectURL(new Blob([zip], {type: 'application/zip'}));
@@ -1047,7 +1051,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         ? `This layout used ${mib(loaded.memoryUnavailable)} experimental memory, which this site doesn’t offer. ` : '';
       let wanted = loaded.selected && !loaded.memoryUnavailable ? loaded.expanded === true : expandedMemory(), grown = false;
       if (loaded.selected) {
-        const link = memory => core.linkKit(kitFor(memory), loaded.selected, loaded.machines, extensions);
+        const link = memory => core.linkKit(kitFor(memory), loaded.selected, loaded.machines, extensions,
+          capabilitySettings(extensions));
         try { link(wanted); }
         catch (error) {
           if (error.capacity !== true) throw error;

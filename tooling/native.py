@@ -99,10 +99,10 @@ UNIT_SOURCES = {'fast_helpers': {'divide': 'sdk/platform/blackfin/divide_fast.s'
 
 def check_unit_sources():
     """UNIT_SOURCES names exactly the registry's unit capabilities and their units, each an SDK unit with
-    an existing file."""
+    a plain source (PLAIN_SOURCES) and an existing file."""
     require({name: set(units) for name, units in extensions.unit_capabilities().items()} ==
             {name: set(units) for name, units in UNIT_SOURCES.items()} and
-            all(unit in SDK_UNITS and (ROOT / source).is_file() for units in UNIT_SOURCES.values()
+            all(unit in SDK_UNITS and unit in PLAIN_SOURCES and (ROOT / source).is_file() for units in UNIT_SOURCES.values()
                 for unit, source in units.items()), 'The unit capabilities and their sources differ')
 
 
@@ -112,6 +112,47 @@ def unit_sources(machines, profile):
     services, settings = active_services(profile, service_users(machines)), build_settings(machines)
     return {unit: source for name, units in UNIT_SOURCES.items() if name in services and settings.get(name, 0) == 1
             for unit, source in units.items()}
+
+
+# The plain source of each SDK unit a unit capability can choose another source for.
+PLAIN_SOURCES = {'divide': RUNTIME_ASM, 'memory': RUNTIME_CXX}
+
+
+def sdk_unit_defines(profile, machines):
+    """The defines every SDK unit of a build compiles with (machines' own units take none of them)."""
+    defines = (KIT_CONTROLS_DEFINE,) if 'kit_controls' in active_services(profile, service_users(machines)) else ()
+    return defines + sdk_defines(machines)
+
+
+def compile_unit_source(gcc, tools, source, obj, defines):
+    """SDK unit `obj` from `source` (an assembly .s or a C++ file of the repository), as every
+    build compiles divide and memory, whichever source a unit capability chose."""
+    if source.endswith('.s'):
+        return execute([tools['as'], '-mcpu=bf707', '-I', ROOT, '-o', obj, ROOT / source])
+    return compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(), defines)
+
+
+def unit_variants(directory, tools, compiler, profile, machines):
+    """For a browser kit (tooling/browser_kit.py): each unit capability the collection's extensions
+    declare -> each value of its setting -> {object name: bytes} of the units it chooses the source
+    of, compiled and normalized as compile_collection compiles them for a build at that value (0:
+    the plain sources, 1: UNIT_SOURCES). Empty for a collection that declares none."""
+    declared = {c for e in extensions_of(machines) for c in e.capabilities}
+    gcc, defines = compiler_paths(compiler), sdk_unit_defines(profile, machines)
+    variants = {}
+    for name, units in UNIT_SOURCES.items():
+        if name not in declared:
+            continue
+        for value in (0, 1):
+            chosen = variants.setdefault(name, {}).setdefault(value, {})
+            for unit, fast in units.items():
+                obj = Path(directory) / name / str(value) / 'sdk' / (unit + '.o')
+                obj.parent.mkdir(parents=True, exist_ok=True)
+                compile_unit_source(gcc, tools, fast if value else PLAIN_SOURCES[unit], obj, defines)
+                obj.write_bytes(normalize_object(read(obj)))
+                require('R_BFIN_RIMM16' not in execute([tools['objdump'], '-r', obj]), 'Truncated address relocation in ' + unit)
+                chosen['sdk/' + unit + '.o'] = read(obj)
+    return variants
 
 
 def fixed_after(patch, services, profiling, chosen):
@@ -676,11 +717,10 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         execute([tools['as'], '-mcpu=bf707', '-I', ROOT, '-o', obj, source])
 
     # The SDK's units of a build with a kit declaring the drum-kit controls see
-    # OPXY_KIT_CONTROLS; a machine's own units never do.
-    defines = (KIT_CONTROLS_DEFINE,) if 'kit_controls' in active_services(profile, service_users(machines)) else ()
-    # SDK 1.25: a 1.25 player's Controls.instrument, which every player of its build shares with
-    # the SDK units (a player's own units see that define alone), and a modelEdit kit's editor.
-    defines += sdk_defines(machines)
+    # OPXY_KIT_CONTROLS; a machine's own units never do. SDK 1.25: a 1.25 player's
+    # Controls.instrument, which every player of its build shares with the SDK units (a
+    # player's own units see that define alone), and a modelEdit kit's editor.
+    defines = sdk_unit_defines(profile, machines)
     player_defines = tuple(d for d in defines if d == PLAYER_INSTRUMENT_DEFINE)
 
     def cxx(source, obj, m=None):
@@ -726,12 +766,10 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(track_stage.generate_table(folder, machines)), obj)
             if step == 'registration_stock':
                 return cxx(str(generate_registration_stock(folder)), obj)
-            if step == 'divide':
-                return assemble_unit(ROOT / chosen_sources.get('divide', RUNTIME_ASM), obj)
+            if step in PLAIN_SOURCES:  # divide, memory: a unit capability may choose their source
+                return compile_unit_source(gcc, tools, chosen_sources.get(step, PLAIN_SOURCES[step]), obj, defines)
             if step == 'sample_kernel':
                 return assemble_unit(ROOT / KERNEL_ASM, obj)
-            if step == 'memory':
-                return cxx(chosen_sources.get('memory', RUNTIME_CXX), obj)
             if step == 'startup_label':
                 return assemble_unit(startup_label.generate(folder, version), obj)
             if step == 'startup':
