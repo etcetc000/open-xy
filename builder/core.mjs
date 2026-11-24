@@ -1589,13 +1589,22 @@ function checkPackMachine(m) {
     m.asset === m.id + '.svg' && !/<!DOCTYPE|<!ENTITY|<\/?(?:script|foreignObject|iframe|image|use|style)\b|\bon\w+\s*=|\bhref\s*=/i.test(m.artwork),
     'Invalid machine artwork');
   check(m.kind !== 'synth' || typeof m.artwork === 'string', 'Missing synth artwork');
-  check(m.preview === undefined || m.preview && typeof m.preview.wasm === 'string' &&
+  // A synth's preview (tooling.browser_kit.machine_entry): no drum kit's, and a Shift row's
+  // eight words only with that row.
+  const word = n => Number.isInteger(n) && n >= 0 && n <= 0x7fffffff;
+  check(m.preview === undefined || m.preview && typeof m.preview === 'object' && m.kind === 'synth' &&
+    Object.keys(m.preview).every(key => ['wasm', 'sha256', 'graphics', 'defaults', 'shift'].includes(key)) &&
+    typeof m.preview.wasm === 'string' &&
     m.preview.wasm.length <= 16 * 1024 ** 2 && /^[a-f0-9]{64}$/.test(m.preview.sha256) &&
-    Array.isArray(m.preview.defaults) && m.preview.defaults.length === m.controls.length &&
-    m.preview.defaults.every(n => Number.isInteger(n) && n >= 0 && n <= 0x7fffffff), 'Invalid machine preview');
-  // The services it uses beyond its kind's (activeServices), and a synth's heap voices (linkKit).
-  check(m.features === undefined || Array.isArray(m.features) && m.features.length <= 16 &&
-    m.features.every(f => typeof f === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,31}$/.test(f)), 'Invalid machine features');
+    Array.isArray(m.preview.defaults) && m.preview.defaults.length === m.controls.length && m.preview.defaults.every(word) &&
+    (m.preview.shift === undefined || m.shiftRow === true && Array.isArray(m.preview.shift) &&
+      m.preview.shift.length === 8 && m.preview.shift.every(word)), 'Invalid machine preview');
+  // The services it uses beyond its kind's (activeServices): only the features an imported
+  // kind can declare (tooling.native.service_users), never a capability or another kind's.
+  check(m.features === undefined || Array.isArray(m.features) && m.features.length <= 4 &&
+    m.features.every(f => ['trackControl', 'hidePages', 'trackStage'].includes(f) || f === 'synthShift' && m.kind === 'synth'),
+    'Invalid machine features');
+  check(m.shiftRow === undefined || m.shiftRow === true && m.kind === 'synth', 'Invalid machine Shift row');
   check(m.heapVoices === undefined || m.kind === 'synth' && Number.isInteger(m.heapVoices) && m.heapVoices > 0,
     'Invalid machine heap voices');
 }
@@ -1627,6 +1636,8 @@ export async function importMachinePack(base, pack) {
     checkPackMachine(m);
     check((m.features ?? []).every(f => users.has(f)), 'Invalid machine features');
     const entry = JSON.parse(m.catalog.trim().slice(1)), indent = '\n            ';
+    // An effect's menu number is one stock offers (catalogEntry replaces it with the layout's).
+    check(m.kind !== 'effect' || base.profile.identities.effects.includes(entry.id), 'Invalid machine menu');
     return {...m, catalog: ',\n        {' + indent + '"type": ' + JSON.stringify(entry.type) +
       (m.kind === 'effect' ? ',' + indent + '"id": ' + entry.id : '') +
       ',' + indent + '"default_params": [' + entry.default_params.join(', ') + ']\n        }' + (m.kind === 'effect' ? '' : '\n')};
@@ -1668,8 +1679,14 @@ export async function importMachinePack(base, pack) {
       linkKit(memoryKit(candidate, true), [m.id]);
     }
   }
-  // The pack's shared tables name every added machine: a selection without them must
-  // still resolve each one's callbacks (its `absent` list).
+  // The pack's shared objects name added machines' callbacks: each one they import must be
+  // in its machine's `absent` list, so every selection without that machine still links.
+  const imported = new Set(candidate.objects.filter(o => o.owner === null)
+    .flatMap(o => o.symbols.filter(s => s.binding && !s.section && s.name).map(s => s.name)));
+  for (const m of added)
+    for (const o of candidate.objects.filter(o => o.owner === m.id))
+      for (const s of o.symbols.filter(s => s.binding && s.section && imported.has(s.name)))
+        check(Object.hasOwn(m.absent, s.name), `${m.id} has no absent fallback for ${s.name}`);
   linkKit(candidate, [base.machines[0].id]);
   return candidate;
 }

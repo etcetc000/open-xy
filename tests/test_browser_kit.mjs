@@ -127,6 +127,21 @@ test('a pack keeps the site kit unit sources and may differ only in collection t
   const {base:other, pack:changed} = await packFixture();
   changed.objects[1].runtime = true;
   await assert.rejects(importMachinePack(other, changed), /unowned machine objects/);
+  // An arithmetic runtime member the site's collection does not link.
+  const {base:site, pack:extra} = await packFixture(), member = elf();
+  member.set(new TextEncoder().encode('mulsi'), 89);
+  extra.objects.push({name:'sdk/runtime/_mulsi3.o', owner:null, runtime:true,
+    bytes:Buffer.from(member).toString('base64'), sha256:await sha256(member)});
+  await assert.rejects(importMachinePack(site, extra), /SDK runtime \(sdk\/runtime\/_mulsi3\.o\)/);
+});
+
+test('every added machine callback the shared objects import needs an absent fallback', async () => {
+  const {base, pack} = await packFixture();
+  // The pack's startup imports the custom machine's `other` (global, undefined).
+  const startup = elf(); startup.set(new TextEncoder().encode('other'), 89); startup[84] = 0x10; startup[86] = 0;
+  const glue = {name:'sdk/startup.o', owner:null, bytes:Buffer.from(startup).toString('base64'), sha256:await sha256(startup)};
+  pack.objects[pack.objects.length - 1] = glue;
+  await assert.rejects(importMachinePack(base, pack), /custom has no absent fallback for other/);
 });
 
 test('packs extend site kits with aux machines and SDK extensions marked either way', async () => {
@@ -147,6 +162,11 @@ test('packs refuse menus without an effect number and IDs longer than layouts ho
   const cases = [
     [p => { p.machines[1].kind = 'effect'; p.machines[1].identity = {effect:null, page:21}; }, /menu/],
     [p => { p.machines[1].catalog = ', {"type":"custom","id":3,"default_params":[0,0,0,0,0,0,0,0]}'; }, /menu/],
+    // An effect number stock does not offer would stay in the menu (catalogEntry replaces digits only).
+    ...[-5, 99, 1e21].map(id => [p => {
+      Object.assign(p.machines[1], {kind:'effect', identity:{effect:null, page:21}, controls:['A'], positions:[0],
+        catalog:`, {"type":"custom","id":${id},"default_params":[0,0,0,0,0,0,0,0]}`});
+    }, /menu/]),
     [p => { for (const key of ['id', 'prefix']) p.machines[1][key] = 'custommachinelong'; }, /metadata/],
   ];
   for (const [change, error] of cases) {
@@ -159,20 +179,28 @@ test('an imported menu entry is rebuilt from its checked values in the exporter 
   const {base, pack} = await packFixture(), m = pack.machines[1];
   Object.assign(m, {kind:'effect', identity:{effect:null, page:21}, controls:['A'], positions:[0],
     // A repeated key: JSON keeps the last, and so does the rebuilt entry.
-    catalog:', {"type":"custom","id":21,"default_params":[1,2,3,4,5,6,7,8],"id":99}'});
+    catalog:', {"type":"custom","id":21,"default_params":[1,2,3,4,5,6,7,8],"id":23}'});
   const candidate = await importMachinePack(base, pack);
   const indent = '\n            ';
-  assert.equal(candidate.machines[1].catalog, ',\n        {' + indent + '"type": "custom",' + indent + '"id": 99,' +
+  assert.equal(candidate.machines[1].catalog, ',\n        {' + indent + '"type": "custom",' + indent + '"id": 23,' +
     indent + '"default_params": [1, 2, 3, 4, 5, 6, 7, 8]\n        }');
   assert.equal(candidate.machines[2].catalog, ',\n        {' + indent + '"type": "another",' + indent +
     '"default_params": [0, 0, 0, 0, 0, 0, 0, 0]\n        }\n');
 });
 
 test('packs refuse kinds they cannot import and malformed services or heap voices', async () => {
-  for (const change of [m => { m.kind = 'drum'; }, m => { m.kind = 'player'; }, m => { m.features = ['Bad']; },
-    m => { m.features = 'hidePages'; }, m => { m.features = ['control']; }, m => { m.heapVoices = -1; }, m => { m.heapVoices = 1.5; }]) {
+  for (const [change, error] of [[m => { m.kind = 'drum'; }, /metadata/], [m => { m.kind = 'player'; }, /metadata/],
+    [m => { m.heapVoices = -1; }, /heap voices/], [m => { m.heapVoices = 1.5; }, /heap voices/],
+    [m => { m.shiftRow = 'yes'; }, /Shift row/],
+    [m => { m.preview = {wasm:'', sha256:'0'.repeat(64), defaults:[0, 0, 0, 0], kit:{models:1e9}}; }, /preview/],
+    [m => { m.preview = {wasm:'', sha256:'0'.repeat(64), defaults:[0, 0, 0, 0], shift:Array(8).fill(0)}; }, /preview/],
+    // Only the features an imported kind declares: never a capability, another kind or an aux track.
+    ...['Bad', 'control', 'load_governor', 'release_floor', 'extension', 'drum', 'padMix', 'auxTrack', 'kitControls']
+      .map(f => [m => { m.features = [f]; }, /features/]),
+    [m => { m.features = 'hidePages'; }, /features/],
+    [m => { m.kind = 'sample'; m.identity = {engine:null, page:7}; m.features = ['synthShift']; }, /features/]]) {
     const {base, pack} = await packFixture(); change(pack.machines[1]);
-    await assert.rejects(importMachinePack(base, pack), undefined, change.toString());
+    await assert.rejects(importMachinePack(base, pack), error, change.toString());
   }
   const {base, pack} = await packFixture();
   Object.assign(pack.machines[1], {features:['hidePages', 'synthShift'], heapVoices:4096});

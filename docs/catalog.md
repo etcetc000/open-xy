@@ -111,9 +111,9 @@ machines, change the SDK runtime or add extensions, and it adds synths, effects
 and sample engines only: drum kits, players and aux machines cannot be imported
 yet. Its compiled registration, control and callback tables accompany the added
 machines, so independent packs cannot be combined: export the desired custom
-machines together. Importing another pack replaces the previous pack. **Remove
-imported machines** under **About machine ZIPs** restores the site's collection.
-Both operations keep saved machine numbers reserved.
+machines together. A pack that imports replaces the previous one; a refused one
+leaves it. **Remove imported machines** under **About machine ZIPs** restores
+the site's collection. Both operations keep saved machine numbers reserved.
 Reloading clears the imported pack and drops its machines from the remembered
 selection; keep its ZIP and your saved layout to use it again. Import the pack
 before loading a layout that selects its machines. An OS is recognized with the
@@ -123,15 +123,16 @@ its machines are chosen again.
 
 ### Export a machine pack
 
-Build against exactly what the destination site was released from: check out
-the SDK revision it was built from, normally the release tag of the version the
+Build against exactly what the destination site was released from: check out the
+SDK revision it was built from, normally the release tag of the version the
 builder shows beside its name (`v0.0.7`; a catalog update published since then
 needs its later revision), with the pinned native tools and your own stock OS.
-Fetch that revision's catalog, then export the site's collection with the
-SDK's own extensions (each folder under `extensions/`, in name order, as
-`sdk.py release` adds them) and your custom machine folders appended (repeat
-`--machine` for more). The export rebuilds every machine's browser preview, so
-it also needs Clang++ for wasm32 (`--preview-cxx`, as for any [kit](builder.md#export-a-kit)):
+Fetch that revision's catalog, then export the site's collection with the SDK's
+own extensions (one `--extension` per folder under `extensions/` at that
+revision, in name order, as `sdk.py release` adds them) and your custom machine
+folders appended (repeat `--machine` for more). The export rebuilds every
+machine's browser preview, so it also needs Clang++ for wasm32 (`--preview-cxx`,
+as for any [kit](builder.md#export-a-kit)):
 
 ```sh
 git checkout v0.0.7
