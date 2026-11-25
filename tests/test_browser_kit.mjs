@@ -160,6 +160,13 @@ test('a pack machine needs its record and may not define what SDK objects use', 
   const {base:site, pack:bare} = await packFixture();
   bare.objects[0] = await capsuleOf('custom/voice.o', 'custom', 'other');
   await assert.rejects(importMachinePack(site, bare), /custom has no machine record/);
+  // A symbol a site machine defines too: a native build of both would refuse it.
+  const {base:other, pack:clash} = await packFixture();
+  clash.objects.push(await capsuleOf('custom/helper.o', 'custom', 'entry'));
+  await assert.rejects(importMachinePack(other, clash), /custom defines entry, which a also defines/);
+  const {base:third, pack:twice} = await packFixture();
+  twice.objects.push(await capsuleOf('another/helper.o', 'another', 'custom_record'));
+  await assert.rejects(importMachinePack(third, twice), /defines custom_record, which (custom|another) also defines/);
 });
 
 test('packs extend site kits with aux machines and whatever extensions they offer', async () => {

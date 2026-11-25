@@ -2,12 +2,14 @@
 // into the space machine_records.o reserves for them. Each table holds a copy of
 // every record's row for it, in record order (by kind, then ID); the companion
 // table is sorted by ID and ends with an empty row, as companions list machines.
-// Startup builds them on each role before it registers a machine, so every reader
-// of a table (each of which also checks its machine is registered and ready)
-// runs after its role's first build. A later build writes the same bytes at the
-// same places, and each table's address is published before its count: a reader
-// that sees the count sees the rows. Every machine object and every other shared
-// object is the same whichever machines a build holds.
+// Startup builds them on each role before it registers a machine, and the project
+// companion before it reads or writes a project's machine numbers, which may come
+// first; the other readers each check their machine is registered and ready, so
+// they find a row only after startup. The first build sets them; a build that
+// overlaps it writes the same bytes at the same places, and each table's address
+// is published before its count: a reader that sees the count sees the rows. Every
+// machine object and every other shared object is the same whichever machines a
+// build holds.
 #include "machine_record.hpp"
 #include "sample_machines.hpp"
 #include "synth_controls.hpp"
@@ -133,7 +135,12 @@ void build_companions(Space& space) {
 }
 }
 
+// Set once the tables are built: later calls (the other role's startup, or a project
+// load or save, which may come first) return at once.
+static volatile u32 built = 0;
+
 void sdk_machine_tables() {
+    if (built) return;
     Space space{sdk_machine_record_space, sdk_machine_record_space + sdk_machine_record_space_bytes};
     build(space, &MachineRecord::sample, sdk_sample_machines, sdk_sample_machine_count);
     build(space, &MachineRecord::controls, sdk_synth_controls, sdk_synth_control_count);
@@ -146,4 +153,6 @@ void sdk_machine_tables() {
     build(space, &MachineRecord::send, sdk_drum_send_kits, sdk_drum_send_kit_count);
     build(space, &MachineRecord::stage, sdk_track_stages, sdk_track_stage_count);
     build_companions(space);
+    barrier();
+    built = 1;
 }

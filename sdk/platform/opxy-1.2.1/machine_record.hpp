@@ -82,7 +82,8 @@ extern const opxy::platform::MachineRecord* const sdk_machine_records[] __asm__(
 extern const opxy::u32 sdk_machine_record_count __asm__("sdk_machine_record_count");
 extern opxy::u8 sdk_machine_record_space[] __asm__("sdk_machine_record_space");
 extern const opxy::u32 sdk_machine_record_space_bytes __asm__("sdk_machine_record_space_bytes");
-// Builds the shared tables from the records (machine_tables.cpp). Startup calls it on
-// both roles before registering anything; it writes the same bytes every time.
+// Builds the shared tables from the records (machine_tables.cpp), once. Startup calls it
+// on both roles before registering anything, and the project companion before it maps
+// numbers; any build writes the same bytes at the same places.
 void sdk_machine_tables() __asm__("sdk_machine_tables");
 }

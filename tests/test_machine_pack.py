@@ -16,7 +16,7 @@ from tooling.formats import sha
 
 class MachinePackTests(unittest.TestCase):
     def kit(self):
-        return dict(version='0.0.2', sdk='c' * 64, definitions={}, fixed={}, machines=[dict(id='custom', origin='personal')],
+        return dict(version='0.0.2', sdk='c' * 64, definitions={}, fixed={}, machines=[dict(id='custom', kind='synth', origin='personal')],
                     objects=[dict(name='custom/voice.o', owner='custom'), dict(name='sdk/startup.o', owner=None)],
                     notices='Author license', profileSource=base64.b64encode(b'profile').decode(),
                     stockCatalog='must not ship', screenTemplate='must not ship', profile={'stock':'must not ship'})
@@ -55,7 +55,7 @@ class MachinePackTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with zipfile.ZipFile(write(kit, directory, notices='Custom only')) as archive:
                 manifest = json.loads(archive.read('machines.json'))
-        self.assertEqual(manifest['machines'], [dict(id='custom', origin='personal')])
+        self.assertEqual(manifest['machines'], [dict(id='custom', kind='synth', origin='personal')])
         self.assertEqual(manifest['objects'], [dict(name='custom/voice.o', owner='custom')])
         self.assertEqual(set(manifest), {'format', 'version', 'sdk', 'profileSha256', 'definitions', 'fixed', 'machines',
                                          'objects', 'notices'})
@@ -73,6 +73,14 @@ class MachinePackTests(unittest.TestCase):
             finally:
                 machine_pack.MAX_PACK_BYTES = limit
             self.assertFalse((Path(directory) / 'machines.zip').exists())
+
+    def test_export_refuses_kinds_the_builder_cannot_import(self):
+        for kind in ('drum', 'player'):
+            kit = self.kit()
+            kit['machines'][0]['kind'] = kind
+            with tempfile.TemporaryDirectory() as directory:
+                with self.assertRaisesRegex(ValueError, 'synths, effects and sample engines only'):
+                    write(kit, directory)
 
     def test_export_requires_a_custom_machine(self):
         kit = self.kit()

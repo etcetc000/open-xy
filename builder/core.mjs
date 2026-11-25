@@ -1751,12 +1751,23 @@ export async function importMachinePack(base, pack) {
   const named = new Set([...candidate.objects.filter(o => o.owner === null)
     .flatMap(o => o.symbols.filter(s => s.binding && !s.section && s.name).map(s => s.name)),
     ...Object.values(candidate.serviceFallbacks ?? {}).flatMap(f => Object.keys(f))]);
+  // What every other machine defines: a native build refuses a collection in which two
+  // machines define the same symbol, so the site's and the pack's must never share one.
+  const definedBy = new Map();
+  for (const o of candidate.objects) if (o.owner !== null)
+    for (const s of o.symbols) if (s.binding === 1 && s.section && s.name) {
+      const owners = definedBy.get(s.name) ?? new Set();
+      owners.add(o.owner); definedBy.set(s.name, owners);
+    }
   for (const m of added) {
     const own = candidate.objects.filter(o => o.owner === m.id);
     const defined = own.flatMap(o => o.symbols.filter(s => s.binding === 1 && s.section && s.name).map(s => s.name));
     check(defined.includes(m.prefix + '_record'), `${m.id} has no machine record: export it with this release's SDK`);
     const taken = defined.find(name => named.has(name));
     check(taken === undefined, `${m.id} defines ${taken}, which the SDK's objects use`);
+    const shared = defined.find(name => definedBy.get(name).size > 1);
+    if (shared !== undefined)
+      throw new Error(`${m.id} defines ${shared}, which ${[...definedBy.get(shared)].find(id => id !== m.id)} also defines`);
     if (m.preview) check(await sha256(decode64(m.preview.wasm)) === m.preview.sha256, 'Machine preview hash mismatch');
     // A service it switches on with hooks must have its objects in this kit (carriedCapability):
     // a pack never adds them, and a build would hook into nothing.

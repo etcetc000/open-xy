@@ -23,6 +23,9 @@ def write(kit, output, notices=None):
     """
     machines = [m for m in kit['machines'] if m['origin'] == 'personal']
     require(machines, 'A machine pack needs at least one custom machine')
+    # What the builder imports (builder/core.mjs importMachinePack): a pack with anything else never imports.
+    require(all(m.get('kind') in ('synth', 'effect', 'sample') for m in machines),
+            'A machine pack holds synths, effects and sample engines only')
     owners = {m['id'] for m in machines}
     pack = dict(format=FORMAT, version=kit['version'], sdk=kit['sdk'],
                 profileSha256=sha(base64.b64decode(kit['profileSource'], validate=True)),
