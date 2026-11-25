@@ -1,4 +1,4 @@
-"""A note player's own drawn page (SDK 1.24): its contract, generated unit and renderer."""
+"""A note player's own drawn page (SDK 1.26): its contract, generated unit and renderer."""
 import json
 import os
 from pathlib import Path
@@ -57,7 +57,7 @@ class PlayerDrawnPage(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve() / 'probedraw'
         self.root.mkdir()
-        self.write_machine('1.24')
+        self.write_machine('1.26')
         self.write_definition(display=DISPLAY)
         for name, text in (('player.cpp', PLAYER), ('display.h', DISPLAY_H), ('display.cpp', DISPLAY_CPP),
                            ('panel.svg.fragment', PANEL)):
@@ -81,12 +81,12 @@ class PlayerDrawnPage(unittest.TestCase):
     def machine(self):
         return assign_numbers([machine_at(self.root)])[0][0]
 
-    def test_a_display_makes_the_page_the_players_own_from_sdk_1_24(self):
+    def test_a_display_makes_the_page_the_players_own_from_sdk_1_26(self):
         self.assertEqual(self.machine().display, 'drawing')
-        self.write_machine('1.23')
-        with self.assertRaisesRegex(ValueError, r"note player's own drawn page.*1\.24"):
+        self.write_machine('1.25')
+        with self.assertRaisesRegex(ValueError, r"note player's own drawn page.*1\.26"):
             machine_at(self.root)
-        self.write_machine('1.24')
+        self.write_machine('1.26')
         (self.root / 'display.cpp').unlink()
         with self.assertRaisesRegex(ValueError, 'supplies display.h and display.cpp'):
             machine_at(self.root)
@@ -100,11 +100,11 @@ class PlayerDrawnPage(unittest.TestCase):
         self.assertIn('opxy::screen::PlayerPage<Page>', text)
         self.assertNotIn('display.cpp', text)
 
-    def test_extended_drawing_from_sdk_1_26(self):
+    def test_extended_drawing_from_sdk_1_28(self):
         self.write_definition(display=dict(DISPLAY, affine=1))
-        with self.assertRaisesRegex(ValueError, r"Extended drawing on a drum kit's screen or a note player's page.*1\.26"):
+        with self.assertRaisesRegex(ValueError, r"Extended drawing on a drum kit's screen or a note player's page.*1\.28"):
             machine_at(self.root)
-        self.write_machine('1.26')
+        self.write_machine('1.28')
         self.assertEqual(self.machine().display, 'drawing')
 
     def test_generated_unit_draws_with_state(self):
@@ -138,6 +138,8 @@ class PlayerDrawnPage(unittest.TestCase):
                                          '-nostdinc++', '-nostdinc', '-Wall', '-Werror', '-Wno-unused-variable',
                                          # The unit's optional-callback probes, unused by a player without them.
                                          '-Wno-unused-template',
+                                         # Every drawn player declares 1.25 or later: Controls.instrument.
+                                         '-DOPXY_PLAYER_INSTRUMENT=1',
                                          *('-I' + path for path in includes), str(unit)],
                                         capture_output=True, text=True, timeout=120, **FLAGS)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -164,6 +166,23 @@ class PlayerDrawnPage(unittest.TestCase):
         scratch.mkdir()
         with self.assertRaisesRegex(ValueError, r'of its 720 frames are invalid'):
             drawn_player(m, HOST_CXX, scratch)
+
+    def test_sdk_test_compiles_the_display_as_the_device_unit_does(self):
+        m = self.machine()
+        scratch = Path(self.temp.name) / 'scratch'
+        # Controls.instrument, which the device unit of every drawn player has (SDK 1.25).
+        (self.root / 'display.cpp').write_text(
+            DISPLAY_CPP.replace('++d.frames;', '++d.frames;\n    d.held = c.instrument;')
+                       .replace('const opxy::player::Controls&,', 'const opxy::player::Controls& c,'),
+            encoding='utf-8', newline='\n')
+        scratch.mkdir()
+        self.assertEqual(drawn_player(m, HOST_CXX, scratch), 720)
+        # A declared stateBytes that differs from DisplayState fails here, as on the device.
+        self.write_definition(display=dict(DISPLAY, stateBytes=12))
+        shutil.rmtree(scratch)
+        scratch.mkdir()
+        with self.assertRaisesRegex(ValueError, 'Declared display size differs'):
+            drawn_player(self.machine(), HOST_CXX, scratch)
 
     def test_real_renderer_fills_the_input_and_the_header(self):
         host = Path(self.temp.name) / 'host'

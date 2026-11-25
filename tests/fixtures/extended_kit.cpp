@@ -1,4 +1,4 @@
-// The extended renderer (extended_drawing.hpp) on a drum kit's screen (SDK 1.26) over host
+// The extended renderer (extended_drawing.hpp) on a drum kit's screen (SDK 1.28) over host
 // doubles (extended_kit_host.hpp): the kit's played-pad snapshot, selected key, Shift cells
 // and held-pad strip as the plain renderer gives them; on a whole-screen kit the SDK header
 // only while Shift is held; and a synth's whole-screen canvas as before.

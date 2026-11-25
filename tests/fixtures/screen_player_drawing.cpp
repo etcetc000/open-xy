@@ -1,4 +1,4 @@
-// A player's drawn page (SDK 1.24): the real renderer over host doubles; from SDK 1.26 also a
+// A player's drawn page (SDK 1.26): the real renderer over host doubles; from SDK 1.28 also a
 // whole-screen one, which has no stock header, and one whose input appends the encoders.
 #include <screen_player_drawing.hpp>
 #include <cstdio>
@@ -50,7 +50,7 @@ template <bool Paged, bool Canvas> struct Page {
     }
 };
 template <bool P, bool C> const char* const Page<P, C>::ids[2] = {"n", "p"};
-template <bool P, bool C> const char* const Page<P, C>::titles[8] = {"rate", "chance", "scale", "gate", "deja vu", "length", "", ""};
+template <bool P, bool C> const char* const Page<P, C>::titles[8] = {"rate", "chance", "scale", "", "deja vu", "length", "", ""};
 
 template <bool Paged, bool Canvas = false> static void run() {
     typedef screen::PlayerDrawing<Page<Paged, Canvas>> Renderer;
@@ -86,8 +86,10 @@ template <bool Paged, bool Canvas = false> static void run() {
     require(input_seen.shift == 1 && input_seen.line == 0 && input_seen.reduced_motion == 0);
     if (!Paged && !Canvas) {
         // A one-page player: the stock header's labels once, values as amounts.
-        require(!std::strcmp(titles[0].text, "rate") && !std::strcmp(titles[3].text, "gate"));
+        require(!std::strcmp(titles[0].text, "rate") && !std::strcmp(titles[2].text, "scale"));
         require(!std::strcmp(values[0].text, "0") && !std::strcmp(values[2].text, "25"));
+        // An absent slot (empty title): its title and value stay empty.
+        require(!std::strcmp(titles[3].text, "") && !std::strcmp(values[3].text, ""));
     } else {
         for (u32 i = 0; i < 4; ++i) require(titles[i].writes == 0 && values[i].writes == 0);
     }

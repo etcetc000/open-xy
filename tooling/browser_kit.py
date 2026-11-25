@@ -162,7 +162,7 @@ def machine_entry(m, profile, sources, output, preview_cxx):
         # (builder/core.mjs kitKey). Each key's model and controls come from the module.
         if m.kind == 'drum':
             entry['preview']['kit'] = kit_preview(m.definition, m.sdk)
-        # A note player's page (SDK 1.24): silent, its keys run the player (builder/app.mjs).
+        # A note player's page (SDK 1.26): silent, its keys run the player (builder/app.mjs).
         if m.kind == 'player':
             entry['preview']['player'] = True
     # A synth with a Shift row: its own presets keep the row in sample-less regions

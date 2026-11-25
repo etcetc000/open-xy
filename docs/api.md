@@ -79,7 +79,7 @@ and requires each other machine to fit beside them, as the builder offers it.
 | Synth controls | 4 positions, at most 8 parameters, and a Shift row of at most 8 (SDK 1.13) | The stock four-knob page and eight-word parameter vector; the row takes two spare track words |
 | Sample and effect controls | 1..8 | The stock eight-word parameter vector |
 | Control labels | 8 characters | The stock parameter page |
-| Display shape | ≤ 4 paths of ≤ 64 points, ≤ 512 nodes (more than 256 need `"sdk": "1.8"`), ≤ 16 text slots (more than 4 need `"sdk": "1.3"`), ≤ 16 palette entries; a synth's or effect's [extended drawing](display.md#extended-drawing) (`"sdk": "1.20"`; a drum kit's or a note player's page `"1.26"`) up to 32 paths sharing 256 points | Fixed-size renderer object and frame |
+| Display shape | ≤ 4 paths of ≤ 64 points, ≤ 512 nodes (more than 256 need `"sdk": "1.8"`), ≤ 16 text slots (more than 4 need `"sdk": "1.3"`), ≤ 16 palette entries; a synth's or effect's [extended drawing](display.md#extended-drawing) (`"sdk": "1.20"`; a drum kit's or a note player's page `"1.28"`) up to 32 paths sharing 256 points | Fixed-size renderer object and frame |
 
 `voiceBytes`, `sharedBytes` and display state have no limit of their own
 beyond whole words and module memory. Browser previews run 8 voices in
@@ -853,7 +853,7 @@ audio side but the silenced CV output.
 
 SDK 1.8 adds `"kind": "drum"`: one registered instrument with independent
 model selection and sound controls on 24 keys. It supplies the synth
-lifecycle, a drawing display (from SDK 1.26 an [extended](display.md#extended-drawing)
+lifecycle, a drawing display (from SDK 1.28 an [extended](display.md#extended-drawing)
 one, which may [take the whole screen](display.md#a-whole-screen-drum-kit)), and the
 same resources plus `modelCount` (2..64). Each key holds a model and eight 7-bit
 controls. A kit of more than 16 models stores them in a prefix code, which
@@ -1770,7 +1770,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.26 and builds 1.0 to 1.26 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.28 and builds 1.0 to 1.28 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
@@ -1931,7 +1931,7 @@ SDK 1.8 adds `"kind": "player"`. A player transforms live and sequenced notes
 before the track's instrument receives them. Its `machine.json` declares no
 identity or base; the layout assigns an unused player type and its own page.
 Use four parameters (or five to eight, below), `"resources": {}`, `player.cpp` and `panel.svg.fragment`
-(or, drawing its [own page](#a-players-own-drawn-page-sdk-124), a display in `resources`, `display.h` and `display.cpp`).
+(or, drawing its [own page](#a-players-own-drawn-page-sdk-126), a display in `resources`, `display.h` and `display.cpp`).
 A parameter an encoder doesn't need may be left empty, declared `"absent": true`
 as for a synth's empty slot: its title and value stay empty and its encoder turns nothing.
 A player with five to eight parameters declares `"press": "page"` (SDK 1.16):
@@ -1944,7 +1944,8 @@ Stock keeps all eight parameter words in the project and sets them to the
 declared defaults only when the player is chosen, so a project saved while a
 player had four parameters opens a later version with five to eight with the 0
 its words 4..7 held then, not the new parameters' defaults.
-Its header shows [both pages in place](ux.md#more-than-four-controls).
+Its header shows [both pages in place](ux.md#more-than-four-controls) (on the dot page; a
+[drawn page](#a-players-own-drawn-page-sdk-126) draws it itself).
 Players have no instrument presets, audio-render CPU estimate or browser audio preview.
 
 Include `<opxy/player.hpp>` and implement, in the machine's namespace:
@@ -1956,6 +1957,9 @@ bool press(State&, const opxy::player::Controls&, opxy::u32 note,
 bool release(State&, opxy::u32 note);
 void display(const State&, const opxy::player::Controls&, opxy::player::Display&);
 ```
+
+(`display` is the dot page's; a player [drawing its own page](#a-players-own-drawn-page-sdk-126) supplies its
+`display.cpp` instead.)
 
 `press` returns false to pass a note through, or true with a plan of zero to
 eight tones. Each tone has a MIDI pitch and velocity, and a delay in stock
@@ -2025,12 +2029,12 @@ around the input keyboard and every emitted note. This preserves octaves
 under voicing, spread and simultaneous chords. MIDI endpoints use partial
 octaves. Hidden nodes move beyond the display.
 
-### A player's own drawn page (SDK 1.24)
+### A player's own drawn page (SDK 1.26)
 
 A player may instead draw its page as a synth draws its screen: declare
 `"resources": {"display": {...}}` with the [display fields](display.md#declaration)
-(from SDK 1.26 also the [extended](display.md#extended-drawing) keys), `"sdk": "1.24"`
-(`"1.26"` for an extended display), and supply `display.h` (the `DisplayState` and
+(from SDK 1.28 also the [extended](display.md#extended-drawing) keys), `"sdk": "1.26"`
+(`"1.28"` for an extended display), and supply `display.h` (the `DisplayState` and
 `Frame` types, as a synth's) and `display.cpp`:
 
 ```cpp
@@ -2057,8 +2061,10 @@ changes, as a synth's does. With `encoderActivity` the input is
 A one-page player keeps the stock header: its labels, and each value the frame's
 `header` caption or else the amount 0..100. A paged player draws the
 [two-page header](display.md#two-page-header) itself, in its own frame and
-artwork, as a paged synth does; the SDK adds none. A `fullCanvas` page has no
-header. `sdk.py test` checks the artwork against the declared display and runs
+artwork, as a paged synth does; the SDK adds none. No fragment is generated for a player: copy the
+header block, with its cover over the stock header, from the `panel.svg.fragment` of an eight-control
+synth (`sdk.py new --controls 8`), or the stock header's values show beneath its own. A `fullCanvas`
+page has no header. `sdk.py test` checks the artwork against the declared display and runs
 the display on the host with `player.cpp` over a held key's frames, refusing
 invalid ones; it also builds the page's browser preview, which the builder shows.
 
@@ -2137,7 +2143,7 @@ are not available to players; they need a new hook.
 
 ### A player's track instrument (SDK 1.25)
 
-A player declaring `"sdk": "1.25"` also receives `Controls.instrument`, the
+A player declaring `"sdk": "1.25"` or later also receives `Controls.instrument`, the
 kind of instrument its track holds, as stock classifies it:
 `opxy::player::DrumInstrument` for stock's drum sampler, its drum synth or an
 SDK drum kit, `OtherInstrument` for anything else (a synth, the keyboard

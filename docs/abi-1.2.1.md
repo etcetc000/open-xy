@@ -558,7 +558,7 @@ resolved on the loaded kit. Only the screen of a kit declaring SDK 1.21 or later
 (`drum_trigger.cpp`) is the `played_pad` service's, which a build links only
 with such a kit.
 
-A drum kit's [extended](display.md#extended-drawing) screen (SDK 1.26) is drawn by
+A drum kit's [extended](display.md#extended-drawing) screen (SDK 1.28) is drawn by
 the extended renderer
 ([`extended_drawing.hpp`](../sdk/platform/opxy-1.2.1/extended_drawing.hpp)) with the
 same kit input as the plain one, from the same calls

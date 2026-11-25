@@ -471,7 +471,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         // A drum kit (SDK kits): each key keeps its own model and controls, set up as the kit's
         // drum_defaults sets them; pressing a key selects it, as on the device. Controls are 0..127.
         const kit = m.preview.kit, keys = new Map();
-        // A note player's page (SDK 1.24): its keys run the player itself; nothing sounds.
+        // A note player's page (SDK 1.26): its keys run the player itself; nothing sounds.
         const player = m.preview.player === true;
         let selected = null, names = null;
         const selectKey = key => {

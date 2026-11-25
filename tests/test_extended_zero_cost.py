@@ -35,7 +35,7 @@ def input_fill(text):
 PLAIN_ONLY = {
     # A sample engine's screen reads its sample; sample engines have no extended screen.
     'if (Machine::sample) sdk_sample_overview_update(controls.track)',
-    # A kit before SDK 1.21 is struck by its selected pad only; an extended kit declares 1.26,
+    # A kit before SDK 1.21 is struck by its selected pad only; an extended kit declares 1.28,
     # whose serial is the track's (track_note_serial, as the extended renderer's own line).
     'if (Machine::selected_pad)',
     'input.note_serial = selected_pad_serial(controls)',

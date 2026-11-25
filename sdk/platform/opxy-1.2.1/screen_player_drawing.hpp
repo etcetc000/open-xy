@@ -1,6 +1,6 @@
-// A note player's own drawn page (SDK 1.24): the player declares a display
+// A note player's own drawn page (SDK 1.26): the player declares a display
 // (resources.display) and draws its page as a synth draws its screen, a
-// draw::Frame (from SDK 1.26 an extended one, which an extended renderer applies,
+// draw::Frame (from SDK 1.28 an extended one, which an extended renderer applies,
 // extended_retained.hpp) each GUI frame, here from its State and Controls, in place of the
 // SDK's dot page (screen_player.hpp). It paints in place of the stock Maestro
 // page while the selected track plays the player (players.cpp). Include once,
@@ -87,7 +87,8 @@ template <class Machine> struct PlayerDrawing {
     }
 
     // A one-page player keeps the stock header: its labels, and each value the
-    // frame's header caption or else the amount 0..100, as a synth's. A paged
+    // frame's header caption or else the amount 0..100, as a synth's; an absent
+    // slot (an empty title) keeps its value empty, as on the dot page. A paged
     // player draws the two-page header in its own frame (opxy/page_header.hpp),
     // and a whole-screen one has none.
     static void header(Object* o, const draw::Input& input) {
@@ -99,7 +100,9 @@ template <class Machine> struct PlayerDrawing {
         }
         for (u32 i = 0; i < page_controls; ++i) {
             char caption[draw::header_capacity] = {};
-            if (shared.frame.header[i][0]) {
+            if (!Machine::titles[i][0]) {
+                // An absent slot: its title and value stay empty.
+            } else if (shared.frame.header[i][0]) {
                 for (u32 k = 0; k + 1 < draw::header_capacity && shared.frame.header[i][k]; ++k)
                     caption[k] = shared.frame.header[i][k];
             } else {

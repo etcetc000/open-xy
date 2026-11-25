@@ -82,11 +82,11 @@ int main() {{
 
 
 def drawn_player(m, host_cxx, scratch):
-    """A note player's own drawn page (SDK 1.24): its artwork against its declared display,
+    """A note player's own drawn page (SDK 1.26): its artwork against its declared display,
     then its display on the host with player.cpp, as the device unit compiles them, over a
     held key's frames: every frame valid. Returns the frames drawn."""
-    from .adapters import catalog_defaults, display_input_type, player_frame
-    from .native import validate_panel
+    from .adapters import catalog_defaults, display_input_type, player_frame, player_instrument
+    from .native import PLAYER_INSTRUMENT_DEFINE, validate_panel
     validate_panel(m)
     display = m.definition['resources']['display']
     input_type = display_input_type(m.definition)
@@ -105,6 +105,11 @@ template<class S> bool next_update(S&, const opxy::player::Controls&, opxy::play
 {m.definition['id']}::State state;
 {m.definition['id']}::DisplayState display_state;
 Frame frame;
+// As the device unit asserts them (player_drawing.cpp.in).
+static_assert(sizeof({m.definition['id']}::DisplayState) == {display['stateBytes']}, "Declared display size differs from C++ type");
+static_assert(alignof({m.definition['id']}::DisplayState) == {display['stateAlignment']}, "Declared display alignment differs from C++ type");
+static_assert(__is_trivial({m.definition['id']}::DisplayState) && __is_standard_layout({m.definition['id']}::DisplayState),
+              "Display state must be trivial standard-layout data");
 }}
 int main() {{
     using namespace {m.definition['id']};
@@ -142,7 +147,10 @@ int main() {{
 }}
 ''', encoding='utf-8')
     binary = scratch / (m.id + '-drawn-page' + ('.exe' if os.name == 'nt' else ''))
-    command = [host_cxx, '-std=c++11', '-O2', '-I' + str(ROOT / 'sdk/include'), '-I' + str(m.root), str(probe), '-o', str(binary)]
+    # The device unit's warnings, and its Controls.instrument (every drawn player declares SDK 1.25 or later).
+    command = [host_cxx, '-std=c++11', '-O2', '-Wall', '-Werror', '-Wno-unused-variable',
+               *((PLAYER_INSTRUMENT_DEFINE,) if player_instrument(m) else ()),
+               '-I' + str(ROOT / 'sdk/include'), '-I' + str(m.root), str(probe), '-o', str(binary)]
     result = subprocess.run(command, capture_output=True, text=True, timeout=300, creationflags=NO_WINDOW)
     require(result.returncode == 0, f'{m.id}: its own page does not compile with player.cpp, as the device unit '
             f'compiles it (display(DisplayState&, const State&, const player::Controls&, const draw::{input_type}&, Frame&)):\n'

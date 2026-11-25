@@ -2,7 +2,7 @@
 
 Browser previews audition synths and drum kits: their controls, alternates
 included, their sound and their own screen.
-A note player that [draws its own page](api.md#a-players-own-drawn-page-sdk-124)
+A note player that [draws its own page](api.md#a-players-own-drawn-page-sdk-126)
 gets a silent preview of that page in the builder: its keys run the player, and
 the page draws from its State as on the device. `sdk.py preview` builds it; the
 harness below auditions sound and does not show it.

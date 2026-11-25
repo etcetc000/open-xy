@@ -84,15 +84,14 @@ IDLE_SDK = (1, 22)
 # instrument track, processed in place on the track's voice sum once per block.
 # 1.25 gives a note player its track's kind of instrument (Controls.instrument) and lets a
 # drum kit's value editor move the key to another model (resources.modelEdit; SDK_1_25 in definitions.py).
-# 1.26 extends extended drawing to a drum kit's screen, with a whole-screen kit whose
+# 1.26 lets a note player draw its own page (resources.display): a draw::Frame from its
+# State and Controls each GUI frame, as a synth draws its screen. PLAYER_DRAWING_SDK is
+# the one place to renumber it, with the "SDK 1.26" text of docs/api.md and docs/display.md.
+PLAYER_DRAWING_SDK = (1, 26)
+# 1.28 extends extended drawing to a drum kit's screen, with a whole-screen kit whose
 # header shows only while Shift is held, and to a note player's own page
-# (EXTENDED_SCREENS_SDK in definitions.py).
-# A note player's own drawn page (resources.display: a draw::Frame from its State and
-# Controls each GUI frame, as a synth draws its screen) still declares PLAYER_DRAWING_SDK,
-# which takes a free number when it merges; it is the one place to renumber it, with the
-# "SDK 1.24" text of docs/api.md and docs/display.md.
-PLAYER_DRAWING_SDK = (1, 24)
-SDK_VERSION = (1, 26)
+# (EXTENDED_SCREENS_SDK in definitions.py). 1.27 is left to another change in review.
+SDK_VERSION = (1, 28)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -670,7 +669,7 @@ def machine_at(root, identity=None):
                 'dryLevel is a number from 0 to 1 on an effect without dryParameter')
         dry_level = round(level * 0x7fffffff)
     # A synth or drum kit draws its own screen, and so may an effect (SDK 1.7), a sample
-    # engine (SDK 1.8) or a note player (SDK 1.24); other sample engines and effects use
+    # engine (SDK 1.8) or a note player (SDK 1.26); other sample engines and effects use
     # a stock page, and other players the SDK's dot page.
     drawn = kind in ('synth', 'drum') or 'display' in definition['resources']
     display = 'drawing' if drawn else 'player' if kind == 'player' else 'stock'

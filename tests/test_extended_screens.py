@@ -1,4 +1,4 @@
-"""Extended drawing on a drum kit's screen and a note player's own page (SDK 1.26): the
+"""Extended drawing on a drum kit's screen and a note player's own page (SDK 1.28): the
 declaration, the generated renderer and player unit, a whole-screen kit's display file
 in the SDK and the builder, the kit renderer over host doubles, and the previews.
 The fixtures are tests/fixtures/machines/probekitcanvas and probeplayer."""
@@ -35,15 +35,15 @@ def set_sdk(root, version):
 
 
 class Declaration(unittest.TestCase):
-    def test_kits_and_players_declare_it_from_sdk_1_26(self):
+    def test_kits_and_players_declare_it_from_sdk_1_28(self):
         for name in ('probekitcanvas', 'probeplayer'):
             m = fixture(name)
             self.assertTrue(extended_display(m.definition['resources']['display']))
             self.assertEqual(m.display, 'drawing')
             with self.subTest(name=name), tempfile.TemporaryDirectory() as temp:
                 root = copy_fixture(name, temp)
-                set_sdk(root, '1.25')
-                with self.assertRaisesRegex(ValueError, r"drum kit's screen or a note player's page needs \"sdk\": \"1\.26\""):
+                set_sdk(root, '1.27')
+                with self.assertRaisesRegex(ValueError, r"drum kit's screen or a note player's page needs \"sdk\": \"1\.28\""):
                     machine_at(root)
 
     def test_the_last_control_touched_stays_a_synths(self):

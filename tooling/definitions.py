@@ -86,8 +86,8 @@ SDK_1_7_NODES = 256
 EXTENDED_SDK = (1, 20)
 # Extended drawing on a drum kit's screen and a note player's own page. It takes the next free
 # number when it merges: a renumber changes this line, SDK_VERSION and its history
-# (tooling/machines.py) and the "1.26" text in the docs and fixtures.
-EXTENDED_SCREENS_SDK = (1, 26)
+# (tooling/machines.py) and the "1.28" text in the docs and fixtures.
+EXTENDED_SCREENS_SDK = (1, 28)
 EXTENDED_KINDS = ('synth', 'effect', 'drum', 'player')
 EXTENDED_KEYS = ('affine', 'fullCanvas', 'rgba', 'cubic', 'openPaths', 'segmentPaths', 'quadratic', 'commands',
                  'countedPaths', 'encoderActivity')
@@ -275,7 +275,7 @@ def validate_definition(value, kind):
                     'tailFrames is a whole number of frames, at most %d, or "unbounded"' % EFFECT_TAIL_LIMIT)
         if 'display' in resources:
             validate_display(resources['display'], kind)
-    # A note player's own drawn page (SDK 1.24, tooling.machines).
+    # A note player's own drawn page (SDK 1.26, tooling.machines).
     if kind == 'player' and 'display' in resources:
         validate_display(resources['display'], kind)
     if kind in ('synth', 'drum'):

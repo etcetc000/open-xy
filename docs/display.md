@@ -17,8 +17,8 @@ patterns are the machine's own code filling nodes; see
 
 ## Declaration
 
-Each synth, sample engine with its own screen, or [note player drawing its own page](api.md#a-players-own-drawn-page-sdk-124)
-(SDK 1.24) declares its frame's budget in `resources.display` of
+Each synth, sample engine with its own screen, or [note player drawing its own page](api.md#a-players-own-drawn-page-sdk-126)
+(SDK 1.26) declares its frame's budget in `resources.display` of
 `definition.json` and names the same shape as its C++ frame type. The SDK sizes
 the native renderer, the browser renderer and the artwork bindings from that
 declaration; a mismatch fails to compile.
@@ -43,7 +43,7 @@ void display(DisplayState& state, const opxy::draw::Input& input, Frame& output)
 | `palette` | 1..16 paint entries |
 | `stateBytes`, `stateAlignment` | `DisplayState` size (whole words) and alignment, checked against the compiled type |
 
-A synth's or effect's screen, and from SDK 1.26 a drum kit's or a note player's page, can go beyond these
+A synth's or effect's screen, and from SDK 1.28 a drum kit's or a note player's page, can go beyond these
 with [extended drawing](#extended-drawing).
 
 [draw.hpp](../sdk/include/opxy/draw.hpp) is the format definition.
@@ -315,8 +315,8 @@ SDK 1.4 supplies `<opxy/page_header.hpp>` for synths using `"press": "page"`.
 starter keeps the stock header. This helper uses the existing drawing ABI and
 the [UX layout](ux.md#more-than-four-controls). A paged
 [note player](api.md#note-players) gets the same header from the SDK and
-calls nothing, unless it [draws its own page](api.md#a-players-own-drawn-page-sdk-124)
-(SDK 1.24): then it draws this header itself, as a synth does.
+calls nothing, unless it [draws its own page](api.md#a-players-own-drawn-page-sdk-126)
+(SDK 1.26): then it draws this header itself, as a synth does.
 
 Store `opxy::draw::PageHeader` in `DisplayState` and call its `reset()` from
 `display_reset`. It occupies 20 bytes with four-byte alignment. Reserve eight
@@ -514,11 +514,11 @@ and source alongside the original; rebuilding is required after editing either.
 
 ## Extended drawing
 
-A synth's or effect's screen, and from SDK 1.26 a drum kit's screen or a
-[note player's own page](api.md#a-players-own-drawn-page-sdk-124), can declare
+A synth's or effect's screen, and from SDK 1.28 a drum kit's screen or a
+[note player's own page](api.md#a-players-own-drawn-page-sdk-126), can declare
 more paths and points than the table in [Declaration](#declaration) allows, and
 the optional keys below. Any of them makes the display *extended*: it needs
-`"sdk": "1.20"` (`"1.26"` on a kit or a player), uses `draw::ExtendedFrame` (or
+`"sdk": "1.20"` (`"1.28"` on a kit or a player), uses `draw::ExtendedFrame` (or
 one of its aliases) instead of `draw::Frame`, and is drawn by a separate
 renderer. A display that uses none of them keeps `draw::Frame`, its renderer and
 its generated code exactly as before. A kit's extended screen gets the same

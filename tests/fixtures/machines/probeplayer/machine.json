@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "sdk": "1.26",
+  "sdk": "1.28",
   "kind": "player",
   "description": "Test fixture: a note player whose own page uses extended drawing: a curve, direct colour and the encoders."
 }
