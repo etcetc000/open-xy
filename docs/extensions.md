@@ -179,6 +179,8 @@ a pull request that adds its entry to `catalog/extensions.json`: the same
 format as [machines](catalog.md#entries), with `"kind": "extension"` and no
 `cpu`. Origin follows the catalog: Open-XY's own (`catalog.OFFICIAL_EXTENSIONS`)
 show as Core, others as Community, and folders outside the catalog as Yours.
+The SDK's own extensions (`extensions/`, such as `cpu`, tracked and unchanged in
+the checkout) show as Core without a catalog entry ([builder](builder.md)).
 
 A build's collection lists its extensions after its machines; that order is the
 callback order. Native builds include the whole collection. The site's Extensions step follows
@@ -216,8 +218,8 @@ value (one without a value chooses the default); a capability without a setting,
 | Capability | Setting | Effect |
 | --- | --- | --- |
 | `long_samples` | | A file loads up to 1,048,575 frames (2^20 - 1, 23.78 s at 44.1 kHz), the most a stock sample object holds, instead of stock's 882,000 (20 s). Recording still stops at 20 s. |
-| `release_floor` | Idle threshold, -66..-20 dB (default -48) | A released note stops, and frees its voice, once its amplitude envelope falls below the threshold, fading over one block; stock stops at -66 dB. The level is the envelope's own, before velocity, filter and track volume. Held notes, stolen-voice fades and drum kits are unchanged; the filter envelope's release stops at the same level. |
-| `fast_helpers` | Fast helpers, 0 off or 1 on (default 0) | The faster fill, copy and divide routines every native machine calls ([CPU capabilities](cpu-capabilities.md#fast_helpers)): at 1 the build links hand-written versions in place of the plain ones. Experimental; a build capability with no image site: chosen only by `sdk.py build`, never by the builder or `settings apply`, and `settings show` cannot read it. |
+| `release_floor` | Idle threshold, -66..-20 dB (default -48) | A released note stops, and frees its voice, once its amplitude envelope falls below the threshold, fading over one block; stock stops at -66 dB. The level is the envelope's own, before velocity, filter and track volume. Held notes, stolen-voice fades and drum kits are unchanged; the filter envelope's release stops at the same level. It works on its own. With [`idle`](cpu-capabilities.md#idle) (deprecated, not in `cpu`) the idle cut also stops voices at this threshold. |
+| `fast_helpers` | Fast helpers, 0 off or 1 on (default 0) | The faster fill, copy and divide routines every native machine calls ([CPU capabilities](cpu-capabilities.md#fast_helpers)): at 1 the build links hand-written versions in place of the plain ones. Experimental; a build capability with no image site: chosen by `sdk.py build` or the builder, never by `settings apply`, and `settings show` cannot read it. |
 
 `python sdk.py settings show --image os.ldr` lists the capabilities an OS image
 has on; `python sdk.py settings apply --image os.ldr --extension <folder>
@@ -227,15 +229,19 @@ machines. Every capability site must hold stock or reviewed bytes.
 
 A **build capability** (`"build": true` in the registry) is switched the same way,
 by a settings extension naming it, but only when the firmware is built
-(`sdk.py build`): its edits are hooks into SDK code its service links (or, for
-`load_governor`, fixed bytes the firmware profile marks as the build's; every
-fixed-byte edit of a build capability carries that mark), or, for `fast_helpers`,
+(`sdk.py build` or the builder): its edits are hooks into SDK code its service links (or, for
+`load_governor` and `pitch_constants`, fixed bytes the firmware profile marks as
+the build's; every fixed-byte edit of a build capability carries that mark), or,
+for `fast_helpers`,
 it has no edit and its setting chooses which source two SDK units compile from.
 So it cannot be written into an existing image (`settings apply` refuses it;
 `settings show` reports whether an image was built with it, except for
-`fast_helpers`, which no image site shows), and browser kits do not offer it.
+`fast_helpers`, which no image site shows). The builder offers every build
+capability but those that change every machine's generated code (`"adapters":
+true`, `idle`, which is deprecated and not in the `cpu` extension): `sdk.py kit`
+refuses an extension that names one ([builder](builder.md#capabilities)).
 Off, every one of its sites stays stock and the SDK units of its service are not
-linked (`load_governor` has none). `fast_helpers` has no site and no unit of its
+linked (`load_governor` and `pitch_constants` have none). `fast_helpers` has no site and no unit of its
 own: its two units, `divide` and `memory`, are linked in every native build, off
 (0, the default) from the plain `divide.s` and `memory.cpp` and on (1) from
 `divide_fast.s` and `memory_fast.cpp`, under the same object names. Each
@@ -303,7 +309,11 @@ least one has no `choices` and differs from stock: that edit tells the builder a
 `sdk.py settings` from an image whether the capability is on, even when a setting's
 bytes equal stock's. Each capability also brings an audit module (like
 [`tooling/release_floor.py`](../tooling/release_floor.py)) that checks its sites and
-encodings, called from `configuration()` in `tooling/native.py`.
+encodings, called from `configuration()` in `tooling/native.py`. A build capability
+whose service changes the code generated for every machine (as `idle` changes the
+voice and effect adapters) says so with `"adapters": true`: a test compares every
+fixture machine's generated sources with and without each build capability against
+that mark, and browser kits refuse such a capability ([builder](builder.md#capabilities)).
 
 **Add an action** with a registry entry (and its `requires`, if one claim must
 grant it), a bit in

@@ -1,4 +1,4 @@
-// A player's drawn page (SDK 1.24): the real renderer over host doubles.
+// A player's drawn page (SDK 1.26): the real renderer over host doubles.
 #include <screen_player_drawing.hpp>
 #include <cstdio>
 #include <cstdlib>

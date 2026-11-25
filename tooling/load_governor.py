@@ -42,9 +42,9 @@ On:
 The single-block kill branch (8d51e4f8), the 94.5 % branch (8d51e566), the thresholds 8d51c450 and 8d51c468, the
 kill routine and the load byte's scale stay stock and read the new figure.
 
-A build capability (profiles/extensions.json "build": true, each edit "build": true): chosen only when sdk.py
-build builds the firmware from a collection that names it; `sdk.py settings apply` and browser kits refuse it, and
-`sdk.py settings show` reads from an image whether it was built with it.
+A build capability (profiles/extensions.json "build": true, each edit "build": true): chosen only when the
+firmware is built (sdk.py build, or the builder, which writes its fixed bytes) from a collection that names it;
+`sdk.py settings apply` refuses it, and `sdk.py settings show` reads from an image whether it was built with it.
 """
 from .formats import require
 

@@ -20,6 +20,7 @@ from unittest.mock import patch
 
 from tooling import native
 from tooling.adapters import preset_files
+from tooling.firmware import hook_symbol
 from tooling.formats import elf32, elf_sections, sha
 from tooling.machines import sample_path
 from tooling.pipeline import document, read, save_json
@@ -147,9 +148,12 @@ class PackageVerification(unittest.TestCase):
             owner_of.update(dict.fromkeys(defined, name))
             needs[name] = (owner, undefined)
         for patch in self.report['patches']:
-            # Service hooks call into their service's units; service text edits call nothing.
+            # Service hooks call into their service's units; service text edits call nothing. A
+            # site several services share enters the handler of the first of them the build has.
             if patch.get('service') and patch['kind'] == 'hook' and patch['after'] != patch['before']:
-                self.assertEqual(services.get(owner_of[patch['symbol']]), patch['service'], patch['symbol'])
+                symbol = hook_symbol(patch, set(self.report['services']))
+                expected = next((s for s in patch.get('symbols', {}) if s in self.report['services']), patch['service'])
+                self.assertEqual(services.get(owner_of[symbol]), expected, symbol)
         # Only a service's own units and machines of the kinds or features it serves may use its symbols.
         users = self.patch_profile['services']
         # The entry points the SDK resolves to a fallback when their service is not linked
@@ -239,10 +243,11 @@ class CapabilityUses(unittest.TestCase):
 
     def test_only_idle_counts_as_a_machines_use(self):
         every = SimpleNamespace(capabilities=('boot_log_fix', 'idle', 'block_trims', 'output_slack', 'load_governor',
-                                              'fast_helpers'))
+                                              'pitch_constants', 'fast_helpers'))
         self.assertEqual(machine_capability_uses([every]), {'idle'})
         # A capability outside the list is refused as a machine's use, selected or not.
-        for capability in ('boot_log_fix', 'block_trims', 'output_slack', 'load_governor', 'fast_helpers', 'anything'):
+        for capability in ('boot_log_fix', 'block_trims', 'output_slack', 'load_governor', 'pitch_constants', 'fast_helpers',
+                           'anything'):
             with self.subTest(capability=capability):
                 self.assertEqual(machine_capability_uses([SimpleNamespace(capabilities=(capability,))]), set())
         self.assertEqual(machine_capability_uses([]), set())

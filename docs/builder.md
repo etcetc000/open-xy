@@ -357,6 +357,10 @@ Domains & Routes → Add → Custom Domain**; see the
 
 ## Export a kit
 
+To distribute custom machines for import into the site's catalog, see
+[machine packs](catalog.md#import-custom-machines). They are exported with
+`--personal --machine-pack` and pass the same native and browser checks as a personal kit.
+
 With the [pinned native tools](build.md) and Clang++ for wasm32:
 
 ```powershell
@@ -373,12 +377,43 @@ A published kit comes from the release host, after
 [release verification](build.md#release-verification). It holds the
 [catalog](catalog.md)'s machines fetched at their pinned commits
 (`--collection local/catalog/collection.json`), each with its repository, tag,
-commit and maintainer. For your own machines,
+commit and maintainer, and the SDK's own extensions (`extensions/`, such as
+`cpu`), which ship with the SDK rather than the catalog and show as Core. For
+your own machines,
 add `--personal`: it runs on any pinned host, Windows or Apple-silicon macOS,
 and skips only that verification. Open the resulting `opxy-builder.html`, or
 serve it as in [web development](#web-development), to select machines,
 preview them and use the installation guide with your device. It accepts your
 stock OS and builds of its own collection.
+
+### Capabilities
+
+A kit carries an extension's [capabilities](extensions.md#settings-extensions)
+by what each needs:
+
+- **image edits**: fixed bytes at stock sites (`long_samples`, `release_floor`,
+  `boot_log_fix`, and the build capabilities `load_governor` and
+  `pitch_constants`). The browser writes them when the extension is selected.
+- **SDK units**: a capability whose hooks enter SDK code its service links
+  (`block_trims`, `output_slack`): the kit holds those units' objects, compiled
+  with the rest, and links them only with the extension. A unit capability
+  (`fast_helpers`) chooses which source two units every build links compile
+  from: the kit holds both values' objects (`unitSources`) and links the chosen
+  one under the same names, in the same place.
+- **machine code**: a capability marked `"adapters": true` in the registry
+  (`idle`, [deprecated](cpu-capabilities.md#idle)) changes the code generated
+  for every machine. A kit's objects serve every selection, so `sdk.py kit`
+  refuses an extension that names one, before it builds anything; `sdk.py
+  build` still takes it.
+
+The site's `cpu` extension is the SDK's `cpu`. A build of the kit's whole
+collection with it is byte for byte the `sdk.py build` of that collection with
+`cpu` at the same fast helpers setting and profiling (the site's downloads have
+profiling off); without it, the `sdk.py build` of the machines alone. A smaller
+selection links the same objects, as every kit's selections do. Recovery tries
+both fast helpers values for an extension choice with `cpu`, since no site in
+the OS image shows which one a build has. Their objects pass the GNU ld check at export; the native build's
+stack and one-definition checks run on the value the kit's own build chose.
 
 The browser links the normalized ELF32 Blackfin objects itself, supporting the
 LUIMM16, HUIMM16, PCREL24, PCREL24_JUMP_L and BYTE4 relocations. Unsupported
@@ -399,7 +434,8 @@ The export checks that:
   its `os.ldr` byte for byte: every machine, or Open-XY's own when the collection
   doesn't fit at once ([memory](api.md#memory-and-limits));
 - every non-empty selection with every extension choice (including none) matches
-  GNU ld, including symbols and BSS;
+  GNU ld, including symbols and BSS; a unit capability's other value is checked with
+  its extension alone and with the largest extension choice that holds it;
 - browser output matches the Python writer, with correct catalog, artwork and ZIP;
 - every output is recognized and its selection restored, and corruption inside
   or outside the allowed edits is rejected.

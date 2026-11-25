@@ -18,8 +18,8 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, extensions, load_governor, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables, voice_heap
-from .adapters import (kit_controls, pad_mix, played_pad, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
+from . import benchmark, extensions, load_governor, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables, track_stage, voice_heap
+from .adapters import (kit_controls, model_edit, pad_mix, player_instrument, played_pad, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
                        generate_sample_callbacks, generate_screen, generate_screen_order,
@@ -28,7 +28,7 @@ from .adapters import (kit_controls, pad_mix, played_pad, sends_per_key, aux_pre
                        control_callbacks)
 from .contributors import validate_source_boundary
 from .definitions import extended_display, paged, synth_shift
-from .firmware import active_services, assemble, hook_instruction, hook_target, patch_active
+from .firmware import active_services, assemble, hook_instruction, hook_symbol, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
 from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, sample_path, tree
 from .pipeline import (PROFILE, ROOT, add_overwrite_argument, check_patch_boundaries, child, config, document, execute,
@@ -99,10 +99,10 @@ UNIT_SOURCES = {'fast_helpers': {'divide': 'sdk/platform/blackfin/divide_fast.s'
 
 def check_unit_sources():
     """UNIT_SOURCES names exactly the registry's unit capabilities and their units, each an SDK unit with
-    an existing file."""
+    a plain source (PLAIN_SOURCES) and an existing file."""
     require({name: set(units) for name, units in extensions.unit_capabilities().items()} ==
             {name: set(units) for name, units in UNIT_SOURCES.items()} and
-            all(unit in SDK_UNITS and (ROOT / source).is_file() for units in UNIT_SOURCES.values()
+            all(unit in SDK_UNITS and unit in PLAIN_SOURCES and (ROOT / source).is_file() for units in UNIT_SOURCES.values()
                 for unit, source in units.items()), 'The unit capabilities and their sources differ')
 
 
@@ -112,6 +112,47 @@ def unit_sources(machines, profile):
     services, settings = active_services(profile, service_users(machines)), build_settings(machines)
     return {unit: source for name, units in UNIT_SOURCES.items() if name in services and settings.get(name, 0) == 1
             for unit, source in units.items()}
+
+
+# The plain source of each SDK unit a unit capability can choose another source for.
+PLAIN_SOURCES = {'divide': RUNTIME_ASM, 'memory': RUNTIME_CXX}
+
+
+def sdk_unit_defines(profile, machines):
+    """The defines every SDK unit of a build compiles with (machines' own units take none of them)."""
+    defines = (KIT_CONTROLS_DEFINE,) if 'kit_controls' in active_services(profile, service_users(machines)) else ()
+    return defines + sdk_defines(machines)
+
+
+def compile_unit_source(gcc, tools, source, obj, defines):
+    """SDK unit `obj` from `source` (an assembly .s or a C++ file of the repository), as every
+    build compiles divide and memory, whichever source a unit capability chose."""
+    if source.endswith('.s'):
+        return execute([tools['as'], '-mcpu=bf707', '-I', ROOT, '-o', obj, ROOT / source])
+    return compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(), defines)
+
+
+def unit_variants(directory, tools, compiler, profile, machines):
+    """For a browser kit (tooling/browser_kit.py): each unit capability the collection's extensions
+    declare -> each value of its setting -> {object name: bytes} of the units it chooses the source
+    of, compiled and normalized as compile_collection compiles them for a build at that value (0:
+    the plain sources, 1: UNIT_SOURCES). Empty for a collection that declares none."""
+    declared = {c for e in extensions_of(machines) for c in e.capabilities}
+    gcc, defines = compiler_paths(compiler), sdk_unit_defines(profile, machines)
+    variants = {}
+    for name, units in UNIT_SOURCES.items():
+        if name not in declared:
+            continue
+        for value in (0, 1):
+            chosen = variants.setdefault(name, {}).setdefault(value, {})
+            for unit, fast in units.items():
+                obj = Path(directory) / name / str(value) / 'sdk' / (unit + '.o')
+                obj.parent.mkdir(parents=True, exist_ok=True)
+                compile_unit_source(gcc, tools, fast if value else PLAIN_SOURCES[unit], obj, defines)
+                obj.write_bytes(normalize_object(read(obj)))
+                require('R_BFIN_RIMM16' not in execute([tools['objdump'], '-r', obj]), 'Truncated address relocation in ' + unit)
+                chosen['sdk/' + unit + '.o'] = read(obj)
+    return variants
 
 
 def fixed_after(patch, services, profiling, chosen):
@@ -211,6 +252,21 @@ def check_sources(machines):
 # (SDK 1.23): the shared drum units' calls into them (drum_kit_controls.hpp). Every
 # other build compiles those units as before.
 KIT_CONTROLS_DEFINE = '-DOPXY_KIT_CONTROLS=1'
+# Defined for every SDK unit, and every player's unit, of a build with a player declaring
+# SDK 1.25 or later: Controls.instrument (opxy/player.hpp) and its publication
+# (players.cpp). Every other build compiles both as before.
+PLAYER_INSTRUMENT_DEFINE = '-DOPXY_PLAYER_INSTRUMENT=1'
+# Defined for every SDK unit of a build with a kit declaring modelEdit (SDK 1.25): the
+# shared editor's call into its editor (drum_model_edit.hpp). Every other build compiles
+# those units as before.
+MODEL_EDIT_DEFINE = '-DOPXY_MODEL_EDIT=1'
+
+
+def sdk_defines(machines):
+    """The SDK 1.25 defines a build's machines ask for, in a fixed order: none for a build
+    without a 1.25 player or a modelEdit kit."""
+    return (((PLAYER_INSTRUMENT_DEFINE,) if any(player_instrument(m) for m in machines) else ()) +
+            ((MODEL_EDIT_DEFINE,) if any(model_edit(m) for m in machines) else ()))
 
 
 def compile_cxx(cxx, assembler, source, obj, includes=(), defines=()):
@@ -302,7 +358,7 @@ SDK_UNITS = ('divide', 'sample_kernel', 'memory', 'registration', 'registration_
              'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel',
              'players', 'player_hooks', 'player_table', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
              'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_trigger', 'drum_hooks',
-             'drum_send', 'drum_send_hooks', 'drum_locks', 'lock_handles', 'drumline', 'drumline_hooks',
+             'drum_send', 'drum_send_hooks', 'track_call', 'track_stage', 'track_stage_table', 'drum_locks', 'lock_handles', 'drumline', 'drumline_hooks',
              'synth_shift_hooks', 'drum_kit_controls', 'drum_amp_envelope')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
@@ -329,6 +385,10 @@ UNIT_SERVICES['drum_amp_envelope'] = 'amp_envelope'
 # Per-key sends hook stock's mixer, so only a build with a padMix kit or a drumline_page
 # extension links them.
 UNIT_SERVICES.update(dict.fromkeys(('drum_send', 'drum_send_hooks'), 'drum_sends'))
+# A synth's track stage (SDK 1.24, track_stage.py): the shared handler of stock's
+# track call (track_call.s), its runtime and the declaring synths' table, linked only
+# with such a synth. A build with per-key sends alone keeps their own handler.
+UNIT_SERVICES.update(dict.fromkeys(('track_call', 'track_stage', 'track_stage_table'), 'track_stage'))
 # A padMix kit's step locks hook note start's pad payload (drum_locks.cpp).
 UNIT_SERVICES['drum_locks'] = 'drum_locks'
 # Their values by handle (lock_handles.cpp): the pool, the step hook and open-xy.locks.
@@ -364,8 +424,8 @@ def service_users(machines):
     they declare ('trackControl', 'auxTrack', 'hidePages', 'padMix', 'synthShift': a synth's
     Shift row, whose presets and step locks use the drums and drum_locks services;
     'playedPad': a drum kit declaring SDK 1.21 or later, whose screen reads the played pad;
-    'kitControls': a drum kit declaring padVolume, padRandom or ampEnvelope, and 'ampEnvelope'
-    one declaring ampEnvelope),
+    'trackStage': a synth's track stage; 'kitControls': a drum kit declaring padVolume, padRandom
+    or ampEnvelope, and 'ampEnvelope' one declaring ampEnvelope),
     'extension' when it links extension code (native builds link all of the collection's;
     settings extensions link none), the capabilities they declare ('master_filter',
     'drumline_page') and the registry capabilities its extensions declare."""
@@ -376,6 +436,7 @@ def service_users(machines):
             ['padMix' for m in machines if pad_mix(m)] +
             ['synthShift' for m in machines if m.kind == 'synth' and synth_shift(m.definition)] +
             ['playedPad' for m in machines if m.kind == 'drum' and played_pad(m)] +
+            ['trackStage' for m in machines if track_stage.track_stage(m) is not None] +
             ['kitControls' for m in machines if kit_controls(m)] +
             ['ampEnvelope' for m in machines if kit_controls(m) & 4] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
@@ -456,6 +517,8 @@ def absent_symbols(m):
                 absent.update({'_' + m.prefix + '_vtable': 'kit_absent', m.prefix + '_drum_send': 'kit_absent'})
             if m.definition['resources'].get('parameterEdit', 0):
                 absent[m.prefix + '_drum_edit_value'] = 'kit_absent'
+            if model_edit(m):
+                absent[m.prefix + '_drum_edit_model'] = 'kit_absent'
         if m.kind == 'sample':
             # The shared sample table names these; unselected, its ready check declines first.
             absent.update({symbol: 'kit_absent' for symbol in sample_callbacks(m)})
@@ -465,6 +528,8 @@ def absent_symbols(m):
             absent[m.prefix + '_screen_ready'] = 'kit_absent'
         # The shared track control table names these; unselected, its ready check declines first.
         absent.update({symbol: 'kit_absent' for symbol in control_callbacks(m)})
+        # So does the track stage table.
+        absent.update(track_stage.absent_symbols(m))
     if m.kind in ('effect', 'sample', 'drum'):
         absent[m.prefix + '_benchmark'] = 'kit_absent'
     return absent
@@ -507,9 +572,10 @@ def service_fallbacks(services):
     that shared objects (startup's included) import: kit_absent, which answers 0. Track
     control's saved data, the aux service's start, every call into the step-lock
     handles (startup.LOCK_CALLS), stock Drumline's second page (startup's
-    sdk_drumline_get) and the drum-kit controls' entry points the shared drum units
+    sdk_drumline_get), the drum-kit controls' entry points the shared drum units
     call in a build with such a kit (drum_kit_controls.hpp): each 0 is a kit without
-    them."""
+    them, and, in a collection with a track stage, the per-key sends' reset the
+    shared track call handler makes (track_call.s)."""
     fallbacks = {}
     if 'control' in services:
         fallbacks['control'] = dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'), 'kit_absent')
@@ -519,6 +585,8 @@ def service_fallbacks(services):
         fallbacks['drum_locks'] = dict.fromkeys(('sdk_step_locks_' + call[1] for call in LOCK_CALLS), 'kit_absent')
     if 'drumline' in services:
         fallbacks['drumline'] = {'sdk_drumline_service': 'kit_absent'}
+    if 'track_stage' in services:
+        fallbacks['drum_sends'] = {'sdk_drum_send_begin': 'kit_absent'}
     if 'kit_controls' in services:
         fallbacks['kit_controls'] = dict.fromkeys(KIT_CONTROLS_CALLS, 'kit_absent')
     return fallbacks
@@ -649,11 +717,17 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         execute([tools['as'], '-mcpu=bf707', '-I', ROOT, '-o', obj, source])
 
     # The SDK's units of a build with a kit declaring the drum-kit controls see
-    # OPXY_KIT_CONTROLS; a machine's own units never do.
-    defines = (KIT_CONTROLS_DEFINE,) if 'kit_controls' in active_services(profile, service_users(machines)) else ()
+    # OPXY_KIT_CONTROLS; a machine's own units never do. SDK 1.25: a 1.25 player's
+    # Controls.instrument, which every player of its build shares with the SDK units (a
+    # player's own units see that define alone), and a modelEdit kit's editor.
+    defines = sdk_unit_defines(profile, machines)
+    player_defines = tuple(d for d in defines if d == PLAYER_INSTRUMENT_DEFINE)
 
     def cxx(source, obj, m=None):
-        compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m), defines if m is None else ())
+        unit_defines = defines if m is None else ()
+        if m is not None and m.kind == 'player':
+            unit_defines = player_defines
+        compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m), unit_defines)
 
     def build_unit(obj, m, step):
         folder = obj.parent
@@ -688,14 +762,14 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(generate_project_companion_table(folder, machines)), obj)
             if step == 'track_control_table':
                 return cxx(str(generate_track_controls(folder, machines)), obj)
+            if step == 'track_stage_table':
+                return cxx(str(track_stage.generate_table(folder, machines)), obj)
             if step == 'registration_stock':
                 return cxx(str(generate_registration_stock(folder)), obj)
-            if step == 'divide':
-                return assemble_unit(ROOT / chosen_sources.get('divide', RUNTIME_ASM), obj)
+            if step in PLAIN_SOURCES:  # divide, memory: a unit capability may choose their source
+                return compile_unit_source(gcc, tools, chosen_sources.get(step, PLAIN_SOURCES[step]), obj, defines)
             if step == 'sample_kernel':
                 return assemble_unit(ROOT / KERNEL_ASM, obj)
-            if step == 'memory':
-                return cxx(chosen_sources.get('memory', RUNTIME_CXX), obj)
             if step == 'startup_label':
                 return assemble_unit(startup_label.generate(folder, version), obj)
             if step == 'startup':
@@ -967,6 +1041,16 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines, native=None
         return result
 
     bounds = {}
+    # The shared track call handler, in a build with a track stage: its frame, and its
+    # depth to the stage runtime without the stage it calls through a pointer.
+    handler = symbols['sdk_track_call']['value'] if 'sdk_track_call' in symbols else None
+    require(handler is None or handler in body, 'The track call handler is not a function start')
+    handler_frame = 0
+    if handler is not None:
+        frame = 0
+        for text in body[handler]:
+            frame += _frame_delta(text)
+            handler_frame = max(handler_frame, frame)
     for m in machines:
         table, slot = {'effect': (f'_{m.prefix}_fx_vtable', 0x10),
                        'player': (f'_{m.prefix}_player_vtable', 0x14),
@@ -975,6 +1059,17 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines, native=None
         entries = [word(symbols[table]['value'] + offset) for offset in slots]
         require(all(entry in body for entry in entries), 'Audio entry of ' + m.id + ' is not a function start')
         bounds[m.id] = max(depth(entry) for entry in entries)
+        if handler is not None and m.kind in ('synth', 'drum', 'sample'):
+            # Stock's voice loop runs inside the shared track call handler's frame (an
+            # instrument track's sample engine too; counted for every sample machine).
+            bounds[m.id] += handler_frame
+        if track_stage.track_stage(m) is not None:
+            # Its stage and ready check, from that handler through the runtime (track_call.s,
+            # track_stage.cpp).
+            stage = [symbols[name]['value'] for name in (*track_stage.stage_symbols(m), m.prefix + '_record_ready')]
+            require(handler is not None and all(entry in body for entry in stage),
+                    'Track stage entry of ' + m.id + ' is not a function start')
+            bounds[m.id] = max(bounds[m.id], depth(handler, False) + max(depth(entry) for entry in stage))
     if 'sdk_master_process' in symbols:
         entry = symbols['sdk_master_process']['value']
         require(entry in body, 'Master audio entry is not a function start')
@@ -983,11 +1078,12 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines, native=None
         # Entered from stock's mixer: the voice loop after a voice has rendered
         # (8d51c7b2), after the track gain's in-place loop (8d510ea8), and after
         # the send loops (8d511116), which asks the send effects' dry queries.
-        entries = [symbols[name]['value']
+        # The voice hook runs inside the voice loop, so under the shared handler's frame.
+        entries = [(symbols[name]['value'], handler_frame if name == 'sdk_drum_send_voice_hook' else 0)
                    for name in ('sdk_drum_send_voice_hook', 'sdk_drum_send_gain_hook', 'sdk_drum_send_own')
                    if name in symbols]
-        require(all(entry in body for entry in entries), 'Per-key send entry is not a function start')
-        bounds['sdk:drum_sends'] = max(depth(entry) for entry in entries)
+        require(all(entry in body for entry, _frame in entries), 'Per-key send entry is not a function start')
+        bounds['sdk:drum_sends'] = max(depth(entry) + frame for entry, frame in entries)
     return bounds
 
 
@@ -1055,14 +1151,15 @@ def check_module(directory, tools, profile, machines, profiling=True, runtime_me
         elif patch['kind'] == 'startup':
             patch['after'] = startup_label.jump(symbols[patch['symbol']]['value']).hex()
         elif patch['kind'] == 'hook':
-            symbol = symbols[patch['symbol']]
+            name = hook_symbol(patch, services)
+            symbol = symbols[name]
             require(symbol['type'] == 2 and symbol['size'] > 0 and text['address'] <= symbol['value'] and
                     symbol['value'] + symbol['size'] <= text['address'] + text['size'],
                     'Hook must resolve to a bounded module function')
             patch['after'] = hook_instruction(patch, symbol['value']).hex()
             require(hook_target(patch, bytes.fromhex(patch['after'])) == (symbol['value'], patch['call']),
                     'Branch encoding mismatch')
-            hooks[patch['symbol']] = symbol['value']
+            hooks[name] = symbol['value']
     check_patch_boundaries(patch_profile, len(profile['patches']))
     return module, sizes, patch_profile, hooks, stack, usage
 

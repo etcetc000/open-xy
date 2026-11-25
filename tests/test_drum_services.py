@@ -59,7 +59,15 @@ class DrumServices(unittest.TestCase):
         # every check above unchanged on kits without them, then theirs (drum_gui.cpp).
         self.run_drum_gui(kit_controls=True)
 
-    def run_drum_gui(self, kit_controls=False):
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_a_model_edit_kits_turn_moves_the_key_across_models(self):
+        # A build with a modelEdit kit (SDK 1.25): the shared editor compiled with OPXY_MODEL_EDIT,
+        # every check above unchanged on kits without it, then its own (drum_gui.cpp
+        # model_edit_checks); beside the drum-kit controls, an ampEnvelope kit keeps its amp values.
+        self.run_drum_gui(model_edit=True)
+        self.run_drum_gui(kit_controls=True, model_edit=True)
+
+    def run_drum_gui(self, kit_controls=False, model_edit=False):
         platform = ROOT / 'sdk/platform/opxy-1.2.1'
         with tempfile.TemporaryDirectory(prefix='drum-services-') as folder:
             folder = Path(folder)
@@ -82,6 +90,7 @@ class DrumServices(unittest.TestCase):
             binary = folder / ('drum_gui.exe' if os.name == 'nt' else 'drum_gui')
             hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
             command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', *(['-DOPXY_KIT_CONTROLS=1'] if kit_controls else []),
+                       *(['-DOPXY_MODEL_EDIT=1'] if model_edit else []),
                        '-I' + str(folder),
                        '-I' + str(ROOT / 'sdk/include'), '-I' + str(platform),
                        str(ROOT / 'tests/fixtures/drum_gui.cpp'), *sources, '-o', str(binary)]

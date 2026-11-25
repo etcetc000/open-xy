@@ -73,13 +73,15 @@ def capabilities():
     (release_floor's -66 dB).
 
     A build capability (docs/cpu-capabilities.md) is chosen when the firmware is built
-    (`sdk.py build`), never written into an existing image: its edits may be hooks into SDK
-    code its service links. Each of its fixed-byte (limit) edits is marked `"build": true` in
-    the firmware profile, so a browser kit can tell it apart from an image capability's
-    (load_governor has only such edits). A build capability has no setting, except one with
+    (`sdk.py build` or the builder), never written into an existing image: its edits may be
+    hooks into SDK code its service links. Each of its fixed-byte (limit) edits is marked
+    `"build": true` in the firmware profile, so the profile itself tells it apart from an image
+    capability's (load_governor has only such edits). A build capability has no setting, except one with
     `units` (fast_helpers), which has no edit at all: its setting, 0 (off, the default) or 1,
     chooses the source of the SDK units it names (tooling/native.py UNIT_SOURCES); no stock
-    byte depends on it."""
+    byte depends on it. A hook build capability whose service also changes the code generated
+    for every machine (idle: the voice and effect adapters) says so with `"adapters": true`:
+    a browser kit, whose objects serve every selection, refuses it (adapter_capabilities)."""
     data, firmware = document(ROOT / PROFILE)['capabilities'], document(ROOT / FIRMWARE_PROFILE)
     require(isinstance(data, dict) and len(data) <= 32, 'Capabilities are a registry')
     for name, capability in data.items():
@@ -99,9 +101,9 @@ def capabilities():
                     'Invalid build capability: ' + name)
             continue
         if capability.get('build') is not None:
-            # Hooks, and fixed bytes each marked as the build's (the mark is what tells a
-            # browser kit a build capability's limit edit); no setting.
-            require(capability == {'build': True} and edits and
+            # Hooks, and fixed bytes each marked as the build's (the profile's own record
+            # that the edit is a build capability's); no setting.
+            require(capability in ({'build': True}, {'build': True, 'adapters': True}) and edits and
                     all((p['kind'] == 'hook' or p['kind'] == 'limit' and p.get('build') is True) and
                         'choices' not in p and 'setting' not in p for p in edits),
                     'Invalid build capability: ' + name)
@@ -137,6 +139,12 @@ def capability_settings():
 def build_capabilities():
     """The registry's build capabilities (capabilities): chosen at build time only."""
     return tuple(name for name, c in document(ROOT / PROFILE)['capabilities'].items() if c.get('build'))
+
+
+def adapter_capabilities():
+    """The registry's build capabilities that change the code generated for every machine
+    (`"adapters": true`, idle): a browser kit cannot carry them (tooling/browser_kit.py)."""
+    return tuple(name for name, c in document(ROOT / PROFILE)['capabilities'].items() if c.get('adapters'))
 
 
 def unit_capabilities():

@@ -31,7 +31,8 @@ version is rejected. The output differs from stock in exactly these places:
 | Sample analysis | 10 | Schedules bounded background work, snapshots committed assignments, releases cached analysis and reports progress |
 | Drum-page services | 29 | Routes controls, source audition, assignment, waveform projection and held-pad slice/copy/paste and multi-edit actions |
 | Synthesis drum transport | 19 | Classifies owned drum kits for per-key editing, lookup, note start, project load, preset persistence and the track menu's scramble while retaining their registered engine IDs |
-| Per-key sends | 6 | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padMix` kit or a `drumline_page` extension |
+| Per-key sends | 6, one the track call | Lets a drum kit's keys follow the track's FX I and FX II sends or send their own amounts; linked only with a `padMix` kit or a `drumline_page` extension |
+| Track stages | the track call | Runs a synth's [track stage](api.md#track-stage) on its tracks' voice sums ([track stage](#track-stage)); linked only with a synth declaring `trackStage` |
 | Step locks of a kit's Shift fields | 3 | Notes the [step-lock handle](#step-lock-handles) the sequencer's lock pass applied, and adds that step's locks for the played key to its pan, level, pad controls and sends when its note starts, or a synth's [Shift row](#a-synths-shift-row) locks to its live words; linked only with a `padMix` kit, a Shift-row synth or a `drumline_page` extension |
 | A kit's amp envelope | 1 | Wraps the drum renderer's filter-envelope step for each voice to publish the voice's note-off to its adapter; linked only with a kit declaring [`ampEnvelope`](#the-drum-kit-controls) |
 | Drumline's second page | 2 | Shows stock Drumline's second page and wraps its voices' render for an extension's per-hit processor and settings; linked only with a [`drumline_page` extension](drumline-page.md) |
@@ -64,6 +65,14 @@ kit. Synthesis drum transport is the `drums` service, used by drum kits and,
 for its preset sites, by a synth with a [Shift row](#a-synths-shift-row), and
 per-key sends the `drum_sends` service, used only by a kit declaring `padMix` and
 by a `drumline_page` extension.
+A stock site has at most one hook. Services that need the same site share one
+handler that runs them in a fixed order: the site's record belongs to a service
+used by every user of them, and its `symbols` map each of them to the handler a
+build with it enters, the first one the build has winning (`tooling/firmware.py`
+`hook_symbol`). The mixer's call of a track's voice loop (`8d510bea`) is such a
+site: its record is the `track_call` service, used by per-key sends and [track
+stages](#track-stage) alike; a build with a track stage enters the shared
+handler, which runs both, and one with per-key sends alone their own, as before.
 The step locks of a kit's Shift fields are the `drum_locks` service, used by a
 `padMix` kit, by a synth with a Shift row and by a `drumline_page` extension.
 The `played_pad` service has no edit: it links the [drum trigger](#screens)
@@ -1266,6 +1275,51 @@ silent buffer (`python tests/sim_cycles.py` prints both; a count moves by a few
 cycles with where the harness places the code). The sim has no DDR model; the
 buses are in DDR on the device.
 
+### Track stage
+
+The audio loop takes the eight instrument tracks in turn. It skips a track whose
+audio-side engine word (`0x11b01d48 + 4 × track`) is 29 altogether; for every
+other, every block, sounding or silent, it clears the track buffer `11903600`
+(`8d510a72`) and calls the voice loop `8d51c708` from `8d510bea`, with R0 the
+voice manager, R1 the track and R2 the buffer. The loop adds each voice it
+renders into the buffer and returns their count in R0 (`8d51c7ac`, `8d51c7e0`):
+with a count of 0 the buffer is still all zero. After the call the engine reads
+only R0 (`8d510bee`), writing every other register before it reads it. The loop
+reads only R0..R2;
+like any C function it stores R2, P1 and P2 into its caller's 12-byte argument
+area and reads them back from there (`8d51c722`..`8d51c756`, `8d51c7ea`).
+
+From the count `c` the engine decides whether the track still sounds
+(`8d510bee`..`8d510cbe`). Its level follower (state `0x84ca9ba4 + 0x18 × track`)
+follows the magnitude of the buffer's first word, shifted left 8 with
+saturation, and `c` plus one if the follower is above `0x147ae14` decides. If
+that is nonzero, `8d51020c` processes the buffer in place (a DC-blocking
+filter, an engine-specific step and a per-track processor, `8d500340`) and sets
+the track's silence counter (`W[manager + 0x76 + 2 × track]`) to 0 or 1
+(`8d5105aa`); if zero, the counter goes up by one (`8d510c84`). From 2
+(`8d510cba`), the track takes the silent path (`8d51237a`): its follower and
+filter states are cleared and it skips the gain, meter, tap and buses. A
+nonzero count also has stock put back, after the buses (`8d518d36`, from
+`8d5111ba`), the track word that an engine-group LFO modulation changed for a
+block (`8d518ec4`).
+
+With a track stage, the record at `8d510bea` enters `sdk_track_call`
+(`track_call.s`): it resets the per-key send state (a no-op without per-key
+sends), calls the voice loop with the engine's R0..R2 from its own frame, which
+holds the 12-byte argument area, then passes the track, the buffer and the
+count to `sdk_track_stage` (`track_stage.cpp`) and returns what that returns.
+That reads the track's engine word; on a track whose engine has no stage it
+returns the count and leaves the buffer alone, so every such track mixes as
+stock mixes it. On a stage's track it zeroes the stage's state and calls its
+reset when the engine changed, processes the buffer in place, and returns the
+count, or, when no voice rendered, 1 if any word of the processed buffer is
+nonzero: stock then post-processes and mixes the stage's tail, and puts back the
+LFO's word, as it does in a block with a voice. A stage whose track has had no
+voice and whose largest output word has stayed below 64 for its hold (its tail
+in blocks plus 64) is not called; with no voice the buffer is stock's zeros and
+the count stays 0. The handler adds no stack beyond its frame and the
+runtime's; the voice loop runs 32 bytes deeper than from the engine.
+
 ## LFO pass check
 
 Stock's LFO evaluator `11a0446e(state, track, params, pass)` (L1) runs for
@@ -1408,7 +1462,11 @@ what `DrumMachine::shift` names: the model (with groups and no `padMix`, the
 group, then the model in it), the choke group, then nothing, or on a `padMix`
 kit pan and level, its second row the key's pad fields. Track modulation is
 applied after decoding. GUI edits repack and use the stock dirty/publication
-calls; no audio callback writes preset state or performs file I/O.
+calls; no audio callback writes preset state or performs file I/O. A
+`modelEdit` kit's control turn (SDK 1.25) takes the same route with the model
+its editor answers: no new hook or stock address. Only a build with such a kit
+compiles that arm of `sdk_drum_edit` (`OPXY_MODEL_EDIT`) and generates its
+table (`sdk_drum_model_edits`, `drum_model_edit.hpp`).
 
 A `padMix` kit's Shift pan and level edit the pad's own bytes as stock's
 editor does: pan (`8d4d60b0`) adds `(event[2] + 1) * event[1]` to the signed
@@ -1606,7 +1664,8 @@ another note rendered silence and reports TRK. Six hooks, each replacing one
 whole instruction outside every hardware loop body and replaying it:
 
 - `8d510bea`, the call of the voice loop: resets the per-key state, then jumps
-  to the loop with the engine's arguments and return address.
+  to the loop with the engine's arguments and return address. In a build with a
+  [track stage](#track-stage), the shared track call handler resets it instead.
 - `8d51c7b2`, `P2 = 0x11b01548` before a voice is added: for each send, while
   every voice so far follows the track nothing is kept. The first voice of the
   track with an amount of its own copies stock's sum so far into a followers'
@@ -2238,6 +2297,25 @@ instrument tracks once per GUI frame, including while another page is selected.
 This covers project loads and instrument changes without an octave key press.
 Note callbacks only read the published word; sample-engine GUI lookups
 publish into the same storage. No audio callback uses GUI pattern getters.
+
+### Players: track instrument
+
+SDK 1.25 adds no hook and no stock address for players. In a build with a
+player declaring 1.25 (`OPXY_PLAYER_INSTRUMENT`), the compositor substitute,
+with the Shift word, publishes each instrument track's kind of instrument
+(`Controls.instrument`) into eight bytes of the players service, from stock
+calls on the GUI: the track's engine getter `8d58781c` (`LINK`, `CALL
+8d587708`, `R0 = [P1 + 0x18]`: the engine word of the current pattern's track
+object), which the drum services already call, and stock's drum predicate
+`8d5b79f0` on that engine (1 for engine 3 or 4, else 0). The drums service
+hooks the predicate's entry (`extensions_drum_classify`) to alias an SDK kit
+to 4 first, so in a build with kits it answers for them; a build without that
+service has none. `8d587708` indexes the project at `[0x840a0524]` by track
+(stride `0x53f44`) and checks its indices only with stock's assert
+`8c042f2c`: the publication calls it for tracks 0..7 only, on the GUI, where
+stock calls it too; note callbacks read only the published byte, and any other
+track reads 0. The getter's and the predicate's instructions are checked
+against the authenticated stock image by `tests/test_players.py`.
 
 ## Effect pages and shift rows
 

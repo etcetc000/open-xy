@@ -1,4 +1,4 @@
-// The player's own drawn page (screen_player_drawing.hpp, SDK 1.24): its
+// The player's own drawn page (screen_player_drawing.hpp, SDK 1.26): its
 // display.cpp, compiled here after player.cpp so that it reads State, draws a
 // draw::Frame each GUI frame. It registers in a free page slot at startup and
 // paints in place of the stock Maestro page while the selected track plays this

@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "sdk": "1.25",
+  "kind": "player",
+  "description": "Test fixture: a player that plays one fixed pad on a drum track and snaps notes to a scale elsewhere (Controls.instrument)."
+}

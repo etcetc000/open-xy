@@ -436,6 +436,7 @@ A synth declares:
 | `releaseCallback` | Optional integer 0/1 (SDK 1.12): receive the [voice release event](synth-release.md) |
 | `display` | The screen's frame budget; see the [display API](display.md) |
 | `trackControl` | Optional: the [track control](#track-control) state's `stateBytes` and `stateAlignment`, and optionally `unique`, `savedBytes`, `aux` and `sharedLfo` |
+| `trackStage` | Optional (SDK 1.24): the [track stage](#track-stage)'s `stateBytes`, `stateAlignment` and `tailFrames` |
 
 The SDK never runs constructors or destructors for `Voice`, `Shared` or
 `DisplayState`: their storage starts zeroed and the callbacks set it up.
@@ -597,11 +598,80 @@ times that peak, the voice fades out (a synth over one block, through stock's
 own kill; a kit over two, through the adapter's choke fade) and is freed. A new note on the
 voice starts a new peak. With the setting off, or without `settled`, nothing
 changes, and a machine without it links none of the idle cut. Only a build that
-selects the `idle` capability ([CPU capabilities](cpu-capabilities.md)) asks
+selects the `idle` capability ([CPU capabilities](cpu-capabilities.md#idle); deprecated,
+not in the `cpu` extension, `sdk.py build` only) asks
 `settled` at all: without it the voice adapters carry none of the idle cut's
 state or calls, whatever the engine defines. A machine declaring an SDK before 1.22
 is never asked, even if its namespace defines a `settled`. The browser preview does
 not model it.
+
+### Track stage
+
+SDK 1.24. A synth may process its track's voices together, as one stereo
+signal: a chorus or widener that belongs to the track rather than to
+each voice. It declares `trackStage` in `resources` and defines, in its
+namespace:
+
+```cpp
+struct TrackState { ... };   // one per instrument track; storage starts zeroed
+
+void track_reset(TrackState& state, Shared& shared, opxy::u32 track);
+void track_process(TrackState& state, Shared& shared, opxy::u32 track,
+                   opxy::Output sum, opxy::Parameters parameters, opxy::u32 voices);
+```
+
+| Argument | Contract |
+| --- | --- |
+| `sum` | The track's voice sum, 64 interleaved left/right frames (128 Q31 words), read and overwritten in place; a word left alone passes as it is. Always stereo, for mono and `stereoOutput` synths alike, since stock pans each voice into it |
+| `parameters` | The track's words as its voices get them in the same block, with parameter locks and the track's LFO modulation as stock leaves them after the voice loop (modulation stock applies to a single voice is not in them): the declared controls in order, then zero; sixteen with a [Shift row](#a-synths-shift-row) |
+| `voices` | How many voices stock rendered on the track this block; with 0 the sum is silent |
+| `track` | The instrument track, 0..7 |
+
+The sum holds every voice of the track after stock's per-voice filter,
+amplitude envelope, pan and gain. Everything else comes after the stage: the
+track's volume, scene mute and group level, its meter, and the main mix, tape,
+aux output and both sends, which all get the processed sum, as from an insert
+before the fader. Stock keeps a synth voice 3 bits below the scale `render`
+writes, so eight voices at half scale sum to about half scale. Keep the stage's
+nominal gain at unity, saturate (the [Q31 helpers](../sdk/include/opxy/q31.hpp)),
+and do not rely on the absolute level.
+
+`track_process` runs once per block on each instrument track that holds the
+synth, in the same block as its voices: the SDK adds no latency. `track_reset`
+runs before it whenever a track takes this synth, including each track's first
+block after startup, after the SDK zeroes that track's state. A project load
+that leaves the synth on a track keeps its state. Stock does not mix a MIDI
+track at all, so a track switched to MIDI and back to the synth keeps its state
+without a reset. The callbacks follow `render`'s rules, run serially on
+the audio role and get the same `Shared` as the voices; the voices do not learn
+their track. The [CPU diagnostic](profiling.md#what-is-measured) also calls them, as
+track 0 on a state of its own: keep per-track data in `TrackState`, not in
+`Shared` indexed by track.
+
+`trackStage` declares the state and how long the stage can still sound once
+the track's voices stop:
+
+| Key | Meaning |
+| --- | --- |
+| `stateBytes`, `stateAlignment` | `TrackState` size (whole words) and alignment (4 or 8), checked against the compiled type |
+| `tailFrames` | Frames the stage can sound after its input stops, at most 2^24 (6.3 minutes), or `"unbounded"` |
+
+While the stage sounds after the track's last voice, stock keeps mixing the
+track as if a voice still played. Once the track has had no voice, and the
+stage's output has stayed below the idle floor (64 raw, as for [idle
+sends](#idle-sends)), for its tail plus 64 blocks of margin, the stage
+**sleeps**: `track_process` is not called and the sum stays silent until the
+next block with a voice, which resumes on the state as it was. A stage that
+can sound without voices (noise, an LFO driving a resonance, feedback at a gain
+of 1 or more) must declare `"unbounded"`, which never sleeps. Sleeping is part
+of the stage, not a [CPU capability](cpu-capabilities.md).
+
+Memory is 8 × `stateBytes` of module memory, counted in the synth's share. The
+SDK zeroes a track's whole state in the block the track takes the synth, so a
+large state costs that block more. The stage runs once for each track that holds the synth. A build with a stage adds a
+check to every instrument track's block (whether the track holds a stage); a
+build without one is unchanged. A synth's [CPU record](profiling.md) times its
+stage too, in a run of its own, counted once per track beside a voice. The browser preview does not model the stage.
 
 ## Track control
 
@@ -990,6 +1060,28 @@ steps. A kit with a per-model discrete selector can use this callback to jump
 directly to the next available option while other controls keep unit steps.
 It does not run during audio rendering or alter saved-value encoding.
 
+From SDK 1.25 a kit can instead declare `resources.modelEdit: 1` and add, in place of
+`edit_parameter`, a callback that may move the key to another model:
+
+```cpp
+opxy::u32 edit_model_parameter(opxy::u32 model, opxy::u32 slot,
+                               opxy::u32 value, opxy::i32 delta, opxy::u32 speed);
+```
+
+It is called for the same turns, with the same arguments, as `edit_parameter`, and
+returns the key's position after the turn, `model * 128 + value`: the key's model
+and this control's new value. Return `model * 128 + value` of the input for no
+change; a position at or past `modelCount * 128`, or in a model that does not use
+this control (below its count and named), is ignored. A new model keeps the
+key's other controls, as Shift's MACHINE does (in a kit of more than 16 models, those
+the new model stores), and the key is stored and published as any edit is. So one
+encoder can run through every model of the kit: past 127 into the next model and
+below 0 into the previous, with that control's 128 values inside each, at whatever
+step and speed the kit chooses. A kit declares `modelEdit` or `parameterEdit`, not
+both; any other option goes with it. Shift's MACHINE and KIT keep choosing the model
+as before, a held step still locks the control instead, and an `ampEnvelope` key
+keeps its amp values across a change of model.
+
 Keys passed to `drum_defaults` are canonical keys 53..76. Controls are
 integers 0..127; the model must be below `modelCount`. In a kit of more than 16
 models, a key on a model of seven or fewer controls stores its first seven, so
@@ -1267,6 +1359,7 @@ means 0. Callbacks are functions in the machine's namespace.
 | `padRandom` | 0 or 1; drum kits without `padMix`, SDK 1.23 | Shift's fourth encoder sets each key's random, which moves each hit's controls by up to ±32 steps ([drum-kit controls](#the-drum-kit-controls)) | |
 | `ampEnvelope` | 0 or 1; drum kits without `padMix`, SDK 1.23 | M2's start, attack, hold and decay kept per key and shaping each note, fading on note-off ([drum-kit controls](#the-drum-kit-controls)) | |
 | `parameterEdit` | 0 or 1; drum kits, SDK 1.21 | A turn of an available control (below the model's count and named), without Shift and with no step held, asks the kit for the control's next stored value instead of moving it one unit a detent ([drum kits](#synthesis-drum-kits)) | `edit_parameter` |
+| `modelEdit` | 0 or 1; drum kits, SDK 1.25; not with `parameterEdit` | The same turns ask the kit for the key's next model and value, so one encoder can run through every model ([drum kits](#synthesis-drum-kits)) | `edit_model_parameter` |
 | `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
 | `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |
@@ -1472,7 +1565,8 @@ checks both limits at compile time. Effects use the stock FX page, with any cont
 
 ### Idle sends
 
-With the `idle` capability, a send with nothing to play is not processed.
+With the `idle` capability ([deprecated](cpu-capabilities.md#idle), not in the `cpu`
+extension; `sdk.py build` only), a send with nothing to play is not processed.
 Once its input, its effect's output and the send's result have all stayed
 below the idle floor (64 raw, 2^6, in raw bus units: silence on the send bus) for the effect's **hold**, with its controls, the tempo, the
 play state and the send's filter unchanged and no effect change, fade or
@@ -1675,7 +1769,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.24 and builds 1.0 to 1.24 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.26 and builds 1.0 to 1.26 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
@@ -1836,7 +1930,7 @@ SDK 1.8 adds `"kind": "player"`. A player transforms live and sequenced notes
 before the track's instrument receives them. Its `machine.json` declares no
 identity or base; the layout assigns an unused player type and its own page.
 Use four parameters (or five to eight, below), `"resources": {}`, `player.cpp` and `panel.svg.fragment`
-(or, drawing its [own page](#a-players-own-drawn-page-sdk-124), a display in `resources`, `display.h` and `display.cpp`).
+(or, drawing its [own page](#a-players-own-drawn-page-sdk-126), a display in `resources`, `display.h` and `display.cpp`).
 A parameter an encoder doesn't need may be left empty, declared `"absent": true`
 as for a synth's empty slot: its title and value stay empty and its encoder turns nothing.
 A player with five to eight parameters declares `"press": "page"` (SDK 1.16):
@@ -1930,12 +2024,12 @@ around the input keyboard and every emitted note. This preserves octaves
 under voicing, spread and simultaneous chords. MIDI endpoints use partial
 octaves. Hidden nodes move beyond the display.
 
-### A player's own drawn page (SDK 1.24)
+### A player's own drawn page (SDK 1.26)
 
 A player may instead draw its page as a synth draws its screen: declare
 `"resources": {"display": {...}}` with the [display fields](display.md#declaration)
 (plain drawing; the [extended](display.md#extended-drawing) keys are for synths and
-effects), `"sdk": "1.24"`, and supply `display.h` (the `DisplayState` and `Frame`
+effects), `"sdk": "1.26"`, and supply `display.h` (the `DisplayState` and `Frame`
 types, as a synth's) and `display.cpp`:
 
 ```cpp
@@ -2037,3 +2131,29 @@ turn hook while Shift is held (if it does not, Shift turns do nothing), and
 that stock delivers keyboard notes to the player while Shift is held. Key
 events other than notes (the -/+ keys, Shift + key) and Shift + encoder clicks
 are not available to players; they need a new hook.
+
+### A player's track instrument (SDK 1.25)
+
+A player declaring `"sdk": "1.25"` also receives `Controls.instrument`, the
+kind of instrument its track holds, as stock classifies it:
+`opxy::player::DrumInstrument` for stock's drum sampler, its drum synth or an
+SDK drum kit, `OtherInstrument` for anything else (a synth, the keyboard
+sampler, a sample engine, an empty track) and on a track outside the eight
+instrument tracks. A player can then behave differently on a drum track, for
+example playing fixed pads (keys 53..76) instead of notes of a scale. Like
+`shift`, the GUI publishes it once per frame for every instrument track and
+a callback reads the latest, so after the track's instrument changes, `press`,
+`update` and `display` see the new kind within a frame. A sample engine that
+forks the drum sampler reads `OtherInstrument`: stock does not classify it as
+a drum.
+
+`instrument` follows `clicks` (offset 112; `Controls` is 116 bytes). It exists
+only in a build with a player declaring SDK 1.25 or later, where every player
+of the build gets it; a build without one keeps the 112-byte `Controls` and
+compiles every player and the SDK's player code exactly as before. A player
+that reads it declares 1.25: one declaring an older version that reads it
+compiles only beside a 1.25 player, and reads the kind there. In such a
+build, building `Controls` takes about 12 instructions more on the usual path
+(a published byte per track), and each GUI frame asks stock for eight tracks'
+engines, counted from the compiler's listing, not timed on a device
+([firmware](abi-1.2.1.md#players-track-instrument)).

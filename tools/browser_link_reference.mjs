@@ -9,7 +9,8 @@ export function referenceLink(ld, script, prefix, linked, objectDir) {
   const definitions = [...Object.entries(linked.definitions), ...linked.aliases.entries()]
     .map(([key, value]) => `--defsym=${key}=0x${value.toString(16)}`);
   const args = ['-T', script, '-e', 'extensions_synth_exit', '-o', prefix + '.elf', ...definitions,
-    ...linked.objects.map(o => resolve(objectDir, o.name))];
+    // A unit capability's other value links its own objects (core.mjs linkKit), kept apart by path.
+    ...linked.objects.map(o => resolve(objectDir, o.path ?? o.name))];
   // The catalog can exceed Windows' command-line limit even with short output paths.
   const response = prefix + '.args';
   writeFileSync(response, args.map(arg => '"' + arg.replaceAll('\\', '\\\\').replaceAll('"', '\\"') + '"').join('\n'));
