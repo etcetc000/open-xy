@@ -1425,15 +1425,8 @@ function defaultPreset(machine) {
   check(/^[a-z][a-z0-9_]{0,14}$/.test(entry.type) && Array.isArray(entry.default_params) &&
     entry.default_params.length === 8 && entry.default_params.every(n => Number.isInteger(n) && n >= 0 && n <= 32767),
     'Invalid preset engine or defaults');
-  const defaults = machine.presetDefaults ?? {};
-  check(defaults && typeof defaults === 'object' && !Array.isArray(defaults) &&
-    Object.keys(defaults).every(key => key === 'amp' || key === 'volume'), 'Invalid preset defaults');
-  check(defaults.volume === undefined || (Number.isInteger(defaults.volume) && defaults.volume >= 0 && defaults.volume <= 32767),
-    'Invalid preset volume default');
+  const defaults = checkPresetDefaults(machine.presetDefaults);
   const amp = defaults.amp ?? {};
-  check(amp && typeof amp === 'object' && !Array.isArray(amp) &&
-    Object.entries(amp).every(([key, value]) => ['attack', 'decay', 'release', 'sustain'].includes(key) &&
-      Number.isInteger(value) && value >= 0 && value <= 32767), 'Invalid preset amp defaults');
   const template = structuredClone(DEFAULT_PRESET_TEMPLATE);
   return {
     ...template,
@@ -1442,6 +1435,20 @@ function defaultPreset(machine) {
     envelope: {...template.envelope, amp: {...template.envelope.amp, ...amp}},
     type: entry.type,
   };
+}
+// A machine's init preset defaults (machine.json presetDefaults, tooling.machines): a volume and
+// amp envelope values, each 0..32767.
+function checkPresetDefaults(value) {
+  const defaults = value ?? {};
+  check(defaults && typeof defaults === 'object' && !Array.isArray(defaults) &&
+    Object.keys(defaults).every(key => key === 'amp' || key === 'volume'), 'Invalid preset defaults');
+  check(defaults.volume === undefined || (Number.isInteger(defaults.volume) && defaults.volume >= 0 && defaults.volume <= 32767),
+    'Invalid preset volume default');
+  const amp = defaults.amp ?? {};
+  check(amp && typeof amp === 'object' && !Array.isArray(amp) &&
+    Object.entries(amp).every(([key, value]) => ['attack', 'decay', 'release', 'sustain'].includes(key) &&
+      Number.isInteger(value) && value >= 0 && value <= 32767), 'Invalid preset amp defaults');
+  return defaults;
 }
 
 // A drum kit's preview (the kit's `preview.kit`): its 24 keys, canonical 53..76, each
@@ -1754,6 +1761,8 @@ function checkPackMachine(m, fixed = {}) {
   // Presets are an instrument's (presetPath): an effect or a note player has none.
   check(m.presets === undefined || ['synth', 'drum', 'sample'].includes(m.kind), 'Invalid machine presets');
   presetFiles(m);
+  // Checked whatever its kind, though only an instrument's init preset reads it.
+  checkPresetDefaults(m.presetDefaults);
   check(m.artwork === undefined || safeArtwork(m.artwork) && m.asset === m.id + '.svg' &&
     (m.grayscaleArtwork === undefined || safeArtwork(m.grayscaleArtwork)), 'Invalid machine artwork');
   check(m.kind !== 'synth' || typeof m.artwork === 'string', 'Missing synth artwork');

@@ -418,6 +418,8 @@ test('pack drum kits, players and aux machines are checked as their kinds are bu
     [p => { p.machines[0].catalog = p.machines[0].catalog.replace('{', '{"id":3,'); }, /menu/],
     // Presets are an instrument's; an aux machine's are its aux track's.
     [p => { p.machines[1].presets = {a:kitPreset('another')}; }, /presets/],
+    [p => { p.machines[1].presetDefaults = {volume:-1}; }, /preset volume/],
+    [p => { p.machines[2].presetDefaults = {amp:{gate:1}}; }, /preset amp/],
     [p => { p.machines[2].presets = {a:kitPreset('third')}; }, /aux machine/],
     [p => { p.machines[2].catalog = ', {"type":"third","default_params":[0,0,0,0,0,0,0,0]}'; }, /aux machine/],
     [p => { p.machines[1].auxPresets = p.machines[2].auxPresets; }, /aux machine/],
