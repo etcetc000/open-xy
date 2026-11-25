@@ -165,7 +165,7 @@ export function canvasKitHeader(template) {
   const blocks = bar ? [...bar[1].matchAll(/<rect\b([^>]*)\/>/g)].map((block, i) => {
     const attribute = name => new RegExp(String.raw`\s` + name + '="([^"]*)"').exec(block[1])?.[1];
     const x = Number(attribute('x') ?? 0), width = Number(attribute('width')), height = Number(attribute('height'));
-    return `<path id="bar_${i}" d="M${x} 0H${x + width}V${height}H${x}Z" fill="${attribute('fill')}"/>`;
+    return `<path id="bar_${i}" d="M${x} 0L${x + width} 0L${x + width} ${height}L${x} ${height}Z" fill="${attribute('fill')}"/>`;
   }) : [];
   const start = template.indexOf('<g id="values">'), end = template.lastIndexOf('</svg>');
   check(blocks.length === 8 && start > 0 && end > start, 'Unexpected screen template header');

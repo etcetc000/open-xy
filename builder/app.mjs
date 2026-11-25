@@ -575,7 +575,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           // The machine's header text, or the stock header: a synth's percentage of the shown
           // parameter, a kit's model's label and 0..127 value.
           const [titles, values] = kit ? core.kitHeader(names, selected.controls, shown)
-            : [shown.map(slot => m.controls[slot].toLowerCase()), shown.map(slot => String(Math.round(parameters[slot] / 0x7fffffff * 100)))];
+            : [shown.map(slot => m.controls[slot].toLowerCase()),
+               // A player's absent slot (empty name) keeps an empty value, as on the device.
+               shown.map(slot => player && m.controls[slot] === '' ? '' : String(Math.round(parameters[slot] / 0x7fffffff * 100)))];
           header.innerHTML = retained.headerSvg(titles, values.map((value, i) => renderer.header[i] || value));
         }
         const controls = m.controls.map((name, i) => {

@@ -17,7 +17,8 @@ no machines of its own; these are small, valid folders, not copies of published 
   on a drum track, its notes snapped to a scale elsewhere.
 - probekitcanvas: probekit23 declaring SDK 1.28 with an extended whole-screen display, whose
   header shows only while Shift is held; not in NAMES.
-- probeplayer: a note player whose own page uses extended drawing (SDK 1.28); not in NAMES.
+- probeplayer: a note player whose own page uses extended drawing (SDK 1.28) and reads
+  Controls.instrument; not in NAMES.
 - voiceheap: a sine with a long echo whose voices are too large for module memory
   (SDK 1.19 heap voices); not in NAMES.
 - probestage: a saw whose track stage (SDK 1.24) widens its track's voice sum with a short

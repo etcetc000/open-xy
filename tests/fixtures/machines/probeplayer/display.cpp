@@ -10,7 +10,9 @@ inline void display(DisplayState& display, const State& state, const opxy::playe
     using namespace opxy::draw;
     ++display.frames;
     if (state.held) display.note = state.note & 127;
-    const opxy::i32 peak = 40 + static_cast<opxy::i32>(display.note) - (controls.value[2] ? 30 : 0);
+    // Lower on a drum track: Controls.instrument, which every drawn player's unit has (SDK 1.25).
+    const opxy::i32 peak = 40 + static_cast<opxy::i32>(display.note) - (controls.value[2] ? 30 : 0) -
+                           (controls.instrument == opxy::player::DrumInstrument ? 10 : 0);
     Frame::path_type& curve = frame.paths[0];
     curve.key = 1 + display.note;
     curve.points[0] = {-200 * unit, 0};

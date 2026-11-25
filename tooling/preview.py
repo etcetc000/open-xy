@@ -74,10 +74,13 @@ def compile_preview(compiler, definition, out, root, sources=(), includes=(), *,
 def compile_player_preview(compiler, m, out):
     """A drawing note player's page as one WebAssembly module: its display and player.cpp, drawn
     from its State as on the device, silent (the instrument it plays is not in the preview)."""
-    from .adapters import generate_player_preview
+    from .adapters import generate_player_preview, player_instrument
+    from .native import PLAYER_INSTRUMENT_DEFINE
     exports = PLAYER_EXPORTS + (('opxy_display_extension',) if extended_display(m.definition['resources']['display']) else ())
     paths = [ROOT / 'sdk/include', ROOT / 'sdk/platform/blackfin/freestanding', m.root]
-    command = [compiler, *FLAGS, *('-I' + str(path) for path in paths), generate_player_preview(out, m),
+    # Controls.instrument, as the device unit has it (every drawn player declares 1.25 or later).
+    defines = (PLAYER_INSTRUMENT_DEFINE,) if player_instrument(m) else ()
+    command = [compiler, *FLAGS, *defines, *('-I' + str(path) for path in paths), generate_player_preview(out, m),
                ROOT / 'sdk/platform/blackfin/memory.cpp', '-o', out / 'engine.wasm', '-Wl,--no-entry',
                '-Wl,-z,stack-size=16384', f'-Wl,--initial-memory={MEMORY}', f'-Wl,--max-memory={MEMORY}',
                *('-Wl,--export=' + name for name in exports)]

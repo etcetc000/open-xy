@@ -569,8 +569,8 @@ values and titles as on any kit's page. While Shift is not held, the renderer
 clears each bar path's visibility byte (+92, which stock's path draw reads, as
 for an extended display's hidden node) and blanks the eight texts each frame
 after the kit's page has written them. A note player's extended page applies
-its frame with the same renderer
-([`extended_retained.hpp`](../sdk/platform/opxy-1.2.1/extended_retained.hpp)) in
+its frame with the same retained frame application (`ExtendedRetained`,
+[`extended_retained.hpp`](../sdk/platform/opxy-1.2.1/extended_retained.hpp)) in
 the player's own unit. Neither adds an edit.
 
 Stock paints the screen slots in ascending page order each frame, so page

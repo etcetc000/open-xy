@@ -166,7 +166,9 @@ class PlayerPage(unittest.TestCase):
                 result = subprocess.run([clang, '--target=i686-unknown-elf', '-fsyntax-only', '-O2', '-std=gnu++11',
                                          '-ffreestanding', '-fno-exceptions', '-fno-rtti', '-fno-threadsafe-statics',
                                          '-nostdinc++', '-nostdinc', '-Wall', '-Werror', '-Wno-unused-variable',
-                                         '-Wno-unused-template', *('-I' + str(path) for path in includes), str(unit)],
+                                         '-Wno-unused-template',
+                                         # Every drawn player declares 1.25 or later: Controls.instrument.
+                                         '-DOPXY_PLAYER_INSTRUMENT=1', *('-I' + str(path) for path in includes), str(unit)],
                                         capture_output=True, text=True, timeout=120, **HIDDEN)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 

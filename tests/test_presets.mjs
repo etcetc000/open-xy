@@ -101,7 +101,7 @@ test("a whole-screen drum kit's display file carries the header after its drawin
   const svg = new TextDecoder().decode((await buildAssets(kit, ['probekit'], catalog, numbers))['content/display/probekit.svg']);
   const values = kit.screenTemplate.indexOf('<g id="values">');
   assert.equal(svg, '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220"><g id="probekit_panel"/>' +
-    '<g id="bar">' + Array.from({length:8}, (_, i) => `<path id="bar_${i}" d="M${60 * i} 0H${60 * i + 60}V20H${60 * i}Z" fill="` +
+    '<g id="bar">' + Array.from({length:8}, (_, i) => `<path id="bar_${i}" d="M${60 * i} 0L${60 * i + 60} 0L${60 * i + 60} 20L${60 * i} 20Z" fill="` +
       ['#000000', '#323232', '#4B4B4B', '#646464', '#7D7D7D', '#969696', '#AFAFAF', '#CDCDCD'][i] + '"/>').join('') + '</g>\n  ' +
     kit.screenTemplate.slice(values, kit.screenTemplate.lastIndexOf('</svg>')) + '</svg>');
   // Without fullCanvas a kit's file is the template's, as any machine's.

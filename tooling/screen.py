@@ -63,7 +63,7 @@ def kit_header(data):
     blocks = []
     for i, block in enumerate(bar):
         x, width, height = (int(block.get(key, '0')) for key in ('x', 'width', 'height'))
-        blocks.append(f'<path id="bar_{i}" d="M{x} 0H{x + width}V{height}H{x}Z" fill="{block.get("fill")}"/>')
+        blocks.append(f'<path id="bar_{i}" d="M{x} 0L{x + width} 0L{x + width} {height}L{x} {height}Z" fill="{block.get("fill")}"/>')
     start, end = data.index(b'<g id="values">'), data.rindex(b'</svg>')
     require(len(blocks) == 8 and all(block.tag == NS + 'rect' for block in bar), 'Unexpected screen template header')
     return ('<g id="bar">' + ''.join(blocks) + '</g>\n  ').encode('ascii') + data[start:end]
