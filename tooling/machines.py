@@ -92,9 +92,11 @@ SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
 ICON = re.compile(r'[MLHVCSQTAZmlhvcsqtaz][MLHVCSQTAZmlhvcsqtaz0-9 .,-]{0,511}')
 # A machine's own presets (machine.json `presets`): <name>.json files the builder
 # installs beside its init preset; default.json replaces the generated one.
-# builder/core.mjs checks them again.
+# builder/core.mjs checks them again. Stock's preset browser lists a folder of any length
+# (its scan adds each preset to a growing list, with no count; stock's own factory folders
+# hold up to 28): PRESET_COUNT only bounds a kit's and a machine pack's size (64 x 16 KiB).
 PRESET_NAME = re.compile(r'[a-z0-9][a-z0-9_-]{0,23}')
-PRESET_COUNT = 16
+PRESET_COUNT = 64
 PRESET_BYTES = 16 * 1024
 # A sample engine's own samples (machine.json `samples`): <name>.wav files, 16-bit PCM at
 # 44.1 kHz, mono or stereo, that sdk.py build installs as content/samples/<id>/<name>.wav.

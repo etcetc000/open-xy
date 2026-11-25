@@ -560,10 +560,11 @@ class PlayerInstrument(unittest.TestCase):
         self.assertEqual(native.sdk_defines([fixture('probesynth'), fixture('probefx'), fixture('probekit23')]), ())
         # The SDK units and the players of such a build see it; no other machine's units do.
         source = (ROOT / 'tooling/native.py').read_text(encoding='utf-8')
-        self.assertIn("player_defines = tuple(d for d in defines if d == PLAYER_INSTRUMENT_DEFINE)", source)
-        self.assertIn("unit_defines = defines if m is None else ()\n"
-                      "        if m is not None and m.kind == 'player':\n"
-                      "            unit_defines = player_defines\n", source)
+        self.assertIn("unit_defines = defines if m is None else own_unit_defines(defines, m.kind)\n", source)
+        every = (native.KIT_CONTROLS_DEFINE, native.PLAYER_INSTRUMENT_DEFINE, native.MODEL_EDIT_DEFINE)
+        self.assertEqual(native.own_unit_defines(every, 'player'), (native.PLAYER_INSTRUMENT_DEFINE,))
+        for kind in ('synth', 'drum', 'sample', 'effect'):
+            self.assertEqual(native.own_unit_defines(every, kind), ())
         # Only the header member and the bridge's publication depend on it.
         self.assertEqual((ROOT / 'sdk/include/opxy/player.hpp').read_text(encoding='utf-8').count(
             '#if OPXY_PLAYER_INSTRUMENT'), 1)

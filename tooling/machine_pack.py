@@ -14,22 +14,23 @@ FORMAT = 'opxy-machine-pack/2'
 def write(kit, output, notices=None):
     """Called only after the kit's native/browser verification completes.
 
-    A pack carries only its custom machines (the kit's personal ones) and their own
-    objects, records included: no shared object depends on which machines a build
-    holds (tooling/records.py), so the pack extends any site kit of the same release
-    and SDK revision whatever its catalog holds (builder/core.mjs importMachinePack).
+    A pack carries only its custom machines (the kit's personal ones, of any kind) and
+    their own objects, records included: no shared object depends on which machines a
+    build holds (tooling/records.py), so the pack extends any site kit of the same release
+    and SDK revision whatever its catalog holds, as long as the site's SDK objects were
+    built with every service, define and header-tied unit the pack's machines use
+    (builder/core.mjs importMachinePack).
     `notices` are the custom machines' own (the site's kit already holds the rest);
     by default the kit's.
     """
     machines = [m for m in kit['machines'] if m['origin'] == 'personal']
     require(machines, 'A machine pack needs at least one custom machine')
-    # What the builder imports (builder/core.mjs importMachinePack): a pack with anything else never imports.
-    require(all(m.get('kind') in ('synth', 'effect', 'sample') for m in machines),
-            'A machine pack holds synths, effects and sample engines only')
     owners = {m['id'] for m in machines}
+    # Every kind a native build makes. `build` is what shaped the objects (native.shared_build):
+    # the site's must match it where the pack's machines depend on it (core.mjs importMachinePack).
     pack = dict(format=FORMAT, version=kit['version'], sdk=kit['sdk'],
                 profileSha256=sha(base64.b64decode(kit['profileSource'], validate=True)),
-                definitions=kit['definitions'], fixed=kit['fixed'], machines=machines,
+                definitions=kit['definitions'], fixed=kit['fixed'], build=kit['build'], machines=machines,
                 objects=[o for o in kit['objects'] if o['owner'] in owners],
                 notices=kit['notices'] if notices is None else notices)
     data = json.dumps(pack, separators=(',', ':'), ensure_ascii=True).encode('utf-8')

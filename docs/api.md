@@ -1796,7 +1796,8 @@ firmware that holds it.
 
 - A name is lowercase letters, digits, `-` and `_`, at most 24. Other files in
   the folder, except `.md` and hidden files, are refused.
-- At most 16 presets, each at most 16 KiB.
+- At most 64 presets, each at most 16 KiB. Stock's preset browser lists a folder of any
+  length (its own factory folders hold up to 28); the limit only bounds a kit's size.
 - Each is a version 4 OP-XY preset whose `type` is the machine's ID, with
   eight engine `params` from 0 to 32767 and no sample `regions`, since a
   preset never points into a user's sample library. A sample engine shipping

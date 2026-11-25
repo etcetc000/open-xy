@@ -692,6 +692,8 @@ export async function openKit(kit) {
     }
     extensionIds.add(e.id);
   }
+  // What shaped its objects (tooling.native.shared_build), which a machine pack's must fit.
+  check(kit.build === undefined || validBuild(kit.build), 'Invalid kit build');
   check(kit.linked === undefined || (Array.isArray(kit.linked) && kit.linked.length > 0 &&
     new Set(kit.linked).size === kit.linked.length && kit.linked.every(id => kit.machines.some(m => m.id === id))),
     'Invalid linked machines');
@@ -1379,6 +1381,9 @@ function drumPresetRegions(regions) {
 // each a version 4 preset of this machine, pointing at no samples: a kit empties the
 // regions of those loading a sample engine's own samples, which the builder doesn't
 // install (tooling.browser_kit.kit_presets). Its own default replaces the generated init preset.
+// The most presets a machine ships (tooling.machines.PRESET_COUNT): stock's preset browser
+// lists a folder of any length, so this only bounds a kit's and a pack's size.
+const MACHINE_PRESETS = 64;
 export function presetFiles(machine) {
   // An aux machine's presets: the files the kit generated (tooling.adapters.aux_preset_files).
   if (machine.catalog === '') {
@@ -1396,7 +1401,7 @@ export function presetFiles(machine) {
   if (!path) return {};
   const presets = machine.presets ?? {};
   const files = Object.hasOwn(presets, 'default') ? {} : {[path]: defaultPreset(machine)};
-  check(presets && typeof presets === 'object' && !Array.isArray(presets) && Object.keys(presets).length <= 16,
+  check(presets && typeof presets === 'object' && !Array.isArray(presets) && Object.keys(presets).length <= MACHINE_PRESETS,
     'Invalid machine presets');
   for (const [name, preset] of Object.entries(presets)) {
     const params = preset?.engine?.params;
@@ -1617,8 +1622,8 @@ export function readMachinePack(bytes) {
   });
 }
 
-// The keys tooling.browser_kit.machine_entry writes for a custom synth, effect or sample
-// engine; anything else (a catalog source, keywords, aux presets) is refused.
+// The keys tooling.browser_kit.machine_entry writes for a custom machine of any kind;
+// anything else (a catalog source, keywords) is refused.
 // Names a machine may not take (tooling.definitions.STOCK_TYPES and RESERVED_PREFIXES).
 const STOCK_TYPES = ['sampler', 'drum', 'drumline', 'organ', 'epiano', 'prism', 'hardsync', 'dissolve', 'axis',
   'wavetable', 'simple', 'midi', 'multisampler', 'delay', 'reverb', 'chorus', 'phaser', 'dist', 'lofi', 'arpeggio',
@@ -1654,8 +1659,48 @@ function safeArtwork(text) {
   return true;
 }
 const PACK_MACHINE_KEYS = new Set(['id', 'name', 'kind', 'prefix', 'description', 'identity', 'controls', 'positions',
-  'pages', 'catalog', 'origin', 'features', 'presetDefaults', 'presets', 'icon', 'artwork', 'grayscaleArtwork',
-  'asset', 'fullCanvas', 'preview', 'shiftRow', 'heapVoices']);
+  'pages', 'catalog', 'origin', 'features', 'build', 'presetDefaults', 'presets', 'auxPresets', 'icon', 'artwork',
+  'grayscaleArtwork', 'asset', 'fullCanvas', 'preview', 'shiftRow', 'heapVoices']);
+// Each kind's fewest controls (tooling.definitions.CONTROLS; at most 8) and whether a slot may
+// be absent, at no position (a synth's or a note player's).
+const PACK_CONTROLS = {synth:[4, true], drum:[8, false], sample:[1, false], effect:[1, false], player:[4, true]};
+// The features each kind may declare (tooling.native.service_users less its kind): never a
+// capability, an extension's or another kind's.
+const PACK_FEATURES = {synth:['trackControl', 'auxTrack', 'hidePages', 'synthShift', 'trackStage'],
+  drum:['hidePages', 'padMix', 'playedPad', 'kitControls', 'ampEnvelope'], sample:[], effect:[], player:[]};
+// A drum kit's preview (tooling.browser_kit.kit_preview): its models (2..64, tooling.definitions)
+// and their groups, as the builder's audition and snapshots read them.
+function packKitPreview(kit, features) {
+  const flag = key => kit[key] === undefined || kit[key] === true;
+  return Boolean(kit) && typeof kit === 'object' && !Array.isArray(kit) &&
+    Object.keys(kit).every(key => ['models', 'padMix', 'padVolume', 'padRandom', 'selectedKey', 'groups'].includes(key)) &&
+    Number.isInteger(kit.models) && kit.models >= 2 && kit.models <= 64 &&
+    kit.padMix === features.includes('padMix') && ['padVolume', 'padRandom', 'selectedKey'].every(flag) &&
+    (!(kit.padVolume || kit.padRandom) || features.includes('kitControls')) &&
+    (kit.groups === undefined || Array.isArray(kit.groups) && kit.groups.length >= 2 && kit.groups.length <= 16 &&
+      kit.groups.every(g => g && typeof g === 'object' && Object.keys(g).sort().join() === 'count,label' &&
+        typeof g.label === 'string' && /^[A-Za-z0-9][A-Za-z0-9 -]{0,7}$/.test(g.label) &&
+        Number.isInteger(g.count) && g.count >= 1) &&
+      kit.groups.reduce((n, g) => n + g.count, 0) === kit.models);
+}
+// An aux machine's presets (tooling.adapters.aux_preset_files): its own, each with its eight
+// controls, and the init of the stock role it takes over (AUX_ROLES: cv), without controls.
+function packAuxPresets(m) {
+  const files = m.auxPresets;
+  if (!(files && typeof files === 'object' && !Array.isArray(files) && Object.keys(files).length <= 64)) return false;
+  return Object.hasOwn(files, 'content/aux_presets/cv/init.json') && Object.entries(files).every(([path, text]) => {
+    if (typeof text !== 'string' || text.length >= 2048) return false;  // aux_tracks.cpp kPresetBytes
+    let preset = null;
+    try { preset = JSON.parse(text); } catch { return false; }
+    if (!(preset && typeof preset === 'object' && !Array.isArray(preset))) return false;
+    const role = preset.type === 'cv';
+    return Object.keys(preset).sort().join() === (role ? 'platform,type,version' : 'params,platform,type,version') &&
+      preset.platform === 'OP-XY' && preset.version === 1 && (role ? path === 'content/aux_presets/cv/init.json' :
+        preset.type === m.id && path.startsWith(`content/aux_presets/${m.id}/`) &&
+        Array.isArray(preset.params) && preset.params.length === 8 &&
+        preset.params.every(n => Number.isInteger(n) && n >= 0 && n <= 32767));
+  });
+}
 function checkPackMachine(m, fixed = {}) {
   check(m && typeof m === 'object' && Object.keys(m).every(key => PACK_MACHINE_KEYS.has(key)),
     'Invalid custom machine metadata');
@@ -1665,66 +1710,114 @@ function checkPackMachine(m, fixed = {}) {
     // Fixed numbers belong to Open-XY's own machines, even one this site does not carry.
     !Object.hasOwn(fixed, m.id) &&
     !STOCK_TYPES.includes(m.id) && !RESERVED_PREFIXES.some(p => m.id === p || m.id.startsWith(p + '_')) &&
-    m.prefix === m.id && ['synth', 'effect', 'sample'].includes(m.kind) &&
+    m.prefix === m.id && typeof m.kind === 'string' && Object.hasOwn(PACK_CONTROLS, m.kind) &&
     m.origin === 'personal' && m.source === undefined && m.cpu === undefined &&
     typeof m.name === 'string' && m.name.length > 0 && m.name.length <= 80 &&
     typeof m.description === 'string' && [...m.description].length <= 160,
     'Invalid custom machine metadata');
-  check(Array.isArray(m.controls) && m.controls.length >= (m.kind === 'synth' ? 4 : 1) && m.controls.length <= 8 &&
+  const [fewest, absent] = PACK_CONTROLS[m.kind];
+  check(Array.isArray(m.controls) && m.controls.length >= fewest && m.controls.length <= 8 &&
     m.controls.every(c => typeof c === 'string' && c.length <= 80) &&
     Array.isArray(m.positions) && m.positions.length === m.controls.length &&
-    m.positions.every(p => m.kind === 'synth' && p === null || Number.isInteger(p) && p >= 0 && p <= 3) &&
+    m.positions.every(p => absent && p === null || Number.isInteger(p) && p >= 0 && p <= 3) &&
     typeof m.pages === 'boolean',
     'Invalid custom machine controls');
   check(m.icon === undefined || typeof m.icon === 'string' && m.icon.length <= 4096 &&
     /^[MmZzLlHhVvCcSsQqTtAa0-9eE+.,\s-]*$/.test(m.icon), 'Invalid machine icon');
-  check(typeof m.catalog === 'string' && m.catalog.length < 4096 && m.catalog.trim().startsWith(','),
+  // The services it uses beyond its kind's (activeServices): only the features its kind
+  // declares (tooling.native.service_users), an aux track only with track control and an amp
+  // envelope only with the kit controls it is one of.
+  check(m.features === undefined || Array.isArray(m.features) && m.features.length > 0 &&
+    new Set(m.features).size === m.features.length && m.features.every(f => PACK_FEATURES[m.kind].includes(f)) &&
+    (!m.features.includes('auxTrack') || m.features.includes('trackControl')) &&
+    (!m.features.includes('ampEnvelope') || m.features.includes('kitControls')),
+    'Invalid machine features');
+  const features = m.features ?? [];
+  // An aux machine (tooling.adapters.catalog_entry) has no menu entry: it is chosen on its aux
+  // track, and its presets are that track's (packAuxPresets), never an instrument's.
+  const aux = features.includes('auxTrack');
+  check(aux ? m.catalog === '' && m.presets === undefined && packAuxPresets(m) : m.auxPresets === undefined,
+    'Invalid aux machine');
+  check(typeof m.catalog === 'string' && m.catalog.length < 4096 && (aux || m.catalog.trim().startsWith(',')),
     'Invalid machine menu');
-  let entry = null;
-  try { entry = JSON.parse(m.catalog.trim().slice(1)); } catch { /* refused below */ }
-  check(entry && typeof entry === 'object' && !Array.isArray(entry) &&
-    entry.type === m.id && Array.isArray(entry.default_params) && entry.default_params.length === 8 &&
-    entry.default_params.every(n => Number.isInteger(n) && n >= 0 && n <= 32767) &&
-    Object.keys(entry).every(key => ['type', 'id', 'default_params'].includes(key)) &&
-    // An effect's entry carries its number (catalogEntry); an instrument's has none.
-    (m.kind === 'effect' ? Number.isInteger(entry.id) : !Object.hasOwn(entry, 'id')), 'Invalid machine menu');
+  if (!aux) {
+    let entry = null;
+    try { entry = JSON.parse(m.catalog.trim().slice(1)); } catch { /* refused below */ }
+    check(entry && typeof entry === 'object' && !Array.isArray(entry) &&
+      entry.type === m.id && Array.isArray(entry.default_params) && entry.default_params.length === 8 &&
+      entry.default_params.every(n => Number.isInteger(n) && n >= 0 && n <= 32767) &&
+      Object.keys(entry).every(key => ['type', 'id', 'default_params'].includes(key)) &&
+      // An effect's or a player's entry carries its number (catalogEntry); an instrument's has none.
+      (['effect', 'player'].includes(m.kind) ? Number.isInteger(entry.id) : !Object.hasOwn(entry, 'id')),
+      'Invalid machine menu');
+  }
+  // Presets are an instrument's (presetPath): an effect or a note player has none.
+  check(m.presets === undefined || ['synth', 'drum', 'sample'].includes(m.kind), 'Invalid machine presets');
   presetFiles(m);
   check(m.artwork === undefined || safeArtwork(m.artwork) && m.asset === m.id + '.svg' &&
     (m.grayscaleArtwork === undefined || safeArtwork(m.grayscaleArtwork)), 'Invalid machine artwork');
   check(m.kind !== 'synth' || typeof m.artwork === 'string', 'Missing synth artwork');
-  // A synth's preview (tooling.browser_kit.machine_entry): no drum kit's, and a Shift row's
-  // eight words only with that row.
+  // A synth's or a drum kit's preview (tooling.browser_kit.machine_entry): a kit's with its
+  // models, a synth's Shift row's eight words only with that row.
   const word = n => Number.isInteger(n) && n >= 0 && n <= 0x7fffffff;
-  check(m.preview === undefined || m.preview && typeof m.preview === 'object' && m.kind === 'synth' &&
-    Object.keys(m.preview).every(key => ['wasm', 'sha256', 'graphics', 'defaults', 'shift'].includes(key)) &&
+  check(m.preview === undefined || m.preview && typeof m.preview === 'object' && ['synth', 'drum'].includes(m.kind) &&
+    Object.keys(m.preview).every(key => ['wasm', 'sha256', 'graphics', 'defaults', 'shift', 'kit'].includes(key)) &&
     typeof m.preview.wasm === 'string' &&
     m.preview.wasm.length <= 16 * 1024 ** 2 && /^[a-f0-9]{64}$/.test(m.preview.sha256) &&
     Array.isArray(m.preview.defaults) && m.preview.defaults.length === m.controls.length && m.preview.defaults.every(word) &&
     (m.preview.shift === undefined || m.shiftRow === true && Array.isArray(m.preview.shift) &&
-      m.preview.shift.length === 8 && m.preview.shift.every(word)), 'Invalid machine preview');
-  // The services it uses beyond its kind's (activeServices): only the features an imported
-  // kind can declare (tooling.native.service_users), never a capability or another kind's.
-  check(m.features === undefined || Array.isArray(m.features) && m.features.length <= 4 &&
-    m.features.every(f => ['trackControl', 'hidePages', 'trackStage'].includes(f) || f === 'synthShift' && m.kind === 'synth'),
-    'Invalid machine features');
+      m.preview.shift.length === 8 && m.preview.shift.every(word)) &&
+    (m.kind === 'drum' ? packKitPreview(m.preview.kit, features) : m.preview.kit === undefined), 'Invalid machine preview');
   // A Shift row is declared both ways (machine_entry): its feature and its presets' row.
   check((m.shiftRow === undefined || m.shiftRow === true && m.kind === 'synth') &&
-    (m.features ?? []).includes('synthShift') === (m.shiftRow === true), 'Invalid machine Shift row');
+    features.includes('synthShift') === (m.shiftRow === true), 'Invalid machine Shift row');
   check(m.fullCanvas === undefined || m.fullCanvas === 1, 'Invalid full canvas flag');
   check(m.grayscaleArtwork === undefined || typeof m.artwork === 'string', 'Invalid machine artwork');
   check(m.heapVoices === undefined || m.kind === 'synth' && Number.isInteger(m.heapVoices) && m.heapVoices > 0,
     'Invalid machine heap voices');
+  // What it adds to its build's SDK objects beyond its services (tooling.native.machine_build).
+  check(m.build === undefined || Boolean(m.build) && typeof m.build === 'object' && !Array.isArray(m.build) &&
+    Object.keys(m.build).sort().join() === 'defines,headers' && ['defines', 'headers'].every(key =>
+      Array.isArray(m.build[key]) && m.build[key].length <= 8 && m.build[key].every(v => typeof v === 'string')) &&
+    m.build.defines.length + m.build.headers.length > 0, 'Invalid machine build');
+}
+// What shaped a kit's or a pack's objects (tooling.native.shared_build).
+function validBuild(build) {
+  const names = list => Array.isArray(list) && list.length <= 64 && list.every(v => typeof v === 'string');
+  return Boolean(build) && typeof build === 'object' && !Array.isArray(build) &&
+    Object.keys(build).sort().join() === 'defines,headers,services,unitDefines' &&
+    names(build.services) && names(build.defines) && names(build.headers) &&
+    Boolean(build.unitDefines) && typeof build.unitDefines === 'object' && !Array.isArray(build.unitDefines) &&
+    Object.entries(build.unitDefines).every(([kind, list]) => Object.hasOwn(PACK_CONTROLS, kind) && names(list));
+}
+// A pack machine extends a site only when it adds nothing to what shaped the site's SDK objects,
+// and its own objects were compiled as the site would compile them (tooling.native.shared_build):
+// a native build of the site's collection with the machine then links what the site links.
+// What it needs that the site lacks, in words, or null.
+function missingBuild(profile, site, pack, m) {
+  const service = [...activeServices(profile, [m])].find(s => !site.services.includes(s));
+  if (service !== undefined) return `the ${service} service, which this site does not link`;
+  const define = (m.build?.defines ?? []).find(d => !site.defines.includes(d));
+  if (define !== undefined) return `SDK objects built with ${define}, which this site's are not`;
+  const header = (m.build?.headers ?? []).find(h => !site.headers.includes(h));
+  if (header !== undefined) return `the ${header} SDK unit, which this site does not link`;
+  const own = kit => Object.hasOwn(kit.unitDefines, m.kind) ? kit.unitDefines[m.kind] : [];
+  if (!sameValue(own(pack), own(site)))
+    return `its objects compiled as this site compiles a ${m.kind}'s (with ${own(site).join(' ') || 'no defines'})`;
+  return null;
 }
 
 // Import custom machines into the site's collection, matched by ID: a pack carries only
 // its own machines and their objects, their records included, and no shared object
 // depends on which machines a selection holds (machine records), so it extends the site
-// whatever its catalog holds, as long as both come from one release and SDK revision.
+// whatever its catalog holds, as long as both come from one release and SDK revision and the
+// site's SDK objects were built with everything the pack's machines use (missingBuild).
 // Never replace the site's firmware profile, stock content, fixed numbers, runtime,
 // SDK objects or machines. `base` is the site's kit as exported, before openKit: the
 // candidate is opened from it, keeping its unit sources and service fallbacks.
 export async function importMachinePack(base, pack) {
-  const keys = ['format', 'version', 'sdk', 'profileSha256', 'definitions', 'fixed', 'machines', 'objects', 'notices'];
+  const keys = ['format', 'version', 'sdk', 'profileSha256', 'definitions', 'fixed', 'build', 'machines', 'objects',
+    'notices'];
   check(pack && typeof pack === 'object' && !Array.isArray(pack) && typeof pack.format === 'string' &&
     pack.format.startsWith('opxy-machine-pack/'), 'Unsupported machine pack');
   check(pack.format === MACHINE_PACK_FORMAT, 'This pack comes from an earlier Open-XY release. Ask its author for one ' +
@@ -1734,10 +1827,13 @@ export async function importMachinePack(base, pack) {
     pack.profileSha256 === await sha256(decode64(base.profileSource)) &&
     sameValue(pack.definitions, base.definitions) && sameValue(pack.fixed, base.fixed),
     'This pack targets a different Open-XY release or SDK revision. Ask its author for a matching pack.');
+  check(validBuild(pack.build), 'Unsupported machine pack');
+  check(validBuild(base.build), 'This site predates machine packs of every kind. Export its kit again.');
   check(Array.isArray(pack.machines) && pack.machines.length > 0 &&
     base.machines.length + pack.machines.length <= base.profile.identities.engines, 'Invalid custom machines');
   // The menu entry is rebuilt from its checked values in tooling.adapters.catalog_entry's
-  // layout, so the stock menu gets exactly those (an effect's number is the layout's).
+  // layout, so the stock menu gets exactly those (an effect's or a player's number is the
+  // layout's); an aux machine has none.
   const users = new Set(Object.values(base.profile.services ?? {}).flat());
   const existing = new Set(base.machines.flatMap(m => [m.id, m.prefix]));
   const added = pack.machines.map(m => {
@@ -1745,13 +1841,24 @@ export async function importMachinePack(base, pack) {
     check(!existing.has(m.id), `${m.id} is already one of this site's machines. Ask its author for a pack ` +
       'that names it differently, or use the site\'s.');
     check((m.features ?? []).every(f => users.has(f)), 'Invalid machine features');
+    const missing = missingBuild(base.profile, base.build, pack.build, m);
+    check(missing === null, `${m.id} needs ${missing}. It can extend only a site whose collection already ` +
+      'uses that.');
+    if (m.catalog === '') return m;
     const entry = JSON.parse(m.catalog.trim().slice(1)), indent = '\n            ';
-    // An effect's menu number is one stock offers (catalogEntry replaces it with the layout's).
-    check(m.kind !== 'effect' || base.profile.identities.effects.includes(entry.id), 'Invalid machine menu');
+    const numbered = ['effect', 'player'].includes(m.kind);
+    // A menu number stock offers (catalogEntry replaces it with the layout's): an effect's, or a
+    // player's type after stock's four (tooling.adapters.PLAYER_CATALOG_OFFSET).
+    check(m.kind === 'effect' ? base.profile.identities.effects.includes(entry.id) :
+      m.kind !== 'player' || base.profile.identities.players.includes(entry.id - 4), 'Invalid machine menu');
     return {...m, catalog: ',\n        {' + indent + '"type": ' + JSON.stringify(entry.type) +
-      (m.kind === 'effect' ? ',' + indent + '"id": ' + entry.id : '') +
-      ',' + indent + '"default_params": [' + entry.default_params.join(', ') + ']\n        }' + (m.kind === 'effect' ? '' : '\n')};
+      (numbered ? ',' + indent + '"id": ' + entry.id : '') +
+      ',' + indent + '"default_params": [' + entry.default_params.join(', ') + ']\n        }' + (numbered ? '' : '\n')};
   });
+  // A native build refuses a collection with more machines taking over an aux track than its
+  // chooser lists (tooling.adapters.AUX_CHOICES, the stock role first).
+  const auxMachines = [...base.machines, ...added].filter(m => (m.features ?? []).includes('auxTrack')).length;
+  check(auxMachines <= 31, `With this pack, ${auxMachines} machines would take over the aux track; the OP-XY lists 31.`);
   check(new Set(pack.machines.map(m => m.id)).size === pack.machines.length, 'Duplicate machine identity');
   const addedIds = new Set(added.map(m => m.id));
   check(Array.isArray(pack.objects) && pack.objects.length <= 4096 &&
@@ -1792,11 +1899,6 @@ export async function importMachinePack(base, pack) {
     if (shared !== undefined)
       throw new Error(`${m.id} defines ${shared}, which ${[...definedBy.get(shared)].find(id => id !== m.id)} also defines`);
     if (m.preview) check(await sha256(decode64(m.preview.wasm)) === m.preview.sha256, 'Machine preview hash mismatch');
-    // A service it switches on with hooks must have its objects in this kit (carriedCapability):
-    // a pack never adds them, and a build would hook into nothing.
-    for (const service of activeServices(base.profile, [m]))
-      check(!base.profile.patches.some(edit => edit.service === service && edit.kind === 'hook') ||
-        candidate.objects.some(o => o.service === service), `${m.id} needs the ${service} service, which this site does not link`);
     // Catch missing imports (an SDK header unit, arithmetic runtime member or service
     // object the site does not link), duplicate exports and machines that cannot fit even
     // alone, in the larger memory a site offers. The user's combined selection is
