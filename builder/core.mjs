@@ -1675,7 +1675,8 @@ const PACK_CONTROLS = {synth:[4, true], drum:[8, false], sample:[1, false], effe
 // sdk_unit_defines), and the header-tied units any machine's own C++ may include (SHARED_HEADERS).
 const PACK_DEFINES = {player:['-DOPXY_PLAYER_INSTRUMENT=1'], drum:['-DOPXY_KIT_CONTROLS=1', '-DOPXY_MODEL_EDIT=1']};
 const PACK_HEADERS = ['control_interaction', 'sample_kernel'];
-// The stock roles an aux machine may take over, by their preset folders (tooling.adapters.AUX_ROLES).
+// The stock roles an aux machine may take over, by their preset folders (tooling.adapters.AUX_ROLES):
+// only track 12's, so the importer counts aux takeovers and presets over every aux machine.
 const AUX_ROLES = ['cv'];
 // The features each kind may declare (tooling.native.service_users less its kind): never a
 // capability, an extension's or another kind's.
@@ -1947,6 +1948,10 @@ export async function importMachinePack(base, pack) {
         'the matching SDK and catalog.');
     }
   }
+  // A native build numbers its whole collection: one with more players or effects than stock
+  // offers numbers for is refused there, so it is here.
+  try { assignNumbers(candidate, candidate.machines.map(m => m.id)); }
+  catch (error) { throw new Error("With this pack, the site's machines and the pack's cannot all be numbered: " + error.message); }
   linkKit(candidate, [base.machines[0].id]);
   return candidate;
 }

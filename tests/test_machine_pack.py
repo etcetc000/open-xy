@@ -80,7 +80,8 @@ class MachinePackTests(unittest.TestCase):
             self.assertFalse((Path(directory) / 'machines.zip').exists())
 
     def test_export_takes_every_kind(self):
-        # The builder imports each kind a native build makes (builder/core.mjs importMachinePack).
+        # The exporter writes every kind's metadata as the kit lists it; the builder's import of
+        # each kind is tested in tests/test_browser_kit.mjs.
         for kind in ('synth', 'drum', 'sample', 'effect', 'player', 'aux'):
             kit = self.kit()
             # An aux machine is a synth taking over an aux track, with that track's presets.

@@ -466,6 +466,15 @@ test('pack drum kits, players and aux machines are checked as their kinds are bu
   await importMachinePack(base, pack);
 });
 
+test('a pack may not hold more players than stock numbers alongside the site machines', async () => {
+  const {base, pack} = await kindsFixture();
+  for (let i = 0; i < 26; i++) base.machines.push({...machine('q' + i, null, null), kind:'player', identity:{player:null, page:null},
+    catalog:`, {"type":"q${i}","id":10,"default_params":[0,0,0,0,0,0,0,0]}`});
+  await assert.rejects(importMachinePack(base, pack), /cannot all be numbered/);
+  base.machines.pop();
+  await importMachinePack(base, pack);
+});
+
 test('a pack may not take the aux track over more machines than its chooser lists', async () => {
   const {base, pack} = await kindsFixture();
   for (let i = 0; i < 31; i++) base.machines.push({...machine('s' + i, null, null), catalog:'',
