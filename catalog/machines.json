@@ -2688,6 +2688,19 @@
         "block_percent": 1.979095,
         "peak_percent": 3.778134
       }
+    },
+    {
+      "id": "seed_arp",
+      "kind": "player",
+      "maintainer": "yfukami",
+      "status": "published",
+      "repository": "https://github.com/yfukami/op-xy-seed-arp",
+      "tag": "v1.0.0",
+      "commit": "f5151240d8af487a52dc83ca7e631c20d79fdaf3",
+      "path": "machines/seed_arp",
+      "keywords": [
+        "experimental"
+      ]
     }
   ]
 }
