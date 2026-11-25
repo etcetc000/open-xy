@@ -488,7 +488,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         const noteNames = ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'], held = [];
         const keyboard = node('div', undefined, 'preview-keys');
         keyboard.id = 'preview-keys'; keyboard.setAttribute('role', 'group'); keyboard.setAttribute('aria-label', 'Preview keyboard');
-        for (const note of kit ? core.KIT_KEYS : Array.from({length:18}, (_, i) => 60 + i)) {
+        // A player's keyboard is the device's live range from its lowest key, F3 to E5, as a kit's.
+        for (const note of kit || player ? core.KIT_KEYS : Array.from({length:18}, (_, i) => 60 + i)) {
           const black = [1, 3, 6, 8, 10].includes(note % 12), name = noteNames[note % 12] + (Math.floor(note / 12) - 1);
           const key = node('button', note % 12 === 0 ? name : undefined, 'preview-key' + (black ? ' black' : ''));
           key.type = 'button'; key.setAttribute('aria-label', name);

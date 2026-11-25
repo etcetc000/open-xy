@@ -473,7 +473,8 @@ def sdk_version(text):
     major, minor = map(int, text.split('.'))
     current = '%d.%d' % SDK_VERSION
     require(major == SDK_VERSION[0] and minor <= SDK_VERSION[1],
-            f'The machine targets SDK {text}; this SDK is {current} and builds {SDK_VERSION[0]}.0 to {current}')
+            f'The machine targets SDK {text}; this SDK is {current} and builds {SDK_VERSION[0]}.0 to {current}'
+            + ''.join(f' (not {major}.{minor}, which is reserved)' for major, minor in sorted(RESERVED_SDK)))
     require((major, minor) not in RESERVED_SDK, f'SDK {text} is not released; declare an earlier or later version')
     return major, minor
 

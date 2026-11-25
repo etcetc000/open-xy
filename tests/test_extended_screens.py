@@ -236,6 +236,25 @@ class Previews(unittest.TestCase):
             (root / 'definition.json').write_text(json.dumps(definition), encoding='utf-8', newline='\n')
             self.assertFalse(preview.previewed(machine_at(root)))
 
+    def test_a_players_preview_starts_its_shift_row_at_its_defaults(self):
+        # As the device does: Controls.shift_value holds the row's default words.
+        with tempfile.TemporaryDirectory() as temp:
+            root = copy_fixture('probeplayer', temp)
+            definition = json.loads((root / 'definition.json').read_text(encoding='utf-8'))
+            definition['shift'] = [dict(id='size', label='Size', default=0.5, display='enum',
+                                        mapping=dict(kind='enum', labels=['S', 'M', 'L']))]
+            (root / 'definition.json').write_text(json.dumps(definition), encoding='utf-8', newline='\n')
+            m = machine_at(root)
+            choices, defaults = adapters.player_shift_row(m)
+            self.assertEqual((choices[0], defaults[0], defaults[1:]), (3, 0x7fffffff // 3 * 3 // 2, [0] * 7))
+            text = adapters.generate_player_preview(temp, m).read_text(encoding='utf-8')
+            self.assertIn('shift_defaults[8] = {%s};' % ', '.join(map(str, defaults)), text)
+            # Without a row, the preview leaves shift_value as it is.
+            del definition['shift']
+            (root / 'definition.json').write_text(json.dumps(definition), encoding='utf-8', newline='\n')
+            self.assertNotIn('shift_defaults',
+                             adapters.generate_player_preview(temp, machine_at(root)).read_text(encoding='utf-8'))
+
 
 if __name__ == '__main__':
     unittest.main()
