@@ -11,6 +11,10 @@ no machines of its own; these are small, valid folders, not copies of published 
   played-pad snapshot build them.
 - probekit23: probekit21 declaring SDK 1.23 and the drum-kit controls (padVolume, padRandom,
   ampEnvelope, with chokeSameKey); its screen reads the selected key and the Shift choices.
+- probekit25: probekit21 as a three-model kit declaring SDK 1.25 and modelEdit: its first
+  control runs through every model (edit_model_parameter).
+- probepads: a note player declaring SDK 1.25 that reads Controls.instrument: one fixed pad
+  on a drum track, its notes snapped to a scale elsewhere.
 - probekitcanvas: probekit23 declaring SDK 1.26 with an extended whole-screen display, whose
   header shows only while Shift is held; not in NAMES.
 - probeplayer: a note player whose own page uses extended drawing (SDK 1.26); not in NAMES.

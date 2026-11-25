@@ -14,7 +14,7 @@ import math
 from pathlib import Path
 
 from .benchmark import append_callback
-from .definitions import (KIT_CONTROLS_SDK, extended_display, ROOT, STOCK_VOICES, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
+from .definitions import (KIT_CONTROLS_SDK, SDK_1_25, extended_display, ROOT, STOCK_VOICES, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
                           shift_choices, shift_field, shift_parameters, stock_shift_codes, synth_shift,
                           validate_definition)
 
@@ -140,6 +140,15 @@ def generate_voice(directory, m, sweep=False, idle=False):
         values['PAD_SIGNS'] = sum(1 << i for i, f in enumerate(pads) if f.get('signed'))
         values['TRANSPORT'] = 'true' if drum_transport(m) else 'false'
         values['PARAMETER_EDIT'] = m.definition['resources'].get('parameterEdit', 0)
+        # A modelEdit kit's editor (SDK 1.25), which drum_callbacks.cpp's model-edit table names;
+        # nothing for any other kit, whose adapter stays as it was.
+        values['MODEL_EDIT'] = (
+            f'opxy::u32 {m.prefix}_drum_edit_model(opxy::u32, opxy::u32, opxy::u32, opxy::i32, opxy::u32) '
+            f'__asm__("{m.prefix}_drum_edit_model");\n'
+            f'opxy::u32 {m.prefix}_drum_edit_model(opxy::u32 model, opxy::u32 slot, opxy::u32 value, '
+            f'opxy::i32 delta, opxy::u32 speed) {{\n'
+            f'    return {m.definition["id"]}::edit_model_parameter(model, slot, value, delta, speed);\n}}\n'
+            if model_edit(m) else '')
         values['KIT_CONTROLS'] = kit_controls(m)
         values['AMP_DEFAULTS'] = ', '.join(f'{w:#x}' for w in kit_amp_defaults(m))
     values.update(idle_values(m, m.kind == 'drum', idle, values.get('OUTPUT_FRAMES', 'opxy::block_frames'),
@@ -305,6 +314,32 @@ def kit_amp_defaults(m):
     return [amp[key] << 16 for key in ('attack', 'decay', 'sustain', 'release')]
 
 
+def player_instrument(m):
+    """Whether a note player reads Controls.instrument: one declaring SDK 1.25 or later. A build
+    with one compiles its SDK units and its players with OPXY_PLAYER_INSTRUMENT (native.py)."""
+    return getattr(m, 'kind', 'synth') == 'player' and getattr(m, 'sdk', (1, 0)) >= SDK_1_25
+
+
+def model_edit(m):
+    """Whether a drum kit declares modelEdit (SDK 1.25): its edit_model_parameter may move a key to
+    another model. A build with one compiles its SDK units with OPXY_MODEL_EDIT (native.py)."""
+    return getattr(m, 'kind', 'synth') == 'drum' and bool(m.definition['resources'].get('modelEdit', 0))
+
+
+def model_edit_table(machines):
+    """drum_callbacks.cpp's table of modelEdit kits' editors (drum_model_edit.hpp), or nothing for a
+    build without such a kit, whose shared units never name it (native.py OPXY_MODEL_EDIT)."""
+    kits = [m for m in machines if model_edit(m)]
+    if not kits:
+        return ''
+    declarations = [f'extern "C" opxy::u32 {m.prefix}_drum_edit_model(opxy::u32, opxy::u32, opxy::u32, opxy::i32, '
+                    f'opxy::u32) __asm__("{m.prefix}_drum_edit_model");' for m in kits]
+    rows = [f'    {{{m.prefix}_engine_id, {m.prefix}_drum_edit_model}},' for m in kits]
+    return ('#include "drum_model_edit.hpp"\n' + '\n'.join(declarations) +
+            '\nconst opxy::platform::DrumModelEdit sdk_drum_model_edits[] = {\n' + '\n'.join(rows) + '\n};\n'
+            f'const opxy::u32 sdk_drum_model_edit_count = {len(kits)};\n')
+
+
 def selected_key(m):
     """Whether a drum kit's screen fills draw::Input::selected_key: a kit declaring SDK 1.23 or later."""
     return getattr(m, 'kind', 'synth') == 'drum' and getattr(m, 'sdk', (1, 0)) >= KIT_CONTROLS_SDK
@@ -382,6 +417,7 @@ def generate_drum_callbacks(directory, machines):
     source = '#include "drum_machines.hpp"\n#include "drum_send.hpp"\nextern "C" {\n' + '\n'.join(declarations) + '\n}\n'
     source += 'const opxy::platform::DrumMachine sdk_drum_machines[] = {\n' + ('\n'.join(rows) or '    {},') + '\n};\n'
     source += f'const opxy::u32 sdk_drum_machine_count = {len(rows)};\n'
+    source += model_edit_table(machines)
     source += kit_table(machines)
     source += 'const opxy::platform::DrumSendKit sdk_drum_send_kits[] = {\n' + ('\n'.join(sends) or '    {},') + '\n};\n'
     source += f'const opxy::u32 sdk_drum_send_kit_count = {len(sends)};\n'
