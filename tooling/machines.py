@@ -746,7 +746,7 @@ def machine_at(root, identity=None):
 # two machines' places collide. Machines are numbered in ID order, never collection order.
 # Engines never take an effect number (number_layout reserved), and a layout's engine number
 # among them, which earlier SDKs gave, is let go once: the machine keeps its page.
-# builder/core.mjs assignNumbers applies the same rules (tests/fixtures/numbers.json).
+# builder/core.mjs numberLayout applies the same rules (tests/fixtures/numbers.json).
 LAYOUT_FORMAT = 'opxy-layout/1'
 FIXED_NUMBERS = {'fm2op': {'engine': 34, 'page': 82}, 'macroosc': {'engine': 26, 'page': 83},
                  'ringmod': {'effect': 1, 'page': 21}, 'timestretch': {'engine': 35, 'page': 7}}

@@ -1887,7 +1887,8 @@ build gives every machine the stock numbers projects save, an engine number
 These numbers exist only in the relocated stock tables, so no machine shares
 one with stock. Stock reads a send's effect number as an engine number, so an
 engine holding one would take it from every effect: engines are never given
-effect numbers (34..62 among them), which effects have to themselves. Four core machines, which the
+effect numbers (34..62 among them), which effects have to themselves apart
+from three fixed machines' numbers. Four core machines, which the
 first Open-XY firmware shipped, have fixed numbers held in every firmware
 whether it includes them or not
 (`FIXED_NUMBERS` in [`tooling/machines.py`](../tooling/machines.py)); three of
@@ -1917,8 +1918,8 @@ same machines.
 
 Machines targeting SDK 1.4 or earlier instead list the numbers they ask for in
 `identity`, `{"engine": n, "page": p}` or `{"effect": n, "page": 21}`, and
-name no `base`. A layout gives them when free, before any new machine's own
-place, but never an engine an effect number; otherwise it numbers them as any other machine;
+name no `base`. A layout gives them when free, after the machines it moves off
+effect numbers and before any new machine's own place, but never an engine an effect number; otherwise it numbers them as any other machine;
 a sample engine's `page` 2 forks the sampler and 7 the drum sampler. Such a
 machine keeps working unchanged. To move it to `"sdk": "1.5"`, delete
 `identity` and, for a sample engine, add its `base`; a 1.5 machine with
