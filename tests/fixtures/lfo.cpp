@@ -10,14 +10,15 @@ using namespace opxy;
 using namespace opxy::platform;
 static int ownership = 1;
 static int ready() { return ownership; }
-const LfoMachine sdk_lfo_machines[] = {
+static const LfoMachine sdk_lfo_machines_rows[] = {
     {reinterpret_cast<const char*>(40), ready, 4, {0, 1, 2, 3}},
     {reinterpret_cast<const char*>(41), ready, 5, {0, 1, 2, 3, 3}}, // Braids shares white.
     {reinterpret_cast<const char*>(42), ready, 6, {0, 1, 2, 3, 2, 2}},
     {reinterpret_cast<const char*>(43), ready, 7, {0, 1, 2, 3, 1, 0, 2}},
     {reinterpret_cast<const char*>(44), ready, 8, {0, 1, 2, 3, 0, 1, 2, 3}},
 };
-const u32 sdk_lfo_machine_count = 5;
+const LfoMachine* sdk_lfo_machines = sdk_lfo_machines_rows;
+u32 sdk_lfo_machine_count = 5;
 static u32 engine, kind, group, routed, gui_reads, delegated, expected_track;
 static i32 amount;
 static i32 icon_target;

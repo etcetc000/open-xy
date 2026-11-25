@@ -46,8 +46,9 @@ const platform::Player* pages() {
 void* build(u32 track,u32 type,u32 flag) { require(track==fake_track && type==4 && !flag); return slot; }
 }
 extern "C" {
-const platform::PlayerEntry sdk_players[]={{enums},{linear},{absent},{pages}};
-const u32 sdk_player_count=4;
+static const platform::PlayerEntry sdk_players_rows[]={{enums},{linear},{absent},{pages}};
+const platform::PlayerEntry* sdk_players = sdk_players_rows;
+u32 sdk_player_count =4;
 u32 (*sdk_screen_substitute)(u32)=nullptr;
 void (*sdk_player_press)(u32)=nullptr;
 }

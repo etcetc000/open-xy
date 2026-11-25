@@ -44,8 +44,9 @@ player::Controls on(u32 track) {
 u32 kind(u32 track) { return on(track).instrument; }
 }
 extern "C" {
-const platform::PlayerEntry sdk_players[]={{nullptr}};
-const u32 sdk_player_count=0;
+static const platform::PlayerEntry sdk_players_rows[]={{nullptr}};
+const platform::PlayerEntry* sdk_players = sdk_players_rows;
+u32 sdk_player_count =0;
 u32 (*sdk_screen_substitute)(u32)=nullptr;
 void (*sdk_player_press)(u32)=nullptr;
 }

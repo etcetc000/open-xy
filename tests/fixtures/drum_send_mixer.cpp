@@ -48,8 +48,9 @@ const void* stock_table[11];
 struct Handle { const void* const* vtable; u32 codes; };
 u32 kit_codes(const void* handle) { return static_cast<const Handle*>(handle)->codes; }
 }
-const DrumSendKit sdk_drum_send_kits[] = {{kit_table, kit_codes}};
-const u32 sdk_drum_send_kit_count = 1;
+static const DrumSendKit sdk_drum_send_kits_rows[] = {{kit_table, kit_codes}};
+const DrumSendKit* sdk_drum_send_kits = sdk_drum_send_kits_rows;
+u32 sdk_drum_send_kit_count = 1;
 
 namespace {
 u32 host_dbox_index_of(const void* handle);

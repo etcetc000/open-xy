@@ -9,9 +9,6 @@ using opxy::i32;
 using opxy::u32;
 
 extern "C" {
-// The declaring synths' stages (track_stage_table.cpp, generated).
-extern const stage::Stage sdk_track_stages[] __asm__("sdk_track_stages");
-extern const u32 sdk_track_stage_count __asm__("sdk_track_stage_count");
 u32 sdk_track_stage(u32 track, i32* sum, u32 voices) __asm__("sdk_track_stage");
 }
 

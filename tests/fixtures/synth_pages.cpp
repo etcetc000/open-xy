@@ -30,12 +30,13 @@ int ready() { return 1; }
 extern "C" {
 // Engine 40 hides the envelope and filter pages; engine 41 hides nothing; 42
 // hides the filter page only.
-const opxy::platform::SynthControls sdk_synth_controls[] = {
+static const opxy::platform::SynthControls sdk_synth_controls_rows[] = {
     {reinterpret_cast<const char*>(40), ready, {0, 1, 2, 3, 4, 5, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false, 6},
     {reinterpret_cast<const char*>(41), ready, {0, 1, 2, 3, 4, 5, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false, 0},
     {reinterpret_cast<const char*>(42), ready, {0, 1, 2, 3, 4, 5, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false, 4},
     {nullptr, nullptr, {0, 1, 2, 3, 4, 5, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false, 0}};
-const u32 sdk_synth_control_count = 3;
+const opxy::platform::SynthControls* sdk_synth_controls = sdk_synth_controls_rows;
+u32 sdk_synth_control_count = 3;
 }
 
 u32 opxy::platform::control_engine(u32 track) {

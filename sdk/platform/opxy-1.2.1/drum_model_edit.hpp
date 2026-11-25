@@ -1,8 +1,8 @@
 // A drum kit's value editing across models (resources.modelEdit, SDK 1.25). The kit's
 // edit_model_parameter answers a turn of one of its controls with the key's model and that
 // control's value as one position, model * 128 + value, so one encoder can run on into the
-// next model past 127 and the previous one below 0. Its table (sdk_drum_model_edits, in
-// drum_callbacks.cpp) is generated only for a build with such a kit, which alone compiles
+// next model past 127 and the previous one below 0. Its table (sdk_drum_model_edits, built at
+// startup from the kits' records) holds rows only in a build with such a kit, which alone compiles
 // the shared editor's call (OPXY_MODEL_EDIT, drum_synthesis_stock.cpp): every other kit's
 // row, and every other build, stay as they were.
 #pragma once
@@ -20,8 +20,8 @@ struct DrumModelEdit {
 }}
 
 extern "C" {
-extern const opxy::platform::DrumModelEdit sdk_drum_model_edits[] __asm__("sdk_drum_model_edits");
-extern const opxy::u32 sdk_drum_model_edit_count __asm__("sdk_drum_model_edit_count");
+extern const opxy::platform::DrumModelEdit* sdk_drum_model_edits __asm__("sdk_drum_model_edits");
+extern opxy::u32 sdk_drum_model_edit_count __asm__("sdk_drum_model_edit_count");
 }
 
 namespace opxy { namespace platform {

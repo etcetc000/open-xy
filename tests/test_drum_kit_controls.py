@@ -315,10 +315,10 @@ class Generation(unittest.TestCase):
         volume.prefix, amp.prefix = 'vol', 'amp'
         with tempfile.TemporaryDirectory() as directory:
             text = Path(generate_drum_callbacks(directory, [plain])).read_text(encoding='utf-8')
-            self.assertNotIn('sdk_drum_kits', text)
+            self.assertIn('opxy::u32 sdk_drum_kit_count = 0;', text)
             text = Path(generate_drum_callbacks(directory, [plain, volume, amp])).read_text(encoding='utf-8')
         self.assertIn('    {vol_engine_id, 1, nullptr},\n    {amp_engine_id, 6, amp_amp},\n', text)
-        self.assertIn('const opxy::u32 sdk_drum_kit_count = 2;', text)
+        self.assertIn('opxy::u32 sdk_drum_kit_count = 2;', text)
         self.assertIn('static const opxy::i32 amp_amp[] = {0x800000, 0x20000000, 0x7fff0000, 0x7fff0000};', text)
 
     def test_a_kit_screen_reads_its_cells_and_selected_key_only_when_it_has_them(self):

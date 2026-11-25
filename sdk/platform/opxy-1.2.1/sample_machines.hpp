@@ -5,9 +5,8 @@
 
 namespace opxy { namespace platform {
 // One sample machine: its identity, readiness check and declared callbacks.
-// A callback a machine does not declare is null. In a browser kit, an
-// unselected machine's symbols resolve to a function returning 0, so `ready`
-// declines and nothing else is called.
+// A callback a machine does not declare is null. The table holds the selected
+// machines' rows, copied from their records at startup (machine_tables.cpp).
 struct SampleMachine {
     const char* engine_id;  // absolute symbol: the engine ID, supplied at link time
     u32 page;               // stock sample page, 2 or 7: what the machine is, never renumbered
@@ -31,8 +30,9 @@ struct SampleMachine {
 }}
 
 extern "C" {
-extern const opxy::platform::SampleMachine sdk_sample_machines[] __asm__("sdk_sample_machines");
-extern const opxy::u32 sdk_sample_machine_count __asm__("sdk_sample_machine_count");
+// The table startup builds from the selected machines' records (machine_tables.cpp).
+extern const opxy::platform::SampleMachine* sdk_sample_machines __asm__("sdk_sample_machines");
+extern opxy::u32 sdk_sample_machine_count __asm__("sdk_sample_machine_count");
 // The machine registered as `engine`, when its stock record and name are still
 // ours; null for stock, absent and conflicting registrations.
 const opxy::platform::SampleMachine* sdk_sample_machine(opxy::u32 engine) __asm__("sdk_sample_machine");

@@ -45,7 +45,9 @@ class SampleServices(unittest.TestCase):
                     plain = fixture('probesample')
                     sampler = replace(plain, id='sampler', identity=dict(engine=47, page=2),
                                       definition=dict(plain.definition, resources=dict(voiceCapacity=256)))
+                    # The table startup builds from their records, and the bridge beside the host stock.hpp.
                     generate_sample_callbacks(folder, [probe, sampler])
+                    shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1/sample_callbacks.cpp', Path(folder))
                 elif name in ('drum_controls', 'sample_slice_clock'):
                     source = ROOT / 'sdk/platform/opxy-1.2.1' / (
                         'drum_controls_stock.cpp' if name == 'drum_controls' else 'sample_slice_clock.cpp')
@@ -53,12 +55,11 @@ class SampleServices(unittest.TestCase):
                     shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1/keyboard_octaves.cpp', Path(folder))
                 elif name == 'keyboard_octaves':
                     shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1/keyboard_octaves.cpp', Path(folder))
+                elif name == 'benchmark':  # beside the host stock.hpp, which its quoted include then finds
+                    shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1/benchmark.cpp', Path(folder))
                 elif name == 'drum_trigger':
                     for unit in ('drum_values.hpp', 'drum_trigger.cpp'):
                         shutil.copy(ROOT / 'sdk/platform/opxy-1.2.1' / unit, Path(folder) / unit)
-                elif name == 'benchmark':
-                    from tooling.benchmark import generate
-                    generate(folder, [replace(fixture('probesynth'), id='unfamiliar', identity=dict(engine=46, page=91))])
             if name in ('sample_callbacks', 'benchmark', 'drum_controls', 'presets', 'keyboard_octaves', 'sample_slice_clock', 'startup', 'sample_overview', 'drum_trigger'):
                 # Exercise the real tempo readers and assignment bridge with
                 # host addresses standing in for stock functions and globals.
@@ -89,8 +90,7 @@ class SampleServices(unittest.TestCase):
                 (Path(folder) / 'amp_envelope.hpp').write_bytes(
                     (ROOT / 'tests/fixtures/amp_envelope_host.hpp').read_bytes())
             if name == 'startup':
-                generate_startup(folder, ['first', 'second', 'sampled', 'drawn'], ['effect'], ['sampled', 'drawn'], ['drawn'],
-                                 effect_screens=['effect'], player_pages=['player'], control=True)
+                generate_startup(folder, control=True)
             # A fixture that includes barrier.hpp supplies host_barrier for the Blackfin SSYNC.
             command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-D__builtin_bfin_ssync()=host_barrier()',
                        *('-D' + define for define in defines), '-I' + str(folder), '-I' + str(ROOT / 'sdk/include'),

@@ -7,6 +7,7 @@ from .cpu import control_defaults, sweep
 from .definitions import shift_parameters
 from .pipeline import ROOT
 from .formats import require
+from .machines import record_order
 
 # The effect, sample and drum workloads time each block with interrupts masked (v2, v2
 # and v3); their earlier IDs timed it with interrupts enabled (cpu_measurement.EARLIER).
@@ -59,12 +60,13 @@ def sweep_settings(m):
 
 
 def cases(machines, sweep=False):
-    """The reports a run sends, in order: stock's nine, then each machine's; in a sweep
+    """The reports a run sends, in order: stock's nine, then each machine's, in the order
+    of its records (by kind, then ID: machines.record_order); in a sweep
     build a synth's swept settings follow its standard run, then one run with every
     control at the position that ran heaviest (combined_positions); a synth with a track
     stage then runs its stage."""
     result = [dict(name=name, engine=engine, source='stock') for name, engine in STOCK]
-    for m in benchmarked(machines):
+    for m in benchmarked(record_order(machines)):
         case = dict(name=m.id, engine=m.identity.get('engine', m.identity.get('effect')), source='sdk',
                     kind=m.kind, benchmark=METHODS[m.kind][0], metric=METHODS[m.kind][1])
         if m.kind == 'drum':
@@ -140,45 +142,40 @@ def combined_positions(results):
     return [chosen[control][0] for control in sorted(chosen)]
 
 
-def generate(directory, machines, sweep=False):
-    machines = [m for m in machines if m.kind != 'player']
-    declarations, rows, settings, defaults = [], [], [], []
-    for m in benchmarked(machines):
-        index = len(rows)   # machines[] in benchmark.cpp.in: a drum kit has a row per run
-        swept = sweep_settings(m) if sweep and m.kind == 'synth' else []
-        if swept:
-            # A row per setting holds only its control and value; the defaults beside it
-            # are one row per machine.
-            defaults.append('    {%d, {%s}},' % (index, ', '.join(map(str, control_defaults(m.definition['parameters'])))))
-            settings += ['    {%d, %d, %d},' % (index, control, value)
-                         for control, _label, value, _option in swept]
-        p = m.prefix
-        id_symbol = p + ('_fx_id' if m.kind == 'effect' else '_engine_id')
-        declarations += [f'int {p}_ready() __asm__("{p}_ready");',
-                         f'extern const char {id_symbol}[] __asm__("{id_symbol}");']
-        callback = 'nullptr'
-        if m.kind == 'drum':
-            callback = p + '_benchmark'
-            declarations.append(f'opxy::benchmark::Stats {callback}(opxy::u32) __asm__("{callback}");')
-            rows += [f'    {{"{m.id}", {id_symbol}, {p}_ready, nullptr, {METHODS[m.kind][1]}, {callback}, {run}}},'
-                     for run in range(len(drum_cases(m)))]
-            continue
-        if m.kind != 'synth':
-            callback = p + '_benchmark'
-            declarations.append(f'opxy::benchmark::Stats {callback}() __asm__("{callback}");')
-        rows.append(f'    {{"{m.id}", {id_symbol}, {p}_ready, {callback}, {METHODS[m.kind][1]}, nullptr, 0}},')
-        if m.kind == 'synth' and track_stage.track_stage(m) is not None:
-            stage = track_stage.benchmark_symbol(m)
-            declarations.append(f'opxy::benchmark::Stats {stage}() __asm__("{stage}");')
-            rows.append(f'    {{"{m.id}", {id_symbol}, {p}_ready, {stage}, {STAGE_METRIC}, nullptr, 0}},')
-    source = (ROOT / 'sdk/platform/opxy-1.2.1/benchmark.cpp.in').read_text(encoding='utf-8')
-    source = source.replace('@DECLARATIONS@', '\n'.join(declarations))
-    source = source.replace('@MACHINES@', '\n'.join(rows))
-    source = source.replace('@SETTINGS@', '\n'.join(settings))
-    source = source.replace('@DEFAULTS@', '\n'.join(defaults))
-    path = Path(directory) / 'benchmark.cpp'
-    path.write_text(source, encoding='utf-8', newline='\n')
-    return path
+def runs(m, sweep=False):
+    """A machine's diagnostic runs, as its record (tooling/records.py) lists them for
+    benchmark.cpp: the declarations they need, a row per run (benchmark.hpp Run), and in a
+    sweep build a synth's swept settings (Setting) and its controls' defaults beside them
+    (else no settings and None). None for a machine without runs (a player)."""
+    if m.kind not in METHODS:
+        return None
+    declarations, rows, settings, defaults = [], [], [], None
+    swept = sweep_settings(m) if sweep and m.kind == 'synth' else []
+    if swept:
+        # A row per setting holds only its control and value, for the record's first run.
+        defaults = control_defaults(m.definition['parameters'])
+        settings = ['{%d, %d}' % (control, value) for control, _label, value, _option in swept]
+    p = m.prefix
+    id_symbol = p + ('_fx_id' if m.kind == 'effect' else '_engine_id')
+    declarations += [f'int {p}_ready() __asm__("{p}_ready");',
+                     f'extern const char {id_symbol}[] __asm__("{id_symbol}");']
+    callback = 'nullptr'
+    if m.kind == 'drum':
+        # A drum kit has a row per run.
+        callback = p + '_benchmark'
+        declarations.append(f'opxy::benchmark::Stats {callback}(opxy::u32) __asm__("{callback}");')
+        rows += [f'{{"{m.id}", {id_symbol}, {p}_ready, nullptr, {METHODS[m.kind][1]}, {callback}, {run}}}'
+                 for run in range(len(drum_cases(m)))]
+        return declarations, rows, settings, defaults
+    if m.kind != 'synth':
+        callback = p + '_benchmark'
+        declarations.append(f'opxy::benchmark::Stats {callback}() __asm__("{callback}");')
+    rows.append(f'{{"{m.id}", {id_symbol}, {p}_ready, {callback}, {METHODS[m.kind][1]}, nullptr, 0}}')
+    if m.kind == 'synth' and track_stage.track_stage(m) is not None:
+        stage = track_stage.benchmark_symbol(m)
+        declarations.append(f'opxy::benchmark::Stats {stage}() __asm__("{stage}");')
+        rows.append(f'{{"{m.id}", {id_symbol}, {p}_ready, {stage}, {STAGE_METRIC}, nullptr, 0}}')
+    return declarations, rows, settings, defaults
 
 
 def decode(capture, expected):

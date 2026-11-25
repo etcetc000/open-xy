@@ -18,14 +18,11 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, extensions, load_governor, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables, track_stage, voice_heap
-from .adapters import (kit_controls, model_edit, pad_mix, player_instrument, played_pad, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
-                       generate_player_object, generate_player_table, generate_registration,
-                       generate_registration_stock, generate_sample_voice,
-                       generate_sample_callbacks, generate_screen, generate_screen_order,
-                       generate_synth_controls, generate_project_companion_table, generate_track_controls,
-                       generate_voice, generate_drum_callbacks, preset_files, sample_callbacks, track_control,
-                       control_callbacks)
+from . import benchmark, extensions, load_governor, records, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables, track_stage, voice_heap
+from .adapters import (kit_controls, model_edit, pad_mix, player_instrument, played_pad, aux_preset_files, catalog_entry,
+                       check_aux_presets, check_track_controls, generate_control, generate_display, generate_fx_object,
+                       generate_player_object, generate_registration, generate_registration_stock, generate_sample_voice,
+                       generate_screen, generate_screen_order, generate_voice, preset_files, track_control)
 from .contributors import validate_source_boundary
 from .definitions import extended_display, paged, synth_shift
 from .firmware import active_services, assemble, hook_instruction, hook_symbol, hook_target, patch_active
@@ -203,14 +200,26 @@ def configuration(entries=None, layout=None):
     return profile, machines, definitions
 
 
-def provenance(machines):
-    """Every authored, SDK and compiler-profile input; private artifacts never enter.
-    The collection is its machines, in order: their IDs and sources below."""
+def sdk_sources():
+    """The SDK's own inputs to every build, by path: profiles, linker script, headers, platform
+    sources and tooling (which pins the compiler)."""
     paths = {PROFILE, LINKER, extensions.PROFILE}
     for folder in ('sdk/include', 'sdk/platform', 'tooling'):
         paths |= {p.relative_to(ROOT).as_posix() for p in (ROOT / folder).rglob('*')
                   if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.md'}
-    hashes = {name: sha(read(child(ROOT, name))) for name in paths}
+    return {name: sha(read(child(ROOT, name))) for name in paths}
+
+
+def sdk_digest():
+    """One digest of sdk_sources: kits and machine packs built from the same SDK revision share it
+    (builder/core.mjs importMachinePack), whatever machines they hold."""
+    return sha(json.dumps(sorted(sdk_sources().items())).encode('utf-8'))
+
+
+def provenance(machines):
+    """Every authored, SDK and compiler-profile input; private artifacts never enter.
+    The collection is its machines, in order: their IDs and sources below."""
+    hashes = sdk_sources()
     for m in machines:
         hashes.update({name: sha(read(path)) for name, path in m.files().items()})
     for e in extensions_of(machines):
@@ -316,9 +325,11 @@ def host_units(m):
 def plan(machines, profile=None):
     """Every object in link order as (name, owner machine or None, step).
 
-    Each machine's objects come first, in collection order, then the SDK's
-    shared runtime and startup, less units of profile services no machine uses.
-    The browser kit links in this same order.
+    Each machine's objects come first, in collection order, its record
+    (tooling/records.py) after its generated units, then the SDK's shared runtime
+    and startup, less units of profile services no machine uses. The browser kit
+    links in this same order, and a link adds the selection's records object
+    (records.OBJECT) after them.
     """
     units = []
     for m in machines:
@@ -331,6 +342,7 @@ def plan(machines, profile=None):
             steps = ('registration', 'fx_object', *(('display', 'screen') if m.display != 'stock' else ()))
         else:
             steps = ('registration', 'sample_voice', *(('display', 'screen') if m.display != 'stock' else ()))
+        steps += ('record',)
         units += [(f'{m.id}/{Path(step.removeprefix("source:")).stem}.o', m, step) for step in steps]
         # A machine's own routines (native/<name>.s), assembled into it alone.
         units += [(f'{m.id}/native_{unit.name}.o', m, 'native:' + unit.name) for unit in m.native]
@@ -350,22 +362,22 @@ SDK_UNITS = ('divide', 'sample_kernel', 'memory', 'registration', 'registration_
              'hook', 'send_fx', 'track_hooks', 'floor_hooks', 'idle_cut', 'sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache', 'sample_cache_stock',
              'sample_cache_hooks', 'sample_progress', 'sample_progress_stock', 'pad_assignment',
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
-             'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
-             'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'dsp_block', 'dsp_block_hooks', 'output_slack', 'output_slack_hooks', 'stock_browser',
+             'screen_hooks', 'synth_controls', 'machine_tables', 'note_activity', 'project_companion',
+             'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'dsp_block', 'dsp_block_hooks', 'output_slack', 'output_slack_hooks', 'stock_browser',
              'extension_runtime', 'extension_collection', 'extension_stock', 'usb_host', 'track_control',
-             'track_control_table', 'track_control_hooks', 'track_control_project',
+             'track_control_hooks', 'track_control_project',
              'synth_pages', 'aux_tracks', 'aux_hooks', 'presets',
              'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel',
-             'players', 'player_hooks', 'player_table', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
-             'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_trigger', 'drum_hooks',
-             'drum_send', 'drum_send_hooks', 'track_call', 'track_stage', 'track_stage_table', 'drum_locks', 'lock_handles', 'drumline', 'drumline_hooks',
+             'players', 'player_hooks', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
+             'drum_machines', 'drum_values_stock', 'drum_synthesis_stock', 'drum_trigger', 'drum_hooks',
+             'drum_send', 'drum_send_hooks', 'track_call', 'track_stage', 'drum_locks', 'lock_handles', 'drumline', 'drumline_hooks',
              'synth_shift_hooks', 'drum_kit_controls', 'drum_amp_envelope')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
                                'sample_progress_stock', 'pad_assignment', 'pad_assignment_stock', 'drum_page',
                                'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'sample_overview', 'sample_overview_stock'), 'samples')
-UNIT_SERVICES.update(dict.fromkeys(('players', 'player_hooks', 'player_table'), 'players'))
+UNIT_SERVICES.update(dict.fromkeys(('players', 'player_hooks'), 'players'))
 UNIT_SERVICES['keyboard_octaves'] = 'octaves'
 # SDK units that patch nothing, each linked only when a machine's own C++ includes
 # the header it implements (opxy/<header>.hpp); other builds are unchanged.
@@ -386,9 +398,9 @@ UNIT_SERVICES['drum_amp_envelope'] = 'amp_envelope'
 # extension links them.
 UNIT_SERVICES.update(dict.fromkeys(('drum_send', 'drum_send_hooks'), 'drum_sends'))
 # A synth's track stage (SDK 1.24, track_stage.py): the shared handler of stock's
-# track call (track_call.s), its runtime and the declaring synths' table, linked only
-# with such a synth. A build with per-key sends alone keeps their own handler.
-UNIT_SERVICES.update(dict.fromkeys(('track_call', 'track_stage', 'track_stage_table'), 'track_stage'))
+# track call (track_call.s) and its runtime, linked only with such a synth. A build
+# with per-key sends alone keeps their own handler.
+UNIT_SERVICES.update(dict.fromkeys(('track_call', 'track_stage'), 'track_stage'))
 # A padMix kit's step locks hook note start's pad payload (drum_locks.cpp).
 UNIT_SERVICES['drum_locks'] = 'drum_locks'
 # Their values by handle (lock_handles.cpp): the pool, the step hook and open-xy.locks.
@@ -401,7 +413,7 @@ UNIT_SERVICES.update(dict.fromkeys(('drumline', 'drumline_hooks'), 'drumline'))
 UNIT_SERVICES['synth_shift_hooks'] = 'synth_shift'
 # Track control and hidden pages run from the GUI tick hook; startup stands in for
 # the saved data's entry points in builds that don't link it.
-UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'track_control_hooks',
+UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_hooks',
                                     'track_control_project', 'synth_pages'), 'control'))
 # Machines that take over aux tracks: the chooser, presets, pages and the stock
 # roles' silencers; startup starts it, and control reaches it through sdk_aux.
@@ -462,9 +474,10 @@ def object_memory(data):
 
 
 def memory_by_owner(directory, machines, profile=None, runtime_members=()):
-    """Bytes each machine (and 'sdk' for shared code) places in the module, before alignment."""
+    """Bytes each machine (and 'sdk' for shared code, the selection's records object included)
+    places in the module, before alignment."""
     usage = {}
-    for name, owner in object_owners(machines, profile, runtime_members).items():
+    for name, owner in {**object_owners(machines, profile, runtime_members), records.OBJECT: None}.items():
         initialized, state = object_memory(read(Path(directory) / name))
         share = usage.setdefault(owner or 'sdk', dict(initialized_bytes=0, state_bytes=0))
         share['initialized_bytes'] += initialized
@@ -491,48 +504,6 @@ def object_services(machines, profile=None):
     """SDK object name -> the profile service it implements, for objects that implement one."""
     return {name: UNIT_SERVICES[step] for name, m, step in plan(machines, profile)
             if m is None and step in UNIT_SERVICES}
-
-
-def absent_symbols(m):
-    """The callbacks of an unselected machine, each resolving to kit_absent, which declines:
-    startup skips it and its menu name is left to stock."""
-    if m.kind == 'player':
-        return {m.prefix + suffix: 'kit_absent' for suffix in ('_player', '_screen_register')}
-    if m.kind == 'effect':
-        absent = {m.prefix + suffix: 'kit_absent' for suffix in ('_fx_register', '_ready')}
-        if m.display != 'stock':
-            absent[m.prefix + '_screen_register'] = 'kit_absent'
-    else:
-        absent = {m.prefix + suffix: 'kit_absent' for suffix in ('_register', '_name_matches', '_ready', '_record_ready')}
-        if m.kind == 'drum':
-            # The shared drum table names these.
-            absent.update({m.prefix + suffix: 'kit_absent' for suffix in
-                           ('_drum_defaults', '_drum_label', '_drum_model_name', '_drum_count',
-                            '_drum_scramble_range')})
-            if m.definition['resources'].get('padControls'):
-                absent[m.prefix + '_drum_pad_text'] = 'kit_absent'
-            if sends_per_key(m):
-                # The send table names these; no voice's method table is kit_absent. The
-                # table is declared without an assembler name, so it carries C's underscore.
-                absent.update({'_' + m.prefix + '_vtable': 'kit_absent', m.prefix + '_drum_send': 'kit_absent'})
-            if m.definition['resources'].get('parameterEdit', 0):
-                absent[m.prefix + '_drum_edit_value'] = 'kit_absent'
-            if model_edit(m):
-                absent[m.prefix + '_drum_edit_model'] = 'kit_absent'
-        if m.kind == 'sample':
-            # The shared sample table names these; unselected, its ready check declines first.
-            absent.update({symbol: 'kit_absent' for symbol in sample_callbacks(m)})
-        if m.display != 'stock':
-            absent[m.prefix + '_screen_register'] = 'kit_absent'
-        if m.kind == 'sample' and m.display != 'stock':
-            absent[m.prefix + '_screen_ready'] = 'kit_absent'
-        # The shared track control table names these; unselected, its ready check declines first.
-        absent.update({symbol: 'kit_absent' for symbol in control_callbacks(m)})
-        # So does the track stage table.
-        absent.update(track_stage.absent_symbols(m))
-    if m.kind in ('effect', 'sample', 'drum'):
-        absent[m.prefix + '_benchmark'] = 'kit_absent'
-    return absent
 
 
 def runtime_objects(directory, gcc, units, definitions):
@@ -601,19 +572,33 @@ def absent_extension_symbols(e):
 
 def absent_numbers(absent):
     """Unselected machines have no numbers (builder/core.mjs numberSymbols): each number
-    symbol they have, a sample engine's own screen page included, is 0."""
+    symbol they have, a sample engine's own screen page included, is 0. No object a
+    selection links names them."""
     return {m.prefix + suffix: 0 for m in absent
             for suffix in number_suffixes(m.kind, m.kind == 'sample' and m.display != 'stock')}
 
 
+def records_object(directory, tools, machines):
+    """The selection's records object (records.OBJECT, tooling/records.py), assembled into
+    `directory` with the pinned assembler: the only object a selection decides."""
+    directory = Path(directory)
+    source = (directory / records.OBJECT).with_suffix('.s')
+    source.parent.mkdir(exist_ok=True)
+    source.write_text(records.assembly(machines), encoding='utf-8', newline='\n')
+    execute([tools['as'], '-mcpu=bf707', '-o', directory / records.OBJECT, source])
+    obj = directory / records.OBJECT
+    obj.write_bytes(normalize_object(read(obj)))
+
+
 def link(directory, tools, profile, definitions, machines, selected, name='module', runtime_members=(),
          chosen_extensions=None):
-    """Link the selected machines' objects and the chosen extensions' (all of them by
-    default), compiled in `directory` for the whole collection, as the builder does;
-    None, or how they overflow the shared module memory."""
+    """Link the selected machines' objects, their records object and the chosen extensions'
+    (all of them by default), compiled in `directory` for the whole collection, as the
+    builder does; None, or how they overflow the shared module memory."""
     chosen = subset(machines, selected, chosen_extensions)
     absent = [m for m in machines if m not in selected]
-    aliases = {symbol: target for m in absent for symbol, target in absent_symbols(m).items()}
+    records_object(directory, tools, chosen)
+    aliases = {}
     for e in extensions_of(machines):
         if e not in extensions_of(chosen):
             aliases.update(absent_extension_symbols(e))
@@ -629,7 +614,7 @@ def link(directory, tools, profile, definitions, machines, selected, name='modul
     command = [tools['ld'], '-T', ROOT / LINKER, f'-Map={name}.map', '-o', f'{name}.elf',
                *(f'--defsym={key}={value:#x}' for key, value in definitions.items()),
                *(f'--defsym={key}={value}' for key, value in aliases.items()),
-               *(object_name for object_name, _m, _step in plan(chosen, profile)),
+               *(object_name for object_name, _m, _step in plan(chosen, profile)), records.OBJECT,
                *(runtime.object_name(member) for member in runtime_members)]
     try:
         subprocess.check_output([str(arg) for arg in command], cwd=directory, stderr=subprocess.STDOUT, text=True, timeout=120)
@@ -677,7 +662,7 @@ def selected_services(profile, machines):
 
 def adapter_source(folder, m, step, sweep, services):
     """Write machine `m`'s generated source for plan step `step` (voice, display, screen, fx_object, registration,
-    control, sample_voice, player_object) into `folder`; `services` as selected_services gives them. Host only:
+    control, sample_voice, player_object, record) into `folder`; `services` as selected_services gives them. Host only:
     a test compares these sources for a build that selects nothing against the checkout without the CPU
     capabilities (tests/test_off_unless_asked.py)."""
     def display_unit():
@@ -689,7 +674,8 @@ def adapter_source(folder, m, step, sweep, services):
             'registration': lambda: generate_registration(folder, m),
             'control': lambda: generate_control(folder, m),
             'sample_voice': lambda: generate_sample_voice(folder, m, benchmark=True),
-            'player_object': lambda: generate_player_object(folder, m)}[step]()
+            'player_object': lambda: generate_player_object(folder, m),
+            'record': lambda: records.generate(folder, m, sweep)}[step]()
 
 
 def compile_collection(directory, toolchain, compiler, profile, machines, definitions, version, profiling=True,
@@ -707,7 +693,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
     gcc = compiler_paths(compiler)
     require(sha(read(ROOT / LINKER)) == profile['linker_sha256'], 'Unreviewed memory layout')
     before = provenance(machines)
-    effects, sample_engines = by_kind(machines, 'effect'), by_kind(machines, 'sample')
+    # Aux takeovers are counted over the whole collection, which every selection is part of.
+    check_track_controls(machines)
 
     data_services = selected_services(profile, machines)
     # The SDK units whose source a unit capability chooses (fast_helpers); none in most builds.
@@ -735,10 +722,6 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         if m is None:
             if step == 'synth_controls' and includes_header(machines, 'control_interaction'):
                 return cxx(str(control_interaction_unit(folder)), obj)
-            if step == 'drum_callbacks':
-                return cxx(str(generate_drum_callbacks(folder, machines)), obj)
-            if step == 'benchmark':
-                return cxx(str(benchmark.generate(folder, machines, sweep)), obj)
             if step.startswith('extension:'):
                 chosen = step.removeprefix('extension:')
                 extension = next(e for e in extensions_of(machines) if e.id == chosen)
@@ -752,18 +735,6 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(extensions.generate_collection(folder, linked_extensions(machines))), obj)
             if step == 'screen_order':
                 return cxx(str(generate_screen_order(folder)), obj)
-            if step == 'sample_callbacks':
-                return cxx(str(generate_sample_callbacks(folder, machines)), obj)
-            if step == 'synth_control_table':
-                return cxx(str(generate_synth_controls(folder, machines)), obj)
-            if step == 'player_table':
-                return cxx(str(generate_player_table(folder, machines)), obj)
-            if step == 'project_companion_table':
-                return cxx(str(generate_project_companion_table(folder, machines)), obj)
-            if step == 'track_control_table':
-                return cxx(str(generate_track_controls(folder, machines)), obj)
-            if step == 'track_stage_table':
-                return cxx(str(track_stage.generate_table(folder, machines)), obj)
             if step == 'registration_stock':
                 return cxx(str(generate_registration_stock(folder)), obj)
             if step in PLAIN_SOURCES:  # divide, memory: a unit capability may choose their source
@@ -773,14 +744,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step == 'startup_label':
                 return assemble_unit(startup_label.generate(folder, version), obj)
             if step == 'startup':
-                prefixes = [x.prefix for x in by_kind(machines, 'synth', 'drum', 'sample')]
                 services = active_services(profile, service_users(machines))
-                return cxx(str(generate_startup(folder, prefixes, [x.prefix for x in effects],
-                                                [x.prefix for x in sample_engines],
-                                                [x.prefix for x in sample_engines if x.display != 'stock'],
-                                                effect_screens=[x.prefix for x in effects if x.display != 'stock'],
-                                                player_pages=[x.prefix for x in by_kind(machines, 'player')],
-                                                control='control' in services, aux='aux' in services,
+                return cxx(str(generate_startup(folder, control='control' in services, aux='aux' in services,
                                                 locks='drum_locks' in services,
                                                 drumline='drumline' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():

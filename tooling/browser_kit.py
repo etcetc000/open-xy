@@ -137,8 +137,6 @@ def machine_entry(m, profile, sources, output, preview_cxx):
         entry['presets'] = presets
     if m.icon:
         entry['icon'] = m.icon
-    # An unselected machine's startup and catalog callbacks decline.
-    entry['absent'] = native.absent_symbols(m)
     if m.display != 'stock':
         entry['artwork'] = native.page_artwork(m).decode('utf-8')
         if m.grayscale:
@@ -243,7 +241,9 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
     # The machines the native package links, whose selection reproduces it.
     linked = document(package / 'analysis/compile-report.json')['linked']
     # The release version, as the firmware's boot label shows it.
-    kit = dict(format='opxy-browser-kit/1', version=native.package_version(package), profile=profile,
+    # The SDK revision's own sources, which a machine pack must share (tooling/machine_pack.py).
+    kit = dict(format='opxy-browser-kit/1', version=native.package_version(package), sdk=native.sdk_digest(),
+               profile=profile,
                profileSource=base64.b64encode(read(ROOT / ('profiles/' + profile['id'] + '.json'))).decode('ascii'),
                definitions=stock, fixed=FIXED_NUMBERS, linked=linked,
                machines=kit_machines, objects=objects, notices=notices(machines, bool(runtime_members)),

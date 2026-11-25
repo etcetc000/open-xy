@@ -56,10 +56,11 @@ bool format(u32, i32, char*) { return false; }
 }
 
 extern "C" {
-const opxy::platform::SynthControls sdk_synth_controls[] = {
+static const opxy::platform::SynthControls sdk_synth_controls_rows[] = {
     {reinterpret_cast<const char*>(73), ready, {4, 1, 2, 3, 0, 5, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, format, false, false},
     {nullptr, nullptr, {0, 1, 2, 3, 4, 5, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false}};
-const opxy::u32 sdk_synth_control_count = 1;
+const opxy::platform::SynthControls* sdk_synth_controls = sdk_synth_controls_rows;
+opxy::u32 sdk_synth_control_count = 1;
 }
 
 opxy::platform::Address opxy::platform::host_stock_address(opxy::platform::Address address) {

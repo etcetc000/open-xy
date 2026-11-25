@@ -16,8 +16,8 @@ extern "C" {
 void run_call(Call* call, u32 which) __asm__("run_call");
 u32 stub_render(u32 track, i32* sum) __asm__("stub_render");
 void sdk_drum_send_begin() __asm__("sdk_drum_send_begin");
-extern const stage::Stage sdk_track_stages[] __asm__("sdk_track_stages");
-extern const u32 sdk_track_stage_count __asm__("sdk_track_stage_count");
+extern const stage::Stage* sdk_track_stages __asm__("sdk_track_stages");
+extern u32 sdk_track_stage_count __asm__("sdk_track_stage_count");
 }
 
 // What the stub loop renders on each track this block: so many voices, each a pattern.
@@ -38,8 +38,9 @@ static void process(u32, i32* sum, const i32*, u32 count) {
     for (u32 i = 0; i < 128; i += 2) sum[i] >>= 1;
     if (!count) sum[1] = 100;
 }
-const stage::Stage sdk_track_stages[] = {{(const char*)40, ready, reset, process, 3}};
-const u32 sdk_track_stage_count = 1;
+static const stage::Stage sdk_track_stages_rows[] = {{(const char*)40, ready, reset, process, 3}};
+const stage::Stage* sdk_track_stages = sdk_track_stages_rows;
+u32 sdk_track_stage_count = 1;
 
 static const u32 ENGINES = 0x11b01d48, SUM = 0x11903600;
 static i32 direct[128];

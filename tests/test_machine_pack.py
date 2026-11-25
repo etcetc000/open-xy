@@ -16,8 +16,9 @@ from tooling.formats import sha
 
 class MachinePackTests(unittest.TestCase):
     def kit(self):
-        return dict(version='0.0.2', definitions={}, fixed={}, machines=[dict(id='custom', origin='personal')],
-                    objects=[], notices='Author license', profileSource=base64.b64encode(b'profile').decode(),
+        return dict(version='0.0.2', sdk='c' * 64, definitions={}, fixed={}, machines=[dict(id='custom', origin='personal')],
+                    objects=[dict(name='custom/voice.o', owner='custom'), dict(name='sdk/startup.o', owner=None)],
+                    notices='Author license', profileSource=base64.b64encode(b'profile').decode(),
                     stockCatalog='must not ship', screenTemplate='must not ship', profile={'stock':'must not ship'})
 
     def test_archive_is_bounded_deterministic_and_readable_by_browser(self):
@@ -31,6 +32,8 @@ class MachinePackTests(unittest.TestCase):
                 self.assertNotIn(b'must not ship', data)
                 manifest = json.loads(data)
                 self.assertEqual(manifest['profileSha256'], sha(b'profile'))
+                self.assertEqual(manifest['sdk'], 'c' * 64)
+                self.assertEqual(manifest['objects'], [dict(name='custom/voice.o', owner='custom')])
                 self.assertEqual(manifest['notices'], 'Author license')
             other = root / 'other'
             other.mkdir()
@@ -39,20 +42,23 @@ class MachinePackTests(unittest.TestCase):
                      "console.log(readMachinePack(readFileSync(process.argv[1])).format);"
             result = subprocess.run(['node', '--input-type=module', '-e', script, str(pack)],
                                     cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, check=True)
-            self.assertEqual(result.stdout.strip(), 'opxy-machine-pack/1')
+            self.assertEqual(result.stdout.strip(), 'opxy-machine-pack/2')
             with self.assertRaises(FileExistsError):
                 write(self.kit(), root)
 
-    def test_site_machines_leave_site_metadata_and_notices_to_the_site(self):
+    def test_site_machines_and_shared_objects_stay_with_the_site(self):
+        # A pack holds only its own machines and their objects, records included: the site's
+        # kit has the rest, whatever its catalog holds (builder/core.mjs importMachinePack).
         kit = self.kit()
-        site = dict(id='site', origin='catalog', catalog='', preview={'wasm': 'AAAA'}, source={'tag': 'v1'},
-                    cpu={'mean': 1}, keywords=['bass'], controls=['A'])
-        kit['machines'].insert(0, site)
+        kit['machines'].insert(0, dict(id='site', origin='catalog', catalog='', controls=['A']))
+        kit['objects'].insert(0, dict(name='site/voice.o', owner='site'))
         with tempfile.TemporaryDirectory() as directory:
             with zipfile.ZipFile(write(kit, directory, notices='Custom only')) as archive:
                 manifest = json.loads(archive.read('machines.json'))
-        self.assertEqual(manifest['machines'][0], dict(id='site', origin='catalog', catalog='', controls=['A']))
-        self.assertEqual(manifest['machines'][1], dict(id='custom', origin='personal'))
+        self.assertEqual(manifest['machines'], [dict(id='custom', origin='personal')])
+        self.assertEqual(manifest['objects'], [dict(name='custom/voice.o', owner='custom')])
+        self.assertEqual(set(manifest), {'format', 'version', 'sdk', 'profileSha256', 'definitions', 'fixed', 'machines',
+                                         'objects', 'notices'})
         self.assertEqual(manifest['notices'], 'Custom only')
 
     def test_archive_size_is_bounded(self):

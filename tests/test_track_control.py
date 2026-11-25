@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import unittest
 
-from tooling import native
+from tooling import native, records
 from tooling.adapters import control_callbacks, generate_control, generate_track_controls
 from tooling.definitions import hidden_pages, validate_definition
 from tooling.formats import ldr, mapped_offset, sha
@@ -60,20 +60,21 @@ class TrackControl(unittest.TestCase):
         self.assertEqual([control_callbacks(m) for m in machines], [[], []])
         self.assertNotIn('probesynth/control.o', native.object_owners(machines))
         self.assertNotIn('sdk/track_control.o', native.object_owners(machines))
-        self.assertNotIn('sdk/track_control_table.o', native.object_owners(machines))
         with tempfile.TemporaryDirectory(prefix='track-control-') as folder:
             table = generate_track_controls(folder, machines).read_text(encoding='utf-8')
-        self.assertIn('{nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, false, 0, nullptr, {}, false}', table)
+        self.assertIn('opxy::u32 sdk_control_machine_count = 0;', table)
         self.assertNotIn('probesynth', table)
+        self.assertFalse(any('control_row' in records.render(m) for m in machines))
 
-    def test_an_unselected_machine_falls_back_for_its_track_control_callbacks(self):
+    def test_only_the_machines_record_names_its_track_control_callbacks(self):
         synth = copy.deepcopy(fixture('probesynth'))
         synth.definition['resources']['trackControl'] = {'stateBytes': 8, 'stateAlignment': 4, 'unique': True,
                                                          'aux': [12], 'savedBytes': 16}
-        absent = native.absent_symbols(synth)
+        record = records.render(synth)
         for symbol in control_callbacks(synth):
-            self.assertEqual(absent.get(symbol), 'kit_absent', symbol)
-        self.assertIn(synth.prefix + '_control_load', absent)
+            self.assertIn(symbol, record)
+        self.assertIn(synth.prefix + '_control_load', control_callbacks(synth))
+        self.assertIn('&control_row', record)
 
     def test_a_machine_that_keeps_data_exports_save_and_load(self):
         synth = copy.deepcopy(fixture('probesynth'))
@@ -255,24 +256,23 @@ class TrackControl(unittest.TestCase):
             self.assertEqual(all(patch_active(p, services) for p in hooks), used)
             self.assertEqual(all(patch_active(p, services) for p in aux_edits), aux_used)
             units = {step for _name, _m, step in native.plan(machines)}
-            for unit in ('track_control', 'track_control_table', 'track_control_hooks',
-                         'track_control_project', 'synth_pages'):
+            for unit in ('track_control', 'track_control_hooks', 'track_control_project', 'synth_pages'):
                 self.assertEqual(unit in units, used)
             for unit in ('aux_tracks', 'aux_hooks'):
                 self.assertEqual(unit in units, aux_used)
         # Startup reaches the saved data's writer only with the service.
         from tooling.startup import render
-        plain_startup, control_startup = render(['probe']), render(['probe'], control=True)
+        plain_startup, control_startup = render(), render(control=True)
         self.assertNotIn('sdk_overlay_startup', plain_startup + control_startup)
         self.assertIn('u32 sdk_project_kept(void*) { return 0; }', plain_startup)
         self.assertNotIn('sdk_control_kept_write', plain_startup)
         self.assertIn('{ return sdk_control_kept_write(file); }', control_startup)
         # The aux service starts with control only.
-        aux_startup = render(['probe'], control=True, aux=True)
+        aux_startup = render(control=True, aux=True)
         self.assertNotIn('sdk_aux_startup', control_startup)
         self.assertIn('    sdk_aux_startup();', aux_startup)
         with self.assertRaisesRegex(ValueError, 'needs the control service'):
-            render(['probe'], aux=True)
+            render(aux=True)
 
     def test_gui_tick_is_a_reviewed_call_in_a_shared_unit(self):
         hooks = [p for p in config()['patches']

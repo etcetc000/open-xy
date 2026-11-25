@@ -10,7 +10,7 @@ import tempfile
 import unittest
 
 from machine_fixtures import FOLDER, fixture
-from tooling import adapters, native
+from tooling import adapters, native, records
 from tooling.definitions import SDK_1_25, validate_definition
 from tooling.machines import machine_at
 from tooling.pipeline import ROOT
@@ -81,18 +81,15 @@ class Generation(unittest.TestCase):
         template = (PLATFORM / 'drum_voice.cpp.in').read_text(encoding='utf-8')
         self.assertEqual(template.count('@MODEL_EDIT@'), 1)
         self.assertIn('#endif\n@MODEL_EDIT@void @PREFIX@_drum_scramble_range', template)
-        table = ('#include "drum_model_edit.hpp"\n'
-                 'extern "C" opxy::u32 probekit25_drum_edit_model(opxy::u32, opxy::u32, opxy::u32, opxy::i32, '
-                 'opxy::u32) __asm__("probekit25_drum_edit_model");\n'
-                 'const opxy::platform::DrumModelEdit sdk_drum_model_edits[] = {\n'
-                 '    {probekit25_engine_id, probekit25_drum_edit_model},\n};\n'
-                 'const opxy::u32 sdk_drum_model_edit_count = 1;\n')
-        self.assertIn(table, both)
-        self.assertNotIn('sdk_drum_model_edits', alone)
-        self.assertEqual(adapters.model_edit_table([old, fixture('probesynth')]), '')
-        # An unselected kit's editor, which the table names, resolves to the builder's kit_absent.
-        self.assertEqual(native.absent_symbols(new)['probekit25_drum_edit_model'], 'kit_absent')
-        self.assertNotIn('probekit21_drum_edit_model', native.absent_symbols(old))
+        self.assertIn('opxy::u32 probekit25_drum_edit_model(opxy::u32, opxy::u32, opxy::u32, opxy::i32, '
+                      'opxy::u32) __asm__("probekit25_drum_edit_model");\n', both)
+        self.assertIn('static const opxy::platform::DrumModelEdit sdk_drum_model_edits_rows[] = {\n'
+                      '    {probekit25_engine_id, probekit25_drum_edit_model},\n    {}\n};\n', both)
+        self.assertIn('opxy::u32 sdk_drum_model_edit_count = 1;\n', both)
+        self.assertIn('opxy::u32 sdk_drum_model_edit_count = 0;\n', alone)
+        # The kit's record holds its row (its editor); an older kit's has none.
+        self.assertIn('&model_edit_row', records.render(new))
+        self.assertNotIn('model_edit_row', records.render(old))
 
     def test_only_a_build_with_such_a_kit_compiles_the_shared_editor_with_the_define(self):
         new, old = fixture('probekit25'), fixture('probekit21')

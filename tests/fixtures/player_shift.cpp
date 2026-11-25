@@ -87,8 +87,9 @@ const platform::Player* clicker() {
 }
 }
 extern "C" {
-const platform::PlayerEntry sdk_players[]={{shifted},{plain},{gapped},{paged8},{clicker}};
-const u32 sdk_player_count=5;
+static const platform::PlayerEntry sdk_players_rows[]={{shifted},{plain},{gapped},{paged8},{clicker}};
+const platform::PlayerEntry* sdk_players = sdk_players_rows;
+u32 sdk_player_count =5;
 u32 (*sdk_screen_substitute)(u32)=nullptr;
 void (*sdk_player_press)(u32)=nullptr;
 }

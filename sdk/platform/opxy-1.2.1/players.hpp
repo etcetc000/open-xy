@@ -72,6 +72,7 @@ const u32 kMaestroStep = 0x8d57d8cc;     // +0x34 (object), sequencer role
 }}
 
 extern "C" {
-extern const opxy::platform::PlayerEntry sdk_players[] __asm__("sdk_players");
-extern const opxy::u32 sdk_player_count __asm__("sdk_player_count");
+// The table startup builds from the selected machines' records (machine_tables.cpp).
+extern const opxy::platform::PlayerEntry* sdk_players __asm__("sdk_players");
+extern opxy::u32 sdk_player_count __asm__("sdk_player_count");
 }

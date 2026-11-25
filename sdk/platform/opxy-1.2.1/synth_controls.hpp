@@ -21,8 +21,8 @@ struct SynthShift {
 // and a slot no position reaches maps to itself. A paged synth's press moves
 // all four positions, switching between its two pages. steps[s] is an enum
 // slot's choice count (2..255; 0 for other slots and larger enums): each
-// detent moves one choice. In a browser kit an unselected machine's ready
-// resolves to a function returning 0.
+// detent moves one choice. The table holds the selected machines' rows, copied
+// from their records at startup (machine_tables.cpp).
 struct SynthControls {
     const char* id;  // absolute symbol: the engine or effect ID, supplied at link time
     int (*ready)();
@@ -81,8 +81,9 @@ void control_division(char* text, i32 value);
 }}
 
 extern "C" {
-extern const opxy::platform::SynthControls sdk_synth_controls[] __asm__("sdk_synth_controls");
-extern const opxy::u32 sdk_synth_control_count __asm__("sdk_synth_control_count");
+// The table startup builds from the selected machines' records (machine_tables.cpp).
+extern const opxy::platform::SynthControls* sdk_synth_controls __asm__("sdk_synth_controls");
+extern opxy::u32 sdk_synth_control_count __asm__("sdk_synth_control_count");
 // The parameter slot each of a track's four page positions edits and shows:
 // 0..3 unless an owned synth's encoder press selected an alternate. GUI only.
 void sdk_synth_shown(opxy::u32 track, opxy::u8* shown) __asm__("sdk_synth_shown");

@@ -35,10 +35,11 @@ namespace sl = opxy::platform::step_locks;
 namespace {
 const char* number(unsigned n) { return reinterpret_cast<const char*>(static_cast<Address>(n)); }
 }
-const opxy::platform::CompanionMachine sdk_companion_machines[] = {
+static const opxy::platform::CompanionMachine sdk_companion_machines_rows[] = {
     {"probe", number(41), number(90), false},
     {nullptr, nullptr, nullptr, false}
 };
+const opxy::platform::CompanionMachine* sdk_companion_machines = sdk_companion_machines_rows;
 
 namespace {
 const u32 kProjectBytes = 0x54076c;

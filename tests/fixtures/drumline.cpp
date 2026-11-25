@@ -219,15 +219,17 @@ u32 host_dbox_index(const unsigned char* self) {
 extern "C" {
 static const u8 pad_bits[] = {5, 4};
 static const char* const pad_labels[] = {"FILTER", "SRR"};
-const DrumMachine sdk_drum_machines[] = {
+static const DrumMachine sdk_drum_machines_rows[] = {
     {reinterpret_cast<const char*>(41), ready, 1, defaults, label, name, count, 0, nullptr, nullptr, 1,
      2, pad_bits, 1, pad_labels, nullptr}
 };
-const u32 sdk_drum_machine_count = 1;
-const SynthControls sdk_synth_controls[] = {
+const DrumMachine* sdk_drum_machines = sdk_drum_machines_rows;
+u32 sdk_drum_machine_count = 1;
+static const SynthControls sdk_synth_controls_rows[] = {
     {reinterpret_cast<const char*>(41), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true}
 };
-const u32 sdk_synth_control_count = 1;
+const SynthControls* sdk_synth_controls = sdk_synth_controls_rows;
+u32 sdk_synth_control_count = 1;
 }
 
 Address opxy::platform::host_stock_address(Address address) {

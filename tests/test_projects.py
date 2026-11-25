@@ -212,12 +212,12 @@ class FirmwareWriter(unittest.TestCase):
         table = ''.join(f'    {{"{name}", number({n["engine"]}), number({n["page"]}), false}},\n'
                         for name, n in layout.items())
         source = (ROOT / 'tests/fixtures/project_companion.cpp').read_text(encoding='utf-8')
-        start = source.index('const opxy::platform::CompanionMachine sdk_companion_machines[] = {\n')
+        start = source.index('static const opxy::platform::CompanionMachine sdk_companion_machines_rows[] = {\n')
         end = source.index('    {nullptr, nullptr, nullptr, false}', start)
         with tempfile.TemporaryDirectory(prefix='companion-') as directory:
             folder = Path(directory)
             many = folder / 'project_companion_many.cpp'
-            many.write_text(source[:start] + 'const opxy::platform::CompanionMachine sdk_companion_machines[] = {\n' +
+            many.write_text(source[:start] + 'static const opxy::platform::CompanionMachine sdk_companion_machines_rows[] = {\n' +
                             table + source[end:], encoding='utf-8')
             writer, project = host_writer(folder, many), folder / 'song.xy'
             self.assertEqual(subprocess.run([str(writer), str(project), '1'], timeout=30).returncode, 0)

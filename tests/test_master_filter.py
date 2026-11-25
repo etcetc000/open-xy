@@ -320,13 +320,13 @@ class MasterFilter(unittest.TestCase):
         table = ''.join(f'    {{"{name}", number({n["engine"]}), number({n["page"]}), false}},\n'
                         for name, n in layout.items())
         source = (ROOT / 'tests/fixtures/project_companion.cpp').read_text()
-        start = source.index('const opxy::platform::CompanionMachine sdk_companion_machines[] = {\n')
+        start = source.index('static const opxy::platform::CompanionMachine sdk_companion_machines_rows[] = {\n')
         end = source.index('    {nullptr, nullptr, nullptr, false}', start)
         with tempfile.TemporaryDirectory(prefix='master-stream-') as directory:
             folder = Path(directory)
             fixture = folder / 'project_companion_many.cpp'
             fixture.write_text(source[:start] +
-                               'const opxy::platform::CompanionMachine sdk_companion_machines[] = {\n' +
+                               'static const opxy::platform::CompanionMachine sdk_companion_machines_rows[] = {\n' +
                                table + source[end:])
             writer = host_writer(folder, fixture)
             reader = host_writer(folder, 'project_load.cpp')

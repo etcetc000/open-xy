@@ -975,3 +975,14 @@ def check_analysis_budgets(machines):
 
 def by_kind(machines, *kinds):
     return [m for m in machines if m.kind in kinds]
+
+
+# The kinds in the order a build lists its machines' records (machine_record.hpp machine_kind).
+RECORD_KINDS = ('synth', 'drum', 'sample', 'effect', 'player')
+
+
+def record_order(machines):
+    """Machines as a build lists their records (sdk_machine_records, tooling/records.py): by kind,
+    then ID. Startup registers them, and the shared tables hold their rows, in this order,
+    whichever order a collection lists them in."""
+    return sorted(machines, key=lambda m: (RECORD_KINDS.index(m.kind), m.id))

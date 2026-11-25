@@ -10,7 +10,7 @@ import tempfile
 import shutil
 import unittest
 
-from tooling import adapters, native
+from tooling import adapters, native, records
 from tooling.formats import ldr, mapped_offset
 from tooling.machines import machine_at, assign_numbers, number_layout
 from tooling.pipeline import config
@@ -209,9 +209,11 @@ class PlayerContracts(unittest.TestCase):
         profile = config()
         self.assertEqual(active_services(profile, ['player']), {'players', 'octaves'})
         self.assertEqual(active_services(profile, ['synth']), set())
-        self.assertEqual(native.absent_symbols(m), {'probeplayer_player': 'kit_absent',
-                                                   'probeplayer_screen_register': 'kit_absent'})
-        self.assertEqual([step for _, machine, step in native.plan([m]) if machine], ['player_object'])
+        # Its record (tooling/records.py) names its page and its player; no shared object does.
+        record = records.render(m)
+        self.assertIn('probeplayer_screen_register, nullptr', record)
+        self.assertIn('const opxy::platform::PlayerEntry player_row = {probeplayer_player};', record)
+        self.assertEqual([step for _, machine, step in native.plan([m]) if machine], ['player_object', 'record'])
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
     def test_adapter_controls_do_not_enable_stock_playback_mode(self):

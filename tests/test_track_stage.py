@@ -20,7 +20,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 
-from tooling import native, track_stage
+from tooling import native, records, track_stage
 from tooling.adapters import generate_voice
 from tooling.definitions import validate_definition
 from tooling.firmware import active_services, decode_branch, hook_symbol, patch_active
@@ -196,13 +196,13 @@ class TrackCall(unittest.TestCase):
 
 class Plan(unittest.TestCase):
     def test_only_a_build_with_a_stage_links_its_units(self):
-        self.assertEqual({u: native.UNIT_SERVICES[u] for u in ('track_call', 'track_stage', 'track_stage_table')},
-                         dict.fromkeys(('track_call', 'track_stage', 'track_stage_table'), 'track_stage'))
+        self.assertEqual({u: native.UNIT_SERVICES[u] for u in ('track_call', 'track_stage')},
+                         dict.fromkeys(('track_call', 'track_stage'), 'track_stage'))
         units = lambda machines: [step for _name, m, step in native.plan(machines) if m is None]
         plain = units([fixture('probesynth')])
         staged = units([fixture('probesynth'), fixture('probestage')])
-        self.assertFalse({'track_call', 'track_stage', 'track_stage_table'} & set(plain))
-        self.assertEqual([u for u in staged if u not in plain], ['track_call', 'track_stage', 'track_stage_table'])
+        self.assertFalse({'track_call', 'track_stage'} & set(plain))
+        self.assertEqual([u for u in staged if u not in plain], ['track_call', 'track_stage'])
         self.assertIn('trackStage', native.service_users([fixture('probestage')]))
         self.assertNotIn('trackStage', native.service_users([fixture('probesynth')]))
 
@@ -212,15 +212,14 @@ class Plan(unittest.TestCase):
                          {'drum_sends': {'sdk_drum_send_begin': 'kit_absent'}})
         self.assertNotIn('drum_sends', native.service_fallbacks(active_services(profile, ['drum', 'padMix'])))
 
-    def test_an_unselected_stage_declines(self):
-        absent = native.absent_symbols(fixture('probestage'))
-        self.assertEqual({k: absent[k] for k in ('probestage_track_reset', 'probestage_track_process',
-                                                 'probestage_record_ready')}, dict.fromkeys(
-                         ('probestage_track_reset', 'probestage_track_process', 'probestage_record_ready'), 'kit_absent'))
-        self.assertFalse([k for k in native.absent_symbols(fixture('probesynth')) if 'track_' in k])
-        # Nor is its diagnostic run, which the benchmark table names.
-        self.assertEqual(absent['probestage_stage_benchmark'], 'kit_absent')
-        self.assertNotIn('probesynth_stage_benchmark', native.absent_symbols(fixture('probesynth')))
+    def test_only_the_stage_synths_record_names_its_stage(self):
+        record = records.render(fixture('probestage'))
+        for symbol in ('probestage_track_reset', 'probestage_track_process', 'probestage_record_ready',
+                       'probestage_stage_benchmark'):
+            self.assertIn(symbol, record)
+        self.assertIn('&stage_row', record)
+        self.assertNotIn('track_', records.render(fixture('probesynth')))
+        self.assertNotIn('stage_benchmark', records.render(fixture('probesynth')))
 
 
 class Adapter(unittest.TestCase):
@@ -270,7 +269,7 @@ class Adapter(unittest.TestCase):
                                 'probestage_track_process, 72u',
                                 'endless_engine_id, endless_record_ready, endless_track_reset, endless_track_process, '
                                 '4294967295u'])
-        self.assertIn('const opxy::u32 sdk_track_stage_count = 2;', text)
+        self.assertIn('opxy::u32 sdk_track_stage_count = 2;', text)
         self.assertNotIn('probesynth', text)
 
 

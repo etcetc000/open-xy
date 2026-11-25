@@ -62,7 +62,6 @@ class DrumPreviewTests(unittest.TestCase):
 
     def test_parameter_edit_is_an_optional_drum_callback(self):
         from tooling.definitions import validate_definition
-        from tooling.native import absent_symbols
         for value in (0, 1):
             definition = self.definition('drum')
             definition['resources']['parameterEdit'] = value
@@ -72,7 +71,6 @@ class DrumPreviewTests(unittest.TestCase):
                 table = adapters.generate_drum_callbacks(folder, [machine]).read_text()
                 source = adapters.generate_voice(folder, machine).read_text()
             self.assertEqual('opxy::u32 kit_drum_edit_value(' in table, bool(value))
-            self.assertEqual('kit_drum_edit_value' in absent_symbols(machine), bool(value))
             self.assertIn('#if %d\nopxy::u32 kit_drum_edit_value' % value, source)
         for value in (2, -1, True, '1'):
             definition = self.definition('drum')

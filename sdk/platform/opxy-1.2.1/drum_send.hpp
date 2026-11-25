@@ -436,8 +436,7 @@ struct DrumSendKit {
 }}
 
 extern "C" {
-// Generated per collection (drum_callbacks.cpp); a kit not in a browser
-// selection names kit_absent, which no voice's method table is.
-extern const opxy::platform::DrumSendKit sdk_drum_send_kits[];
-extern const opxy::u32 sdk_drum_send_kit_count;
+// The selected padMix kits, built at startup from their records (machine_tables.cpp).
+extern const opxy::platform::DrumSendKit* sdk_drum_send_kits __asm__("sdk_drum_send_kits");
+extern opxy::u32 sdk_drum_send_kit_count __asm__("sdk_drum_send_kit_count");
 }

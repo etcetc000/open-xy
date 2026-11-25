@@ -102,20 +102,21 @@ On the builder's **Choose machines** page, choose **Import machines ZIP** beside
 **Choose extensions**. An SDK-built pack adds one or more machines marked
 **Yours**, initially unselected. The file stays in the browser; importing does
 not publish a catalog entry. Import code only from authors you trust: native
-machine code is not isolated or reviewed by Open-XY. While a pack is imported,
-every build links its startup code and generated machine tables, even when none
-of its machines is selected, and its browser previews run in the page when
-inspected.
+machine code is not isolated or reviewed by Open-XY. A pack's code enters a
+build only with its machines selected; its browser previews run in the page
+when inspected.
 
-A pack extends the site's exact machine collection. It cannot replace existing
-machines, change the SDK runtime or add extensions, and it adds synths, effects
-and sample engines only: drum kits, players and aux machines cannot be imported
+A pack carries only its own machines, matched to the site's by ID, so it
+extends the site's collection whatever the site's catalog holds: machines the
+catalog has added, removed or reordered since the pack was exported do not
+matter. It must come from the site's release and SDK revision. It cannot
+replace existing machines (a machine whose ID the site already has is refused),
+change the SDK runtime or add extensions, and it adds synths, effects and
+sample engines only: drum kits, players and aux machines cannot be imported
 yet. A machine published to the catalog after the site's release is exported as
-a catalog machine, not a custom one, and cannot be imported. Its compiled
-registration, control and callback tables accompany the added machines, so
-independent packs cannot be combined: export the desired custom machines
-together. A pack that imports replaces the previous one; a refused one leaves
-it. **Remove imported machines** restores the site's collection. Both operations
+a catalog machine, not a custom one, and cannot be imported. A pack that imports
+replaces the previous one, so export the desired custom machines together; a
+refused one leaves it. **Remove imported machines** restores the site's collection. Both operations
 keep saved machine numbers reserved. Reloading clears the imported pack and
 drops its machines from the remembered selection; keep its ZIP and your saved
 layout to use it again. Import the pack before loading a layout that selects its
@@ -127,15 +128,18 @@ with those machines.
 
 ### Export a machine pack
 
-Build against exactly what the destination site was released from: check out the
+Build with the SDK the destination site was released from: check out the
 SDK revision it was built from, normally the release tag of the version the
-builder shows beside its name (`v0.0.7`; a catalog update published since then
-needs its later revision, and the beta site is built from the current
-`staging`), with the pinned native tools and your own stock OS. Fetch that
-revision's catalog, then export the site's collection with the SDK's own
+builder shows beside its name (`v0.0.7`; the beta site is built from the current
+`staging`), with the pinned native tools and your own stock OS, and keep its
+`sdk/`, `tooling/` and `profiles/` unchanged: the pack records a digest of them
+that the site's must match. Catalog updates published since do not matter. Fetch
+that revision's catalog, then export the site's collection with the SDK's own
 extensions (one `--extension` per folder under `extensions/` at that revision,
 in name order, as `sdk.py release` adds them) and your custom machine folders
-appended (repeat `--machine` for more). The export rebuilds every machine's
+appended (repeat `--machine` for more): the pack keeps only your machines, and
+the collection decides only which profile services the export's own checks
+link. The export rebuilds every machine's
 browser preview, so it also needs Clang++ for wasm32 (`--preview-cxx`, as for
 any [kit](builder.md#export-a-kit)):
 
@@ -153,17 +157,21 @@ outside every checkout. The pack limit is 64 MiB. A source repository ZIP or
 firmware installation ZIP is not a machine pack, and neither is a pack that was
 unzipped and zipped again: share `machines.zip` exactly as the exporter wrote it.
 
-The importer rejects changed catalog machines, mismatched releases/runtime,
-duplicate identities, IDs holding Open-XY's fixed numbers, damaged objects and
-machines that cannot link or fit individually. A custom machine that needs SDK
-objects none of the site's machines link (another profile service, an arithmetic
-runtime member or an SDK header unit such as `opxy/sample_kernel.hpp` or
+The importer rejects packs from another release or SDK revision (including
+earlier pack formats), machines whose ID or prefix the site already has,
+duplicate identities, IDs holding Open-XY's fixed numbers, objects that are not
+the pack's own machines', machine objects without their record or defining a
+symbol the site's SDK objects use, damaged objects and machines that cannot
+link or fit individually. A custom machine that needs SDK objects the site does
+not link (a profile service its features switch on, an arithmetic runtime
+member or an SDK header unit such as `opxy/sample_kernel.hpp` or
 `opxy/control_interaction.hpp`) cannot extend that site: the importer names the
-first such object. The normal memory meter checks the combined selection. After
-a site release or catalog update, its author may need to export a matching pack.
-Checks do not certify an author's native code, measure CPU or establish device
-recovery. The format is a single stored `machines.json` entry in ZIP, identified
-as `opxy-machine-pack/1`; use the exporter rather than assembling it by hand.
+service or the first missing symbol. The normal memory meter checks the
+combined selection. After a site release, its author needs to export a matching
+pack. Checks do not certify an author's native code, measure CPU or establish
+device recovery. The format is a single stored `machines.json` entry in ZIP,
+identified as `opxy-machine-pack/2`; use the exporter rather than assembling it
+by hand.
 
 [Firmware extensions](extensions.md) have a catalog of their own,
 `catalog/extensions.json`, in the same format under `"extensions"`: `kind` is

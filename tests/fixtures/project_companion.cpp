@@ -59,11 +59,12 @@ void load(const opxy::u8* data, opxy::u32 bytes) {
 }
 
 extern "C" {
-const opxy::platform::ControlMachine sdk_control_machines[] = {
+static const opxy::platform::ControlMachine sdk_control_machines_rows[] = {
     {nullptr, ready, nullptr, nullptr, "morph", 16, save, load, true, 1u << 11, nullptr, {}},
     {nullptr, ready, nullptr, nullptr, "plain", 0, nullptr, nullptr, false, 0, nullptr, {}},
     {nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, false, 0, nullptr, {}}};
-const opxy::u32 sdk_control_machine_count = 2;
+const opxy::platform::ControlMachine* sdk_control_machines = sdk_control_machines_rows;
+opxy::u32 sdk_control_machine_count = 2;
 }
 
 // Aux tracks (aux_tracks.cpp): a machine may hold patterns of track 11, with
@@ -99,13 +100,14 @@ opxy::u32 loading, clears;
 opxy::u32 stock_clear(opxy::u32, opxy::u32, opxy::u32) { if (!loading) ++clears; return 0; }
 }
 
-const opxy::platform::CompanionMachine sdk_companion_machines[] = {
+static const opxy::platform::CompanionMachine sdk_companion_machines_rows[] = {
     {"karplus", number(36), number(84), false},
     {"pingpong", number(40), number(21), true},
     {"skipped", number(0), number(0), false},  // a kit machine left out of the selection
     {"timestretch", number(35), number(7), false},
     {nullptr, nullptr, nullptr, false}
 };
+const opxy::platform::CompanionMachine* sdk_companion_machines = sdk_companion_machines_rows;
 
 Address opxy::platform::host_stock_address(Address address) {
     switch (address) {

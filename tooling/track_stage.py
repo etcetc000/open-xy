@@ -4,9 +4,10 @@ A synth may declare a stage: one state per instrument track that holds it, which
 the SDK processes once per block, in place, on the track's stereo voice sum, after
 stock's voice loop and before the track's gain and buses. It runs from the shared
 handler of stock's track call (track_call.s), which the profile's track call record
-names for the `track_stage` service; track_stage.cpp is its runtime and
-track_stage_table.cpp, generated here, lists the declaring synths. A build without
-such a synth links none of it, and its voice adapters carry none of it.
+names for the `track_stage` service; track_stage.cpp is its runtime, and each
+declaring synth's record carries its row (stage_row), which startup copies into the
+stage table. A build without such a synth links none of it, and its voice adapters
+carry none of it.
 """
 from pathlib import Path
 
@@ -75,33 +76,24 @@ def benchmark_symbol(m):
     return m.prefix + '_stage_benchmark'
 
 
-def absent_symbols(m):
-    """An unselected declaring synth's entries, each kit_absent; its ready check (also
-    kit_absent) declines first, so none is called."""
+def stage_row(m):
+    """A declaring synth's row in the stage table (track_stage.hpp Stage), as adapters.Row; None
+    for any other machine."""
+    from .adapters import Row
     if track_stage(m) is None:
-        return {}
-    return dict.fromkeys((*stage_symbols(m), benchmark_symbol(m)), 'kit_absent')
+        return None
+    p = m.prefix
+    reset, process = stage_symbols(m)
+    return Row((f'extern const char {p}_engine_id[] __asm__("{p}_engine_id");',
+                f'int {p}_record_ready() __asm__("{p}_record_ready");',
+                f'void {reset}(opxy::u32) __asm__("{reset}");',
+                f'void {process}(opxy::u32, opxy::i32*, const opxy::i32*, opxy::u32) __asm__("{process}");'),
+               f'{{{p}_engine_id, {p}_record_ready, {reset}, {process}, {hold(m)}u}}')
 
 
 def generate_table(directory, machines):
-    """track_stage_table.cpp: the declaring synths' stages, in collection order."""
-    declarations, rows = [], []
-    for m in machines:
-        if track_stage(m) is None:
-            continue
-        p = m.prefix
-        reset, process = stage_symbols(m)
-        declarations += [f'extern const char {p}_engine_id[] __asm__("{p}_engine_id");',
-                         f'int {p}_record_ready() __asm__("{p}_record_ready");',
-                         f'void {reset}(opxy::u32) __asm__("{reset}");',
-                         f'void {process}(opxy::u32, opxy::i32*, const opxy::i32*, opxy::u32) __asm__("{process}");']
-        rows.append(f'    {{{p}_engine_id, {p}_record_ready, {reset}, {process}, {hold(m)}u}},')
-    require(rows, 'A track stage table needs a synth that declares one')
-    source = ('#include "track_stage.hpp"\nextern "C" {\n' + '\n'.join(declarations) + '\n'
-              'extern const opxy::platform::track_stage::Stage sdk_track_stages[] __asm__("sdk_track_stages");\n'
-              'extern const opxy::u32 sdk_track_stage_count __asm__("sdk_track_stage_count");\n}\n'
-              'const opxy::platform::track_stage::Stage sdk_track_stages[] = {\n' + '\n'.join(rows) + '\n};\n'
-              f'const opxy::u32 sdk_track_stage_count = {len(rows)};\n')
-    destination = Path(directory) / 'track_stage_table.cpp'
-    destination.write_text(source, encoding='utf-8', newline='\n')
-    return destination
+    """For host checks: the stage table these machines' records build (stage_row)."""
+    from .adapters import host_tables
+    return host_tables(Path(directory) / 'track_stage_table.cpp', ('track_stage.hpp',),
+                       [('opxy::platform::track_stage::Stage', 'sdk_track_stages', 'sdk_track_stage_count', stage_row)],
+                       machines)

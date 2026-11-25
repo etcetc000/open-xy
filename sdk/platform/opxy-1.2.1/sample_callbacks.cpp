@@ -1,10 +1,10 @@
-// Generated for one collection: its sample machines as one table, and the
-// stock-page bridge to their callbacks. Authored callbacks only see SDK values.
+// The stock-page bridge to the selected sample machines' callbacks, through the
+// table startup builds from their records (machine_tables.cpp). Authored callbacks
+// only see SDK values.
 #include "sample_machines.hpp"
 #include "stock_sample.hpp"
 #include "stock.hpp"
 extern "C" {
-@CALLBACK_DECLS@
 opxy::u32 sdk_sample_selected_engine() __asm__("sdk_sample_selected_engine");
 opxy::u32 sdk_sample_edit(void*, opxy::u32, opxy::i32, opxy::u32) __asm__("sdk_sample_edit");
 const opxy::DrumPanel* sdk_sample_drum_view(const void*, void*, const opxy::i32*) __asm__("sdk_sample_drum_view");
@@ -15,13 +15,6 @@ using opxy::u32;
 using opxy::i32;
 using opxy::PadSettings;
 using opxy::platform::SampleMachine;
-
-const SampleMachine sdk_sample_machines[] = {
-@MACHINES@
-    {nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr}
-};
-// The terminating entry keeps the array nonempty for a collection without sample machines.
-const u32 sdk_sample_machine_count = sizeof(sdk_sample_machines) / sizeof(sdk_sample_machines[0]) - 1;
 
 namespace {
 // The owned machine on engine with pad settings, or null.

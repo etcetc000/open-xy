@@ -356,8 +356,21 @@ Registration is checked: the record must be empty or already ours, and the
 name map must not point elsewhere. The stock initializer clears and refills the
 records on every run, so registration is re-checked each time rather than cached.
 
-The startup and catalog glue is C++ generated per collection
-([`startup.cpp.in`](../sdk/platform/opxy-1.2.1/startup.cpp.in)); the checks are
+The startup and catalog glue
+([`startup.cpp.in`](../sdk/platform/opxy-1.2.1/startup.cpp.in), generated only
+for the profile services a build links) names no machine. Each machine's own
+objects define its record
+([`machine_record.hpp`](../sdk/platform/opxy-1.2.1/machine_record.hpp)): its
+registration entry points, its numbers and its rows in the SDK's shared tables.
+A build's one selection-specific object lists the selected machines' records by
+kind (synths, drum kits, sample engines, effects, players), then ID, and reserves
+the space the shared tables take. Startup, on each role, first builds the tables
+by copying every record's rows
+([`machine_tables.cpp`](../sdk/platform/opxy-1.2.1/machine_tables.cpp)), then
+registers effects, then engines, then players' pages, each kind in record order.
+The second role's build writes the same bytes at the same addresses, so a reader
+on the first never sees a row change; each table's address is published before
+its count. The checks are
 [`registration.cpp`](../sdk/platform/opxy-1.2.1/registration.cpp), bound to the
 stock tables in `registration_stock.cpp.in`. The two initializer hooks jump
 into the middle of stock functions, so
@@ -914,8 +927,8 @@ Requirements: flag 1, an engine ID of 34–255, and page 2 or 7. The engine neve
 touches the sample cache or its lock.
 
 Stock's sample predicate and note-region dispatcher also have explicit engine
-ID checks. One generated table describes the collection's sample machines
-([`sample_callbacks.cpp.in`](../sdk/platform/opxy-1.2.1/sample_callbacks.cpp.in));
+ID checks. One table, built at startup from the selected sample machines'
+records, describes them ([`sample_callbacks.cpp`](../sdk/platform/opxy-1.2.1/sample_callbacks.cpp));
 [`sample_machines.cpp`](../sdk/platform/opxy-1.2.1/sample_machines.cpp)
 admits an ID only while its registration is still ours, and an owned engine
 borrows a stock payload: the sampler's on page 2, routed as the sampler's one
