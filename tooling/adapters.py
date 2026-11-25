@@ -467,7 +467,7 @@ opxy::player::Controls controls;
 template <class S> auto next_update(S& s, const opxy::player::Controls& c, opxy::player::Update& u, int)
     -> decltype(update(s, c, u)) {{ return update(s, c, u); }}
 template <class S> bool next_update(S&, const opxy::player::Controls&, opxy::player::Update&, long) {{ return false; }}
-// The callbacks see the eight controls the page shows, at 120 BPM from middle C's octave,
+// The callbacks see the eight controls the page shows, at 120 BPM with the keyboard from F3 (lowest_key 53),
 // and a shift row at its defaults, as the device starts it (not turned in the preview).
 void take_controls() {{
     for (opxy::u32 i = 0; i < 8; ++i) controls.value[i] = input.slots[i];

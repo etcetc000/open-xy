@@ -176,7 +176,7 @@ class PlayerPage(unittest.TestCase):
                                         capture_output=True, text=True, timeout=120, **HIDDEN)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_a_plain_players_unit_is_as_before(self):
+    def test_a_plain_players_unit_generates_the_plain_types(self):
         # A plain display keeps draw::Frame, draw::Input and the retained renderer, and includes nothing more.
         with tempfile.TemporaryDirectory() as temp:
             root = copy_fixture('probeplayer', temp)

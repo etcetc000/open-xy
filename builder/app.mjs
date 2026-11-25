@@ -617,9 +617,12 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         if (kit) syncControls();
         $('controls').replaceChildren(...controls);
         const trigger = () => { serial = serial + 1 >>> 0; frame(0); };
-        canvas.setAttribute('role', 'button'); canvas.setAttribute('tabindex', '0'); canvas.setAttribute('aria-label', 'Trigger ' + m.name + ' display preview');
-        canvas.onclick = trigger; canvas.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(); } };
-        frame(0); trigger();
+        // A player's page sees notes only from its keys, as on the device: its screen triggers nothing.
+        if (!player) {
+          canvas.setAttribute('role', 'button'); canvas.setAttribute('tabindex', '0'); canvas.setAttribute('aria-label', 'Trigger ' + m.name + ' display preview');
+          canvas.onclick = trigger; canvas.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(); } };
+        }
+        frame(0); if (!player) trigger();
         function animate(time) {
           if (cancelled) return;
           if (time - previous >= 32 && !document.hidden && !document.querySelector('[data-page="2"]').hidden) {
