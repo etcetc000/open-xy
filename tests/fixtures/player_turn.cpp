@@ -141,3 +141,7 @@ int main() {
     for(u32 i=0;i<8;++i) require(delivered.value[i]==values[i]);
     std::puts("owned player controls bypass stock hold mode; enum detents and stock fallback passed");
 }
+
+// The machine tables are this fixture's own (above); startup would build them on the device.
+extern "C" void sdk_machine_tables() __asm__("sdk_machine_tables");
+void sdk_machine_tables() {}

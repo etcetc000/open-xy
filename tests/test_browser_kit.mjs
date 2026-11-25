@@ -29,7 +29,7 @@ const FOUR_MIB = 4 * 1024 ** 2;
 const profileBytes = readFileSync(new URL('../profiles/opxy-1.2.1.json',import.meta.url));
 function fixture() {
   const object = {...readObject(elf()), name:'a.o',owner:'a'};
-  return {version:'0.0.2',profile:JSON.parse(profileBytes),definitions:{},fixed:{a:{engine:34,page:82}},machines:[machine('a',34,82)],objects:[object]};
+  return {version:'0.0.2',sdk:'c'.repeat(64),profile:JSON.parse(profileBytes),definitions:{},fixed:{a:{engine:34,page:82}},machines:[machine('a',34,82)],objects:[object]};
 }
 
 const SDK = 'c'.repeat(64);

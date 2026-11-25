@@ -278,3 +278,7 @@ int main() {
     std::puts("player shift row, Shift turn sums, published Shift, clicks and pages passed");
     return 0;
 }
+
+// The machine tables are this fixture's own (above); startup would build them on the device.
+extern "C" void sdk_machine_tables() __asm__("sdk_machine_tables");
+void sdk_machine_tables() {}

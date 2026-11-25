@@ -961,6 +961,9 @@ u32 sdk_project_save(void* project, const char* path) {
 // Stock's deserialize, then the companion's numbers and step locks. The project is the inactive buffer,
 // which nothing reads until stock validates it and makes it pending.
 u32 sdk_project_load(void* project, const char* path) {
+    // A project may load before startup has built the machine tables; stock's deserialize
+    // already asks for this selection's players, so they are built first.
+    sdk_machine_tables();
     master_processor::clear_pending();
     sdk_project_locks_begin();
     const u32 loaded = deserialize(project, path);

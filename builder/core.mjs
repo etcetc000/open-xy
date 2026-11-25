@@ -629,7 +629,7 @@ export async function openKit(kit) {
   // The release version, which every build's boot label shows (tooling.startup_label).
   check(typeof kit.version === 'string' && /^\d+\.\d+\.\d+$/.test(kit.version), 'Unsupported curated kit version');
   // The SDK revision's own sources (tooling/native.py sdk_digest), which a machine pack must share.
-  check(kit.sdk === undefined || typeof kit.sdk === 'string' && /^[a-f0-9]{64}$/.test(kit.sdk), 'Unsupported curated kit');
+  check(typeof kit.sdk === 'string' && /^[a-f0-9]{64}$/.test(kit.sdk), 'Unsupported curated kit: export it again with this release');
   const profileBytes = decode64(kit.profileSource);
   check(await sha256(profileBytes) === PROFILE_SHA256 &&
     JSON.stringify(JSON.parse(decoder.decode(profileBytes))) === JSON.stringify(kit.profile),

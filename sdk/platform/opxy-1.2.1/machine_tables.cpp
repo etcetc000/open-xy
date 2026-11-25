@@ -2,9 +2,9 @@
 // into the space machine_records.o reserves for them. Each table holds a copy of
 // every record's row for it, in record order (by kind, then ID); the companion
 // table is sorted by ID and ends with an empty row, as companions list machines.
-// Startup builds them on each role before it registers a machine, and the project
-// companion before it reads or writes a project's machine numbers, which may come
-// first; the other readers each check their machine is registered and ready, so
+// Startup builds them on each role before it registers a machine, and a project load
+// or save and stock's player lookups before they read them, which may come first;
+// the other readers each check their machine is registered and ready, so
 // they find a row only after startup. The first build sets them; a build that
 // overlaps it writes the same bytes at the same places, and each table's address
 // is published before its count: a reader that sees the count sees the rows. Every
