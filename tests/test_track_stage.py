@@ -513,7 +513,9 @@ class NativeLink(unittest.TestCase):
             self.assertEqual(decode_branch(int(SITE, 16), bytes.fromhex(patch['after'])),
                              (report['hooks']['sdk_track_call'], True))
             self.assertIn('probestage', report['audio_stack_bytes'])
-            self.assertIn('sdk/track_stage_table.o', report['objects'])
+            self.assertIn('probestage/record.o', report['objects'])
+            self.assertIn('sdk/machine_tables.o', report['objects'])
+            self.assertNotIn('sdk/track_stage_table.o', report['objects'])
 
     def test_a_stage_beside_a_pad_mix_kit_runs_both_from_the_shared_handler(self):
         with tempfile.TemporaryDirectory(prefix='stage-mix-') as folder:
