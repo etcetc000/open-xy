@@ -1,0 +1,27 @@
+<g id="probepads_panel">
+<circle id="probepads_dot_0" transform="matrix(1 0 0 1 20 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_1" transform="matrix(1 0 0 1 38 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_2" transform="matrix(1 0 0 1 56 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_3" transform="matrix(1 0 0 1 74 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_4" transform="matrix(1 0 0 1 92 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_5" transform="matrix(1 0 0 1 110 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_6" transform="matrix(1 0 0 1 128 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_7" transform="matrix(1 0 0 1 146 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_8" transform="matrix(1 0 0 1 164 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_9" transform="matrix(1 0 0 1 182 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_10" transform="matrix(1 0 0 1 200 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_11" transform="matrix(1 0 0 1 218 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_12" transform="matrix(1 0 0 1 236 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_13" transform="matrix(1 0 0 1 254 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_14" transform="matrix(1 0 0 1 272 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_15" transform="matrix(1 0 0 1 290 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_16" transform="matrix(1 0 0 1 308 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_17" transform="matrix(1 0 0 1 326 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_18" transform="matrix(1 0 0 1 344 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_19" transform="matrix(1 0 0 1 362 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_20" transform="matrix(1 0 0 1 380 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_21" transform="matrix(1 0 0 1 398 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_22" transform="matrix(1 0 0 1 416 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<circle id="probepads_dot_23" transform="matrix(1 0 0 1 434 80)" r="4" fill="#000000" stroke="#000000" stroke-width="1"/>
+<text id="probepads_text" transform="matrix(1 0 0 1 240 215)" fill="#FFFFFF" font-family="UniversNextPro-Light" font-size="22">pads</text>
+</g>

@@ -1,4 +1,4 @@
-"""A note player's own drawn page (SDK 1.24): its contract, generated unit and renderer."""
+"""A note player's own drawn page (SDK 1.26): its contract, generated unit and renderer."""
 import json
 import os
 from pathlib import Path
@@ -57,7 +57,7 @@ class PlayerDrawnPage(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve() / 'probedraw'
         self.root.mkdir()
-        self.write_machine('1.24')
+        self.write_machine('1.26')
         self.write_definition(display=DISPLAY)
         for name, text in (('player.cpp', PLAYER), ('display.h', DISPLAY_H), ('display.cpp', DISPLAY_CPP),
                            ('panel.svg.fragment', PANEL)):
@@ -81,12 +81,12 @@ class PlayerDrawnPage(unittest.TestCase):
     def machine(self):
         return assign_numbers([machine_at(self.root)])[0][0]
 
-    def test_a_display_makes_the_page_the_players_own_from_sdk_1_24(self):
+    def test_a_display_makes_the_page_the_players_own_from_sdk_1_26(self):
         self.assertEqual(self.machine().display, 'drawing')
-        self.write_machine('1.23')
-        with self.assertRaisesRegex(ValueError, r"note player's own drawn page.*1\.24"):
+        self.write_machine('1.25')
+        with self.assertRaisesRegex(ValueError, r"note player's own drawn page.*1\.26"):
             machine_at(self.root)
-        self.write_machine('1.24')
+        self.write_machine('1.26')
         (self.root / 'display.cpp').unlink()
         with self.assertRaisesRegex(ValueError, 'supplies display.h and display.cpp'):
             machine_at(self.root)

@@ -71,7 +71,7 @@ def main(argv=None):
         def run(label, command):
             print(f'\n{label}', flush=True)
             # A hang guard, not a budget: with every fixture the suite compiles and links
-            # whole collections and runs stock code on a simulator (about 32 minutes on the
+            # whole collections and runs stock code on a simulator (about 31 minutes on the
             # release host), so each step gets an hour.
             subprocess.run([str(x) for x in command], cwd=ROOT, env=env,
                            check=True, timeout=3600)

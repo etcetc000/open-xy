@@ -12,6 +12,16 @@
       "path": "extensions/capture"
     },
     {
+      "id": "long_samples",
+      "kind": "extension",
+      "maintainer": "etcetc000",
+      "status": "published",
+      "repository": "https://github.com/etcetc000/open-xy-core-machines",
+      "tag": "v1.12.0",
+      "commit": "132ca0d2f81f98d7de326cb70b58bd83ece5b16b",
+      "path": "extensions/long_samples"
+    },
+    {
       "id": "master_dj_filter",
       "kind": "extension",
       "maintainer": "V714",

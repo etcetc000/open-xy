@@ -1,4 +1,4 @@
-// A note player's own drawn page (SDK 1.24): the player declares a display
+// A note player's own drawn page (SDK 1.26): the player declares a display
 // (resources.display) and draws its page as a synth draws its screen, a
 // draw::Frame each GUI frame, here from its State and Controls, in place of the
 // SDK's dot page (screen_player.hpp). It paints in place of the stock Maestro

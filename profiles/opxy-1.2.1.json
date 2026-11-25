@@ -176,6 +176,14 @@
       "padMix",
       "drumline_page"
     ],
+    "track_stage": [
+      "trackStage"
+    ],
+    "track_call": [
+      "padMix",
+      "drumline_page",
+      "trackStage"
+    ],
     "drum_locks": [
       "padMix",
       "drumline_page",
@@ -204,6 +212,9 @@
     ],
     "fast_helpers": [
       "fast_helpers"
+    ],
+    "pitch_constants": [
+      "pitch_constants"
     ]
   },
   "patches": [
@@ -2509,14 +2520,18 @@
     },
     {
       "kind": "hook",
-      "name": "Mixer: a track's voice loop starts, per-key send state reset",
+      "name": "Mixer: a track's voice loop, after the per-key send state reset and before the track stage",
       "address": "0x8d510bea",
       "file_offset": "0x147e46",
       "length": 4,
       "before": "00e38f5d",
       "symbol": "sdk_drum_send_track",
       "call": true,
-      "service": "drum_sends"
+      "service": "track_call",
+      "symbols": {
+        "track_stage": "sdk_track_call",
+        "drum_sends": "sdk_drum_send_track"
+      }
     },
     {
       "kind": "hook",
@@ -2713,6 +2728,28 @@
       "before": "ffe3b5ef",
       "after": "ffe39def",
       "service": "load_governor",
+      "build": true
+    },
+    {
+      "kind": "limit",
+      "name": "Pitch constants: the note-to-pitch routine (8d5c09d6) loads 1200.0f and calls 8d5bf5ec, stock's float-to-fixed conversion; the load becomes R0 = 0x04b00000, the word that call returns, and the call two NOPs (pitch_constants)",
+      "address": "0x8d5c0a1e",
+      "file_offset": "0x1f7c76",
+      "length": 12,
+      "before": "00da964400000000ffe3e3f5",
+      "after": "00dab0040000000000000000",
+      "service": "pitch_constants",
+      "build": true
+    },
+    {
+      "kind": "limit",
+      "name": "Pitch constants: the same routine's second constant, R0 = 100.0f then CALL 8d5bf5ec, becomes R0 = 0x00640000, the word that call returns, and two NOPs (pitch_constants)",
+      "address": "0x8d5c0a2c",
+      "file_offset": "0x1f7c84",
+      "length": 12,
+      "before": "00dac84200000000ffe3dcf5",
+      "after": "00da64000000000000000000",
+      "service": "pitch_constants",
       "build": true
     }
   ],
