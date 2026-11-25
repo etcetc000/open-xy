@@ -2688,6 +2688,20 @@
         "block_percent": 1.979095,
         "peak_percent": 3.778134
       }
+    },
+    {
+      "id": "chained_arp",
+      "kind": "player",
+      "maintainer": "yfukami",
+      "status": "published",
+      "repository": "https://github.com/yfukami/op-xy-chain-arp",
+      "tag": "v1.0.0",
+      "commit": "5b8c82f748b6e3a35639d7223a35f66d03780778",
+      "path": "machines/chained_arp",
+      "keywords": [
+        "experimental",
+        "chord"
+      ]
     }
   ]
 }
