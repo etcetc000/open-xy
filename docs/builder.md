@@ -245,7 +245,12 @@ in your firmware for good ([layouts](api.md#identity)). The builder remembers
 your layout in this browser and writes it to `layout.json` in every download;
 load that file under the machine list to build from another browser or
 computer. A layout from a build for OS 1.2.0 still loads. Numbers given to a machine you drop stay held, so its projects never
-open another machine. Adding a machine to the collection means adding it to
+open another machine. Earlier releases gave some synths and sample engines effect numbers,
+which effects need: the first build from a layout that holds one gives that
+machine a new engine number once, keeping its screen. Projects saved on Open-XY
+firmware that writes [project companions](projects.md) reopen with the same
+machines; a project saved on stock firmware, or on firmware without companions,
+may open such a track with another machine or none. Adding a machine to the collection means adding it to
 the native build; the builder is not a plugin loader and does not raise the
 voice limit.
 

@@ -4,7 +4,7 @@
   "kind": "synth",
   "description": "Test fixture: a small drawing synth with its own panel.",
   "identity": {
-    "engine": 44,
+    "engine": 64,
     "page": 92
   }
 }

@@ -243,13 +243,40 @@ export function numberLayout(rules, fixed, layout, machines) {
     }
     numbers[name] = {...identity};
   };
+  // An effect number is also held as an engine number (occupied).
+  const keys = (slot, n) => [slot + ' ' + n, ...(slot === 'effect' ? ['engine ' + n] : [])];
+  // The last page is reserved for an SDK overlay screen: in the pool, so every other
+  // machine keeps its own place, never given out, and still valid in a layout that
+  // already gave it (validIdentity), as earlier SDKs did (tooling.machines.number_layout).
+  // Likewise an engine is never given an effect number: stock reads a send's effect number
+  // as an engine number (occupied), so only the fixed machines hold engine numbers there.
+  const reserved = (slot, n) => slot === 'page' && n === rules.pages - 1 || slot === 'engine' && rules.effects.includes(n);
+  const free = (slot, n) => !reserved(slot, n) && !keys(slot, n).some(key => holders.has(key));
+  const take = (name, identity, slot, n) => {
+    identity[slot] = n;
+    for (const key of keys(slot, n)) holders.set(key, name);
+  };
   for (const [name, , identity] of fixed) hold(name, identity);
+  const fixedEngines = new Set(fixed.filter(([, , identity]) => Object.hasOwn(identity, 'engine')).map(([, , identity]) => identity.engine));
+  const moved = [];
   for (const [name, identity] of Object.entries(layout ?? {})) {
     if (Object.hasOwn(numbers, name))
       check(sameNumbers(numbers[name], identity), `${name} has fixed numbers; the layout gives it others`);
     // An effect number later found unusable on stock is let go and numbered again.
     else if (Object.hasOwn(identity, 'effect') && !pools.effect.includes(identity.effect)) continue;
+    // An engine number among the effect numbers, which earlier SDKs gave out, is let go too;
+    // a fixed machine's is never another's.
+    else if (Object.hasOwn(identity, 'engine') && rules.effects.includes(identity.engine) &&
+      !fixedEngines.has(identity.engine)) moved.push(name);
     else hold(name, identity);
+  }
+  // Such a machine, in this build or not, keeps its page and is given an engine number from
+  // its own place, in ID order, before any machine new to the layout; a project saved with
+  // its old number reopens through the project's companion.
+  for (const name of moved.sort((a, b) => a < b ? -1 : a > b ? 1 : 0)) {
+    const n = preferred(pools.engine, name).find(n => free('engine', n));
+    check(n !== undefined, `No free engine number for ${name}: every one is held in this layout`);
+    hold(name, {...layout[name], engine: n});
   }
   const fresh = [];
   for (const [name, kind, requested] of [...machines].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
@@ -272,16 +299,6 @@ export function numberLayout(rules, fixed, layout, machines) {
       fresh.push([name, kind, {...requested}, ['synth', 'drum', 'player'].includes(kind) || ownPage ? [slot, 'page'] : [slot]]);
     }
   }
-  // An effect number is also held as an engine number (occupied).
-  const keys = (slot, n) => [slot + ' ' + n, ...(slot === 'effect' ? ['engine ' + n] : [])];
-  // The last page is reserved for an SDK overlay screen: in the pool, so every other
-  // machine keeps its own place, never given out, and still valid in a layout that
-  // already gave it (validIdentity), as earlier SDKs did (tooling.machines.number_layout).
-  const free = (slot, n) => !(slot === 'page' && n === rules.pages - 1) && !keys(slot, n).some(key => holders.has(key));
-  const take = (name, identity, slot, n) => {
-    identity[slot] = n;
-    for (const key of keys(slot, n)) holders.set(key, name);
-  };
   // Requested numbers first, so no machine's preferred place takes one another asks for.
   for (const [name, , identity, slots] of fresh) {
     for (const slot of slots) {

@@ -76,7 +76,7 @@ test('machine ZIP adds several selectable machines without changing the base kit
   assert.equal(candidate.profile, base.profile);
   assert.equal(candidate.stockCatalog, base.stockCatalog);
   assert.match(candidate.notices, /Author license/);
-  const layout = {a:{engine:34, page:82}, custom:{engine:55, page:105}, removed:{engine:56, page:106}};
+  const layout = {a:{engine:34, page:82}, custom:{engine:75, page:105}, removed:{engine:76, page:106}};
   const linked = linkKit(candidate, ['a', 'custom', 'another'], layout);
   assert.deepEqual(linked.numbers.custom, layout.custom);
   assert.deepEqual(linked.numbers.removed, layout.removed);
@@ -474,6 +474,31 @@ test('a pack may not hold more players than stock numbers alongside the site mac
   base.machines.pop();
   await importMachinePack(base, pack);
 });
+
+test("a pack import never renumbers the site's machines, nor gives a pack engine an effect number", async () => {
+  const {base, pack} = await packFixture();
+  base.machines.push({...machine('drone', null, null), catalog:''});
+  // c115's own engine place is the one drone is given when its old effect number is let go,
+  // and c115 comes first by ID.
+  pack.machines[1] = {...pack.machines[1], id:'c115', prefix:'c115', name:'c115', asset:'c115.svg',
+    catalog:', {"type":"c115","default_params":[0,0,0,0,0,0,0,0]}'};
+  pack.objects[1] = await capsuleOf('c115/voice.o', 'c115', 'c115_record');
+  const candidate = await importMachinePack(base, pack);
+  const rules = base.profile.identities, site = base.machines.map(m => m.id), all = candidate.machines.map(m => m.id);
+  const own = numbers => Object.fromEntries(site.map(id => [id, numbers[id]]));
+  // The layout of a firmware an earlier SDK built: drone at an engine number among the effect numbers.
+  const earlier = {a:{engine:34, page:82}, drone:{engine:40, page:120}};
+  const siteOnly = assignNumbers(base, site, earlier), withPack = assignNumbers(candidate, all, earlier);
+  assert.equal(siteOnly.drone.page, 120);
+  assert.equal(siteOnly.drone.engine, ownEngine(rules, 'c115'));
+  assert.deepEqual(own(withPack), own(siteOnly));
+  // Once a build gives them, the site's numbers stay whatever the pack adds.
+  assert.deepEqual(own(assignNumbers(candidate, all, siteOnly)), own(siteOnly));
+  for (const id of all) if (id !== 'a') assert.ok(!rules.effects.includes(withPack[id].engine), id);
+});
+// The engine number an ID's own place gives a machine alone beside the fixture's fixed a (34).
+const ownEngine = (rules, id) => numberLayout(rules, [['a', null, {engine:34, page:82}]], null,
+  [[id, 'synth', {engine:null, page:null}]])[id].engine;
 
 test('a pack may not take the aux track over more machines than its chooser lists', async () => {
   const {base, pack} = await kindsFixture();
@@ -1201,7 +1226,7 @@ test('SDK 1.5 machines ask for no numbers and the selection gives them', async (
   await openKit(k);
   assert.deepEqual(assignNumbers(k,['a','b','d','e']),
     {a:{engine:34,page:82},b:{engine:215,page:221},d:{engine:179,page:7},e:{effect:47,page:21}});
-  assert.deepEqual(assignNumbers(k,['b'],{b:{engine:50,page:100}}).b,{engine:50,page:100});
+  assert.deepEqual(assignNumbers(k,['b'],{b:{engine:80,page:100}}).b,{engine:80,page:100});
   for (const identity of [{engine:null,page:82},{engine:null,page:null,base:'sampler'}]) {
     k.machines[1].identity=identity; await assert.rejects(openKit(k),/Machine numbers/);
   }

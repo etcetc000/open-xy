@@ -1880,14 +1880,18 @@ build gives every machine the stock numbers projects save, an engine number
 
 | Kind | Engine or effect number | Screen |
 | --- | --- | --- |
-| `synth` | Engine 34..255 | Its own, 82..255 |
-| `sample` | Engine 34..255 | Its base's: the stock sampler's or drum sampler's. An [own screen](#own-screen): its own, 82..255 |
+| `synth` | Engine 34..255, never an effect number | Its own, 82..255 |
+| `sample` | Engine 34..255, never an effect number | Its base's: the stock sampler's or drum sampler's. An [own screen](#own-screen): its own, 82..255 |
 | `effect` | Effect 1, 8, 11, 21, 23..28 or 34..62 | The stock FX screen, or its own, 82..255 (SDK 1.7) |
 
 These numbers exist only in the relocated stock tables, so no machine shares
-one with stock. Four core machines, which the first Open-XY firmware shipped,
-have fixed numbers held in every firmware whether it includes them or not
-(`FIXED_NUMBERS` in [`tooling/machines.py`](../tooling/machines.py)).
+one with stock. Stock reads a send's effect number as an engine number, so an
+engine holding one would take it from every effect: engines are never given
+effect numbers, which effects have to themselves. Four core machines, which the
+first Open-XY firmware shipped, have fixed numbers held in every firmware
+whether it includes them or not
+(`FIXED_NUMBERS` in [`tooling/machines.py`](../tooling/machines.py)); three of
+them are the only engines on effect numbers (26, 34 and 35).
 Every other machine is numbered by the firmware's **layout**: its record of
 every number it has given out, including to machines since dropped, which stay
 held so an old project never opens another machine. The builder and
@@ -1895,7 +1899,12 @@ held so an old project never opens another machine. The builder and
 the next build so every machine keeps its numbers. A machine new to the layout
 gets numbers from its own place in each pool above, worked out from its ID
 (FNV-1a, 32-bit, of the ID's UTF-8 bytes, modulo the pool's size), or the next
-free number above it, wrapping around. Machines are numbered in ID order, never
+free number above it, wrapping around; an engine passes over the effect
+numbers, which stay in its pool so every other place stays where it was.
+Earlier SDKs gave engines effect numbers: a layout that holds one lets it go,
+and that machine, built now or not, keeps its screen and is given an engine
+number from its own place, in ID order, before any machine new to the layout.
+Machines are numbered in ID order, never
 collection or selection order, so even a build without a layout gives a machine
 the same numbers whatever else it includes, unless another machine's place
 collides with its own: then the first by ID keeps it. Only a layout guarantees

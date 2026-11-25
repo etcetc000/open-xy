@@ -23,7 +23,7 @@ def renumbered(m):
     if m.kind == 'effect':
         identity['effect'] = 11 if identity['effect'] != 11 else 8
     else:
-        identity['engine'] = 62 if identity['engine'] != 62 else 61
+        identity['engine'] = 72 if identity['engine'] != 72 else 71
         if m.kind == 'synth':
             identity['page'] = 127 if identity['page'] != 127 else 126
     return replace(m, identity=identity)
@@ -130,6 +130,119 @@ class Layouts(unittest.TestCase):
         self.assertNotEqual(machines['probesynth'].identity['engine'], synth['engine'])
         self.assertEqual({k: v.identity for k, v in machines.items() if k not in ('probefx', 'probesynth')},
                          {k: v for k, v in requested.items() if k not in ('probefx', 'probesynth')})
+
+    def test_an_engine_number_among_the_effect_numbers_is_given_up_once(self):
+        # A layout an earlier SDK wrote may hold an engine at an effect number; the machine keeps its
+        # page and is given an engine number, which the next layout keeps.
+        entries = fixture_entries()
+        effects = config()['identities']['effects']
+        earlier = {'probesynth': {'engine': 40, 'page': 92}, 'gone': {'engine': 41, 'page': 120}}
+        machines = {m.id: m for m in collection(entries, layout=earlier)}
+        synth = machines['probesynth'].identity
+        self.assertEqual(synth['page'], 92)
+        self.assertNotIn(synth['engine'], effects)
+        for m in machines.values():
+            self.assertFalse('engine' in m.identity and m.identity['engine'] in effects and m.id not in FIXED_NUMBERS, m.id)
+        fixed = [(name, None, identity) for name, identity in FIXED_NUMBERS.items()]
+        rules = config()['identities']
+        requests = [(m.id, m.kind, m.requested if m.requested is not None else m.identity) for m in machines.values()]
+        after = number_layout(rules, fixed, earlier, requests)
+        self.assertEqual(after['gone']['page'], 120)
+        self.assertNotIn(after['gone']['engine'], effects)
+        self.assertEqual(number_layout(rules, fixed, after, requests), after)
+
+    def test_machines_joining_a_layout_never_move_its_machines(self):
+        # As a pack's machines join a site's (builder/core.mjs importMachinePack): numbers a layout
+        # gave stay, and the one-time move off the effect numbers is the same with or without them.
+        rules = config()['identities']
+        fixed = [(name, None, identity) for name, identity in FIXED_NUMBERS.items()]
+        site = [('drone', 'synth', {'engine': None, 'page': None}), ('echo', 'effect', {'effect': None, 'page': 21}),
+                ('keys', 'sample', {'engine': None, 'page': 2})]
+        earlier = {'drone': {'engine': 40, 'page': 120}, 'echo': {'effect': 56, 'page': 21}, 'keys': {'engine': 70, 'page': 2}}
+        joining = [('a' + str(i), 'synth', {'engine': None, 'page': None}) for i in range(40)]
+        joining += [('e' + str(i), 'effect', {'effect': None, 'page': 21}) for i in range(10)]
+        alone = number_layout(rules, fixed, earlier, site)
+        together = number_layout(rules, fixed, earlier, site + joining)
+        self.assertEqual({k: together[k] for k in alone}, alone)
+        self.assertEqual({k: number_layout(rules, fixed, alone, site + joining)[k] for k in alone}, alone)
+        for name, identity in together.items():
+            if name not in FIXED_NUMBERS and 'engine' in identity:
+                self.assertNotIn(identity['engine'], rules['effects'], name)
+
+
+BROWSER = """
+import {numberLayout} from %s;
+let input = '';
+for await (const chunk of process.stdin) input += chunk;
+const {rules, fixed, cases} = JSON.parse(input);
+process.stdout.write(JSON.stringify(cases.map(c => {
+  try { return numberLayout(rules, fixed, c.layout, c.machines); } catch (error) { return {error: error.message}; }
+})));
+"""
+
+
+class BrowserParity(unittest.TestCase):
+    def test_python_and_the_builder_give_the_same_numbers(self):
+        # Generated layouts and selections, earlier SDKs' layouts with engines at effect numbers
+        # among them: tooling.machines.number_layout and builder/core.mjs numberLayout agree.
+        import random
+        import subprocess
+        rules = config()['identities']
+        fixed = [(name, None, identity) for name, identity in FIXED_NUMBERS.items()]
+        generator = random.Random(1)
+        names = ['m%d' % i for i in range(60)] + ['drone', 'echo', 'pluck', 'choir_36', 'c115']
+        engines = list(range(34, 256))
+
+        def machine(name, held):
+            # Mostly the kind its layout entry says, sometimes another.
+            kind = generator.choice(('synth', 'drum', 'sample', 'effect', 'player'))
+            if held and generator.random() < 0.9:
+                kind = ('player' if 'player' in held else 'effect' if 'effect' in held else
+                        'sample' if held['page'] in (2, 7) else generator.choice(('synth', 'drum', 'sample')))
+            if kind == 'effect':
+                return [name, kind, {'effect': generator.choice((None, *rules['effects'])), 'page': generator.choice((21, None))}]
+            if kind == 'player':
+                return [name, kind, {'player': None, 'page': None}]
+            if kind == 'sample':
+                return [name, kind, {'engine': generator.choice((None, *engines)), 'page': generator.choice((2, 7, None))}]
+            page = generator.choice((None, generator.randrange(82, 256)))
+            return [name, kind, {'engine': None if page is None else generator.choice(engines), 'page': page}]
+
+        cases = []
+        for _ in range(300):
+            # Distinct numbers apart from the fixed machines', as a firmware's layout holds them.
+            numbers, pages = generator.sample(range(36, 256), 40), generator.sample(range(84, 256), 40)
+            effects = generator.sample([n for n in (2, 3, *rules['effects']) if n not in (1, 26, 34, 35)], 30)
+            players = generator.sample(rules['players'], 20)
+            layout = {}
+            for name in generator.sample(names, generator.randrange(0, 30)):
+                pick = generator.random()
+                if pick < 0.6:
+                    layout[name] = {'engine': numbers.pop(), 'page': generator.choice((2, 7, pages.pop()))}
+                elif pick < 0.9:
+                    layout[name] = {'effect': effects.pop(), 'page': generator.choice((21, 21, pages.pop()))}
+                else:
+                    layout[name] = {'player': players.pop(), 'page': pages.pop()}
+            machines = [machine(name, layout.get(name)) for name in generator.sample(names, generator.randrange(0, 40))]
+            cases.append({'layout': layout or None, 'machines': machines})
+        script = BROWSER % json.dumps((ROOT / 'builder/core.mjs').as_uri())
+        run = subprocess.run(['node', '--input-type=module', '-e', script], capture_output=True, text=True, cwd=ROOT,
+                             input=json.dumps({'rules': rules, 'fixed': fixed, 'cases': cases}), timeout=120, check=True)
+        browser = json.loads(run.stdout)
+        numbered = 0
+        for case, theirs in zip(cases, browser, strict=True):
+            try:
+                ours = number_layout(rules, fixed, case['layout'], case['machines'])
+            except ValueError:
+                ours = None
+            with self.subTest(case=case):
+                if ours is None:
+                    self.assertIn('error', theirs)
+                else:
+                    numbered += 1
+                    self.assertEqual(ours, theirs)
+        # Enough of them number without a clash to compare numbers, not only refusals.
+        self.assertGreater(numbered, 100)
 
 
 if __name__ == '__main__':
