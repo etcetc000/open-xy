@@ -1671,6 +1671,12 @@ const PACK_MACHINE_KEYS = new Set(['id', 'name', 'kind', 'prefix', 'description'
 // Each kind's fewest controls (tooling.definitions.CONTROLS; at most 8) and whether a slot may
 // be absent, at no position (a synth's or a note player's).
 const PACK_CONTROLS = {synth:[4, true], drum:[8, false], sample:[1, false], effect:[1, false], player:[4, true]};
+// The defines a machine may add to its build's SDK units, by kind (tooling.native.machine_build:
+// sdk_unit_defines), and the header-tied units any machine's own C++ may include (SHARED_HEADERS).
+const PACK_DEFINES = {player:['-DOPXY_PLAYER_INSTRUMENT=1'], drum:['-DOPXY_KIT_CONTROLS=1', '-DOPXY_MODEL_EDIT=1']};
+const PACK_HEADERS = ['control_interaction', 'sample_kernel'];
+// The stock roles an aux machine may take over, by their preset folders (tooling.adapters.AUX_ROLES).
+const AUX_ROLES = ['cv'];
 // The features each kind may declare (tooling.native.service_users less its kind): never a
 // capability, an extension's or another kind's.
 const PACK_FEATURES = {synth:['trackControl', 'auxTrack', 'hidePages', 'synthShift', 'trackStage'],
@@ -1743,8 +1749,8 @@ function checkPackMachine(m, fixed = {}) {
   // An aux machine (tooling.adapters.catalog_entry) has no menu entry: it is chosen on its aux
   // track, and its presets are that track's (packAuxPresets), never an instrument's.
   const aux = features.includes('auxTrack');
-  check(aux ? m.catalog === '' && m.presets === undefined && packAuxPresets(m) : m.auxPresets === undefined,
-    'Invalid aux machine');
+  check(aux ? m.catalog === '' && m.presets === undefined && !AUX_ROLES.includes(m.id) && packAuxPresets(m) :
+    m.auxPresets === undefined, 'Invalid aux machine');
   check(typeof m.catalog === 'string' && m.catalog.length < 4096 && (aux || m.catalog.trim().startsWith(',')),
     'Invalid machine menu');
   if (!aux) {
@@ -1784,11 +1790,15 @@ function checkPackMachine(m, fixed = {}) {
   check(m.grayscaleArtwork === undefined || typeof m.artwork === 'string', 'Invalid machine artwork');
   check(m.heapVoices === undefined || m.kind === 'synth' && Number.isInteger(m.heapVoices) && m.heapVoices > 0,
     'Invalid machine heap voices');
-  // What it adds to its build's SDK objects beyond its services (tooling.native.machine_build).
-  check(m.build === undefined || Boolean(m.build) && typeof m.build === 'object' && !Array.isArray(m.build) &&
-    Object.keys(m.build).sort().join() === 'defines,headers' && ['defines', 'headers'].every(key =>
-      Array.isArray(m.build[key]) && m.build[key].length <= 8 && m.build[key].every(v => typeof v === 'string')) &&
-    m.build.defines.length + m.build.headers.length > 0, 'Invalid machine build');
+  // What it adds to its build's SDK objects beyond its services (tooling.native.machine_build):
+  // only its kind's defines, the kit controls' exactly with that feature, and shared headers.
+  const build = m.build ?? {defines:[], headers:[]};
+  check(Boolean(build) && typeof build === 'object' && !Array.isArray(build) &&
+    Object.keys(build).sort().join() === 'defines,headers' && Array.isArray(build.defines) && Array.isArray(build.headers) &&
+    new Set(build.defines).size === build.defines.length && new Set(build.headers).size === build.headers.length &&
+    build.defines.every(d => (PACK_DEFINES[m.kind] ?? []).includes(d)) && build.headers.every(h => PACK_HEADERS.includes(h)) &&
+    build.defines.includes('-DOPXY_KIT_CONTROLS=1') === features.includes('kitControls') &&
+    (m.build === undefined || build.defines.length + build.headers.length > 0), 'Invalid machine build');
 }
 // What shaped a kit's or a pack's objects (tooling.native.shared_build).
 function validBuild(build) {
@@ -1809,7 +1819,7 @@ function missingBuild(profile, site, pack, m) {
   const define = (m.build?.defines ?? []).find(d => !site.defines.includes(d));
   if (define !== undefined) return `SDK objects built with ${define}, which this site's are not`;
   const header = (m.build?.headers ?? []).find(h => !site.headers.includes(h));
-  if (header !== undefined) return `the ${header} SDK unit, which this site does not link`;
+  if (header !== undefined) return `SDK objects built for opxy/${header}.hpp, which this site's are not`;
   const own = kit => Object.hasOwn(kit.unitDefines, m.kind) ? kit.unitDefines[m.kind] : [];
   if (!sameValue(own(pack), own(site)))
     return `its objects compiled as this site compiles a ${m.kind}'s (with ${own(site).join(' ') || 'no defines'})`;
@@ -1868,6 +1878,11 @@ export async function importMachinePack(base, pack) {
   // chooser lists (tooling.adapters.AUX_CHOICES, the stock role first).
   const auxMachines = [...base.machines, ...added].filter(m => (m.features ?? []).includes('auxTrack')).length;
   check(auxMachines <= 31, `With this pack, ${auxMachines} machines would take over the aux track; the OP-XY lists 31.`);
+  // Nor one whose aux machines' presets the device cannot list whole (tooling.adapters.check_aux_presets).
+  const auxPaths = new Set([...base.machines, ...added].flatMap(m => Object.keys(m.auxPresets ?? {})));
+  const auxFolders = new Set([...auxPaths].map(path => path.split('/')[2])).size;
+  check(auxPaths.size <= 64 && auxFolders <= 16, `With this pack, the aux machines would have ${auxPaths.size} presets in ` +
+    `${auxFolders} folders; the OP-XY lists 64 in 16.`);
   check(new Set(pack.machines.map(m => m.id)).size === pack.machines.length, 'Duplicate machine identity');
   const addedIds = new Set(added.map(m => m.id));
   check(Array.isArray(pack.objects) && pack.objects.length <= 4096 &&

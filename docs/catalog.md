@@ -115,9 +115,10 @@ change the SDK runtime or add extensions. It may hold machines of every kind
 the SDK builds: synths, drum kits, sample engines, effects, note players and
 machines that take over an aux track. Each must use only what the site's own
 SDK objects were built with: the profile services its kind and features switch
-on (drum kits the samples and drums services, players the players service, an
-aux machine the control and aux services), the SDK defines a 1.25 player or a
-`modelEdit` kit adds, and header-tied units such as
+on (drum kits the samples, drums and octaves services, players the players and
+octaves services, an aux machine the control and aux services), the SDK defines
+a 1.25 player, a kit with the drum-kit controls or a `modelEdit` kit adds, and
+header-tied units such as
 `opxy/control_interaction.hpp`. A pack player must also have been compiled as
 the site compiles its players (with or without the 1.25 player define). A
 site's collection decides these, so a pack machine extends only a site whose

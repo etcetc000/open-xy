@@ -375,7 +375,7 @@ test('a pack machine needs every service, define and header unit it uses to be t
     (b, p) => { p.build.unitDefines.player.push(define); },
   ]) {
     const {base, pack} = await kindsFixture(); change(base, pack);
-    await assert.rejects(importMachinePack(base, pack), /needs (SDK objects built with|the [a-z_]+ SDK unit|its objects compiled)/,
+    await assert.rejects(importMachinePack(base, pack), /needs (SDK objects built (with|for)|its objects compiled)/,
       change.toString());
   }
   // The same, once the site has them: its SDK objects then are a native build's with the pack.
@@ -431,6 +431,14 @@ test('pack drum kits, players and aux machines are checked as their kinds are bu
     [p => { p.machines[2].auxPresets['content/aux_presets/cv/x.json'] = AUX_INIT; }, /aux machine/],
     [p => { p.machines[2].auxPresets['content/aux_presets/third/x.json'] = auxPreset('third') + ' '.repeat(2048); }, /aux machine/],
     [p => { p.machines[2].features = ['auxTrack']; }, /features/],
+    // An aux machine named as the stock role it takes over (tooling.adapters.check_track_controls).
+    [p => { const m = p.machines[2]; Object.assign(m, {id:'cv', prefix:'cv', asset:'cv.svg', auxPresets:{
+      'content/aux_presets/cv/init.json':AUX_INIT}}); p.objects[2] = {...p.objects[2], owner:'cv', name:'cv/voice.o'}; }, /aux machine/],
+    // Only its kind's defines, the kit controls' exactly with that feature, and the shared headers.
+    [p => { p.machines[2].build = {defines:['-DOPXY_PLAYER_INSTRUMENT=1'], headers:[]}; }, /machine build/],
+    [p => { p.machines[0].build = {defines:['-DOPXY_KIT_CONTROLS=1'], headers:[]}; }, /machine build/],
+    [p => { p.machines[0].build = {defines:['-DOPXY_MODEL_EDIT=1', '-DOPXY_MODEL_EDIT=1'], headers:[]}; }, /machine build/],
+    [p => { p.machines[1].build = {defines:[], headers:['other']}; }, /machine build/],
     // A kit's features are a kit's, and its preview tells its models as its features do.
     [p => { p.machines[0].features = ['trackStage']; }, /features/],
     [p => { p.machines[1].features = ['hidePages']; }, /features/],
@@ -450,7 +458,8 @@ test('pack drum kits, players and aux machines are checked as their kinds are bu
   // A kit with the drum-kit controls, an aux machine without presets of its own and 64 presets.
   const {base, pack} = await kindsFixture();
   await withServices(base, ['kit_controls', 'amp_envelope']);
-  Object.assign(pack.machines[0], {features:['kitControls', 'ampEnvelope'],
+  base.build.defines.push('-DOPXY_KIT_CONTROLS=1');
+  Object.assign(pack.machines[0], {features:['kitControls', 'ampEnvelope'], build:{defines:['-DOPXY_KIT_CONTROLS=1'], headers:[]},
     presets:Object.fromEntries(Array.from({length:64}, (_, i) => ['p' + i, kitPreset('custom')]))});
   pack.machines[0].preview.kit.padVolume = true;
   delete pack.machines[2].auxPresets['content/aux_presets/third/warm.json'];
@@ -464,6 +473,11 @@ test('a pack may not take the aux track over more machines than its chooser list
   await assert.rejects(importMachinePack(base, pack), /32 machines would take over the aux track/);
   base.machines.pop();
   await importMachinePack(base, pack);
+  // Nor more aux presets than the device lists, over the site's machines and the pack's together.
+  const {base:site, pack:more} = await kindsFixture();
+  site.machines[0] = {...site.machines[0], features:['trackControl', 'auxTrack'], catalog:'', auxPresets:Object.fromEntries(
+    Array.from({length:63}, (_, i) => [`content/aux_presets/a/p${i}.json`, auxPreset('a')]))};
+  await assert.rejects(importMachinePack(site, more), /aux machines would have 65 presets/);
 });
 
 test('machine ZIP reader rejects corruption, archive ambiguities and source/firmware archives', () => {

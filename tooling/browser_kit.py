@@ -137,7 +137,8 @@ def machine_entry(m, profile, sources, output, preview_cxx):
     aux_presets = aux_preset_files(m)
     if aux_presets:
         entry['auxPresets'] = {path: data.decode('utf-8') for path, data in aux_presets.items()}
-    presets = kit_presets(m)
+    # An aux machine is never an instrument, so it has no instrument presets (core.mjs presetPath).
+    presets = None if aux_presets else kit_presets(m)
     if presets:
         entry['presets'] = presets
     if m.icon:

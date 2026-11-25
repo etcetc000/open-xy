@@ -81,12 +81,16 @@ class MachinePackTests(unittest.TestCase):
 
     def test_export_takes_every_kind(self):
         # The builder imports each kind a native build makes (builder/core.mjs importMachinePack).
-        for kind in ('synth', 'drum', 'sample', 'effect', 'player'):
+        for kind in ('synth', 'drum', 'sample', 'effect', 'player', 'aux'):
             kit = self.kit()
-            kit['machines'][0]['kind'] = kind
+            # An aux machine is a synth taking over an aux track, with that track's presets.
+            kit['machines'][0].update(dict(kind=kind) if kind != 'aux' else dict(
+                kind='synth', features=['auxTrack', 'trackControl'], catalog='',
+                auxPresets={'content/aux_presets/cv/init.json': '{}'}))
             with tempfile.TemporaryDirectory() as directory:
                 with zipfile.ZipFile(write(kit, directory)) as archive:
-                    self.assertEqual(json.loads(archive.read('machines.json'))['machines'][0]['kind'], kind)
+                    machine = json.loads(archive.read('machines.json'))['machines'][0]
+                    self.assertEqual(machine, kit['machines'][0])
 
     def test_export_requires_a_custom_machine(self):
         kit = self.kit()
