@@ -136,6 +136,8 @@ class PlayerDrawnPage(unittest.TestCase):
                                          '-nostdinc++', '-nostdinc', '-Wall', '-Werror', '-Wno-unused-variable',
                                          # The unit's optional-callback probes, unused by a player without them.
                                          '-Wno-unused-template',
+                                         # Every drawn player declares 1.25 or later: Controls.instrument.
+                                         '-DOPXY_PLAYER_INSTRUMENT=1',
                                          *('-I' + path for path in includes), str(unit)],
                                         capture_output=True, text=True, timeout=120, **FLAGS)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -162,6 +164,23 @@ class PlayerDrawnPage(unittest.TestCase):
         scratch.mkdir()
         with self.assertRaisesRegex(ValueError, r'of its 720 frames are invalid'):
             drawn_player(m, HOST_CXX, scratch)
+
+    def test_sdk_test_compiles_the_display_as_the_device_unit_does(self):
+        m = self.machine()
+        scratch = Path(self.temp.name) / 'scratch'
+        # Controls.instrument, which the device unit of every drawn player has (SDK 1.25).
+        (self.root / 'display.cpp').write_text(
+            DISPLAY_CPP.replace('++d.frames;', '++d.frames;\n    d.held = c.instrument;')
+                       .replace('const opxy::player::Controls&,', 'const opxy::player::Controls& c,'),
+            encoding='utf-8', newline='\n')
+        scratch.mkdir()
+        self.assertEqual(drawn_player(m, HOST_CXX, scratch), 720)
+        # A declared stateBytes that differs from DisplayState fails here, as on the device.
+        self.write_definition(display=dict(DISPLAY, stateBytes=12))
+        shutil.rmtree(scratch)
+        scratch.mkdir()
+        with self.assertRaisesRegex(ValueError, 'Declared display size differs'):
+            drawn_player(self.machine(), HOST_CXX, scratch)
 
     def test_real_renderer_fills_the_input_and_the_header(self):
         host = Path(self.temp.name) / 'host'

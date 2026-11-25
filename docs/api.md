@@ -1943,7 +1943,8 @@ Stock keeps all eight parameter words in the project and sets them to the
 declared defaults only when the player is chosen, so a project saved while a
 player had four parameters opens a later version with five to eight with the 0
 its words 4..7 held then, not the new parameters' defaults.
-Its header shows [both pages in place](ux.md#more-than-four-controls).
+Its header shows [both pages in place](ux.md#more-than-four-controls) (on the dot page; a
+[drawn page](#a-players-own-drawn-page-sdk-126) draws it itself).
 Players have no instrument presets, audio-render CPU estimate or browser audio preview.
 
 Include `<opxy/player.hpp>` and implement, in the machine's namespace:
