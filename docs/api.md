@@ -1957,6 +1957,9 @@ bool release(State&, opxy::u32 note);
 void display(const State&, const opxy::player::Controls&, opxy::player::Display&);
 ```
 
+(`display` is the dot page's; a player [drawing its own page](#a-players-own-drawn-page-sdk-126) supplies its
+`display.cpp` instead.)
+
 `press` returns false to pass a note through, or true with a plan of zero to
 eight tones. Each tone has a MIDI pitch and velocity, and a delay in stock
 player steps. Zero sounds on the next step. A plan's tones release together
@@ -2056,7 +2059,9 @@ changes, as a synth's does.
 A one-page player keeps the stock header: its labels, and each value the frame's
 `header` caption or else the amount 0..100. A paged player draws the
 [two-page header](display.md#two-page-header) itself, in its own frame and
-artwork, as a paged synth does; the SDK adds none. `sdk.py test` checks the
+artwork, as a paged synth does; the SDK adds none. No fragment is generated for a player: copy the
+header block, with its cover over the stock header, from the `panel.svg.fragment` of an eight-control
+synth (`sdk.py new --controls 8`), or the stock header's values show beneath its own. `sdk.py test` checks the
 artwork against the declared display and runs the display on the host with
 `player.cpp` over a held key's frames, refusing invalid ones.
 
@@ -2135,7 +2140,7 @@ are not available to players; they need a new hook.
 
 ### A player's track instrument (SDK 1.25)
 
-A player declaring `"sdk": "1.25"` also receives `Controls.instrument`, the
+A player declaring `"sdk": "1.25"` or later also receives `Controls.instrument`, the
 kind of instrument its track holds, as stock classifies it:
 `opxy::player::DrumInstrument` for stock's drum sampler, its drum synth or an
 SDK drum kit, `OtherInstrument` for anything else (a synth, the keyboard
