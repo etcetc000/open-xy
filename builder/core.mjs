@@ -1822,7 +1822,8 @@ function missingBuild(profile, site, pack, m) {
   if (header !== undefined) return `SDK objects built for opxy/${header}.hpp, which this site's are not`;
   const own = kit => Object.hasOwn(kit.unitDefines, m.kind) ? kit.unitDefines[m.kind] : [];
   if (!sameValue(own(pack), own(site)))
-    return `its objects compiled as this site compiles a ${m.kind}'s (with ${own(site).join(' ') || 'no defines'})`;
+    return `its objects compiled as this site compiles a ${m.kind}'s (with ${own(site).join(' ') || 'no defines'}): ` +
+      "its author's export used another collection. Ask for a pack exported with this site's collection";
   return null;
 }
 
@@ -1840,6 +1841,9 @@ export async function importMachinePack(base, pack) {
   check(pack && typeof pack === 'object' && !Array.isArray(pack) && typeof pack.format === 'string' &&
     pack.format.startsWith('opxy-machine-pack/'), 'Unsupported machine pack');
   check(pack.format === MACHINE_PACK_FORMAT, 'This pack comes from an earlier Open-XY release. Ask its author for one ' +
+    'exported with this release.');
+  // A format 2 pack without its build record predates packs of every kind.
+  check(Object.hasOwn(pack, 'build'), 'This pack comes from an earlier Open-XY release. Ask its author for one ' +
     'exported with this release.');
   check(Object.keys(pack).sort().join() === keys.sort().join(), 'Unsupported machine pack');
   check(pack.version === base.version && typeof base.sdk === 'string' && pack.sdk === base.sdk &&
@@ -1861,8 +1865,8 @@ export async function importMachinePack(base, pack) {
       'that names it differently, or use the site\'s.');
     check((m.features ?? []).every(f => users.has(f)), 'Invalid machine features');
     const missing = missingBuild(base.profile, base.build, pack.build, m);
-    check(missing === null, `${m.id} needs ${missing}. It can extend only a site whose collection already ` +
-      'uses that.');
+    check(missing === null, `${m.id} needs ${missing}.` + (missing?.startsWith('its objects') ? '' :
+      ' It can extend only a site whose collection already uses that.'));
     if (m.catalog === '') return m;
     const entry = JSON.parse(m.catalog.trim().slice(1)), indent = '\n            ';
     const numbered = ['effect', 'player'].includes(m.kind);
@@ -1878,6 +1882,9 @@ export async function importMachinePack(base, pack) {
   // chooser lists (tooling.adapters.AUX_CHOICES, the stock role first).
   const auxMachines = [...base.machines, ...added].filter(m => (m.features ?? []).includes('auxTrack')).length;
   check(auxMachines <= 31, `With this pack, ${auxMachines} machines would take over the aux track; the OP-XY lists 31.`);
+  // Nor one whose heap voices outgrow the stock heap a collection's synths may hold (voice_heap.VOICE_HEAP_LIMIT).
+  const heap = [...base.machines, ...added].reduce((n, m) => n + (m.heapVoices ?? 0), 0);
+  check(heap <= 1024 * 1024, `With this pack, heap voices would hold ${heap} bytes of stock heap; the OP-XY allows 1048576.`);
   // Nor one whose aux machines' presets the device cannot list whole (tooling.adapters.check_aux_presets).
   const auxPaths = new Set([...base.machines, ...added].flatMap(m => Object.keys(m.auxPresets ?? {})));
   const auxFolders = new Set([...auxPaths].map(path => path.split('/')[2])).size;

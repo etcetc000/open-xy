@@ -393,7 +393,7 @@ test('a pack machine needs every service, define and header unit it uses to be t
 
 test('packs and sites without a valid build record are refused', async () => {
   for (const [change, error] of [
-    [(b, p) => { delete p.build; }, /Unsupported machine pack/],
+    [(b, p) => { delete p.build; }, /earlier Open-XY release/],
     [(b, p) => { p.build.extra = []; }, /Unsupported machine pack/],
     [(b, p) => { p.build.services = 'drums'; }, /Unsupported machine pack/],
     [(b, p) => { p.build.unitDefines = {master:[]}; }, /Unsupported machine pack/],
@@ -478,6 +478,13 @@ test('a pack may not take the aux track over more machines than its chooser list
   site.machines[0] = {...site.machines[0], features:['trackControl', 'auxTrack'], catalog:'', auxPresets:Object.fromEntries(
     Array.from({length:63}, (_, i) => [`content/aux_presets/a/p${i}.json`, auxPreset('a')]))};
   await assert.rejects(importMachinePack(site, more), /aux machines would have 65 presets/);
+  // Nor more heap voices than the stock heap a collection may hold.
+  const {base:heapSite, pack:heapPack} = await kindsFixture();
+  heapSite.machines[0].heapVoices = 1024 * 1024 - 4095;
+  heapPack.machines[2].heapVoices = 4096;
+  await assert.rejects(importMachinePack(heapSite, heapPack), /heap voices would hold 1048577 bytes/);
+  heapPack.machines[2].heapVoices = 4095;
+  await importMachinePack(heapSite, heapPack);
 });
 
 test('machine ZIP reader rejects corruption, archive ambiguities and source/firmware archives', () => {

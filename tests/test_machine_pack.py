@@ -86,7 +86,7 @@ class MachinePackTests(unittest.TestCase):
             # An aux machine is a synth taking over an aux track, with that track's presets.
             kit['machines'][0].update(dict(kind=kind) if kind != 'aux' else dict(
                 kind='synth', features=['auxTrack', 'trackControl'], catalog='',
-                auxPresets={'content/aux_presets/cv/init.json': '{}'}))
+                auxPresets={'content/aux_presets/cv/init.json': json.dumps(dict(platform='OP-XY', type='cv', version=1))}))
             with tempfile.TemporaryDirectory() as directory:
                 with zipfile.ZipFile(write(kit, directory)) as archive:
                     machine = json.loads(archive.read('machines.json'))['machines'][0]

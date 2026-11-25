@@ -172,8 +172,10 @@ earlier pack formats), machines whose ID or prefix the site already has,
 duplicate identities, IDs holding Open-XY's fixed numbers, objects that are not
 the pack's own machines', machine objects without their record or defining a
 symbol the site's SDK objects use, damaged objects, more machines taking over
-the aux track than its chooser lists (31) and machines that cannot link or fit
-individually. A custom machine that needs SDK objects the site does not link or
+the aux track than its chooser lists (31), aux presets beyond what the device
+lists (64 in 16 folders), heap voices beyond the stock heap a collection may
+hold (1 MiB) and machines that cannot link or fit individually. Sample
+engines' combined analysis budget is not checked at import. A custom machine that needs SDK objects the site does not link or
 build its way (a profile service its kind or features switch on, an SDK define,
 an arithmetic runtime member or an SDK header unit such as
 `opxy/sample_kernel.hpp` or `opxy/control_interaction.hpp`) cannot extend that
