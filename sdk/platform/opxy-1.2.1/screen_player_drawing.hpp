@@ -83,7 +83,8 @@ template <class Machine> struct PlayerDrawing {
     }
 
     // A one-page player keeps the stock header: its labels, and each value the
-    // frame's header caption or else the amount 0..100, as a synth's. A paged
+    // frame's header caption or else the amount 0..100, as a synth's; an absent
+    // slot (an empty title) keeps its value empty, as on the dot page. A paged
     // player draws the two-page header in its own frame (opxy/page_header.hpp).
     static void header(Object* o, const draw::Input& input) {
         if (Machine::paged) return;
@@ -94,7 +95,9 @@ template <class Machine> struct PlayerDrawing {
         }
         for (u32 i = 0; i < page_controls; ++i) {
             char caption[draw::header_capacity] = {};
-            if (shared.frame.header[i][0]) {
+            if (!Machine::titles[i][0]) {
+                // An absent slot: its title and value stay empty.
+            } else if (shared.frame.header[i][0]) {
                 for (u32 k = 0; k + 1 < draw::header_capacity && shared.frame.header[i][k]; ++k)
                     caption[k] = shared.frame.header[i][k];
             } else {
