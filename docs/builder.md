@@ -249,8 +249,9 @@ open another machine. Earlier releases gave some synths and sample engines effec
 which effects need: the first build from a layout that holds one gives that
 machine a new engine number once, keeping its screen. Projects saved on Open-XY
 firmware that writes [project companions](projects.md) reopen with the same
-machines; a project saved on stock firmware, or on firmware without companions,
-may open such a track with another machine or none. Adding a machine to the collection means adding it to
+machines. A project without its companion (saved on the first Open-XY release,
+or saved again on stock firmware since) may open such a track with another
+machine or none. Adding a machine to the collection means adding it to
 the native build; the builder is not a plugin loader and does not raise the
 voice limit.
 

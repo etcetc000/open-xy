@@ -871,7 +871,7 @@ def number_layout(rules, fixed, layout, machines):
     for name, _kind, identity in fixed:
         hold(name, identity)
     fixed_engines = {identity['engine'] for _name, _kind, identity in fixed if 'engine' in identity}
-    moved = []
+    moved, released = [], {}
     for name, identity in (layout or {}).items():
         if name in numbers:
             require(numbers[name] == identity, f'{name} has fixed numbers; the layout gives it others')
@@ -882,12 +882,16 @@ def number_layout(rules, fixed, layout, machines):
         elif 'engine' in identity and identity['engine'] in rules['effects'] and identity['engine'] not in fixed_engines:
             # An engine number among the effect numbers, which earlier SDKs gave
             # out, is let go too (below); a fixed machine's is never another's.
+            n = identity['engine']
+            require(released.setdefault(n, name) == name, f'{name} and {released[n]} both hold engine {n} in this layout')
             moved.append(name)
         else:
             hold(name, identity)
     # Such a machine, in this build or not, keeps its page and is given an engine number
     # from its own place, in ID order, before any machine new to the layout. A project
     # saved with its old number reopens through the project's companion (tooling/projects.py).
+    for n, name in released.items():
+        require(('engine', n) not in holders, f'{name} and {holders.get(("engine", n))} both hold engine {n} in this layout')
     for name in sorted(moved):
         n = next((n for n in preferred(pools['engine'], name) if free('engine', n)), None)
         require(n is not None, f'No free engine number for {name}: every one is held in this layout')

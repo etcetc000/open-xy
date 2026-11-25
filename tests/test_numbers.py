@@ -159,9 +159,12 @@ class Layouts(unittest.TestCase):
         site = [('drone', 'synth', {'engine': None, 'page': None}), ('echo', 'effect', {'effect': None, 'page': 21}),
                 ('keys', 'sample', {'engine': None, 'page': 2})]
         earlier = {'drone': {'engine': 40, 'page': 120}, 'echo': {'effect': 56, 'page': 21}, 'keys': {'engine': 70, 'page': 2}}
-        joining = [('a' + str(i), 'synth', {'engine': None, 'page': None}) for i in range(40)]
+        # c115 comes before drone by ID and its own place is the engine number drone is given.
+        joining = [('c115', 'synth', {'engine': None, 'page': None})]
+        joining += [('a' + str(i), 'synth', {'engine': None, 'page': None}) for i in range(40)]
         joining += [('e' + str(i), 'effect', {'effect': None, 'page': 21}) for i in range(10)]
         alone = number_layout(rules, fixed, earlier, site)
+        self.assertEqual(alone['drone']['engine'], number_layout(rules, fixed, None, joining[:1])['c115']['engine'])
         together = number_layout(rules, fixed, earlier, site + joining)
         self.assertEqual({k: together[k] for k in alone}, alone)
         self.assertEqual({k: number_layout(rules, fixed, alone, site + joining)[k] for k in alone}, alone)

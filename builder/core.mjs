@@ -258,7 +258,7 @@ export function numberLayout(rules, fixed, layout, machines) {
   };
   for (const [name, , identity] of fixed) hold(name, identity);
   const fixedEngines = new Set(fixed.filter(([, , identity]) => Object.hasOwn(identity, 'engine')).map(([, , identity]) => identity.engine));
-  const moved = [];
+  const moved = [], released = new Map();
   for (const [name, identity] of Object.entries(layout ?? {})) {
     if (Object.hasOwn(numbers, name))
       check(sameNumbers(numbers[name], identity), `${name} has fixed numbers; the layout gives it others`);
@@ -267,12 +267,18 @@ export function numberLayout(rules, fixed, layout, machines) {
     // An engine number among the effect numbers, which earlier SDKs gave out, is let go too;
     // a fixed machine's is never another's.
     else if (Object.hasOwn(identity, 'engine') && rules.effects.includes(identity.engine) &&
-      !fixedEngines.has(identity.engine)) moved.push(name);
+      !fixedEngines.has(identity.engine)) {
+      if (!released.has(identity.engine)) released.set(identity.engine, name);
+      check(released.get(identity.engine) === name, `${name} and ${released.get(identity.engine)} both hold engine ${identity.engine} in this layout`);
+      moved.push(name);
+    }
     else hold(name, identity);
   }
   // Such a machine, in this build or not, keeps its page and is given an engine number from
   // its own place, in ID order, before any machine new to the layout; a project saved with
   // its old number reopens through the project's companion.
+  for (const [n, name] of released)
+    check(!holders.has('engine ' + n), `${name} and ${holders.get('engine ' + n)} both hold engine ${n} in this layout`);
   for (const name of moved.sort((a, b) => a < b ? -1 : a > b ? 1 : 0)) {
     const n = preferred(pools.engine, name).find(n => free('engine', n));
     check(n !== undefined, `No free engine number for ${name}: every one is held in this layout`);
