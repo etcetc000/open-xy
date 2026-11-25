@@ -11,7 +11,7 @@ import tempfile
 import unittest
 
 from tooling import adapters, native, preview, screen
-from tooling.definitions import extended_display
+from tooling.definitions import EXTENDED_SCREENS_SDK, extended_display
 from tooling.machines import machine_at
 from machine_fixtures import FOLDER, fixture
 from test_sample_services import HOST_CXX
@@ -42,8 +42,12 @@ class Declaration(unittest.TestCase):
             self.assertEqual(m.display, 'drawing')
             with self.subTest(name=name), tempfile.TemporaryDirectory() as temp:
                 root = copy_fixture(name, temp)
-                set_sdk(root, '1.27')
+                # The released version below it (1.27 is reserved, tooling/machines.RESERVED_SDK).
+                set_sdk(root, '%d.%d' % (EXTENDED_SCREENS_SDK[0], EXTENDED_SCREENS_SDK[1] - 2))
                 with self.assertRaisesRegex(ValueError, r"drum kit's screen or a note player's page needs \"sdk\": \"1\.28\""):
+                    machine_at(root)
+                set_sdk(root, '1.27')
+                with self.assertRaisesRegex(ValueError, r'SDK 1\.27 is not released'):
                     machine_at(root)
 
     def test_the_last_control_touched_stays_a_synths(self):

@@ -565,7 +565,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           const input = shownControls(parameters, shown);
           // The preview is one track: a changing track would tell the machine to start over.
           const row = shiftWords.length ? [0, 0, [0, 0, 0, 0], null, {pan:0, level:0}, 0,
-            {held:0, line:shown.some(slot => slot >= 4) ? 1 : 0, values:shiftWords}] : [];
+            {held:0, line:shown.some(slot => slot >= 4) ? 1 : 0, values:shiftWords}]
+            // A player's line, as on the device: 1 on a paged player's second page.
+            : player ? [0, 0, [0, 0, 0, 0], null, {pan:0, level:0}, shown.some(slot => slot >= 4) ? 1 : 0] : [];
           // A kit's selected key: its model, Shift's choices for it, and its pan, level and pad fields.
           const drum = kit ? [selected.model, 0, core.kitChoices(kit, selected.model, selected.choke), null, core.kitMix(kit),
             shown.some(slot => slot >= 4) ? 1 : 0, null, null, null, core.kitSelectedKey(kit, selected.key)] : [];
@@ -578,7 +580,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
             : [shown.map(slot => m.controls[slot].toLowerCase()),
                // A player's absent slot (empty name) keeps an empty value, as on the device.
                shown.map(slot => player && m.controls[slot] === '' ? '' : String(Math.round(parameters[slot] / 0x7fffffff * 100)))];
-          header.innerHTML = retained.headerSvg(titles, values.map((value, i) => renderer.header[i] || value));
+          header.innerHTML = retained.headerSvg(titles, values.map((value, i) =>
+            player && m.controls[shown[i]] === '' ? '' : renderer.header[i] || value));
         }
         const controls = m.controls.map((name, i) => {
           const label = node('label', undefined, 'preview-control'), input = node('input');

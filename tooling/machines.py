@@ -90,7 +90,10 @@ IDLE_SDK = (1, 22)
 PLAYER_DRAWING_SDK = (1, 26)
 # 1.28 extends extended drawing to a drum kit's screen, with a whole-screen kit whose
 # header shows only while Shift is held, and to a note player's own page
-# (EXTENDED_SCREENS_SDK in definitions.py). 1.27 is left to another change in review.
+# (EXTENDED_SCREENS_SDK in definitions.py).
+# 1.27 is held for another SDK change in review: refused until it ships, so a machine
+# declaring it cannot change meaning later. Its change removes it from RESERVED_SDK.
+RESERVED_SDK = {(1, 27)}
 SDK_VERSION = (1, 28)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
@@ -471,6 +474,7 @@ def sdk_version(text):
     current = '%d.%d' % SDK_VERSION
     require(major == SDK_VERSION[0] and minor <= SDK_VERSION[1],
             f'The machine targets SDK {text}; this SDK is {current} and builds {SDK_VERSION[0]}.0 to {current}')
+    require((major, minor) not in RESERVED_SDK, f'SDK {text} is not released; declare an earlier or later version')
     return major, minor
 
 

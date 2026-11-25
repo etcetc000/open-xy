@@ -2066,7 +2066,8 @@ header block, with its cover over the stock header, from the `panel.svg.fragment
 synth (`sdk.py new --controls 8`), or the stock header's values show beneath its own. A `fullCanvas`
 page has no header. `sdk.py test` checks the artwork against the declared display and runs
 the display on the host with `player.cpp` over a held key's frames, refusing
-invalid ones; it also builds the page's browser preview, which the builder shows.
+invalid ones; it also builds the page's browser preview, which the builder shows (with
+Clang's wasm32 target and Node.js, as a synth's preview needs).
 
 Not yet run on a device: the renderer is the dot page's registration and
 compositor path with the synth renderer's frame application, compiled into the
