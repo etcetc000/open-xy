@@ -838,6 +838,30 @@ const RECORDS_SYMBOLS = new Set(['sdk_machine_records', 'sdk_machine_record_coun
 const RECORD_KINDS = ['synth', 'drum', 'sample', 'effect', 'player'];
 export const recordOrder = machines => [...machines].sort((a, b) =>
   RECORD_KINDS.indexOf(a.kind) - RECORD_KINDS.indexOf(b.kind) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+// An ELF string table as the GNU assembler writes it (BFD's elf_strtab finalize): names in
+// order, except that a name ending another is not written but points into it. Sorted by
+// their reversed text, each name is merged into the next one it ends. `at` is each name's offset.
+function stringTable(names) {
+  const reversed = s => [...s].reverse().join('');
+  const sorted = [...new Set(names)].sort((x, y) => {
+    const a = reversed(x), b = reversed(y);
+    for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a.charCodeAt(i) - b.charCodeAt(i);
+    return a.length - b.length;
+  });
+  const parent = new Map();
+  let kept = sorted.at(-1);
+  for (let i = sorted.length - 2; i >= 0; i--) {
+    const name = sorted[i];
+    if (kept.endsWith(name)) parent.set(name, kept); else kept = name;
+  }
+  const offsets = new Map();
+  let size = 1;
+  for (const name of names) if (!parent.has(name) && !offsets.has(name)) { offsets.set(name, size); size += name.length + 1; }
+  for (const [name, into] of parent) offsets.set(name, offsets.get(into) + into.length - name.length);
+  const strings = new Uint8Array(size);
+  for (const name of names) if (!parent.has(name)) strings.set(utf8.encode(name), offsets.get(name));
+  return {strings, at:names.map(name => offsets.get(name))};
+}
 // The records object for these machines, byte for byte as the pinned assembler writes
 // tooling/records.py's assembly of them (tests/test_machine_records.py compares the two).
 export function recordsObject(machines) {
@@ -846,8 +870,7 @@ export function recordsObject(machines) {
     new Set(ordered.map(m => m.prefix)).size === count, 'Invalid machine records');
   const names = ['sdk_machine_record_count', 'sdk_machine_record_space_bytes', 'sdk_machine_records',
     ...ordered.map(m => m.prefix + '_record'), 'sdk_machine_record_space'];
-  const strings = utf8.encode('\0' + names.join('\0') + '\0');
-  const at = names.map((_, i) => 1 + names.slice(0, i).reduce((n, s) => n + s.length + 1, 0));
+  const {strings, at} = stringTable(names);
   const sectionNames = utf8.encode('\0.symtab\0.strtab\0.shstrtab\0.text\0.data\0.bss\0.rela.rodata\0');
   const rodata = 8 + 4 * count, symbols = 5 + names.length;
   const symtab = align(52 + rodata, 4), strtab = symtab + 16 * symbols, rela = align(strtab + strings.length, 4);

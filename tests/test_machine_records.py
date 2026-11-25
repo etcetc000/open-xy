@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
 
 from tooling import records
@@ -221,7 +222,10 @@ class RecordsObject(unittest.TestCase):
         """builder/core.mjs recordsObject is the pinned assembler's object for records.assembly, byte for byte,
         for selections of one, several and every kind."""
         assembler = blackfin_compiler().parent / ('bfin-elf-as' + blackfin_compiler().suffix)
-        selections = [[fixture('probefx')], every_row(), every_row()[:3]]
+        # Prefixes ending others, whose record names the assembler writes as one.
+        ends = [SimpleNamespace(id=i, prefix=i, kind=k) for i, k in
+                (('a', 'synth'), ('xa', 'synth'), ('ba', 'effect'), ('yxa', 'sample'), ('record', 'player'), ('b', 'drum'))]
+        selections = [[fixture('probefx')], every_row(), every_row()[:3], ends, ends[:2], ends[1:4]]
         with tempfile.TemporaryDirectory(prefix='records-object-') as folder:
             folder = Path(folder)
             listed = []
