@@ -9,7 +9,6 @@
 #include "amp_envelope.hpp"
 #include "drum_send.hpp"
 
-
 extern "C" opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
 // A drum-kit control's Shift cell (drum_kit_controls.hpp; reached only by a kit declaring one).
 extern "C" bool sdk_drum_kit_readout(opxy::u32 track, opxy::u32 position, opxy::u8* choice, const char** title,
@@ -134,6 +133,7 @@ template <class Machine> struct Drawing {
             display_activation = activation;
             played.valid = 0;
         }
+        draw::Input display_input = {};
         for (u32 i = 0; i < page_controls; ++i) {
             display_input.parameters[i] = controls.values[i];
             display_input.shown[i] = controls.shown[i];
