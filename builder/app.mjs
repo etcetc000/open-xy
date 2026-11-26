@@ -69,12 +69,19 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   // the selection would fit it (any failure there means no hint).
   // Only after a selection fails to fit: one more in-browser link, under a millisecond.
   const fitsLarger = (selection, layoutNumbers, extensions) => {
-    try { return Boolean(expandedKit && core.linkKit(expandedKit, selection, layoutNumbers, extensions)); } catch { return false; }
+    try { return Boolean(expandedKit && core.linkKit(expandedKit, selection, layoutNumbers, extensions, capabilitySettings(extensions))); }
+    catch { return false; }
   };
   // No hint while an OS is being checked: it sets the option itself.
   const roomHint = (message, then, ...selection) => (/[.!?]$/.test(message) ? message : message + '.') +
     (!checkingOs && fitsLarger(...selection) ? ` Turn on “Use ${expandedSize()} for machines” (experimental) ${then}.` : '');
   let kit, stock, catalog, selected = [], selectedExtensions = [], extensionSettings = {}, inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
+  // The site's own collection, opened and as exported, which an imported machine pack extends.
+  let baseKit, baseSource, packTicket = 0;
+  // The settings chosen for the selected extensions' capabilities: the link (a unit capability
+  // chooses objects) and the OS edits both take them.
+  const capabilitySettings = extensions => Object.fromEntries(Object.entries(extensionSettings).filter(([c]) =>
+    (kit.extensions ?? []).some(e => extensions.includes(e.id) && e.settings?.[c])));
   // The machine numbers of this person's firmware (core.mjs assignNumbers): from their
   // last build here, or a layout.json they load. Kept in this browser as a convenience;
   // the layout.json in every download is the record.
@@ -166,6 +173,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       : !linked ? 'This selection cannot be built. ' + (selectionError || 'Review the memory usage and choose fewer machines.') : '';
     $('build').disabled = !!reason || building;
     $('expert-mode').disabled = builderPreview || !acknowledged || !kit;
+    // Imported code is accepted only after the risk notice, never in audition preview.
+    $('machine-pack').disabled = builderPreview || !acknowledged || !baseKit;
     $('expert-build').disabled = !!reason || building;
     $('expert-run').disabled = !!reason || building || !wizard.supportsQuickInstall();
     $('expert-save').disabled = !kit || builderPreview;
@@ -246,6 +255,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       $('builder-workspace').hidden = false;
       $('builder-workspace').inert = false;
       navigate(expertMode ? 5 : 1);
+      if (kit) ready();
       resolve();
     };
   });
@@ -275,6 +285,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       Extensions: (kit.extensions ?? []).filter(e => selectedExtensions.includes(e.id)).map(e => e.name).join(', ') || 'None',
       ...(expandedKit ? {Memory: expandedMemory() ? expandedSize() + ' (experimental)' : 'Standard'} : {}),
       'Machine graphics': (grayscale ? 'Grayscale' : 'Original designs') + (count ? ' · ' + count + ' customized' : ''),
+      // Every build links an imported pack's startup and tables, whichever machines are selected.
+      ...(baseKit && kit !== baseKit ? {'Machine pack': (n => n + (n === 1 ? ' imported machine' : ' imported machines'))(kit.machines.length - baseKit.machines.length)} : {}),
     });
   }
   function graphicsChanged(machine) {
@@ -393,12 +405,14 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       field('detail-source').replaceChildren(...sourceLinks(m.source));
     } else if (m.origin === 'official') {
       field('detail-source').replaceChildren('Open-XY machine', ...sourceLinks(m.source).slice(2));
-    } else field('detail-source').textContent = 'Your machine, from this kit';
+    } else field('detail-source').textContent = baseKit && !baseKit.machines.some(x => x.id === m.id)
+      ? 'Your machine, imported from a machine pack' : 'Your machine, from this kit';
   }
   function sizeMachineSummary() {
     // Overlapping, inert copies let CSS reserve the tallest summary in this kit,
     // including wrapped attribution and the notice, at any window or font size.
     const summary = $('machine-summary');
+    summary.parentElement.querySelectorAll('.summary-sizing').forEach(el => el.remove());
     for (const m of kit.machines) {
       const sizing = summary.cloneNode(true);
       sizing.removeAttribute('id');
@@ -539,8 +553,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
             {held:0, line:shown.some(slot => slot >= 4) ? 1 : 0, values:shiftWords}] : [];
           // A kit's selected key: its model, Shift's choices for it, and its pan, level and pad fields.
           const drum = kit ? [selected.model, 0, core.kitChoices(kit, selected.model, selected.choke), null, core.kitMix(kit),
-            shown.some(slot => slot >= 4) ? 1 : 0] : [];
+            shown.some(slot => slot >= 4) ? 1 : 0, null, null, null, core.kitSelectedKey(kit, selected.key)] : [];
           renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity, ...row, ...drum));
+          // A whole-screen canvas has no header.
+          if (renderer.fullCanvas) { header.innerHTML = ''; return; }
           // The machine's header text, or the stock header: a synth's percentage of the shown
           // parameter, a kit's model's label and 0..127 value.
           const [titles, values] = kit ? core.kitHeader(names, selected.controls, shown)
@@ -818,7 +834,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     try {
       if (!selected.length) { $('room-value').textContent = 'Choose at least one machine'; $('capacity-details').replaceChildren(); ready(); return; }
       const memory = chosenKit();
-      linked = core.linkKit(memory, selected, numbers, selectedExtensions);
+      linked = core.linkKit(memory, selected, numbers, selectedExtensions, capabilitySettings(selectedExtensions));
       const allocations = kit.machines.filter(m => selected.includes(m.id)).map(m => ({name: m.name,
         size: linked.segments.filter(s => s.owner === m.id).reduce((n, s) => n + s.size, 0),
         color: colors[kit.machines.indexOf(m) % colors.length]}));
@@ -851,11 +867,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     const ticket = revision; $('build').disabled = true; status('Linking and checking your build…');
     try {
       const selection = [...selected], settings = graphicsConfiguration.settings(selectedMachines()), extensions = core.extensionSelection(kit, selectedExtensions);
-      const expanded = expandedMemory(), memory = kitFor(expanded), result = core.linkKit(memory, selection, numbers, extensions);
+      const chosen = capabilitySettings(extensions);
+      const expanded = expandedMemory(), memory = kitFor(expanded), result = core.linkKit(memory, selection, numbers, extensions, chosen);
       const files = await core.buildAssets(memory, selection, catalog, result.numbers, settings, result.extensions);
-      const capabilitySettings = Object.fromEntries(Object.entries(extensionSettings).filter(([c]) =>
-        (kit.extensions ?? []).some(e => result.extensions.includes(e.id) && e.settings?.[c])));
-      files['os.ldr'] = await core.patchFirmware(memory, result, stock, {profiling: false, settings: capabilitySettings});
+      files['os.ldr'] = await core.patchFirmware(memory, result, stock, {profiling: false, settings: chosen});
       const hashes = {};
       for (const [name, bytes] of Object.entries(files)) hashes[name] = await core.sha256(bytes);
       // Every number this firmware has given out, for the next build (core.readLayout).
@@ -864,7 +879,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       const encode = value => new TextEncoder().encode(JSON.stringify(value, null, 2) + '\n');
       files['layout.json'] = encode(nextLayout);
       files['build.json'] = encode({format: 'opxy-kit-build/1', version: kit.version, source_sha256: kit.profile.stock_sha256,
-        settings, capability_settings: capabilitySettings, sizes: result.sizes, ...(expanded ? {reserved_bytes: memory.profile.reserved_bytes} : {}), files: hashes, hardware_qualified: false, cpu_measured: false});
+        settings, capability_settings: chosen, sizes: result.sizes, ...(expanded ? {reserved_bytes: memory.profile.reserved_bytes} : {}), files: hashes, hardware_qualified: false, cpu_measured: false});
       const zip = core.zipFiles(files);
       if (ticket !== revision) return false;
       layout = nextLayout; built = files; rememberNumbers(result.numbers); downloadUrl = URL.createObjectURL(new Blob([zip], {type: 'application/zip'}));
@@ -892,6 +907,46 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   };
   $('choose-extensions').onclick = () => { navigate(3); recalculate(); };
   $('build').onclick = () => build();
+  // An imported machine pack extends the site's collection (core.importMachinePack), and
+  // removing it restores that collection. The OS, memory choice and machine numbers stay.
+  function useMachineCollection(value) {
+    stopPreview(); ++previewRevision;
+    // An OS still being checked used the previous collection: it is loaded again.
+    if (checkingOs) {
+      ticket++; endOsCheck();
+      wizard.setFirmwareState('empty'); $('firmware-result').textContent = 'OS not loaded';
+      $('firmware').value = '';
+    }
+    kit = value;
+    expandedKit = core.offersExpandedMemory(kit.profile) ? core.memoryKit(kit, true) : null;
+    selected = selected.filter(id => kit.machines.some(m => m.id === id));
+    invalidate();
+    $('notices').textContent = kit.notices;
+    sizeMachineSummary(); renderBrowsing(); renderMachines(); renderPresets(); renderExtensions(); recalculate();
+    inspect(kit.machines.some(m => m.id === inspected) ? inspected : kit.machines[0].id);
+    $('remove-machine-pack').hidden = kit === baseKit;
+  }
+  $('machine-pack').onchange = async e => {
+    const file = e.target.files[0]; e.target.value = '';
+    if (!file || !baseKit || builderPreview || !acknowledged) return;
+    const current = ++packTicket, base = baseKit;
+    $('machine-pack-result').textContent = 'Checking ' + file.name + '…';
+    try {
+      const pack = core.readMachinePack(await readBounded(file, core.MACHINE_PACK_LIMIT));
+      const candidate = await core.importMachinePack(baseSource, pack);
+      if (current !== packTicket || base !== baseKit || builderPreview || !acknowledged) return;
+      useMachineCollection(candidate);
+      const count = candidate.machines.length - baseKit.machines.length;
+      $('machine-pack-result').textContent = `${count} custom ${count === 1 ? 'machine' : 'machines'} added. Select them in the catalog. Keep this ZIP to import again after reloading.` + (stock ? ' Choose your OS file again if it was built with other machines, so its selection is recognized.' : '');
+    } catch (error) {
+      if (current === packTicket) $('machine-pack-result').textContent = error.message || String(error);
+    }
+  };
+  $('remove-machine-pack').onclick = () => {
+    ++packTicket;
+    useMachineCollection(baseKit);
+    $('machine-pack-result').textContent = 'Imported machines removed. Saved machine numbers are kept.' + (stock ? ' Choose your OS file again if it was built with other machines, so its selection is recognized.' : '');
+  };
   $('expert-mode').onclick = () => {
     if (!acknowledged || builderPreview || !kit) return;
     expertMode = true;
@@ -1045,7 +1100,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         ? `This layout used ${mib(loaded.memoryUnavailable)} experimental memory, which this site doesn’t offer. ` : '';
       let wanted = loaded.selected && !loaded.memoryUnavailable ? loaded.expanded === true : expandedMemory(), grown = false;
       if (loaded.selected) {
-        const link = memory => core.linkKit(kitFor(memory), loaded.selected, loaded.machines, extensions);
+        const link = memory => core.linkKit(kitFor(memory), loaded.selected, loaded.machines, extensions,
+          capabilitySettings(extensions));
         try { link(wanted); }
         catch (error) {
           if (error.capacity !== true) throw error;
@@ -1088,7 +1144,11 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   async function loadCollectionData(data) {
     const next = await core.openKit(data);
     const hadOs = stock != null || checkingOs;
-    invalidate(); stock = null; kit = next;
+    invalidate(); stock = null; kit = baseKit = next; baseSource = data;
+    // A new collection drops an imported pack, which extended the previous one.
+    ++packTicket;
+    $('remove-machine-pack').hidden = true;
+    $('machine-pack-result').textContent = '';
     selectionRemembered = false; selectedExtensions = []; extensionSettings = {}; editedExtensionSettings.clear();
     $('selection-memory').textContent = '';
     // A loaded or still-checking OS was for the previous collection: it is loaded again.

@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "sdk": "1.24",
+  "kind": "synth",
+  "description": "Test fixture: a saw whose track stage widens the track's voice sum with a short delay."
+}

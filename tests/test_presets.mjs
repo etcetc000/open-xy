@@ -76,6 +76,21 @@ test('presetDefaults sets the init preset track volume, as the native generator 
 const own = (changes = {}) => ({engine: {params: [1, 2, 3, 4, 5, 6, 7, 8], volume: 9000}, platform: 'OP-XY',
   regions: [], type: 'probesynth', version: 4, ...changes});
 
+test('full-canvas effect assets match native composition without synth preview metadata', async () => {
+  const effect = {...machines[3], artwork:'<g id="probefx_panel"/>', asset:'probefx.svg', fullCanvas:1};
+  const {kit, catalog} = await fixture([effect]);
+  kit.screenTemplate = read('sdk/platform/opxy-1.2.1/screen.svg');
+  kit.profile.screen_template_sha256 = JSON.parse(read('profiles/opxy-1.2.1.json')).screen_template_sha256;
+  const files = await buildAssets(kit, ['probefx'], catalog, numbers);
+  assert.equal(new TextDecoder().decode(files['content/display/probefx.svg']),
+    '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220"><g id="probefx_panel"/></svg>');
+  effect.fullCanvas = 0;
+  const ordinary = await buildAssets(kit, ['probefx'], catalog, numbers);
+  assert.match(new TextDecoder().decode(ordinary['content/display/probefx.svg']), /id="titles"/);
+  effect.fullCanvas = true;
+  await assert.rejects(buildAssets(kit, ['probefx'], catalog, numbers), /full canvas/);
+});
+
 test("a machine's own presets install beside its init preset, unchanged", async () => {
   const synth = {...machines[0], presets: {'warm-pad': own(), bass_2: own({octave: -1})}};
   const {kit, catalog} = await fixture([synth, ...machines.slice(1)]);
@@ -112,6 +127,32 @@ test('an aux track-control machine keeps no instrument preset folder', () => {
   const aux = {...machines[0], catalog: ''};
   assert.equal(presetPath(aux), null);
   assert.deepEqual(presetFiles(aux), {});
+});
+
+test('drum presets retain all 24 sample-free pads and reject sample paths and malformed pad words', async () => {
+  const regions = Array.from({length:24},(_,i) => ({model:'fm slap',params:[0,1,16384,32767],playmode:'oneshot',hikey:53+i}));
+  const preset = own({regions});
+  const drum = {...machines[0],kind:'drum',presets:{default:preset}};
+  const {kit,catalog} = await fixture([drum]);
+  const files = await buildAssets(kit,[drum.id],catalog,numbers);
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(files[presetPath(drum)])),preset);
+  for (const kind of ['synth','sample']) assert.throws(() => presetFiles({...drum,kind}),/Invalid machine preset/);
+  // A padMix kit keeps empty regions: its records would carry each key's level and pad word.
+  assert.throws(() => presetFiles({...drum,features:['padMix']}),/Invalid machine preset/);
+  assert.deepEqual(Object.keys(presetFiles({...drum,features:['padMix'],presets:{default:own({regions:[]})}})),[presetPath(drum)]);
+  for (const change of [{sample:'private.wav'},{path:'/user/samples/kick.wav'},{model:'kick'},
+    {params:[0]},{params:[0,1,2,32768]},{params:[0,1,2,-1]},{params:[true,1,2,3]},
+    {hikey:54},{playmode:'unknown'},{playmode:null}]) {
+    const bad = structuredClone(preset); Object.assign(bad.regions[0],change);
+    assert.throws(() => presetFiles({...drum,presets:{default:bad}}),/Invalid machine preset/);
+  }
+  // Each record valid on its own (no hikey, which a 25th could not match): only the count is wrong.
+  const keyless = regions.map(({hikey,...region}) => region);
+  assert.doesNotThrow(() => presetFiles({...drum,presets:{default:{...preset,regions:keyless}}}));
+  for (const size of [1,23,25]) {
+    const bad = {...preset,regions:[...keyless,...keyless].slice(0,size)};
+    assert.throws(() => presetFiles({...drum,presets:{default:bad}}),/Invalid machine preset/);
+  }
 });
 
 test("a machine's own presets are checked again before they reach a device", async () => {

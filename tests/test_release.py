@@ -38,6 +38,8 @@ class Release(unittest.TestCase):
                     self.assertEqual(commands[0][1:], ['sdk.py', 'catalog', 'fetch', '--tags'])
                     self.assertEqual(commands[1][1:4], ['sdk.py', 'kit', '--collection'])
                     self.assertTrue(commands[1][4].endswith('collection.json'))
+                    # The SDK's own extensions ship in the kit beside the catalog's (browser_kit.sdk_extension).
+                    self.assertEqual(commands[1][5:7], ['--extension', str(release.ROOT / 'extensions' / 'cpu')])
                     self.assertEqual(commands[2], ['npm', 'run', 'test:web'])
                     self.assertEqual(commands[3], ['node', 'tools/deploy_cloudflare.mjs',
                                                    *(['--env', 'beta'] if target == 'beta' else []), *flags])

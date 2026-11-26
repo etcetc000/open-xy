@@ -4,6 +4,7 @@ The CLI's real independent compile is exercised by build/verify. These tests
 cache that known-good compiler output and isolate the package comparison logic,
 so each corruption need not launch the compiler again.
 """
+import ast
 import copy
 import json
 import os
@@ -11,6 +12,7 @@ from pathlib import Path
 import shutil
 import struct
 import tempfile
+from types import SimpleNamespace
 import unittest
 
 from tooling.adapters import aux_preset_files, catalog_entry
@@ -18,9 +20,22 @@ from unittest.mock import patch
 
 from tooling import native
 from tooling.adapters import preset_files
+from tooling.firmware import hook_symbol
 from tooling.formats import elf32, elf_sections, sha
 from tooling.machines import sample_path
 from tooling.pipeline import document, read, save_json
+
+
+# The build capabilities whose units a machine's own objects reach in a build that selects them: idle only.
+# Every effect's init records itself in the send hook's table (send_bus.hpp), and the adapters write that only
+# in a build that selected idle, the only builds that link it. Any other selected capability stays outside every
+# machine's uses, so a machine object that reached its units fails test_service_hooks.
+MACHINE_CAPABILITIES = frozenset({'idle'})
+
+
+def machine_capability_uses(extensions):
+    """The capabilities the build's settings extensions select that count as each machine's use."""
+    return {c for e in extensions for c in e.capabilities} & MACHINE_CAPABILITIES
 
 
 def object_symbols(data):
@@ -96,25 +111,55 @@ class PackageVerification(unittest.TestCase):
 
     def test_profiling_hooks_match_mode_and_stay_in_platform_unit(self):
         symbols, _undefined = object_symbols(read(self.package / 'analysis/sdk/profiling.o'))
+        services, owner_of = native.object_services(self.machines), self.owners()
         for edit in self.report['patches']:
             if edit.get('profiling') is False:
-                self.assertIn(edit['symbol'], symbols)
-                self.assertEqual(edit['after'] == edit['before'], self.report['profiling'])
+                if 'service' in edit:
+                    # A service's own bypass without profiling (block_trims: sdk_track_mix) lives in that
+                    # service's units and is applied only when the service is; a package without that
+                    # service does not link the symbol at all.
+                    active = edit['service'] in self.report['services']
+                    if active:
+                        self.assertEqual(services.get(owner_of[edit['symbol']]), edit['service'], edit['symbol'])
+                    else:
+                        self.assertNotIn(edit['symbol'], owner_of, edit['symbol'])
+                else:
+                    self.assertIn(edit['symbol'], symbols)
+                    active = True
+                self.assertEqual(edit['after'] == edit['before'], self.report['profiling'] or not active, edit['symbol'])
+
+    def owners(self):
+        """Symbol -> the package object defining it."""
+        owner_of = {}
+        for name in self.report['objects']:
+            defined, _undefined = object_symbols(read(self.package / 'analysis' / name))
+            owner_of.update(dict.fromkeys(defined, name))
+        return owner_of
 
     def test_service_hooks_live_in_their_units_and_only_their_users_reach_them(self):
         services = native.object_services(self.machines)
-        uses = {m.id: set(native.service_users([m])) for m in self.machines}
+        # A build capability a settings extension selects counts as each machine's use only if it is one of
+        # MACHINE_CAPABILITIES (idle); no other service is added to a machine's uses.
+        chosen = machine_capability_uses(native.extensions_of(self.machines))
+        uses = {m.id: set(native.service_users([m])) | chosen for m in self.machines}
         owner_of, needs = {}, {}
         for name, owner in self.report['objects'].items():
             defined, undefined = object_symbols(read(self.package / 'analysis' / name))
             owner_of.update(dict.fromkeys(defined, name))
             needs[name] = (owner, undefined)
         for patch in self.report['patches']:
-            # Service hooks call into their service's units; service text edits call nothing.
+            # Service hooks call into their service's units; service text edits call nothing. A
+            # site several services share enters the handler of the first of them the build has.
             if patch.get('service') and patch['kind'] == 'hook' and patch['after'] != patch['before']:
-                self.assertEqual(services.get(owner_of[patch['symbol']]), patch['service'], patch['symbol'])
+                symbol = hook_symbol(patch, set(self.report['services']))
+                expected = next((s for s in patch.get('symbols', {}) if s in self.report['services']), patch['service'])
+                self.assertEqual(services.get(owner_of[symbol]), expected, symbol)
         # Only a service's own units and machines of the kinds or features it serves may use its symbols.
         users = self.patch_profile['services']
+        # The entry points the SDK resolves to a fallback when their service is not linked
+        # (native.service_fallbacks): the build-wide shared SDK units may name them.
+        fallbacks = {(service, symbol) for service, table in native.service_fallbacks(set(users)).items()
+                     for symbol in table}
         for name, (owner, undefined) in needs.items():
             for symbol in undefined:
                 service = services.get(owner_of.get(symbol))
@@ -123,6 +168,8 @@ class PackageVerification(unittest.TestCase):
                     self.assertEqual(native.service_fallbacks({service})[service][symbol], 'kit_absent')
                     continue
                 if service and name not in services:
+                    if owner is None and (service, symbol) in fallbacks:
+                        continue
                     # The startup, generated per selection, starts a service it links.
                     user = (set(native.service_users(self.machines)) if name == 'sdk/startup.o' else
                             uses.get(owner, set()))
@@ -193,6 +240,41 @@ class PackageVerification(unittest.TestCase):
         save_json(self.copy / 'manifest.json', manifest)
         with self.assertRaises(ValueError): self.verify()
 
+
+
+class CapabilityUses(unittest.TestCase):
+    """The service-reach rule's capability uses (no package needed)."""
+
+    def test_only_idle_counts_as_a_machines_use(self):
+        every = SimpleNamespace(capabilities=('boot_log_fix', 'idle', 'block_trims', 'output_slack', 'load_governor',
+                                              'pitch_constants', 'fast_helpers'))
+        self.assertEqual(machine_capability_uses([every]), {'idle'})
+        # A capability outside the list is refused as a machine's use, selected or not.
+        for capability in ('boot_log_fix', 'block_trims', 'output_slack', 'load_governor', 'pitch_constants', 'fast_helpers',
+                           'anything'):
+            with self.subTest(capability=capability):
+                self.assertEqual(machine_capability_uses([SimpleNamespace(capabilities=(capability,))]), set())
+        self.assertEqual(machine_capability_uses([]), set())
+        self.assertEqual(MACHINE_CAPABILITIES, {'idle'})
+
+    def test_the_rule_takes_its_capability_uses_from_the_helper(self):
+        """The call site, not only the helper: the service-reach rule adds exactly
+        machine_capability_uses(...) to each machine's uses and reads no extension's capabilities itself, so a
+        wider filter written back into the rule (every selected capability) fails here, without a package."""
+        tree = ast.parse(Path(__file__).read_text(encoding='utf-8'))
+        rule, = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and
+                 node.name == 'test_service_hooks_live_in_their_units_and_only_their_users_reach_them']
+        calls = [node for node in ast.walk(rule) if isinstance(node, ast.Call) and
+                 isinstance(node.func, ast.Name) and node.func.id == 'machine_capability_uses']
+        self.assertEqual(len(calls), 1, 'the rule asks machine_capability_uses once')
+        assigned = [node for node in ast.walk(rule) if isinstance(node, ast.Assign) and node.value is calls[0]]
+        self.assertEqual([t.id for node in assigned for t in node.targets], ['chosen'])
+        self.assertFalse([node for node in ast.walk(rule) if isinstance(node, ast.Attribute) and
+                          node.attr == 'capabilities'], 'the rule reads capabilities only through the helper')
+        uses = [node for node in ast.walk(rule) if isinstance(node, ast.Assign) and
+                [t.id for t in node.targets if isinstance(t, ast.Name)] == ['uses']]
+        self.assertEqual(len(uses), 1)
+        self.assertIn('chosen', {n.id for n in ast.walk(uses[0].value) if isinstance(n, ast.Name)})
 
 if __name__ == '__main__':
     unittest.main()

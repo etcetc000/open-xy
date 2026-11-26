@@ -80,7 +80,9 @@ The builder labels a machine **CPU-high** when its reported worst case is above
 4.5% of an audio block (`HIGH_PERCENT` in
 [`tooling/cpu_measurement.py`](../tooling/cpu_measurement.py), which
 `builder/core.mjs` repeats as `CPU_HIGH_PERCENT`). The worst case is the record's
-`peak_percent`, or its `block_percent` average when it reports no peak; the
+`peak_percent`, or its `block_percent` average when it reports no peak, and for a
+synth with a [track stage](api.md#track-stage) that figure plus its stage's
+(`stage_peak_percent`, or `stage_percent`): one voice and its track's stage; the
 label immediately explains on hover or keyboard focus that higher CPU usage may reduce the number of simultaneous voices. A drum kit is judged by its
 worst single sound, never its whole-kit, choke or ceiling runs: its
 `voice_peak_percent`, the worst block of its single-voice runs, or, in a record
@@ -93,6 +95,75 @@ entries it reviews.
 
 IDs are unique across the catalog. Open-XY's own machines are entries like
 any other, published from the [core machines](https://github.com/etcetc000/open-xy-core-machines).
+
+## Import custom machines
+
+On the builder's **Choose machines** page, choose **Import machines ZIP** beside
+**Choose extensions**. An SDK-built pack adds one or more machines marked
+**Yours**, initially unselected. The file stays in the browser; importing does
+not publish a catalog entry. Import code only from authors you trust: native
+machine code is not isolated or reviewed by Open-XY. While a pack is imported,
+every build links its startup code and generated machine tables, even when none
+of its machines is selected, and its browser previews run in the page when
+inspected.
+
+A pack extends the site's exact machine collection. It cannot replace existing
+machines, change the SDK runtime or add extensions, and it adds synths, effects
+and sample engines only: drum kits, players and aux machines cannot be imported
+yet. A machine published to the catalog after the site's release is exported as
+a catalog machine, not a custom one, and cannot be imported. Its compiled
+registration, control and callback tables accompany the added machines, so
+independent packs cannot be combined: export the desired custom machines
+together. A pack that imports replaces the previous one; a refused one leaves
+it. **Remove imported machines** restores the site's collection. Both operations
+keep saved machine numbers reserved. Reloading clears the imported pack and
+drops its machines from the remembered selection; keep its ZIP and your saved
+layout to use it again. Import the pack before loading a layout that selects its
+machines. An OS is recognized with the collection it was built from: with a pack
+imported, an OS built without it (or the reverse) is recovered like an earlier
+open-xy OS: its stock OS is kept and its machines are chosen again. After
+importing or removing a pack, choose the OS file again to recognize a build made
+with those machines.
+
+### Export a machine pack
+
+Build against exactly what the destination site was released from: check out the
+SDK revision it was built from, normally the release tag of the version the
+builder shows beside its name (`v0.0.7`; a catalog update published since then
+needs its later revision, and the beta site is built from the current
+`staging`), with the pinned native tools and your own stock OS. Fetch that
+revision's catalog, then export the site's collection with the SDK's own
+extensions (one `--extension` per folder under `extensions/` at that revision,
+in name order, as `sdk.py release` adds them) and your custom machine folders
+appended (repeat `--machine` for more). The export rebuilds every machine's
+browser preview, so it also needs Clang++ for wasm32 (`--preview-cxx`, as for
+any [kit](builder.md#export-a-kit)):
+
+```sh
+git checkout v0.0.7
+python sdk.py catalog fetch --tags
+python sdk.py kit --personal --machine-pack --collection local/catalog/collection.json --extension extensions/cpu --machine ../mymachine --stock-os <stock-1.2.1>/os.ldr --out <external-builds>/machine-pack-001
+```
+
+After native and browser verification passes, share only `machines.zip` from
+the output directory. It contains compiled objects, machine metadata, artwork,
+your machines' browser previews and license notices, with no firmware or stock
+content. The surrounding kit and build directory contain stock inputs and must stay
+outside every checkout. The pack limit is 64 MiB. A source repository ZIP or
+firmware installation ZIP is not a machine pack, and neither is a pack that was
+unzipped and zipped again: share `machines.zip` exactly as the exporter wrote it.
+
+The importer rejects changed catalog machines, mismatched releases/runtime,
+duplicate identities, IDs holding Open-XY's fixed numbers, damaged objects and
+machines that cannot link or fit individually. A custom machine that needs SDK
+objects none of the site's machines link (another profile service, an arithmetic
+runtime member or an SDK header unit such as `opxy/sample_kernel.hpp` or
+`opxy/control_interaction.hpp`) cannot extend that site: the importer names the
+first such object. The normal memory meter checks the combined selection. After
+a site release or catalog update, its author may need to export a matching pack.
+Checks do not certify an author's native code, measure CPU or establish device
+recovery. The format is a single stored `machines.json` entry in ZIP, identified
+as `opxy-machine-pack/1`; use the exporter rather than assembling it by hand.
 
 [Firmware extensions](extensions.md) have a catalog of their own,
 `catalog/extensions.json`, in the same format under `"extensions"`: `kind` is
@@ -111,7 +182,7 @@ show a short notice about support and possible instability or unexpected audio.
 
 | Command | Does |
 | --- | --- |
-| `python sdk.py catalog check [--base <ref>] [--allow-control-changes]` | Validates the catalog. With `--base`, also against an earlier catalog: every entry stays, with its kind, and its status only moves forward, except published back to draft; a published machine whose commit moved is fetched at both commits and its [controls compared](#controls) |
+| `python sdk.py catalog check [--base <ref>] [--allow-control-changes]` | Validates the catalog. With `--base`, also against an earlier catalog: every entry stays, with its kind, and its status only moves forward, except published back to draft; a published machine whose commit moved is fetched at both commits and its [controls compared](#controls); and each new or moved synth release, and each new or changed sweep record's release, is fetched to check that it has [stage fields](profiling.md#add-the-catalog-field) exactly when the release declares a track stage |
 | `python sdk.py catalog fetch [--tags] [--prune]` | Fetches every published machine at exactly its commit into `local/catalog/`, checks it matches its entry and writes `local/catalog/collection.json`: every published machine, in catalog order. `--tags` also confirms each tag still names its commit; `--prune` then deletes fetched folders the catalog no longer pins |
 | `python sdk.py catalog test [--tags] [--changed-from <revision>] [--jobs <n>] [--no-cpu]` | Fetches, then runs [`sdk.py test`](first-machine.md#what-you-own) on every published machine. `--changed-from` tests only the entries that differ from the catalog at that git revision, as CI does for a pull request that changes only the catalog; `--jobs` checks several folders at once |
 
@@ -168,7 +239,9 @@ Updates follow the same checks: tag a new machine revision, remeasure it and
 update `tag`, `commit` and `cpu` together. For a change that cannot affect CPU
 cost, a catalog maintainer can approve keeping the previous `cpu` record unchanged
 (still naming the commit it measured) by adding the `cpu-carried` label; the
-workflow runs again and passes `--allow-carried-cpu`. Preserve the published
+workflow runs again and passes `--allow-carried-cpu`. A release that adds a
+[track stage](api.md#track-stage) can't carry its record: the stage was never
+measured, so it is remeasured. Preserve the published
 [control contract](#controls). Removal marks an entry `retired`; its ID is never
 reused, and retirement needs no new measurement.
 

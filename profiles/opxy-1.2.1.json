@@ -151,6 +151,15 @@
       "drumline_page",
       "synthShift"
     ],
+    "played_pad": [
+      "playedPad"
+    ],
+    "kit_controls": [
+      "kitControls"
+    ],
+    "amp_envelope": [
+      "ampEnvelope"
+    ],
     "players": [
       "player"
     ],
@@ -169,6 +178,14 @@
     "drum_sends": [
       "padMix",
       "drumline_page"
+    ],
+    "track_stage": [
+      "trackStage"
+    ],
+    "track_call": [
+      "padMix",
+      "drumline_page",
+      "trackStage"
     ],
     "drum_locks": [
       "padMix",
@@ -201,6 +218,27 @@
     ],
     "synth_shift": [
       "synthShift"
+    ],
+    "idle": [
+      "idle"
+    ],
+    "block_trims": [
+      "block_trims"
+    ],
+    "output_slack": [
+      "output_slack"
+    ],
+    "boot_log_fix": [
+      "boot_log_fix"
+    ],
+    "load_governor": [
+      "load_governor"
+    ],
+    "fast_helpers": [
+      "fast_helpers"
+    ],
+    "pitch_constants": [
+      "pitch_constants"
     ]
   },
   "patches": [
@@ -1698,6 +1736,17 @@
     },
     {
       "kind": "hook",
+      "name": "Drum renderer's filter-envelope step before a voice's render: an ampEnvelope kit's adapter reads the voice's note-off",
+      "address": "0x8d51b38a",
+      "file_offset": "0x1525e6",
+      "length": 4,
+      "before": "ffe3e797",
+      "symbol": "sdk_drum_envelope_setup",
+      "service": "amp_envelope",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "name": "Preset load, its first call of the preset import: a padMix kit's loaded keys set up as the preset holds them",
       "address": "0x8d4dda96",
       "file_offset": "0x114cf2",
@@ -1907,6 +1956,84 @@
       "symbol": "sdk_cv_output",
       "call": true,
       "service": "aux"
+    },
+    {
+      "kind": "hook",
+      "name": "Send FX I: skipped while it has nothing to play",
+      "address": "0x8d5116a0",
+      "file_offset": "0x1488fc",
+      "length": 4,
+      "before": "ffe37aef",
+      "symbol": "sdk_send_fx",
+      "call": true,
+      "service": "idle"
+    },
+    {
+      "kind": "hook",
+      "name": "Send FX II: skipped while it has nothing to play",
+      "address": "0x8d511908",
+      "file_offset": "0x148b64",
+      "length": 4,
+      "before": "ffe346ee",
+      "symbol": "sdk_send_fx",
+      "call": true,
+      "service": "idle"
+    },
+    {
+      "kind": "hook",
+      "name": "A sounding track's five bus mixes: skipped for a zero gain or an all-zero track buffer",
+      "address": "0x8d511014",
+      "file_offset": "0x148270",
+      "length": 6,
+      "before": "1090c1e00afc",
+      "symbol": "sdk_track_mix",
+      "call": false,
+      "service": "block_trims"
+    },
+    {
+      "kind": "hook",
+      "name": "Without profiling, a sounding track's monitor-tap timer is not recorded: straight to its bus mixes",
+      "address": "0x8d510f04",
+      "file_offset": "0x148160",
+      "length": 4,
+      "before": "30009631",
+      "symbol": "sdk_track_mix",
+      "call": false,
+      "profiling": false,
+      "service": "block_trims"
+    },
+    {
+      "kind": "hook",
+      "name": "LFO evaluator: its pass check without the two DDR helper calls",
+      "address": "0x11a044e6",
+      "file_offset": "0x7b76",
+      "length": 8,
+      "before": "00de508dd44a0000",
+      "symbol": "sdk_lfo_pass",
+      "call": false,
+      "service": "block_trims"
+    },
+    {
+      "kind": "hook",
+      "name": "Tape playback skipped while the tape is silent: heads and crossfade stepped, output zeroed",
+      "address": "0x8d503878",
+      "file_offset": "0x13aad4",
+      "length": 4,
+      "before": "ffe368fe",
+      "symbol": "sdk_tape_play",
+      "call": false,
+      "service": "block_trims"
+    },
+    {
+      "kind": "hook",
+      "name": "Tape track mixing skipped for an all-zero tape buffer: ramps, pan curve and meter kept",
+      "address": "0x8d50fac4",
+      "file_offset": "0x146d20",
+      "length": 8,
+      "before": "09dab011d51d0000",
+      "symbol": "sdk_tape_tail",
+      "call": false,
+      "service": "block_trims"
     },
     {
       "kind": "hook",
@@ -2374,6 +2501,17 @@
     },
     {
       "kind": "hook",
+      "name": "The DSP callback's per-block hook: output slack's arming",
+      "address": "0x8c0c6ffe",
+      "file_offset": "0xfe23a",
+      "length": 8,
+      "before": "00dea01164280000",
+      "symbol": "sdk_dsp_block_audio",
+      "call": true,
+      "service": "output_slack"
+    },
+    {
+      "kind": "hook",
       "name": "Master EQ audio call: selected stereo processor",
       "address": "0x8d511b80",
       "file_offset": "0x148ddc",
@@ -2407,14 +2545,18 @@
     },
     {
       "kind": "hook",
-      "name": "Mixer: a track's voice loop starts, per-key send state reset",
+      "name": "Mixer: a track's voice loop, after the per-key send state reset and before the track stage",
       "address": "0x8d510bea",
       "file_offset": "0x147e46",
       "length": 4,
       "before": "00e38f5d",
       "symbol": "sdk_drum_send_track",
       "call": true,
-      "service": "drum_sends"
+      "service": "track_call",
+      "symbols": {
+        "track_stage": "sdk_track_call",
+        "drum_sends": "sdk_drum_send_track"
+      }
     },
     {
       "kind": "hook",
@@ -2547,6 +2689,115 @@
       "symbol": "sdk_drumline_page_hook",
       "call": true,
       "service": "drumline"
+    },
+    {
+      "kind": "hook",
+      "name": "The track's voice loop asks the idle cut about each voice it renders and has not finished",
+      "address": "0x8d51c7a6",
+      "file_offset": "0x153a02",
+      "length": 4,
+      "before": "ffe302fa",
+      "symbol": "sdk_idle_render",
+      "call": true,
+      "service": "idle"
+    },
+    {
+      "kind": "limit",
+      "name": "GUI board: do not forward log lines over the SPI bridge (log-sink switch 1 -> 0, a data byte; boot_log_fix)",
+      "address": "0x8400ea65",
+      "file_offset": "0x1d759",
+      "length": 1,
+      "before": "01",
+      "after": "00",
+      "service": "boot_log_fix"
+    },
+    {
+      "kind": "limit",
+      "name": "Load governor: the budget cut's threshold (8d51c420, called only by the 94.5 % test 8d51e560): R1 = 0xf200 (Z) becomes R1 = 0xfd70 (Z), the cut at 99.0 % of the load byte's scale (93.8 % of a real block) (load_governor)",
+      "address": "0x8d51c430",
+      "file_offset": "0x15368c",
+      "length": 4,
+      "before": "81e100f2",
+      "after": "81e170fd",
+      "service": "load_governor",
+      "build": true
+    },
+    {
+      "kind": "limit",
+      "name": "Load governor: the smoother's rise test and branch to its hold, decay and floor paths become R2 = L >> 1 (half the block's load, for its return), so every block takes the one path (8d51c480; load_governor)",
+      "address": "0x8d51c48c",
+      "file_offset": "0x1536e8",
+      "length": 4,
+      "before": "88090d10",
+      "after": "82c6f985",
+      "service": "load_governor",
+      "build": true
+    },
+    {
+      "kind": "limit",
+      "name": "Load governor: the smoothed load moves 1/8 of the signed gap every block, up or down (8d51c480: LSHIFT R1 >>= 2 becomes ASHIFT R1 >>>= 3), a mean of about 8 blocks (load_governor)",
+      "address": "0x8d51c492",
+      "file_offset": "0x1536ee",
+      "length": 2,
+      "before": "114e",
+      "after": "194d",
+      "service": "load_governor",
+      "build": true
+    },
+    {
+      "kind": "limit",
+      "name": "Load governor: the smoother's hold reload (R0 = 0x100; [P1 + 0xe4] = R0) goes: no hold, it returns 0x6680 + L / 2 (R0 = 0x6680 (Z); R0 = R0 + R2; NOP), so the single-block test fires only on a block at the load byte's ceiling (8d51c480; load_governor)",
+      "address": "0x8d51c49a",
+      "file_offset": "0x1536f6",
+      "length": 8,
+      "before": "20e1000108e63900",
+      "after": "80e1806610500000",
+      "service": "load_governor",
+      "build": true
+    },
+    {
+      "kind": "limit",
+      "name": "Load governor: the single-block kill (8d51e3fc) tests what the smoother returned in R0, not the block's own load (R4 = R0 before the 89.8 % test; marks the capability on; load_governor)",
+      "address": "0x8d51e4f0",
+      "file_offset": "0x15574c",
+      "length": 8,
+      "before": "ffe3b0ef200a0660",
+      "after": "2030ffe3afef200a",
+      "service": "load_governor",
+      "build": true
+    },
+    {
+      "kind": "limit",
+      "name": "Load governor: the recovery's threshold call (CALL 8d51c468, 0xd900 = 84.8 %, a routine the pacing of stolen notes shares) becomes CALL 8d51c438 (0xee00 = 93.0 %), so the budget comes back one voice per 32 blocks under 93 % (88.1 % of a real block) (load_governor)",
+      "address": "0x8d51e4fe",
+      "file_offset": "0x15575a",
+      "length": 4,
+      "before": "ffe3b5ef",
+      "after": "ffe39def",
+      "service": "load_governor",
+      "build": true
+    },
+    {
+      "kind": "limit",
+      "name": "Pitch constants: the note-to-pitch routine (8d5c09d6) loads 1200.0f and calls 8d5bf5ec, stock's float-to-fixed conversion; the load becomes R0 = 0x04b00000, the word that call returns, and the call two NOPs (pitch_constants)",
+      "address": "0x8d5c0a1e",
+      "file_offset": "0x1f7c76",
+      "length": 12,
+      "before": "00da964400000000ffe3e3f5",
+      "after": "00dab0040000000000000000",
+      "service": "pitch_constants",
+      "build": true
+    },
+    {
+      "kind": "limit",
+      "name": "Pitch constants: the same routine's second constant, R0 = 100.0f then CALL 8d5bf5ec, becomes R0 = 0x00640000, the word that call returns, and two NOPs (pitch_constants)",
+      "address": "0x8d5c0a2c",
+      "file_offset": "0x1f7c84",
+      "length": 12,
+      "before": "00dac84200000000ffe3dcf5",
+      "after": "00da64000000000000000000",
+      "service": "pitch_constants",
+      "build": true
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches",

@@ -52,12 +52,20 @@
       "maintainer": "etcetc000",
       "status": "published",
       "repository": "https://github.com/etcetc000/open-xy-core-machines",
-      "tag": "v1.7.0-rc.1",
-      "commit": "600ff0554369f3ff20336f64fb55bb8ad805f58e",
+      "tag": "v1.11.0",
+      "commit": "2751a69b03737b423009ea466126c4aab8d6345a",
       "path": "machines/timestretch",
       "keywords": [
         "percussion"
-      ]
+      ],
+      "cpu": {
+        "benchmark": "opxy-sample-callback-v2",
+        "commit": "2751a69b03737b423009ea466126c4aab8d6345a",
+        "firmware_sha256": "f3d6e287f0a429b6c6149c4c9bbcacb46f900a4ea1a54eaa853a54bf32a44b1c",
+        "runs": 1,
+        "block_percent": 0.543221,
+        "peak_percent": 1.614405
+      }
     },
     {
       "id": "ringmod",
@@ -2657,6 +2665,29 @@
       "keywords": [
         "experimental"
       ]
+    },
+    {
+      "id": "braindance",
+      "kind": "sample",
+      "maintainer": "mmockett",
+      "status": "draft",
+      "repository": "https://github.com/mmockett/OP-XY-BrainDance",
+      "tag": "v1.0.1",
+      "commit": "ce44bd23ba2071041a8adc5ff25ac9538bf771db",
+      "path": ".",
+      "keywords": [
+        "experimental",
+        "percussion",
+        "lofi"
+      ],
+      "cpu": {
+        "benchmark": "opxy-sample-callback-v2",
+        "commit": "ce44bd23ba2071041a8adc5ff25ac9538bf771db",
+        "firmware_sha256": "3e6615b594b87e521b13b505f3e1c5188cad00ea8a63dd52d909997380ae4e78",
+        "runs": 1,
+        "block_percent": 1.979095,
+        "peak_percent": 3.778134
+      }
     }
   ]
 }

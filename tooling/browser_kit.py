@@ -11,15 +11,16 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 from .adapters import aux_preset_files, catalog_entry
 from .catalog import official
-from .definitions import control_positions, paged, shift_words, synth_shift
+from .definitions import KIT_CONTROLS_SDK, control_positions, paged, shift_words, synth_shift
 from .formats import require, sha
 from .machines import FIXED_NUMBERS, check_request
 from .pipeline import (ROOT, add_overwrite_argument, child, document, fresh_output, read, require_release_host,
                        resolve_toolchain, tool_paths)
-from . import extensions, native, preview, screen
+from . import extensions, native, preview, screen, voice_heap
 
 
 def notices(machines, runtime=False):
@@ -27,9 +28,10 @@ def notices(machines, runtime=False):
     if runtime:
         texts.append(read(ROOT / 'sdk/platform/blackfin/runtime.LICENSE').decode('utf-8'))
     for m in machines:
-        license_file = child(m.root, 'vendor/LICENSE')
-        if license_file.is_file():
-            texts.append(m.name + '\n\n' + read(license_file).decode('utf-8'))
+        for name in ('LICENSE', 'vendor/LICENSE'):
+            license_file = child(m.root, name)
+            if license_file.is_file():
+                texts.append(m.name + ' (' + name + ')\n\n' + read(license_file).decode('utf-8'))
     return '\n\n'.join(texts)
 
 
@@ -46,13 +48,30 @@ def catalog_sources(machines, personal, entries=None):
     return sources
 
 
+def sdk_extension(e):
+    """Whether an extension is one of the SDK's own (extensions/ of this checkout, such as cpu),
+    which ships with the SDK rather than through the catalog: its folder is tracked by this
+    checkout's git and unchanged from HEAD (a release is a published checkout, sdk.py release)."""
+    if e.root.parent != (ROOT / 'extensions').resolve():
+        return False
+    folder = 'extensions/' + e.root.name
+    try:
+        git = lambda *a: subprocess.run(['git', *a], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+        return bool(git('ls-files', '--', folder + '/extension.json').strip()) and \
+            not git('status', '--porcelain', '--ignored', '--', folder).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return False
+
+
 def extension_origins(extensions_, personal):
     """Each extension's origin, as for machines: official (Open-XY's own, catalog.
-    OFFICIAL_EXTENSIONS), catalog (a community release) or personal (any other folder)."""
+    OFFICIAL_EXTENSIONS, or the SDK's own), catalog (a community release) or personal (any
+    other folder)."""
     from .catalog import load_extensions
-    sources = catalog_sources(extensions_, personal, load_extensions())
-    return {e.id: 'personal' if e.id not in sources else 'official' if official(sources[e.id]) else 'catalog'
-            for e in extensions_}
+    own = {e.id for e in extensions_ if sdk_extension(e)}
+    sources = catalog_sources([e for e in extensions_ if e.id not in own], personal, load_extensions())
+    return {e.id: 'official' if e.id in own else 'personal' if e.id not in sources
+            else 'official' if official(sources[e.id]) else 'catalog' for e in extensions_}
 
 
 def kit_presets(m):
@@ -62,17 +81,24 @@ def kit_presets(m):
     with no sample loaded, as before the machine shipped samples. sdk.py build installs the
     samples and the presets as they are."""
     presets = m.presets or {}
-    emptied = sorted(name for name, preset in presets.items() if preset['regions'])
+    emptied = sorted(name for name, preset in presets.items() if m.kind == 'sample' and preset['regions'])
     if emptied:
         print(f'{m.id}: the kit leaves out its own samples; its presets {", ".join(emptied)} load no sample in '
               'the builder (sdk.py build installs them)', file=sys.stderr)
     return {name: dict(preset, regions=[]) if name in emptied else preset for name, preset in presets.items()}
 
 
-def kit_preview(definition):
-    """A drum kit's models, their groups and whether its keys hold pan, level and pad fields."""
+def kit_preview(definition, sdk=(1, 0)):
+    """A drum kit's models, their groups, whether its keys hold pan, level and pad mix,
+    whether its Shift row sets their volume and random (SDK 1.23) and whether its screen
+    is told the selected key (a kit declaring SDK 1.23 or later)."""
     resources = definition['resources']
     kit = dict(models=resources['modelCount'], padMix=bool(resources.get('padMix', 0)))
+    for key in ('padVolume', 'padRandom'):
+        if resources.get(key, 0):
+            kit[key] = True
+    if tuple(sdk) >= KIT_CONTROLS_SDK:
+        kit['selectedKey'] = True
     if resources.get('modelGroups'):
         kit['groups'] = [dict(label=g['label'], count=g['count']) for g in resources['modelGroups']]
     return kit
@@ -118,6 +144,9 @@ def machine_entry(m, profile, sources, output, preview_cxx):
         if m.grayscale:
             entry['grayscaleArtwork'] = read(m.root / m.grayscale).decode('utf-8')
         entry['asset'] = m.native_name + '.svg'
+        # A whole-screen canvas: its display file has no stock header (core.mjs buildAssets).
+        if m.definition['resources'].get('display', {}).get('fullCanvas'):
+            entry['fullCanvas'] = 1
     if m.display != 'stock' and m.kind in ('synth', 'drum'):
         preview_dir = output / ('preview-' + m.id)
         preview.build(preview_cxx, m, preview_dir)
@@ -132,16 +161,59 @@ def machine_entry(m, profile, sources, output, preview_cxx):
         # A drum kit: what its keys choose from, for the builder's audition and default frame
         # (builder/core.mjs kitKey). Each key's model and controls come from the module.
         if m.kind == 'drum':
-            entry['preview']['kit'] = kit_preview(m.definition)
+            entry['preview']['kit'] = kit_preview(m.definition, m.sdk)
     # A synth with a Shift row: its own presets keep the row in sample-less regions
     # (builder/core.mjs presetFiles).
     if m.kind == 'synth' and synth_shift(m.definition):
         entry['shiftRow'] = True
+    # A synth with heap voices (SDK 1.19): the stock heap it reserves at boot, which the
+    # builder refuses to pair with a layout that shrinks that heap (core.mjs linkKit).
+    if voice_heap.on_heap(m):
+        entry['heapVoices'] = voice_heap.arena_bytes(m)
     return entry
 
 
-def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False):
+def refuse_adapter_capabilities(extensions_):
+    """A browser kit's objects are compiled once for every selection, so it cannot carry a capability
+    that changes every machine's generated code (extensions.adapter_capabilities: idle). Every other
+    capability it carries: image edits, and SDK units it links with the capability
+    (docs/builder.md#capabilities)."""
+    adapters = sorted({c for e in extensions_ for c in e.capabilities} & set(extensions.adapter_capabilities()))
+    require(not adapters, "These capabilities change every machine's generated code, so a browser kit cannot carry "
+                          'them; build with sdk.py build, or leave them out of the extension: ' + ', '.join(adapters))
+
+
+def unit_sources(output, tools, compiler, profile, machines, objects):
+    """kit.unitSources: for each unit capability the kit's extensions carry (fast_helpers), each
+    value's objects of the units it chooses the source of, which the builder links in place of
+    the native build's (builder/core.mjs linkKit). The value the native build chose must give
+    its own objects back. The objects are also written under objects/unit-sources/<capability>/
+    <value>/ for the GNU ld reference links (tools/check_browser_kit.mjs)."""
+    if not any(c in extensions.unit_capabilities() for e in native.extensions_of(machines) for c in e.capabilities):
+        return {}
+    require(compiler is not None, 'A kit with a unit capability needs the compiler to build its other sources')
+    built = native.unit_sources(machines, profile)
+    sources = {}
+    with tempfile.TemporaryDirectory(prefix='opxy-unit-sources-') as work:
+        variants = native.unit_variants(Path(work), tools, compiler, profile, machines)
+    for capability, values in variants.items():
+        for value, units in values.items():
+            for name, data in units.items():
+                chosen = built.get(name.removeprefix('sdk/').removesuffix('.o'))
+                require(name in objects, f'{capability}: the native build has no {name}')
+                if (chosen is not None) == (value == 1):
+                    require(objects[name] == data, f"{capability} {value}: {name} differs from the native build's")
+                destination = child(output / 'objects/unit-sources', f'{capability}/{value}/{name}')
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(data)
+                sources.setdefault(capability, {}).setdefault(str(value), []).append(
+                    dict(name=name, bytes=base64.b64encode(data).decode('ascii'), sha256=sha(data)))
+    return sources
+
+
+def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False, compiler=None):
     profile, machines, definitions = native.configuration(native.package_collection(package))
+    refuse_adapter_capabilities(native.extensions_of(machines))
     sources = catalog_sources(machines, personal)
     require(sha(stock_catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     runtime_members = document(package / 'analysis/compile-report.json').get('runtime', [])
@@ -207,6 +279,10 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
     fallbacks = native.service_fallbacks(services)
     if fallbacks:
         kit['serviceFallbacks'] = fallbacks
+    chosen_units = unit_sources(output, tools, compiler, profile, machines,
+                                {o['name']: base64.b64decode(o['bytes']) for o in objects})
+    if chosen_units:
+        kit['unitSources'] = chosen_units
     kit_path = output / 'kit.json'
     kit_path.write_text(json.dumps(kit, separators=(',', ':')), encoding='utf-8')
     # Reference validation exercises every subset against GNU ld. Failure leaves
@@ -247,8 +323,9 @@ def write_builder(kit, output):
     # Keep the public source as ES modules; inline a closed namespace for file://.
     exports = ('requireThat decode64 sha256 equal readObject readLayout readSelection assignNumbers chosenByDefault moduleBytes heapBytes offersExpandedMemory memoryKit openKit linkKit readLdr '
                'patchFirmware recoverFirmware extensionSelection sharedClaim claimLabel presetFiles artworkForGraphics selectArtwork graphicsForMachine buildAssets zipFiles sourceUrl sourceName '
-               'KIT_KEYS kitWord kitKey kitModel kitGroup kitChoices kitMix kitHeader '
-               'MACHINE_KEYWORDS keywordsByUse browseMachines machineAuthor CPU_HIGH_PERCENT cpuWorstCase cpuHigh PRESET_NAME_LIMIT readPresets savePreset deletePreset presetMatches applyPreset').split()
+               'KIT_KEYS kitWord kitKey kitModel kitGroup kitChoices kitSelectedKey kitMix kitHeader '
+               'MACHINE_KEYWORDS keywordsByUse browseMachines machineAuthor CPU_HIGH_PERCENT cpuWorstCase cpuHigh PRESET_NAME_LIMIT readPresets savePreset deletePreset presetMatches applyPreset '
+               'MACHINE_PACK_LIMIT readMachinePack importMachinePack').split()
     bundled = 'const Graphics = (() => {\n' + read(ROOT / 'sdk/browser/graphics.mjs').decode(
         'utf-8').replace('export ', '') + '\nreturn {artworkForGraphics,selectArtwork};\n})();\n'
     bundled += 'const Core = (() => {\n' + script + '\nreturn {' + ','.join(exports) + '};\n})();\n'
@@ -324,8 +401,12 @@ def main(argv=None):
     parser.add_argument('--host-cxx', default='g++', help='host C++11 compiler for the release fixtures')
     parser.add_argument('--personal', action='store_true',
                         help='a kit for your own collection on any pinned host, without release verification')
+    parser.add_argument('--machine-pack', action='store_true',
+                        help='also export machines.zip for catalog import (requires --personal)')
     native.add_collection_arguments(parser)
     args = parser.parse_args(argv)
+    if args.machine_pack and not args.personal:
+        parser.error('--machine-pack requires --personal')
     try:
         if not args.personal:
             require_release_host()
@@ -335,7 +416,9 @@ def main(argv=None):
     try:
         # Refuse an unreviewed machine before the long build, not after it.
         machines = native.configuration(native.selected_collection(args))[1]
+        refuse_adapter_capabilities(native.extensions_of(machines))
         catalog_sources(machines, args.personal)
+        extension_origins(native.extensions_of(machines), args.personal)
     except ValueError as error:
         parser.exit(1, 'ERROR: ' + str(error) + '\n')
     out = fresh_output(args.out, args.overwrite, [args.stock_os, args.stock_content, args.toolchain, args.compiler,
@@ -350,16 +433,22 @@ def main(argv=None):
         if not args.personal:  # independent rebuild against the reference bytes
             subprocess.run([sys.executable, str(ROOT / 'sdk.py'), 'check', '--native-package', str(package), *options,
                             '--host-cxx', args.host_cxx], cwd=ROOT, check=True)
-        export(package, out, tool_paths(args.toolchain), args.preview_cxx,
+        kit = export(package, out, tool_paths(args.toolchain), args.preview_cxx, compiler=Path(args.compiler),
                stock_catalog=read(Path(args.stock_content) / 'op1_factory.json'), personal=args.personal)
         # Validate firmware and content output against the independent Python writer.
         subprocess.run([sys.executable, str(ROOT / 'tools/check_browser_firmware.py'), str(out),
                         args.stock_os, args.stock_content], cwd=ROOT, check=True)
+        if args.machine_pack:
+            from .machine_pack import write
+            custom = {m['id'] for m in kit['machines'] if m['origin'] == 'personal'}
+            write(kit, out, notices([m for m in machines if m.id in custom]))
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         # The unnamed builder and its inputs stay in --out for inspection.
         parser.exit(1, f'ERROR: {error}\nIncomplete export left in {out}; use a new --out or --overwrite to retry.\n')
     (out / 'builder.pending.html').rename(out / 'opxy-builder.html')
     print('Browser builder: ' + str(out / 'opxy-builder.html'))
+    if args.machine_pack:
+        print('Machine pack: ' + str(out / 'machines.zip'))
     if args.personal:
         print('Personal kit: for your own collection and device; published kits come from release verification.')
     return 0

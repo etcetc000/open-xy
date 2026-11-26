@@ -110,9 +110,7 @@ opxy::u32 sdk_live_input_option_bits() {
 
 void sdk_live_input_publish() {
     if (extra_page && !sdk_live_input_page()) extra_page = false;
-    static bool configured;
-    configured = configured || sdk_live_input_option_bits() != 0;
-    if (!configured) return;
+    if (!shift_controls()) return;
     automatic_scale = brain_scale();
     const u32 options = sdk_live_input_option_bits();
     const u32 address = gui_parameters + 0x4080 + (track * words + slot) * 4;

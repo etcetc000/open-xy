@@ -24,7 +24,7 @@ import subprocess
 import sys
 
 from .definitions import stock_name
-from . import cpu_measurement, stock_content
+from . import cpu_measurement, stock_content, track_stage
 from .formats import require
 from .machines import machine_at, relative_path
 from .pipeline import NO_WINDOW, ROOT
@@ -55,7 +55,7 @@ MAINTAINER = r'[A-Za-z0-9-]{1,39}'
 # ID. Maintainers keep this list; a catalog entry has no field to claim it, and
 # who hosts the repository does not decide it.
 OFFICIAL = ('fm2op', 'macroosc', 'karplus', 'timestretch', 'ringmod', 'pingpong', 'chords')
-OFFICIAL_EXTENSIONS = ('capture',)
+OFFICIAL_EXTENSIONS = ('capture', 'long_samples')
 
 
 def official(entry):
@@ -232,6 +232,31 @@ def release_controls(before, after, cache=CACHE, allow=False):
     return report
 
 
+def stage_records(before, after, cache=CACHE):
+    """A synth record of a new or moved release, or a new or changed sweep record, has its
+    track stage's run (stage_percent and stage_peak_percent) exactly when the entry's
+    release declares a stage (docs/profiling.md): each such release is fetched at the
+    entry's pinned commit to see. A record carried onto a release that adds a stage, an
+    older one included, is refused: the stage's cost was never measured."""
+    measured = lambda cpu: {k: v for k, v in cpu.items() if k != 'report'} if isinstance(cpu, dict) else cpu
+    previous = {e['id']: e for e in before}
+    for entry in after:
+        cpu = entry.get('cpu')
+        if entry.get('kind') != 'synth' or not isinstance(cpu, dict) or 'commit' not in entry:
+            continue
+        old = previous.get(entry['id'], {})
+        moved = entry['commit'] != old.get('commit')
+        sweep = cpu.get('benchmark') == cpu_measurement.BENCHMARKS['synth']
+        if not moved and (not sweep or measured(cpu) == measured(old.get('cpu'))):
+            continue
+        staged = track_stage.track_stage(fetch(entry, cache)) is not None
+        require(staged == ('stage_percent' in cpu),
+                f"{entry['id']}: " + ('its release declares a track stage, so its cpu record needs stage_percent and '
+                                      'stage_peak_percent' if staged else
+                                      'its release declares no track stage, so its cpu record has no stage fields') +
+                '; run sdk.py profile report on a package built from that release (docs/profiling.md)')
+
+
 def load(path=CATALOG):
     return validate(json.loads(Path(path).read_text(encoding='utf-8')))
 
@@ -390,6 +415,7 @@ def main(argv=None):
                     if listed == 'machines':
                         for line in release_controls(before, entries, args.cache, args.allow_control_changes):
                             print(line)
+                        stage_records(before, entries, args.cache)
                 # Against a base, only the entries this change touches; alone, every entry.
                 earlier = {e['id']: e for e in before} if args.base else {}
                 for entry in entries:

@@ -168,7 +168,7 @@ int main() {
 '''
 
 
-def kit(pad_mix=None, sdk='1.10'):
+def kit(pad_mix=None, sdk=(1, 10)):
     definition = copy.deepcopy(fixture('probesynth').definition)
     definition['resources'].update(modelCount=12)
     if pad_mix is not None:
@@ -250,8 +250,12 @@ class DrumSend(unittest.TestCase):
         self.assertEqual(native.UNIT_SERVICES['drum_send_hooks'], 'drum_sends')
 
     def test_the_profile_reviews_six_call_sites_outside_hardware_loops(self):
-        hooks = {p['address']: p for p in PROFILE['patches'] if p.get('service') == 'drum_sends'}
+        # The voice loop's call is the track call, which per-key sends share with track
+        # stages (tests/test_track_stage.py): its own service, which every padMix build uses.
+        hooks = {p['address']: p for p in PROFILE['patches'] if p.get('service') in ('drum_sends', 'track_call')}
         self.assertEqual(set(hooks), set(SITES))
+        self.assertEqual(hooks['0x8d510bea']['service'], 'track_call')
+        self.assertLessEqual(set(PROFILE['services']['drum_sends']), set(PROFILE['services']['track_call']))
         for address, (symbol, before) in SITES.items():
             patch = hooks[address]
             self.assertEqual((patch['kind'], patch['symbol'], patch['before'], patch['call']),

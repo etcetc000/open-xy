@@ -1,0 +1,67 @@
+// The synth's track stage (SDK 1.24, track_stage.hpp): one state per instrument
+// track, which the runtime zeroes before track_reset whenever a track takes this
+// synth, then processes on the track's voice sum once per block.
+#include "track_stage.hpp"
+using TrackState = @NAMESPACE@::TrackState;
+static_assert(sizeof(TrackState) == @STATE_BYTES@, "Declared track stage size differs from the compiled type");
+static_assert(alignof(TrackState) == @STATE_ALIGNMENT@, "Declared track stage alignment differs from the compiled type");
+static TrackState track_states[opxy::platform::track_stage::kTracks];
+extern "C" {
+void @PREFIX@_track_reset(opxy::u32 track) __asm__("@PREFIX@_track_reset");
+void @PREFIX@_track_process(opxy::u32 track, opxy::i32* sum, const opxy::i32* parameters, opxy::u32 voices)
+    __asm__("@PREFIX@_track_process");
+}
+void @PREFIX@_track_reset(opxy::u32 track) {
+    typedef opxy::u32 __attribute__((may_alias)) Word;
+    Word* words = reinterpret_cast<Word*>(&track_states[track]);
+    for (unsigned i = 0; i < sizeof(TrackState) / 4; ++i) words[i] = 0;
+    @NAMESPACE@::track_reset(track_states[track], shared, track);
+}
+// parameters: the track's words, as stock passes them to its voices' render.
+void @PREFIX@_track_process(opxy::u32 track, opxy::i32* sum, const opxy::i32* parameters, opxy::u32 voices) {
+@STAGE_WORDS@    @NAMESPACE@::track_process(track_states[track], shared, track, sum, @STAGE_PARAMETERS@, voices);
+}
+// The diagnostic's stage run (tooling/benchmark.py STAGE, docs/profiling.md): the stage
+// on a state of its own, never a track's, set up as a track that takes the synth (zeroed,
+// then track_reset), then 1,000 blocks of a sounding sum with one voice and 500 silent
+// blocks without one, each timed. Its callbacks run with interrupts masked, so the audio
+// role never runs between their updates of `shared`. Explicit diagnostic command only.
+#include "benchmark.hpp"
+extern "C" opxy::benchmark::Stats @PREFIX@_stage_benchmark() __asm__("@PREFIX@_stage_benchmark");
+opxy::benchmark::Stats @PREFIX@_stage_benchmark() {
+    using namespace opxy;
+    opxy::benchmark::Stats stats{};
+    opxy::benchmark::Memory memory(sizeof(TrackState) + alignof(TrackState) - 1);
+    if (!memory.data) return stats;
+    const __UINTPTR_TYPE__ at = reinterpret_cast<__UINTPTR_TYPE__>(memory.data);
+    void* aligned = reinterpret_cast<void*>((at + alignof(TrackState) - 1) & ~static_cast<__UINTPTR_TYPE__>(alignof(TrackState) - 1));
+    typedef u32 __attribute__((may_alias)) Word;
+    Word* words = static_cast<Word*>(aligned);
+    for (unsigned i = 0; i < sizeof(TrackState) / 4; ++i) words[i] = 0;
+    TrackState& state = *static_cast<TrackState*>(aligned);
+    {
+        const opxy::benchmark::Masked masked;
+        @NAMESPACE@::track_reset(state, shared, 0);
+    }
+    // The track's words at the controls' defaults, a Shift row's at its defaults.
+    static const i32 parameters[2 * parameter_slots] = {@STAGE_DEFAULTS@};
+    i32 sum[128];
+    for (u32 block = 0; block < opxy::benchmark::blocks; ++block) {
+        const u32 voices = block < 1000 ? 1 : 0;
+        for (u32 i = 0; i < 64; ++i) {
+            // An eighth of full scale: about where stock keeps one voice in the sum.
+            sum[2 * i] = voices ? static_cast<i32>(opxy::benchmark::pcm(block * 64u + i)) * 8192 : 0;
+            sum[2 * i + 1] = voices ? static_cast<i32>(opxy::benchmark::pcm(block * 64u + i + 137u)) * 8192 : 0;
+        }
+        u32 spent;
+        {
+            const opxy::benchmark::Masked masked;
+            const u32 begin = opxy::benchmark::cycles();
+            @NAMESPACE@::track_process(state, shared, 0, sum, parameters, voices);
+            spent = opxy::benchmark::cycles() - begin;
+        }
+        stats.add(spent);
+        stats.observe(sum, 128);
+    }
+    return stats;
+}

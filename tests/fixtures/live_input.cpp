@@ -96,7 +96,11 @@ void sdk_live_input_prepare(const live_input::Parameters& values) {
 int main() {
     const i32 up = 1, down = -1;
     sdk_live_input_publish();
-    CHECK(!writes && !sdk_live_input_turn(1, &up));
+    const auto defaults = parameters(*sdk_live_input_controls(), gui_word);
+    CHECK(writes == 1 && defaults.brain == 0xab5u && defaults.choices[0] == 0 &&
+          defaults.choices[2] == 15 && !sdk_live_input_turn(1, &up));
+    sdk_live_input_publish();
+    CHECK(writes == 1);
     selected_track_byte = 12;
     CHECK(!sdk_live_input_turn(1, &up));
     shift = 1;

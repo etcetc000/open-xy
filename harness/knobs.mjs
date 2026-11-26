@@ -1,11 +1,12 @@
 // Knobs edit their existing range input, sharing its parameter and audio update path.
-export function bindKnob(knob, range) {
+export function bindKnob(knob, range, onGesture = () => {}) {
   const min = Number(range.min), max = Number(range.max), step = Number(range.step);
   let drag = null;
-  function setValue(value) {
+  function setValue(value, gesture) {
     const clamped = Math.min(max, Math.max(min, value));
     range.value = String(Math.min(max, Math.max(min, min + Math.round((clamped - min) / step) * step)));
     range.dispatchEvent(new Event('input', { bubbles: true }));
+    onGesture(gesture);
   }
   function endDrag(event) {
     if (!drag || event?.pointerId !== undefined && event.pointerId !== drag.pointerId) return;
@@ -22,6 +23,7 @@ export function bindKnob(knob, range) {
     knob.setPointerCapture(event.pointerId);
     drag = { pointerId: event.pointerId, y: event.clientY, value: Number(range.value) };
     knob.classList.add('dragging');
+    onGesture(event);
   });
   knob.addEventListener('pointermove', event => {
     if (!drag || event.pointerId !== drag.pointerId) return;
@@ -29,7 +31,7 @@ export function bindKnob(knob, range) {
     const sensitivity = (max - min) / (event.shiftKey ? 2000 : 200);
     drag.value = Math.min(max, Math.max(min, drag.value + (drag.y - event.clientY) * sensitivity));
     drag.y = event.clientY;
-    setValue(drag.value);
+    setValue(drag.value, event);
   });
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) knob.addEventListener(type, endDrag);
   knob.addEventListener('blur', () => endDrag());
@@ -48,6 +50,6 @@ export function bindKnob(knob, range) {
     else return;
     event.preventDefault();
     endDrag();
-    setValue(value);
+    setValue(value, event);
   });
 }

@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "id": "probepads",
+  "name": "Probe Pads",
+  "resources": {},
+  "presets": {},
+  "parameters": [
+    {
+      "id": "pad",
+      "label": "Pad",
+      "default": 0,
+      "display": "enum",
+      "mapping": {
+        "kind": "enum",
+        "labels": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10",
+          "11",
+          "12",
+          "13",
+          "14",
+          "15",
+          "16",
+          "17",
+          "18",
+          "19",
+          "20",
+          "21",
+          "22",
+          "23",
+          "24"
+        ]
+      }
+    },
+    {
+      "id": "p1",
+      "label": "P1",
+      "default": 0,
+      "display": "percent",
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      }
+    },
+    {
+      "id": "p2",
+      "label": "P2",
+      "default": 0,
+      "display": "percent",
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      }
+    },
+    {
+      "id": "p3",
+      "label": "P3",
+      "default": 0,
+      "display": "percent",
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      }
+    }
+  ]
+}

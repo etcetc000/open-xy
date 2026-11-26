@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "sdk": "1.20",
+  "kind": "synth",
+  "description": "Test fixture: an extended synth screen with six cubic paths and palette nodes."
+}

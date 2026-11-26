@@ -112,6 +112,22 @@ class Definition(unittest.TestCase):
         with self.assertRaises(ValueError):
             check_preset(preset, 'probeshift')
 
+    def test_the_builder_kit_keeps_the_row_in_own_presets(self):
+        # The builder installs a Shift-row synth's own presets with their row, as
+        # sdk.py build does (core.mjs presetFiles accepts it since SDK 1.13); only a
+        # sample engine's presets lose their regions, whose samples the builder omits.
+        import contextlib, io
+        from dataclasses import replace
+        from tooling.browser_kit import kit_presets
+        from machine_fixtures import fixture
+        preset = dict(version=4, platform='OP-XY', type='probeshift', engine=dict(params=[0] * 8),
+                      regions=[dict(model='fm slap', params=[1, 2, 3, 4], sample='')] * 24)
+        notes = io.StringIO()
+        with contextlib.redirect_stderr(notes):
+            kept = kit_presets(replace(fixture('probeshift'), presets={'row': preset}))
+        self.assertEqual(kept, {'row': preset})
+        self.assertEqual(notes.getvalue(), '')
+
     def test_its_presets_and_locks_use_the_kits_services(self):
         profile = config()
         users = native.service_users([fixture('probeshift')])
