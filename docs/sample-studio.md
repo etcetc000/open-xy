@@ -51,7 +51,7 @@ machine or a `drumline_page` extension, for the samples service.
 | --- | --- |
 | `press(key, shift)` | A key in the library: M1 to M4, the encoder clicks, Sample. |
 | `release(key)` | Its release. |
-| `turn(encoder, detents)` | An encoder turn, encoders 0 to 3; any other position stays stock's. |
+| `turn(encoder, detents)` | An encoder turn: 0 to 3 are the four encoders; any other position the library reports comes too. |
 | `frame(elapsed)` | Every frame of the browser screen; stock draws the ones the library doesn't own. |
 
 Each returns whether it took the input. What it doesn't take goes to stock's

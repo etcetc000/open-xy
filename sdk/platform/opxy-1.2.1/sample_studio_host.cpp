@@ -282,6 +282,9 @@ const opxy::screen::VTable<Renderer> methods = {&opxy::screen::destroy<Object>, 
                                                reinterpret_cast<const void*>(0x8d51fcd4), unused_frame, init,
                                                reinterpret_cast<const void*>(0x8c0867f0)};
 const studio::Editor* editor() { return sdk_sample_studio_editor(); }
+// The library's keys and turns go to the editor only while the library is on top, as its methods
+// only run then; anything else is stock's, unchanged.
+const studio::Editor* keys_editor() { return studio::library_on_top() ? editor() : nullptr; }
 }  // namespace
 
 namespace opxy { namespace studio {
@@ -371,23 +374,23 @@ void surface_blank() {
 // press (ctl, event) with event[0] the key, Shift press likewise, release (ctl, key), turn (ctl,
 // position, event) with event[1] the detents. Returning 1 keeps the key from the global handlers.
 u32 sdk_sample_studio_press(unsigned char* controller, const u32* event) {
-    const studio::Editor* e = editor();
+    const studio::Editor* e = keys_editor();
     if (event && e && e->press(event[0], false)) return 1;
     return sdk_sample_studio_stock_press(controller, event);
 }
 u32 sdk_sample_studio_shift_press(unsigned char* controller, const u32* event) {
-    const studio::Editor* e = editor();
+    const studio::Editor* e = keys_editor();
     if (event && e && e->press(event[0], true)) return 1;
     return sdk_sample_studio_stock_shift_press(controller, event);
 }
 u32 sdk_sample_studio_release(unsigned char* controller, u32 key) {
-    const studio::Editor* e = editor();
+    const studio::Editor* e = keys_editor();
     if (e && e->release(key)) return 1;
     return sdk_sample_studio_stock_release(controller, key);
 }
 void sdk_sample_studio_turn(unsigned char* controller, u32 position, const i32* event) {
-    const studio::Editor* e = editor();
-    if (event && e && position < 4 && e->turn(position, event[1])) return;   // encoders 0..3; any other is stock's
+    const studio::Editor* e = keys_editor();
+    if (event && e && e->turn(position, event[1])) return;   // the editor takes what it owns, any position
     sdk_sample_studio_stock_turn(controller, position, event);
 }
 namespace {

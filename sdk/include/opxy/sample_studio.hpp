@@ -16,7 +16,9 @@ namespace opxy { namespace studio {
 struct Editor {
     bool (*press)(u32 key, bool shift);   // a key pressed in the library (codes below)
     bool (*release)(u32 key);
-    bool (*turn)(u32 encoder, i32 detents);   // encoders 0..3; the library's other positions stay stock's
+    // The library's encoder position: 0..3 are the four encoders. Any other position the library
+    // reports comes too, for the editor to take (keeping stock's list still under it) or leave.
+    bool (*turn)(u32 encoder, i32 detents);
     // Every frame of the browser screen, which stock's other browsers share: true when it drew it
     // (stock_frame() first, if wanted). While the library isn't on top (library_on_top()), stock
     // draws the frame whatever this returns and the surface draws nothing; the editor hears the

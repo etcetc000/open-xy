@@ -91,7 +91,8 @@ class Sites(unittest.TestCase):
             self.assertIn(f'__asm__("{stub}")', host)
             fallback = 'studio::stock_frame()' if symbol.endswith('frame') else stub + '('
             self.assertIn(fallback, body.group(1), symbol)              # what the editor doesn't take is stock's
-            self.assertIn('const studio::Editor* e = editor();', body.group(1), symbol)
+            self.assertIn('const studio::Editor* e = editor();' if symbol.endswith('frame') else
+                          'const studio::Editor* e = keys_editor();', body.group(1), symbol)
         self.assertIn('const studio::Editor* editor() { return sdk_sample_studio_editor(); }', host)
         frame = re.search(r'\nvoid sdk_sample_studio_frame\(void\* screen, i32 elapsed\) \{(.*?)\n\}', host, re.S).group(1)
         self.assertIn('e->frame(elapsed)', frame)
@@ -113,15 +114,19 @@ class Sites(unittest.TestCase):
             body = re.search(r'\nvoid ' + re.escape(name) + r' \{\n(.*?)\n', host).group(1)
             self.assertRegex(body, r'^\s*if \((?:!bound \|\| )?!library_frame\) return;', name)
 
-    def test_only_encoders_0_to_3_reach_the_editor(self):
-        # The library's other positions go to stock as they are, never folded onto 0..3.
-        turn = re.search(r'\nvoid sdk_sample_studio_turn\([^)]*\) \{(.*?)\n\}', code(HOST), re.S).group(1)
+    def test_the_library_keys_reach_the_editor_only_while_it_is_on_top(self):
+        host = code(HOST)
+        self.assertIn('const studio::Editor* keys_editor() { return studio::library_on_top() ? editor() : nullptr; }', host)
+        for symbol in ('sdk_sample_studio_press', 'sdk_sample_studio_shift_press', 'sdk_sample_studio_release',
+                       'sdk_sample_studio_turn'):
+            body = re.search(rf'\n(?:u32|void) {symbol}\([^)]*\) \{{(.*?)\n\}}', host, re.S).group(1)
+            self.assertIn('const studio::Editor* e = keys_editor();', body, symbol)
+        # every turn position goes to the editor, unmasked: it takes what it owns (all, while open)
+        turn = re.search(r'\nvoid sdk_sample_studio_turn\([^)]*\) \{(.*?)\n\}', host, re.S).group(1)
         self.assertNotIn('& 3', turn)
-        self.assertIn('if (event && e && position < 4 && e->turn(position, event[1])) return;', turn)
+        self.assertIn('if (event && e && e->turn(position, event[1])) return;', turn)
         self.assertIn('sdk_sample_studio_stock_turn(controller, position, event);', turn)
 
-
-class Services(unittest.TestCase):
     def test_every_declared_service_is_defined(self):
         header = code(API)
         body = header.split('struct Player', 1)[1].split('};', 1)[1]   # after the extension's two tables
