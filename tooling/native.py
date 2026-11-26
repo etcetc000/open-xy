@@ -1293,7 +1293,8 @@ def check_module(directory, tools, profile, machines, profiling=True, runtime_me
         elif patch['kind'] == 'startup':
             patch['after'] = startup_label.jump(symbols[patch['symbol']]['value']).hex()
         elif patch['kind'] == 'hook':
-            symbol = symbols[guards.get(int(patch['address'],16),hook_symbol(patch, services))]
+            name = guards.get(int(patch['address'], 16), hook_symbol(patch, services))
+            symbol = symbols[name]
             code=allocated['.resident_text'] if loader else text
             require(symbol['type'] == 2 and symbol['size'] > 0 and code['address'] <= symbol['value'] and
                     symbol['value'] + symbol['size'] <= code['address'] + code['size'],
