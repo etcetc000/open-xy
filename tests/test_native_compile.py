@@ -13,10 +13,15 @@ from machine_fixtures import fixture
 class CompilerModes(unittest.TestCase):
     def test_only_drum_screens_request_pad_tracking(self):
         synth = fixture('probesynth')
-        for machine, enabled in ((synth, 0), (replace(synth, kind='drum'), 1)):
-            with tempfile.TemporaryDirectory() as folder:
+        for machine, played, selected in (
+            (synth, 'false', 'false'),
+            (replace(synth, kind='drum', sdk=(1, 20)), 'false', 'true'),
+            (replace(synth, kind='drum', sdk=(1, 21)), 'true', 'false'),
+        ):
+            with self.subTest(kind=machine.kind, sdk=machine.sdk), tempfile.TemporaryDirectory() as folder:
                 source = adapters.generate_screen(folder, machine).read_text()
-            self.assertIn(f'#define OPXY_SCREEN_DRUM {enabled}\n', source)
+                self.assertIn(f'static const bool played_pad = {played};', source)
+                self.assertIn(f'static const bool selected_pad = {selected};', source)
 
     def test_gui_and_audio_commands_differ_only_in_optimization(self):
         commands = []
