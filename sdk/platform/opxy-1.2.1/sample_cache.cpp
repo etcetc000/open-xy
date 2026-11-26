@@ -23,6 +23,9 @@ using opxy::platform::barrier;
 using opxy::platform::SampleMachine;
 constexpr u32 kEntries = 256;
 constexpr u32 kChunkFrames = 4096;
+// The stock heap every machine's analyses may hold together
+// (tooling.definitions.ANALYSIS_HEAP_LIMIT), whatever the machines installed.
+constexpr u32 kAllowanceBytes = 2u * 1024u * 1024u;
 // One machine's analysis of one retained sample.
 struct Entry {
     // The owner is published last and cleared before storage is released.
@@ -64,6 +67,9 @@ static u32 wanted_count;
 static bool keys_dirty = true;
 // "Cache full" is announced once until a release frees an entry or budget.
 static bool full_reported;
+// State-4 refusals so far. One status reaches the GUI at a time, so a pass that
+// refused a sample posts that again once later progress has replaced it.
+static u32 refusals;
 
 bool contains(const u32* keys, u32 count, u32 key) {
     for (u32 i = 0; i < count; ++i) if (keys[i] == key) return true;
@@ -133,7 +139,14 @@ void failed(Entry* entry, const void* object, u32 engine, u32 state) {
     }
     // Remember unsuccessful preparation until stock evicts the sample. A
     // browser refresh must not repeatedly allocate or announce the same error.
+    if (state == 4) ++refusals;
     status(state, 0);
+}
+
+// A refusal since `before` is the state the GUI reads last: the next machine's
+// or sample's progress would otherwise replace it within the same pass.
+void keep_refusal(u32 before) {
+    if (refusals != before) status(4, 0);
 }
 
 // Retained PCM the cache accepts: 2..2^20-1 frames, mono or stereo.
@@ -152,11 +165,19 @@ u32 used_bytes(u32 engine) {
         if (entries[i].owner && entries[i].engine == engine) total += entries[i].bytes;
     return total;
 }
+// Heap bytes every machine's published analyses hold together.
+u32 held_bytes() {
+    u32 total = 0;
+    for (u32 i = 0; i < kEntries; ++i)
+        if (entries[i].owner) total += entries[i].bytes;
+    return total;
+}
 
 // Runs synchronously on the existing file worker, with a retained stock sample
 // reference, after assigned keys have loaded. Stock PCM is never modified.
 // Budgets are extension limits, not assumptions about stock cache size or
-// available heap memory.
+// available heap memory: a machine holds at most its own budget, and all of
+// them together at most the allowance. A sample over either waits for a release.
 void prepare_for(const void* object, const SampleMachine& m) {
     Entry* free_entry = nullptr;
     for (u32 i = 0; i < kEntries; ++i) {
@@ -179,8 +200,9 @@ void prepare_for(const void* object, const SampleMachine& m) {
         failed(free_entry, object, m.engine(), 3);
         return;
     }
-    const u32 budget = m.analysis_budget, used = used_bytes(m.engine());
-    if (used > budget || words > budget / sizeof(u32) || words * sizeof(u32) > budget - used) {
+    const u32 budget = m.analysis_budget, used = used_bytes(m.engine()), held = held_bytes();
+    if (used > budget || words > budget / sizeof(u32) || words * sizeof(u32) > budget - used ||
+        held > kAllowanceBytes || words * sizeof(u32) > kAllowanceBytes - held) {
         failed(free_entry, object, m.engine(), 4);
         return;
     }
@@ -290,6 +312,7 @@ extern "C" void sdk_sample_cache_prepare_keys() {
     for (u32 i = 0; i < count; ++i) worker_keys[i] = wanted_keys[i];
     sdk_sample_cache_keys_unlock();
     bool pending = false;
+    const u32 before = refusals;
     for (u32 i = 0; i < count; ++i) {
         const u32 key = worker_keys[i];
         const void* object = sdk_sample_cache_sample_acquire(key);
@@ -297,6 +320,7 @@ extern "C" void sdk_sample_cache_prepare_keys() {
         sdk_sample_cache_prepare(object);
         sdk_sample_cache_sample_release(key);
     }
+    keep_refusal(before);
     if (pending) keys_dirty = true;
 }
 
@@ -305,10 +329,12 @@ extern "C" void sdk_sample_cache_prepare(const void* object) {
     // registered analysis machine prepares its own result: the request names
     // the sample, not the engine it was assigned to.
     if (!object) return;
+    const u32 before = refusals;
     for (u32 i = 0; i < sdk_sample_machine_count; ++i) {
         const SampleMachine& m = sdk_sample_machines[i];
         if (m.analysis_budget && m.ready() == 1) prepare_for(object, m);
     }
+    keep_refusal(before);
 }
 
 extern "C" void sdk_sample_cache_release(const void* object) {

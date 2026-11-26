@@ -974,9 +974,9 @@ callback only reads published data. Entries are keyed by sample object and
 engine. The GUI marks assigned paths of analysis machines through the cache
 message's priority byte, which carries only "assigned", so the file worker
 prepares each such sample for every registered analysis machine, each within
-its own budget. Browser page 4 suppresses new requests: stock auditions
-replace regions while it is open. Results are released before stock frees the
-PCM object.
+its own budget and all within the 2 MiB they share. Browser page 4 suppresses
+new requests: stock auditions replace regions while it is open. Results are
+released before stock frees the PCM object.
 
 ### Pad settings and the drum page
 
