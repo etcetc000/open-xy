@@ -227,7 +227,7 @@ class Device(unittest.TestCase):
         found = []
         for header in ('q15', 'q31'):
             text = (ROOT / f'sdk/include/opxy/{header}.hpp').read_text()
-            for match in re.finditer(r'__asm__\("((?:[^"\\]|\\.)*)"\s*((?:"[^"]*"|[^;])*?)\);', text):
+            for match in re.finditer(r'\b(?:__asm__|asm)\b(?:\s+(?:__volatile__|volatile))?\s*\("((?:[^"\\]|\\.)*)"\s*((?:"[^"]*"|[^;])*?)\);', text):
                 if not match[2].strip():
                     continue  # a register variable's name, not a statement
                 parts = match[2].split(':')

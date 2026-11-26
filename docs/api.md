@@ -138,15 +138,16 @@ host does fast and the Blackfin does not:
   always rounds to even), so do not depend on which way a tie falls. SDK 1.28
   adds more of the processor's own operations, one instruction each: `q15::half`,
   `q15::subtract_wrapped` (wraps instead of saturating), `q31::shift` (an
-  arithmetic shift by a signed count: right when negative, wrapping left when
-  positive), and pairs, two 1.15 values in one word such as a stereo frame:
-  `q15::pack`, `low`, `high`, `multiply_pair` (both halves by one value) and
-  `add_pair` (saturating per half); `low` and `high` are plain C. Call these
-  instead of writing inline assembly: each one written in assembly compiles as
-  its instruction written out with the arithmetic flags (ASTAT and CC) declared
-  changed, except `q31::add` (ASTAT only) and `product` (none). The
-  two namespaces share names, so call these qualified (`q15::saturate`,
-  `q31::saturate`).
+  arithmetic shift by a signed count, -31..31: right when negative, wrapping
+  left when positive), and pairs, two 1.15 values in one word such as a stereo
+  frame: `q15::pack`, `low`, `high`, `multiply_pair` (both halves times one
+  value, truncating as `multiply` does) and `add_pair` (saturating per half);
+  `low` and `high` are plain C. Call these instead of writing inline assembly:
+  every assembly statement in the two headers declares the arithmetic flags
+  (ASTAT and CC) changed, except `q31::add` (ASTAT only) and `product` (none),
+  so code that moves from the same instruction written out with the same
+  declarations keeps its object code. The two namespaces share names, so call
+  these qualified (`q15::saturate`, `q31::saturate`).
 - **64-bit arithmetic** and floating point may need software helpers. The
   build links only the required authenticated [arithmetic runtime](toolchain.md)
   members; their code counts toward module memory.
