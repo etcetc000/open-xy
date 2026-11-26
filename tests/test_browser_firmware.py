@@ -34,8 +34,9 @@ class BrowserFirmware(unittest.TestCase):
                 (reference / ('selection' + suffix)).write_bytes(b'fixture')
             with patch.object(release, 'check_module', return_value=(b'module', {})), \
                     patch.object(release, 'check_numbers'), \
+                    patch.object(release, 'source_selection_services', return_value=set()), \
                     patch.object(release, 'assembled', return_value=b'fixture') as assembled:
-                self.assertEqual(release.check_expanded(directory, kit, b'stock', b'label'), 1)
+                self.assertEqual(release.check_expanded(directory, kit, b'stock', b'label', {}, {}), 1)
             self.assertEqual([(call.args[5], call.args[6]) for call in assembled.call_args_list],
                              [(True, {'release_floor': 12}), (False, {'release_floor': 12})])
 

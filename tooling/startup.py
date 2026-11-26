@@ -30,7 +30,7 @@ LOCK_CALLS = (('u32', 'size', ('void*', 'u32'), 'return 0;'),
 
 
 def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-           control=False, aux=False, locks=False, drumline=False):
+           control=False, aux=False, locks=False, drumline=False, checkpoint=False):
     """stock_page: engines that show a stock page (e.g. sample engines on the
     sampler page); they register on the GUI role without an own-page guard.
     sample_screens: those of them that also draw their own screen over it.
@@ -87,12 +87,18 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
                'stock_catalog_insert(catalog, name, id) : 0;' for prefix in prefixes]
     owned = [f'    if (page == value({prefix}_page_id)) return {prefix}_ready() == 1;'
              for prefix in prefixes if prefix not in stock_page]
-    kept = 'u32 sdk_project_kept(void*) { return 0; }\nvoid sdk_project_loaded(const char*) {}'
+    kept = 'u32 sdk_project_kept(void*) { return 0; }'
+    load = []
+    if checkpoint:
+        declarations.append('void sdk_checkpoint_discard() __asm__("sdk_checkpoint_discard");')
+        load.append('sdk_checkpoint_discard();')
     if control:
         declarations += ['u32 sdk_control_kept_write(void*) __asm__("sdk_control_kept_write");',
                          'void sdk_control_kept_load(const char*) __asm__("sdk_control_kept_load");']
-        kept = ('u32 sdk_project_kept(void* file) { return sdk_control_kept_write(file); }\n'
-                'void sdk_project_loaded(const char* path) { sdk_control_kept_load(path); }')
+        kept = 'u32 sdk_project_kept(void* file) { return sdk_control_kept_write(file); }'
+        load.append('sdk_control_kept_load(path);')
+    kept += '\nvoid sdk_project_loaded(const char*' + (' path' if control else '') + ') {'
+    kept += (' ' + ' '.join(load) + ' ' if load else '') + '}'
     for result, name, types, empty in LOCK_CALLS:
         arguments = ', '.join(f'a{i}' for i in range(len(types)))
         if locks:
@@ -130,8 +136,8 @@ def render(prefixes, effects=(), stock_page=(), sample_screens=(), effect_screen
 
 
 def generate(directory, prefixes, effects=(), stock_page=(), sample_screens=(), effect_screens=(), player_pages=(),
-             control=False, aux=False, locks=False, drumline=False):
+             control=False, aux=False, locks=False, drumline=False, checkpoint=False):
     destination = Path(directory) / 'startup.cpp'
     destination.write_text(render(prefixes, effects, stock_page, sample_screens, effect_screens, player_pages,
-                                  control, aux, locks, drumline), encoding='utf-8', newline='\n')
+                                  control, aux, locks, drumline, checkpoint), encoding='utf-8', newline='\n')
     return destination

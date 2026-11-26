@@ -433,9 +433,11 @@ The export checks that:
 - selecting the machines the native package links, with every extension, reproduces
   its `os.ldr` byte for byte: every machine, or Open-XY's own when the collection
   doesn't fit at once ([memory](api.md#memory-and-limits));
-- every non-empty selection with every extension choice (including none) matches
-  GNU ld, including symbols and BSS; a unit capability's other value is checked with
-  its extension alone and with the largest extension choice that holds it;
+- checked machine selections fit with extensions off. The check compares each optional
+  extension choice against GNU ld, including symbols and BSS for choices that fit,
+  and capacity rejection for choices that exceed the selected memory layout.
+  A unit capability's other value is checked with its extension alone and with
+  the largest extension choice that holds it;
 - browser output matches the Python writer, with correct catalog, artwork and ZIP;
 - every output is recognized and its selection restored, and corruption inside
   or outside the allowed edits is rejected.

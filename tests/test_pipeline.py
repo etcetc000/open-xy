@@ -110,7 +110,7 @@ class Services(unittest.TestCase):
         self.assertNotIn('sample_kernel', units)
         self.assertEqual(steps(machines), [u for u in units if native.UNIT_SERVICES.get(u) not in
                                           ('control', 'aux', 'players', 'master_filter', 'drum_sends', 'track_stage', 'drum_locks',
-                                           'drumline', 'synth_shift', 'played_pad', 'idle', 'block_trims',
+                                           'checkpoint', 'checkpoint_control', 'drumline', 'synth_shift', 'played_pad', 'idle', 'block_trims',
                                            'output_slack', 'kit_controls', 'amp_envelope')])
         self.assertEqual(active_services(profile, ['drum', 'kitControls']), {'samples', 'octaves', 'drums', 'kit_controls'})
         self.assertEqual(active_services(profile, ['drum', 'kitControls', 'ampEnvelope']),
@@ -127,7 +127,7 @@ class Services(unittest.TestCase):
         self.assertNotIn('drumline_page', native.service_users(machines))
         self.assertIn('drumline_page', native.service_users(paged))
         self.assertEqual(steps(paged), [u for u in units if native.UNIT_SERVICES.get(u) not in
-                                        ('control', 'aux', 'players', 'master_filter', 'track_stage', 'synth_shift', 'played_pad',
+                                        ('control', 'aux', 'players', 'master_filter', 'track_stage', 'checkpoint', 'checkpoint_control', 'synth_shift', 'played_pad',
                                          'idle', 'block_trims', 'output_slack', 'kit_controls', 'amp_envelope')])
         self.assertEqual(native.subset(paged, paged[:1]).extensions, (page,))
         without = [m for m in machines if m.kind not in ('sample', 'drum')]  # nor any extension
