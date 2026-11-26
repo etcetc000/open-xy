@@ -41,7 +41,7 @@ const u32 kClock = 0x8d5be3a0;
 // Parameter numbers: stock sends 0..3, the master processor 128..137.
 // A message is begin(sequence), six words, commit(check).
 const u32 kBegin = 138, kFirstWord = 139, kCommit = 145;
-// The GUI looks for the identity every 100 ms, for at most a minute (600 looks),
+// The GUI looks for the identity at most 600 times, 100 ms apart (about a minute),
 // until it has it, then sends it once a second, 32 times.
 const u32 kProbeMicroseconds = 100000, kProbes = 600, kSendMicroseconds = 1000000, kSends = 32;
 

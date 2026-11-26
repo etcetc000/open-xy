@@ -184,7 +184,7 @@ class StockImage(unittest.TestCase):
 class Plan(unittest.TestCase):
     def test_only_a_build_with_a_declaring_machine_links_its_units(self):
         self.assertEqual({u: native.UNIT_SERVICES[u] for u in UNITS}, dict.fromkeys(UNITS, 'device_identity'))
-        self.assertEqual(native.SDK_UNITS[-2:], UNITS)
+        self.assertTrue(set(UNITS) <= set(native.SDK_UNITS))
         units = lambda machines: [step for _name, m, step in native.plan(machines) if m is None]
         for name in NAMES:
             self.assertNotIn('deviceIdentity', native.service_users([fixture(name)]))

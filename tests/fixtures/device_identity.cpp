@@ -32,8 +32,10 @@ const u32 kBootBase = 0x08010e40;
 u32 marker_reads, torn_at;  // every marker read; torn_at: the one that sees another value (0: none)
 unsigned long long now_us;
 std::vector<Call> sent, set, master;
+u32 clock_calls;
 
 void clock(u32* time) {
+    ++clock_calls;
     time[0] = static_cast<u32>(now_us);
     time[1] = static_cast<u32>(now_us >> 32);
 }
@@ -139,7 +141,7 @@ void gui(bool torn, bool giveup = false) {
         return;
     }
     if (giveup) {
-        // Never in place: 600 looks, a minute, then no more reads of it or the clock.
+        // Never in place: 600 looks, at least 100 ms apart, then no more reads of it or the clock.
         put_marker(0);
         for (u32 i = 0; i < 700; ++i) {
             now_us += 100000;
@@ -147,12 +149,13 @@ void gui(bool torn, bool giveup = false) {
         }
         // One marker read a look (an invalid marker ends the look): the first look
         // above, then 599 here, 600 in all.
-        const u32 reads_after = marker_reads;
+        const u32 reads_after = marker_reads, clock_after = clock_calls;
         require(reads_after == 600, "600 looks");
         put_marker(0x84000);
         now_us += 100000;
         sdk_identity_gui_service();
-        require(!opxy_device_identity(out, 18) && sent.empty() && marker_reads == reads_after, "gives up after a minute");
+        require(!opxy_device_identity(out, 18) && sent.empty() && marker_reads == reads_after && clock_calls == clock_after,
+                "gives up after 600 looks");
         return;
     }
     // An address outside the window: not in place.
@@ -187,10 +190,18 @@ void gui(bool torn, bool giveup = false) {
         require(n <= 32 ? same(sent, message(n, kIdentity)) : sent.empty(), "once a second, 32 times");
     }
     require(reads(kIdentity), "the GUI's copy is kept");
-    // The GUI processor takes no identity message.
-    sent.clear();
+    // Done sending: not even the clock any more.
+    const u32 clock_after = clock_calls;
+    for (u32 i = 0; i < 3; ++i) {
+        now_us += 1000000;
+        sdk_identity_gui_service();
+    }
+    require(clock_calls == clock_after && sent.empty(), "nothing once done");
+    // The GUI processor takes no identity message, and passes every other number on.
     deliver(message(7, other));
     require(reads(kIdentity) && master.empty() && set.empty(), "the GUI ignores the identity's numbers");
+    sdk_identity_receive(0x84c696fc, 128, 4);
+    require((kMaster ? master : set).size() == 1 && (kMaster ? set : master).empty(), "the GUI passes other numbers on");
 }
 
 void audio() {

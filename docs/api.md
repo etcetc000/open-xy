@@ -703,7 +703,7 @@ included; it does not block. It copies up to 18 bytes each time, so a machine th
 reads it often can keep its own copy after the first true. Code that needs the
 identity in `init` or at a note's start must handle false: keep a default and switch once it is known,
 or stay silent until then. It can also stay false for good: the GUI stops
-looking after a minute and sends the identity only 32 times, so a unit whose
+looking after 600 looks, 100 ms apart (about a minute), and sends the identity only 32 times, so a unit whose
 boot information is not in place, or an audio processor that misses every
 message, never has it. A machine must still work then.
 
