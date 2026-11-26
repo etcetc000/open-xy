@@ -1921,6 +1921,10 @@
       "length": 8,
       "before": "01e8000008601000",
       "symbol": "sdk_aux_shift_m1_hook",
+      "symbols": {
+        "input_overlay": "sdk_aux_shift_m1_hook",
+        "aux": "sdk_aux_shift_m1_hook"
+      },
       "call": true,
       "service": "aux_menu"
     },
@@ -2251,6 +2255,10 @@
       "length": 8,
       "before": "0dda0a8434050000",
       "symbol": "sdk_aux_turn_hook",
+      "symbols": {
+        "input_overlay": "sdk_aux_turn_hook",
+        "aux": "sdk_aux_turn_hook"
+      },
       "call": true,
       "service": "aux_menu"
     },
