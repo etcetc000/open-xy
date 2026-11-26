@@ -93,6 +93,61 @@ class Benchmark(unittest.TestCase):
             plain_source = generate(folder, [effect, synth]).read_text(encoding='utf-8')
             self.assertEqual((table(plain_source, 'Setting settings'), table(plain_source, 'Defaults defaults')), ([], []))
 
+    def test_a_synth_with_a_track_stage_runs_its_stage_after_its_voice_runs(self):
+        from tooling.benchmark import STAGE, STAGE_METRIC, case_label
+        stage, synth = fixture('probestage'), fixture('probesynth')
+        for sweep in (False, True):
+            own = [c for c in cases([synth, stage], sweep=sweep) if c['name'] == 'probestage']
+            self.assertEqual(own[-1], dict(own[0], benchmark=STAGE, metric=STAGE_METRIC, stage=True))
+            self.assertEqual(case_label(own[-1]), 'track stage')
+            self.assertFalse(any(c.get('stage') for c in own[:-1]))
+            # A synth without a stage runs as before.
+            self.assertEqual([c for c in cases([synth, stage], sweep=sweep) if c['name'] == 'probesynth'],
+                             cases([synth], sweep=sweep)[9:])
+        with tempfile.TemporaryDirectory() as folder:
+            source = generate(folder, [synth, stage], sweep=True).read_text(encoding='utf-8')
+            plain = generate(folder, [synth], sweep=True).read_text(encoding='utf-8')
+        self.assertIn('    {"probestage", probestage_engine_id, probestage_ready, probestage_stage_benchmark, 7, nullptr, 0},',
+                      source)
+        self.assertIn('probestage_stage_benchmark() __asm__("probestage_stage_benchmark");', source)
+        self.assertNotIn('stage_benchmark', plain)
+        # A stage synth before a swept one: the stage's row is counted, so the next synth's
+        # settings and defaults name its own row.
+        with tempfile.TemporaryDirectory() as folder:
+            source = generate(folder, [stage, synth], sweep=True).read_text(encoding='utf-8')
+        rows = [line for line in source.split('const Machine machines[] = {\n', 1)[1].split('\n};', 1)[0].splitlines()]
+        self.assertEqual([row.split(',')[0].strip() for row in rows[:-1]], ['{"probestage"', '{"probestage"', '{"probesynth"'])
+        self.assertIn('stage_benchmark', rows[1])
+        self.assertIn('    {0, {', source)
+        self.assertIn('    {2, {', source)
+        self.assertNotIn('    {1, {', source)
+
+    def test_the_readout_adds_a_synths_stage_once_and_never_as_a_voice(self):
+        from tools.benchmark import readout
+        stage, synth = fixture('probestage'), fixture('probesynth')
+        expected = cases([synth, stage])
+        def frame(average, peak):
+            return dict(command=0x94, route=0x12, payload_hex=(struct.pack('>HHH', peak, average, 1451) * 20).hex())
+        frames = [frame(1000, 2000) for _ in expected]
+        frames[-1] = frame(6000, 9000)     # the stage run: heavier than any voice run alone
+        lines = readout(decode(dict(complete=True, errors=[], frames=frames), expected))
+        text = '\n'.join(lines)
+        self.assertIn('| probestage | track stage callback | track stage | 9.155% | 13.733% |', text)
+        # The voice's heaviest and worst, each with the stage once; the synth without one alone.
+        self.assertIn('- probestage: heaviest 10.681% at midpoint (stock) with its track stage in this run.', text)
+        self.assertIn('- probestage: worst observed block 16.785% at midpoint (stock) with its track stage in this run.', text)
+        self.assertIn('- probesynth: heaviest 1.526% at midpoint (stock) in this run.', text)
+        self.assertNotIn('at track stage', text)
+        # A clipped part makes the sum a lower bound.
+        frames[-1] = frame(6000, 65535)
+        text = '\n'.join(readout(decode(dict(complete=True, errors=[], frames=frames), expected)))
+        self.assertIn('- probestage: worst observed block >=103.052% (clipped; exact peak unavailable)', text)
+        # A silent stage run is named, and left out of the figures.
+        frames[-1] = frame(0, 0)
+        text = '\n'.join(readout(decode(dict(complete=True, errors=[], frames=frames), expected)))
+        self.assertIn('- probestage: its track stage run failed or was silent', text)
+        self.assertIn('- probestage: heaviest 1.526% at midpoint (stock) in this run.', text)
+
     def test_list_controls_name_their_option(self):
         from tooling.benchmark import position
         self.assertEqual(position(dict(control=1, label='Octave', value=7, option='+2')), 'Octave +2')

@@ -10,6 +10,9 @@
 #include "drum_send.hpp"
 
 extern "C" opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
+// A drum-kit control's Shift cell (drum_kit_controls.hpp; reached only by a kit declaring one).
+extern "C" bool sdk_drum_kit_readout(opxy::u32 track, opxy::u32 position, opxy::u8* choice, const char** title,
+                                     char* value) __asm__("sdk_drum_kit_readout");
 // Refreshes opxy_sample_overview for a sample engine's own screen (sample_overview.cpp).
 extern "C" void sdk_sample_overview_update(opxy::u32) __asm__("sdk_sample_overview_update");
 
@@ -82,6 +85,26 @@ void played_pad_snapshot(const Controls& controls, u32 serial, draw::Input& inpu
     for (u32 i = 0; i < 8; ++i) input.trigger_controls[i] = 0;
 }
 
+// A kit's Shift cells of the drum-kit controls (padVolume, padRandom; SDK 1.23,
+// drum_kit_controls.cpp): each position the kit sets something on holds its choice in
+// controls.choices at all times (the key's volume as dB + 30, its random's percent)
+// and, while Shift is held, names and shows it, over what refresh_controls put there.
+void kit_cells(Base* o, Controls& controls) {
+    if (!controls.valid || !controls.pad) return;
+    for (u32 i = 0; i < 4; ++i) {
+        u8 choice = 0;
+        const char* title = "";
+        char value[16];
+        value[0] = 0;
+        if (!sdk_drum_kit_readout(controls.track, i, &choice, &title, value)) continue;
+        controls.choices[i] = choice;
+        if (!controls.choosing) continue;
+        value[15] = 0;
+        set_text(o->titles[i], title);
+        set_text(o->values[i], value);
+    }
+}
+
 // Machine: ids[] names mutable paths, other nodes, text slots, then palette entries.
 template <class Machine> struct Drawing {
     typedef binding::Frame Frame;
@@ -120,7 +143,9 @@ template <class Machine> struct Drawing {
         display_input.pan = static_cast<i8>(controls.pan);
         display_input.level = static_cast<i8>(controls.level);
         display_input.line = static_cast<u8>(controls.line);
-        display_input.reserved = 0;
+        // A kit declaring SDK 1.23 or later: its selected key, 0..23 (pad 53 + n); 0 otherwise.
+        display_input.selected_key = Machine::selected_key && controls.pad >= 53 && controls.pad < 77
+            ? static_cast<u8>(controls.pad - 53) : 0;
         const u32 pads = sizeof(controls.pads) / sizeof(controls.pads[0]);
         for (u32 i = 0; i < 4; ++i) display_input.pad[i] = static_cast<i8>(i < pads ? controls.pads[i] : 0);
         // FX I and FX II: a send's index (drum_send.hpp) as the kit's SDK reads it.
@@ -157,6 +182,7 @@ template <class Machine> struct Drawing {
         o->delta = elapsed;
         Controls controls;
         if (!refresh_controls(&o->base, controls)) return;
+        if (Machine::kit_controls) kit_cells(&o->base, controls);
         animate(o, controls);
         draw(&o->base);
         // A drum kit's held pad: Drumline's slide-up strip, over the page.

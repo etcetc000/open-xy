@@ -109,16 +109,39 @@ STOCK_SHIFT = {'': 0, 'start': 1, 'loopStart': 2, 'loopEnd': 3, 'end': 4,
 # An effect's display (SDK 1.7): it draws its own page on the sends, as a synth does.
 # busShift N (SDK 1.16): its adapter raises the send's audio by N bits, saturating,
 # before process and lowers the result by N, rounded, after it (send_bus.hpp).
-EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display', 'busShift')
+# tailFrames: how long, in frames, the effect can still sound once its input stops,
+# or "unbounded"; the idle capability's send hold (adapters.send_hold) follows it.
+EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display', 'busShift', 'tailFrames')
+# The longest tailFrames a number may give: 2^24 frames, 6.3 minutes.
+EFFECT_TAIL_LIMIT = 1 << 24
 # The largest busShift: 12 bits (72 dB) lifts a bus 2^-12 under Q31 full scale to it.
 EFFECT_BUS_SHIFT = 12
+# A synth's track stage (SDK 1.24, tooling/track_stage.py): its TrackState's size and
+# alignment, checked against the compiled type, and its tail, as an effect's tailFrames.
+TRACK_STAGE_KEYS = ('stateBytes', 'stateAlignment', 'tailFrames')
 # A drum kit's models in named groups (SDK 1.8), which Shift and the first encoder choose
 # (with padMix, which takes Shift's first row, they only title the models);
 # chokeSameKey 1 for a note to cut the voices still sounding its track's same key;
 # padMix 1 (SDK 1.10) for Shift to turn each key's stock pan and level and its own FX I
 # and FX II sends; and padControls (SDK 1.10, with padMix), up to two small fields of
-# each key's own on Shift's second row.
-DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls', 'parameterEdit')
+# each key's own on Shift's second row. The drum-kit controls (SDK 1.23), each 0 or 1 and
+# asked for on its own, for a kit without padMix: padVolume, each key's level, -30..+20 dB,
+# on Shift's third encoder (with modelGroups in place of the choke group); padRandom, each
+# key's random, which moves its controls on every hit, on Shift's fourth; ampEnvelope, M2's
+# start, attack, hold and decay kept per key and played by the adapter.
+DRUM_KIT_CONTROLS = ('padVolume', 'padRandom', 'ampEnvelope')
+# The SDK of the drum-kit controls and of a kit screen's selected key. A renumber changes
+# this line, the 1.23 line of SDK_VERSION's history (tooling/machines.py) and the "1.23" text in the
+# docs and fixtures.
+KIT_CONTROLS_SDK = (1, 23)
+# SDK 1.25: a note player's Controls.instrument (the kind of instrument its track holds), for
+# a player declaring it; and modelEdit, 0 or 1, for a drum kit whose value editor
+# (edit_model_parameter) may move the key to another model, as one dial over every model.
+# A renumber changes this line, SDK_VERSION and its history (tooling/machines.py) and the
+# "1.25" text in the docs and fixtures.
+SDK_1_25 = (1, 25)
+DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls', 'parameterEdit', 'modelEdit',
+                *DRUM_KIT_CONTROLS)
 # Pad controls share 9 bits of stock's pad word +0x14; its sends take 6 more (drum_storage.hpp).
 PAD_CONTROL_FIELDS, PAD_CONTROL_BITS = 2, 9
 EFFECT_BUFFER_LIMIT = 524288
@@ -200,14 +223,17 @@ def validate_definition(value, kind):
     label(value['name'])
     resources = value['resources']
     options = {'sample': SAMPLE_OPTIONS, 'effect': EFFECT_OPTIONS, 'drum': DRUM_OPTIONS,
-               'synth': ('trackControl', 'stereoOutput', 'releaseCallback')}.get(kind, ())
+               'synth': ('trackControl', 'stereoOutput', 'releaseCallback', 'trackStage'), 'player': ('display',)}.get(kind, ())
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
-    require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'stockShift', 'padControls')),
+    require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'stockShift', 'padControls',
+                                                                   'tailFrames', 'trackStage')),
             'Numeric resource requirements must be integers')
     if kind == 'synth':
         for flag in ('stereoOutput', 'releaseCallback'):
             require(resources.get(flag, 0) in (0, 1), flag + ' must be 0 or 1')
+        if 'trackStage' in resources:
+            validate_track_stage(resources['trackStage'])
     if 'voiceCapacity' in resources:
         require(1 <= resources['voiceCapacity'] <= 256, 'Voice capacity must be 1..256')
     # A sample engine's voice is bound to its sample when created, so it needs a
@@ -238,8 +264,15 @@ def validate_definition(value, kind):
     if kind == 'effect':
         require(resources.get('transport', 0) in (0, 1), 'transport must be 0 or 1')
         require(0 <= resources.get('busShift', 0) <= EFFECT_BUS_SHIFT, 'busShift is 0..%d bits' % EFFECT_BUS_SHIFT)
+        if 'tailFrames' in resources:
+            tail = resources['tailFrames']
+            require(tail == 'unbounded' or (type(tail) is int and 0 <= tail <= EFFECT_TAIL_LIMIT),
+                    'tailFrames is a whole number of frames, at most %d, or "unbounded"' % EFFECT_TAIL_LIMIT)
         if 'display' in resources:
             validate_display(resources['display'], kind)
+    # A note player's own drawn page (SDK 1.26, tooling.machines).
+    if kind == 'player' and 'display' in resources:
+        validate_display(resources['display'], kind)
     if kind in ('synth', 'drum'):
         validate_synth_resources(resources, kind)
     if kind == 'master':
@@ -267,6 +300,16 @@ def validate_definition(value, kind):
             require(sum(f['bits'] for f in fields) <= PAD_CONTROL_BITS,
                     'Pad controls share at most %d bits' % PAD_CONTROL_BITS)
         require(resources.get('parameterEdit', 0) in (0, 1), 'parameterEdit must be 0 or 1')
+        require(resources.get('modelEdit', 0) in (0, 1), 'modelEdit must be 0 or 1')
+        # modelEdit's callback edits every control parameterEdit's would: a kit declares one of them.
+        require(not (resources.get('modelEdit', 0) and resources.get('parameterEdit', 0)),
+                "modelEdit's edit_model_parameter takes parameterEdit's place: declare one")
+        for flag in DRUM_KIT_CONTROLS:
+            require(resources.get(flag, 0) in (0, 1), flag + ' must be 0 or 1')
+        # padMix's Shift row already holds each key's level and its pad word the kit's pad
+        # controls and sends: the drum-kit controls are for a kit without it.
+        require(not (resources.get('padMix', 0) and any(resources.get(k, 0) for k in DRUM_KIT_CONTROLS)),
+                'padVolume, padRandom and ampEnvelope are for a kit without padMix')
         if 'modelGroups' in resources:
             groups = resources['modelGroups']
             require(isinstance(groups, list) and 2 <= len(groups) <= 16, 'modelGroups lists 2..16 groups')
@@ -497,6 +540,17 @@ def validate_synth_resources(resources, kind='synth'):
                 set(aux) <= set(AUX_TRACKS),
                 'Track control aux lists the aux tracks to take over: ' + ', '.join(map(str, AUX_TRACKS)))
         require(control.get('unique') is True, 'A track control machine that takes over aux tracks must be unique')
+
+
+def validate_track_stage(stage):
+    """A synth's trackStage: TrackState in whole words aligned to 4 or 8, and its tail in
+    frames (at most 2^24) or "unbounded"."""
+    keys(stage, TRACK_STAGE_KEYS, 'trackStage')
+    size, alignment, tail = stage['stateBytes'], stage['stateAlignment'], stage['tailFrames']
+    require(type(size) is int and type(alignment) is int and 4 <= size and alignment in (4, 8) and
+            size % alignment == 0, 'Track stage state must occupy whole words, aligned to 4 or 8 bytes')
+    require(tail == 'unbounded' or (type(tail) is int and 0 <= tail <= EFFECT_TAIL_LIMIT),
+            'trackStage tailFrames is a whole number of frames, at most %d, or "unbounded"' % EFFECT_TAIL_LIMIT)
 
 
 def extended_display(display):

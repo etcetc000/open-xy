@@ -179,14 +179,15 @@ class Budget(unittest.TestCase):
 
 @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
 class HostTraces(unittest.TestCase):
-    def build(self, m, core, engine, source, heap, prelude=None):
-        """Generates m's adapter with its voices on the heap or in module memory, compiles
-        source beside it and returns the program's output."""
+    def build(self, m, core, engine, source, heap, prelude=None, idle=False):
+        """Generates m's adapter with its voices on the heap or in module memory (and the
+        idle capability's pieces if idle), compiles source beside it and returns the
+        program's output."""
         limit = 0 if heap else 1 << 30
         with mock.patch.object(voice_heap, 'STATIC_VOICE_LIMIT', limit), tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
             self.assertEqual(voice_heap.on_heap(m), heap)
-            generate_voice(folder, m)
+            generate_voice(folder, m, idle=idle)
             if prelude is None:
                 prelude = HEAP_PRELUDE.replace('@BYTES@', str(voice_heap.arena_bytes(m))) if heap else STATIC_PRELUDE
             (folder / 'core.h').write_text(core, encoding='utf-8')
@@ -231,6 +232,18 @@ class HostTraces(unittest.TestCase):
         for heap in (False, True):
             with self.subTest(release=True, heap=heap):
                 self.build(release, test_synth_release.CORE, test_synth_release.ENGINE, native, heap)
+
+    def test_the_idle_cut_follows_a_heap_voice_as_a_static_one(self):
+        # The idle capability's follower asks the engine's settled() of the held voice,
+        # wherever it lives (test_voices' settle trace, both ways).
+        m = synth(dict(voiceBytes=12, voiceAlignment=4, voiceCapacity=4, sharedBytes=0), sdk=machines.IDLE_SDK)
+        with mock.patch.object(voice_heap, 'STATIC_VOICE_LIMIT', 0), tempfile.TemporaryDirectory() as folder:
+            voice = generate_voice(folder, m, idle=True).read_text(encoding='utf-8')
+        self.assertIn('sdk_settles::query(voice_of(*slot), shared)', voice)
+        self.assertNotIn('slot->voice', voice)
+        for heap in (False, True):
+            with self.subTest(heap=heap):
+                self.build(m, test_voices.CORE, test_voices.SETTLE_ENGINE, test_voices.SETTLE_DRIVER, heap, idle=True)
 
     ARENA = r'''#include "voice.cpp"
 int destroyed[257];

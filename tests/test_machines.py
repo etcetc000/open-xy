@@ -533,6 +533,22 @@ class OutsideMachines(unittest.TestCase):
         self.numberless(sample, sdk='1.10')
         self.assertEqual(machines.machine_at(sample).definition['resources']['voiceCapacity'], 256)
 
+    def test_an_effect_tail_needs_its_sdk_version(self):
+        effect = self.copy('probefx')
+        path = effect / 'definition.json'
+        definition = json.loads(path.read_text(encoding='utf-8'))
+        for tail in (0, 44100, 'unbounded'):
+            with self.subTest(tail=tail):
+                definition['resources']['tailFrames'] = tail
+                path.write_text(json.dumps(definition), encoding='utf-8')
+                # The version before the tail's has no tailFrames.
+                major, minor = machines.IDLE_SDK
+                self.numberless(effect, sdk=f'{major}.{minor - 1}')
+                with self.assertRaisesRegex(ValueError, f'tailFrames.*needs "sdk": "{major}.{minor}"'):
+                    machines.machine_at(effect)
+                self.numberless(effect, sdk=f'{major}.{minor}')
+                self.assertEqual(machines.machine_at(effect).definition['resources']['tailFrames'], tail)
+
     def test_sdk_1_5_machines_name_no_numbers(self):
         self.numberless(self.folder)
         m = machines.machine_at(self.folder)
