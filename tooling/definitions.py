@@ -76,6 +76,19 @@ DISPLAY_LIMITS = dict(paths=(0, 4), points=(0, 64), nodes=(1, 512), texts=(0, 32
 SDK_1_2_TEXTS, SDK_1_6_TEXTS = 4, 16
 # Nodes a display could hold before SDK 1.8.
 SDK_1_7_NODES = 256
+# Extended drawing (SDK 1.20, docs/display.md#extended-drawing): optional display
+# keys for synth and effect screens, each 0 or 1 unless EXTENDED_RANGES says otherwise.
+# A display declaring none of them, within DISPLAY_LIMITS, is a plain one: its
+# generated code and renderer are those of a display before 1.20.
+# A renumber changes this line,
+# SDK_VERSION and its history (tooling/machines.py) and the "1.20" text in the docs and fixtures.
+EXTENDED_SDK = (1, 20)
+EXTENDED_KEYS = ('affine', 'fullCanvas', 'rgba', 'cubic', 'openPaths', 'segmentPaths', 'quadratic', 'commands',
+                 'countedPaths', 'encoderActivity')
+EXTENDED_RANGES = dict(openPaths=0xffffffff, segmentPaths=0xffffffff, commands=128)
+EXTENDED_LIMITS = dict(paths=32, points=256)
+# Path storage: coordinate pairs in all, and a counted display's reserved bytes.
+EXTENDED_POINTS, COUNTED_PATH_BYTES = 256, 2816
 # Analysis storage is allocated from the stock heap at runtime, which also holds
 # stock samples; a collection's analysis budgets together take at most this much.
 ANALYSIS_HEAP_LIMIT = 2 * 1024 * 1024
@@ -95,16 +108,39 @@ STOCK_SHIFT = {'': 0, 'start': 1, 'loopStart': 2, 'loopEnd': 3, 'end': 4,
 # An effect's display (SDK 1.7): it draws its own page on the sends, as a synth does.
 # busShift N (SDK 1.16): its adapter raises the send's audio by N bits, saturating,
 # before process and lowers the result by N, rounded, after it (send_bus.hpp).
-EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display', 'busShift')
+# tailFrames: how long, in frames, the effect can still sound once its input stops,
+# or "unbounded"; the idle capability's send hold (adapters.send_hold) follows it.
+EFFECT_OPTIONS = ('bufferBytes', 'transport', 'display', 'busShift', 'tailFrames')
+# The longest tailFrames a number may give: 2^24 frames, 6.3 minutes.
+EFFECT_TAIL_LIMIT = 1 << 24
 # The largest busShift: 12 bits (72 dB) lifts a bus 2^-12 under Q31 full scale to it.
 EFFECT_BUS_SHIFT = 12
+# A synth's track stage (SDK 1.24, tooling/track_stage.py): its TrackState's size and
+# alignment, checked against the compiled type, and its tail, as an effect's tailFrames.
+TRACK_STAGE_KEYS = ('stateBytes', 'stateAlignment', 'tailFrames')
 # A drum kit's models in named groups (SDK 1.8), which Shift and the first encoder choose
 # (with padMix, which takes Shift's first row, they only title the models);
 # chokeSameKey 1 for a note to cut the voices still sounding its track's same key;
 # padMix 1 (SDK 1.10) for Shift to turn each key's stock pan and level and its own FX I
 # and FX II sends; and padControls (SDK 1.10, with padMix), up to two small fields of
-# each key's own on Shift's second row.
-DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls')
+# each key's own on Shift's second row. The drum-kit controls (SDK 1.23), each 0 or 1 and
+# asked for on its own, for a kit without padMix: padVolume, each key's level, -30..+20 dB,
+# on Shift's third encoder (with modelGroups in place of the choke group); padRandom, each
+# key's random, which moves its controls on every hit, on Shift's fourth; ampEnvelope, M2's
+# start, attack, hold and decay kept per key and played by the adapter.
+DRUM_KIT_CONTROLS = ('padVolume', 'padRandom', 'ampEnvelope')
+# The SDK of the drum-kit controls and of a kit screen's selected key. A renumber changes
+# this line, the 1.23 line of SDK_VERSION's history (tooling/machines.py) and the "1.23" text in the
+# docs and fixtures.
+KIT_CONTROLS_SDK = (1, 23)
+# SDK 1.25: a note player's Controls.instrument (the kind of instrument its track holds), for
+# a player declaring it; and modelEdit, 0 or 1, for a drum kit whose value editor
+# (edit_model_parameter) may move the key to another model, as one dial over every model.
+# A renumber changes this line, SDK_VERSION and its history (tooling/machines.py) and the
+# "1.25" text in the docs and fixtures.
+SDK_1_25 = (1, 25)
+DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls', 'parameterEdit', 'modelEdit',
+                *DRUM_KIT_CONTROLS)
 # Pad controls share 9 bits of stock's pad word +0x14; its sends take 6 more (drum_storage.hpp).
 PAD_CONTROL_FIELDS, PAD_CONTROL_BITS = 2, 9
 EFFECT_BUFFER_LIMIT = 524288
@@ -124,8 +160,13 @@ DISPLAY_FORMATS = ('ratio', 'percent', 'bipolar', 'duration', 'semitones', 'enum
 # effect's after the first four are alternates on the send page. A note player's
 # after the first four are its second page (SDK 1.16).
 CONTROLS = {'synth': (4, 8), 'drum': (8, 8), 'sample': (1, 8), 'effect': (1, 8), 'master': (1, 8), 'player': (4, 8)}
-# Stock voice indices: a voice object for each, 0..255.
+# The most voices a machine declares; a sample adapter at this capacity is the
+# one it has always been (it never refuses an index).
 STOCK_VOICES = 256
+# Stock's voice manager builds 27 voice wrappers at audio init (8d51c640) and
+# gives each its number, 0..26, which its voice start passes to an engine's
+# factory as the voice index (8d51adf8, abi-1.2.1.md "Sample engines").
+STOCK_VOICE_WRAPPERS = 27
 SYNTH_POSITIONS = 4
 # An effect's shift row (SDK 1.7) packs its choices into one Q31 word; this many
 # combinations keep each one's bucket over a thousand codes wide.
@@ -181,22 +222,25 @@ def validate_definition(value, kind):
     label(value['name'])
     resources = value['resources']
     options = {'sample': SAMPLE_OPTIONS, 'effect': EFFECT_OPTIONS, 'drum': DRUM_OPTIONS,
-               'synth': ('trackControl', 'stereoOutput', 'releaseCallback')}.get(kind, ())
+               'synth': ('trackControl', 'stereoOutput', 'releaseCallback', 'trackStage'), 'player': ('display',)}.get(kind, ())
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
-    require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'stockShift', 'padControls')),
+    require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'stockShift', 'padControls',
+                                                                   'tailFrames', 'trackStage')),
             'Numeric resource requirements must be integers')
     if kind == 'synth':
         for flag in ('stereoOutput', 'releaseCallback'):
             require(resources.get(flag, 0) in (0, 1), flag + ' must be 0 or 1')
+        if 'trackStage' in resources:
+            validate_track_stage(resources['trackStage'])
     if 'voiceCapacity' in resources:
         require(1 <= resources['voiceCapacity'] <= 256, 'Voice capacity must be 1..256')
-    # Stock creates a voice object for every index 0..255 and never checks for a
-    # missing one. Synth voices are shared out to notes as they start (voice.cpp.in);
-    # a sample engine's voice is bound to its sample when created, so it needs all 256.
+    # A sample engine's voice is bound to its sample when created, so it needs a
+    # voice for every index stock passes: the numbers of its voice wrappers.
     if kind == 'sample':
-        require(resources['voiceCapacity'] == STOCK_VOICES,
-                'A sample engine needs voiceCapacity 256: stock creates a voice for every one of its 256 indices')
+        require(resources['voiceCapacity'] >= STOCK_VOICE_WRAPPERS,
+                f'A sample engine needs voiceCapacity {STOCK_VOICE_WRAPPERS} or more: stock passes its '
+                f"{STOCK_VOICE_WRAPPERS} voice wrappers' numbers as voice indices")
     if kind == 'sample':
         heap = resources.get('sampleAnalysis', 0)
         require(type(heap) is int and (heap == 0 or (4096 <= heap <= ANALYSIS_HEAP_LIMIT and heap % 4 == 0)),
@@ -208,7 +252,7 @@ def validate_definition(value, kind):
         require(resources.get('drumControls', 0) or not resources.get('sliceTiming', 0),
                 'sliceTiming needs drumControls')
         if 'display' in resources:
-            validate_display(resources['display'])
+            validate_display(resources['display'], kind)
         if 'stockShift' in resources:
             validate_stock_shift(resources)
     if kind == 'effect' and 'bufferBytes' in resources:
@@ -219,12 +263,19 @@ def validate_definition(value, kind):
     if kind == 'effect':
         require(resources.get('transport', 0) in (0, 1), 'transport must be 0 or 1')
         require(0 <= resources.get('busShift', 0) <= EFFECT_BUS_SHIFT, 'busShift is 0..%d bits' % EFFECT_BUS_SHIFT)
+        if 'tailFrames' in resources:
+            tail = resources['tailFrames']
+            require(tail == 'unbounded' or (type(tail) is int and 0 <= tail <= EFFECT_TAIL_LIMIT),
+                    'tailFrames is a whole number of frames, at most %d, or "unbounded"' % EFFECT_TAIL_LIMIT)
         if 'display' in resources:
-            validate_display(resources['display'])
+            validate_display(resources['display'], kind)
+    # A note player's own drawn page (SDK 1.26, tooling.machines).
+    if kind == 'player' and 'display' in resources:
+        validate_display(resources['display'], kind)
     if kind in ('synth', 'drum'):
-        validate_synth_resources(resources)
+        validate_synth_resources(resources, kind)
     if kind == 'master':
-        validate_display(resources['display'])
+        validate_display(resources['display'], kind)
     if kind == 'drum':
         require(2 <= resources['modelCount'] <= 64, 'A drum kit has 2..64 models')
         require(resources.get('chokeSameKey', 0) in (0, 1), 'chokeSameKey must be 0 or 1')
@@ -247,6 +298,17 @@ def validate_definition(value, kind):
                     require(type(field['bits']) is int and 1 <= field['bits'] <= 7, 'An unsigned pad control has 1..7 bits')
             require(sum(f['bits'] for f in fields) <= PAD_CONTROL_BITS,
                     'Pad controls share at most %d bits' % PAD_CONTROL_BITS)
+        require(resources.get('parameterEdit', 0) in (0, 1), 'parameterEdit must be 0 or 1')
+        require(resources.get('modelEdit', 0) in (0, 1), 'modelEdit must be 0 or 1')
+        # modelEdit's callback edits every control parameterEdit's would: a kit declares one of them.
+        require(not (resources.get('modelEdit', 0) and resources.get('parameterEdit', 0)),
+                "modelEdit's edit_model_parameter takes parameterEdit's place: declare one")
+        for flag in DRUM_KIT_CONTROLS:
+            require(resources.get(flag, 0) in (0, 1), flag + ' must be 0 or 1')
+        # padMix's Shift row already holds each key's level and its pad word the kit's pad
+        # controls and sends: the drum-kit controls are for a kit without it.
+        require(not (resources.get('padMix', 0) and any(resources.get(k, 0) for k in DRUM_KIT_CONTROLS)),
+                'padVolume, padRandom and ampEnvelope are for a kit without padMix')
         if 'modelGroups' in resources:
             groups = resources['modelGroups']
             require(isinstance(groups, list) and 2 <= len(groups) <= 16, 'modelGroups lists 2..16 groups')
@@ -443,7 +505,7 @@ def shift_parameters(definition):
     return [] if 'voiceBytes' in definition['resources'] else definition.get('shift', [])
 
 
-def validate_synth_resources(resources):
+def validate_synth_resources(resources, kind='synth'):
     # Sizes are bounded by the shared module memory, checked when the collection links.
     require(4 <= resources['voiceBytes'] and resources['voiceBytes'] % 4 == 0,
             'Voice state must occupy at least one whole word')
@@ -452,7 +514,7 @@ def validate_synth_resources(resources):
     require(0 <= resources['sharedBytes'] and resources['sharedBytes'] % 4 == 0,
             'Shared state must occupy whole words')
     require(0 < resources['outputPeakQ31'] <= 0x7fffffff, 'Invalid oscillator output headroom')
-    validate_display(resources['display'])
+    validate_display(resources['display'], kind)
     if 'trackControl' in resources:
         control = resources['trackControl']
         present = tuple(k for k in CONTROL_OPTIONS if isinstance(control, dict) and k in control)
@@ -479,20 +541,76 @@ def validate_synth_resources(resources):
         require(control.get('unique') is True, 'A track control machine that takes over aux tracks must be unique')
 
 
-def validate_display(display):
+def validate_track_stage(stage):
+    """A synth's trackStage: TrackState in whole words aligned to 4 or 8, and its tail in
+    frames (at most 2^24) or "unbounded"."""
+    keys(stage, TRACK_STAGE_KEYS, 'trackStage')
+    size, alignment, tail = stage['stateBytes'], stage['stateAlignment'], stage['tailFrames']
+    require(type(size) is int and type(alignment) is int and 4 <= size and alignment in (4, 8) and
+            size % alignment == 0, 'Track stage state must occupy whole words, aligned to 4 or 8 bytes')
+    require(tail == 'unbounded' or (type(tail) is int and 0 <= tail <= EFFECT_TAIL_LIMIT),
+            'trackStage tailFrames is a whole number of frames, at most %d, or "unbounded"' % EFFECT_TAIL_LIMIT)
+
+
+def extended_display(display):
+    """Whether a display uses extended drawing: an extended key, or more paths or points than a plain one."""
+    return (any(k in display for k in EXTENDED_KEYS) or
+            any(display.get(k, 0) > DISPLAY_LIMITS[k][1] for k in EXTENDED_LIMITS))
+
+
+def validate_display(display, kind=None):
     require(not (isinstance(display, dict) and 'kind' in display),
             'This display uses a contract from before SDK 1.0: see docs/display.md#migrating-from-before-sdk-10')
-    keys(display, DISPLAY_FIELDS, 'display')
+    optional = tuple(k for k in EXTENDED_KEYS if isinstance(display, dict) and k in display)
+    keys(display, (*DISPLAY_FIELDS, *optional), 'display')
+    for name in optional:
+        high = EXTENDED_RANGES.get(name, 1)
+        require(type(display[name]) is int and 0 <= display[name] <= high, 'Display %s must be 0..%d' % (name, high))
+    extended = extended_display(display)
+    require(not extended or kind in ('synth', 'effect'), 'Extended drawing is for synth and effect screens')
     for name, (low, high) in DISPLAY_LIMITS.items():
+        high = EXTENDED_LIMITS.get(name, high) if extended else high
+        low = 0 if name == 'palette' and display.get('affine') else low
         require(type(display[name]) is int and low <= display[name] <= high,
                 'Display %s must be %d..%d' % (name, low, high))
-    require((display['points'] >= 2) == (display['paths'] > 0),
-            'Paths have 2..64 points; a display without paths declares 0 points')
+    if extended:
+        validate_extended(display, kind)
+    else:
+        require((display['points'] >= 2) == (display['paths'] > 0),
+                'Paths have 2..64 points; a display without paths declares 0 points')
     require(display['paths'] <= display['nodes'], 'Each path is also a node')
     require(type(display['stateBytes']) is int and type(display['stateAlignment']) is int and
             4 <= display['stateBytes'] and display['stateAlignment'] in (4, 8, 16) and
             display['stateBytes'] % display['stateAlignment'] == 0,
             'Display state must occupy aligned whole words')
+
+
+def validate_extended(display, kind):
+    """The extended keys' combinations (draw.hpp ExtendedFrame and RgbaFrame)."""
+    def get(key):
+        return display.get(key, 0)
+    paths, points, commands = display['paths'], display['points'], get('commands')
+    if get('quadratic'):
+        require(get('affine') and paths > 0 and points == 0 and commands >= 2 and
+                not (get('cubic') or get('openPaths') or get('segmentPaths') or get('countedPaths')),
+                'Quadratic paths need affine, paths, points 0, commands 2..128 and no other path option')
+    else:
+        require(not commands, 'commands needs quadratic paths')
+        require((points >= 2) == (paths > 0), 'Paths have 2..256 points; a display without paths declares 0 points')
+    if get('countedPaths'):
+        require(get('affine') and paths > 0 and not get('cubic'), 'Counted paths need affine polylines')
+        require(paths * (8 + 8 * points) <= COUNTED_PATH_BYTES,
+                'Counted paths reserve at most %d bytes: paths * (8 + 8 * points)' % COUNTED_PATH_BYTES)
+    else:
+        require(paths * (2 * commands if get('quadratic') else points) <= EXTENDED_POINTS,
+                'Paths hold at most %d coordinate pairs in all' % EXTENDED_POINTS)
+    opened, segments = get('openPaths'), get('segmentPaths')
+    require(opened < 1 << paths and segments < 1 << paths and not opened & segments,
+            'openPaths and segmentPaths name declared paths, never the same one')
+    require(not get('cubic') or paths > 0 and points == 4 and not (opened or segments),
+            'Cubic paths have four points and no topology mask')
+    require(not get('rgba') or get('affine') and display['palette'] == 0, 'rgba needs affine and palette 0')
+    require(get('affine') or display['palette'] >= 1, 'Display palette must be 1..16 without affine')
 
 
 def validate_parameter(parameter, alternate=False, required=True):

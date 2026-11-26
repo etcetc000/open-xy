@@ -1,4 +1,4 @@
-// Stock's mixer (mixer_hooks.s), service mixer: four sites shared by the per-key sends
+// Stock's mixer (mixer_hooks.s, and track_call.s with a track stage), service mixer: four sites shared by the per-key sends
 // (drum_send.cpp, service drum_sends) and Sample Studio's player (sample_studio_audio.cpp,
 // service sample_studio). A build with only one of them resolves the other's entry points to
 // kit_absent, which does nothing (tooling/native.py service_fallbacks). Audio role only.

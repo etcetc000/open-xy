@@ -70,8 +70,11 @@ def main(argv=None):
             raise ValueError('Compiler arguments require all native qualification inputs')
         def run(label, command):
             print(f'\n{label}', flush=True)
+            # A hang guard, not a budget: with every fixture the suite compiles and links
+            # whole collections and runs stock code on a simulator (about 31 minutes on the
+            # release host), so each step gets an hour.
             subprocess.run([str(x) for x in command], cwd=ROOT, env=env,
-                           check=True, timeout=1800)
+                           check=True, timeout=3600)
 
         node_tests = sorted((ROOT / 'tests').glob('test_*.mjs'))
         if node_tests:

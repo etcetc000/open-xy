@@ -51,6 +51,23 @@ class DrumServices(unittest.TestCase):
             self.assertEqual(drum_storage(machine, HOST_CXX, folder), 16)   # the 4-bit layout holds any
 
     def test_pad_edit_alternates_shift_and_model_changes(self):
+        self.run_drum_gui()
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_the_drum_kit_controls_edit_read_and_follow_m2(self):
+        # A build with a kit declaring them: the shared units compiled with OPXY_KIT_CONTROLS,
+        # every check above unchanged on kits without them, then theirs (drum_gui.cpp).
+        self.run_drum_gui(kit_controls=True)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_a_model_edit_kits_turn_moves_the_key_across_models(self):
+        # A build with a modelEdit kit (SDK 1.25): the shared editor compiled with OPXY_MODEL_EDIT,
+        # every check above unchanged on kits without it, then its own (drum_gui.cpp
+        # model_edit_checks); beside the drum-kit controls, an ampEnvelope kit keeps its amp values.
+        self.run_drum_gui(model_edit=True)
+        self.run_drum_gui(kit_controls=True, model_edit=True)
+
+    def run_drum_gui(self, kit_controls=False, model_edit=False):
         platform = ROOT / 'sdk/platform/opxy-1.2.1'
         with tempfile.TemporaryDirectory(prefix='drum-services-') as folder:
             folder = Path(folder)
@@ -65,13 +82,16 @@ class DrumServices(unittest.TestCase):
             for header in ('drum_values.hpp', 'drum_lock_store.hpp'):
                 (folder / header).write_text((platform / header).read_text())
             sources = []
-            for name in ('synth_controls.cpp', 'drum_synthesis_stock.cpp', 'drum_values_stock.cpp', 'drum_machines.cpp'):
+            units = ('synth_controls.cpp', 'drum_synthesis_stock.cpp', 'drum_values_stock.cpp', 'drum_machines.cpp')
+            for name in units + (('drum_kit_controls.cpp',) if kit_controls else ()):
                 target = folder / name
                 target.write_text((platform / name).read_text())
                 sources.append(str(target))
             binary = folder / ('drum_gui.exe' if os.name == 'nt' else 'drum_gui')
             hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
-            command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I' + str(folder),
+            command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', *(['-DOPXY_KIT_CONTROLS=1'] if kit_controls else []),
+                       *(['-DOPXY_MODEL_EDIT=1'] if model_edit else []),
+                       '-I' + str(folder),
                        '-I' + str(ROOT / 'sdk/include'), '-I' + str(platform),
                        str(ROOT / 'tests/fixtures/drum_gui.cpp'), *sources, '-o', str(binary)]
             result = subprocess.run(command, capture_output=True, text=True, timeout=120, **hidden)
@@ -186,3 +206,83 @@ class DrumHookUnits(unittest.TestCase):
             with self.subTest(symbol=symbol):
                 self.assertEqual(len(defining), 1, defining)
                 self.assertEqual(native.UNIT_SERVICES.get(defining[0]), 'drums', defining)
+
+    def test_the_played_pad_snapshot_is_linked_only_with_a_kit_declaring_sdk_1_21(self):
+        # Only the screen of a kit declaring SDK 1.21 or later calls sdk_drum_trigger
+        # (screen_drawing.hpp played_pad), so the units a build selects hold drum_trigger
+        # only when such a kit is in it: not for a synth, a Shift-row synth (a drums
+        # user) or an older kit, whose screens never call it.
+        import re
+        from dataclasses import replace
+        from tooling import native
+        from tooling.firmware import active_services
+        from tooling.pipeline import config
+        from machine_fixtures import fixture
+        platform = ROOT / 'sdk/platform/opxy-1.2.1'
+        defining = [f.stem for f in sorted(platform.iterdir()) if f.suffix == '.cpp' and
+                    re.search(r'^void sdk_drum_trigger\(', f.read_text(encoding='utf-8'), re.M)]
+        self.assertEqual(defining, ['drum_trigger'])
+        synth, shift = fixture('probesynth'), fixture('probeshift')
+        kit = lambda sdk, name: replace(synth, kind='drum', id=name, sdk=sdk)
+        units = lambda *machines: [step for _name, m, step in native.plan(native.Collection(machines)) if m is None]
+        for machines, linked in (((synth,), False), ((shift,), False), ((kit((1, 17), 'oldkit'),), False),
+                                 ((kit((1, 8), 'oldkit'), shift), False), ((kit((1, 21), 'newkit'),), True),
+                                 ((kit((1, 20), 'oldkit'),), False),
+                                 ((kit((1, 17), 'oldkit'), kit((1, 21), 'newkit'), synth), True)):
+            with self.subTest(machines=[(m.id, m.kind, m.sdk) for m in machines]):
+                selected = units(*machines)
+                self.assertEqual('drum_trigger' in selected, linked)
+                # Python's service users turn the played_pad service on by the same rule (the
+                # browser kit's own path is the next test).
+                self.assertEqual('played_pad' in active_services(config(), native.service_users(machines)), linked)
+                if any(m.kind == 'drum' or m is shift for m in machines):
+                    self.assertIn('drum_synthesis_stock', selected)   # the drums service itself stays
+
+    def test_the_browser_kit_links_the_played_pad_snapshot_only_for_a_kit_declaring_sdk_1_21(self):
+        # The browser builder's path: the kit lists each machine's features
+        # (browser_kit.machine_entry), core.mjs activeServices turns services on from
+        # them, and linkKit keeps a service's SDK object only while it is on.
+        import json
+        from dataclasses import replace
+        from tooling import browser_kit, native
+        from tooling.pipeline import config
+        from machine_fixtures import fixture
+        # A real drawn kit: the browser kit builds a drawn kit's preview from its drum definition.
+        base = fixture('probekit16')
+        kits = {name: replace(base, id=name, sdk=sdk)
+                for name, sdk in (('kit110', (1, 10)), ('kit117', (1, 17)), ('kit120', (1, 20)), ('kit121', (1, 21)))}
+        # Each kit listed on its own, under the fixture's id, whose artwork names its nodes.
+        with tempfile.TemporaryDirectory(prefix='played-pad-kit-') as folder:
+            entries = {name: browser_kit.machine_entry(replace(m, id=base.id), config(), {}, Path(folder) / name, 'clang++')
+                       for name, m in kits.items()}
+        for name, entry in entries.items():
+            with self.subTest(kit=name):
+                self.assertEqual('playedPad' in entry.get('features', []), kits[name].sdk >= (1, 21))
+        # The kit's objects carry their service as the native build assigns it.
+        services = native.object_services(native.Collection(list(kits.values())))
+        objects = [dict(name=name, owner=None, service=service) for name, service in services.items()]
+        self.assertIn('played_pad', services.values())
+        selections = [['kit110'], ['kit117'], ['kit120'], ['kit121'], ['kit117', 'kit121'], ['kit110', 'kit120']]
+        script = """
+import {activeServices} from %s;
+let input = '';
+for await (const chunk of process.stdin) input += chunk;
+const {profile, entries, objects, selections} = JSON.parse(input);
+process.stdout.write(JSON.stringify(selections.map(selection => {
+  const services = activeServices(profile, selection.map(id => entries[id]));
+  // linkKit's rule for an SDK object (owner null).
+  return objects.filter(o => !o.service || services.has(o.service)).map(o => o.name);
+})));
+""" % json.dumps((ROOT / 'builder/core.mjs').as_uri())
+        request = dict(profile=config(), entries=entries, objects=objects, selections=selections)
+        result = subprocess.run(['node', '--input-type=module', '-e', script], input=json.dumps(request),
+                                capture_output=True, text=True, encoding='utf-8', cwd=ROOT, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        linked = json.loads(result.stdout)
+        trigger = [name for name, service in services.items() if service == 'played_pad']
+        self.assertEqual(len(trigger), 1)
+        for selection, names in zip(selections, linked):
+            with self.subTest(selection=selection):
+                expected = any(kits[name].sdk >= (1, 21) for name in selection)
+                self.assertEqual(trigger[0] in names, expected)
+                self.assertTrue(any(services.get(name) == 'drums' for name in names))

@@ -46,6 +46,26 @@ figures for standard memory. State usually dominates, since a synth's voice pool
 notes, and one spare voice serves a note that ended as another starts. The SDK
 adds 12 bytes per stock voice index (3 KiB) and 16 per voice.
 
+From SDK 1.19, a synth whose voice pool is larger than 128 KiB keeps its voices
+outside the module, in an arena the SDK reserves from the stock heap the first
+time the synth registers on the audio role at boot
+([heap voices](abi-1.2.1.md#synth-voices)). Nothing needs declaring: the pool
+size decides. Raising a large synth's `sdk` to 1.19 or later therefore moves its
+voices to the heap. The heap is DDR cached like the module, so the voices run
+the same, at the cost of a pointer load and an index multiply wherever a voice
+is reached. Only the 3 KiB of handles and 16 bytes per voice stay in the module.
+A machine declaring an older SDK keeps every voice in the module, as before.
+
+Heap voices are held from boot until the OP-XY is switched off, unlike sample
+analysis memory, which comes and goes with samples. How much of the stock heap
+stays free under a heavy project has not been measured, so a collection's heap
+voices may take at most 1 MiB, apart from the analysis budgets, and the
+builder's experimental 4 MiB option, which shrinks the heap, refuses a
+selection with heap voices. `sdk.py compile` lists each heap synth's arena;
+the builder's memory meter shows only module memory. The 1 MiB is checked over
+the whole collection a build or browser kit is made from, not each selection.
+Should the heap refuse at boot, that synth plays silence.
+
 The limit applies to what someone installs, not to the whole catalog. When a
 collection doesn't fit at once, `sdk.py compile` links Open-XY's own machines
 and requires each other machine to fit beside them, as the builder offers it.
@@ -53,12 +73,13 @@ and requires each other machine to fit beside them, as the builder offers it.
 | Limit | Value | Why |
 | --- | --- | --- |
 | Module memory | 2032 KiB for the selected machines | Firmware heap reservation minus the relocated tables |
+| Heap voices | Pools over 128 KiB (SDK 1.19); 1 MiB for a collection | Stock heap held from boot; its headroom is unmeasured |
 | Voices | 1..256 per machine | Stock voice indices |
 | Effect state | 476 bytes | The 480-byte stock FX slot minus its object header |
 | Synth controls | 4 positions, at most 8 parameters, and a Shift row of at most 8 (SDK 1.13) | The stock four-knob page and eight-word parameter vector; the row takes two spare track words |
 | Sample and effect controls | 1..8 | The stock eight-word parameter vector |
 | Control labels | 8 characters | The stock parameter page |
-| Display shape | ≤ 4 paths of ≤ 64 points, ≤ 512 nodes (more than 256 need `"sdk": "1.8"`), ≤ 16 text slots (more than 4 need `"sdk": "1.3"`), ≤ 16 palette entries | Fixed-size renderer object and frame |
+| Display shape | ≤ 4 paths of ≤ 64 points, ≤ 512 nodes (more than 256 need `"sdk": "1.8"`), ≤ 16 text slots (more than 4 need `"sdk": "1.3"`), ≤ 16 palette entries; a synth or effect's [extended drawing](display.md#extended-drawing) (`"sdk": "1.20"`) up to 32 paths sharing 256 points | Fixed-size renderer object and frame |
 
 `voiceBytes`, `sharedBytes` and display state have no limit of their own
 beyond whole words and module memory. Browser previews run 8 voices in
@@ -104,7 +125,19 @@ host does fast and the Blackfin does not:
   [`q31.hpp`](../sdk/include/opxy/q31.hpp) has the fixed-point helpers: a
   saturating multiply, (SDK 1.7) a saturating add and (SDK 1.16) a saturating
   left shift, `shift_left`, one instruction each on the device. Use it rather
-  than `<<`, which wraps.
+  than `<<`, which wraps. SDK 1.18 adds `subtract`, an arithmetic
+  `shift_right` and `saturate` (a 64-bit value into Q31), and 1.15 helpers in
+  [`q15.hpp`](../sdk/include/opxy/q15.hpp): `saturate`, `add`, `subtract`,
+  `normalize` (shift out redundant sign bits), `multiply` (truncating) and
+  `multiply_nearest` (rounding). `multiply` is the 1.15 product of two `i16`
+  values; `product` stays the integer 16 x 16 product of two words' low halves.
+  `q31::saturate` is a short compare and select; the others are one or two
+  instructions on the device. All give the same results on the host. None
+  reads or sets the rounding mode: `multiply_nearest` rounds an exact tie in
+  the processor's current mode (unbiased, to even, after reset; the host
+  always rounds to even), so do not depend on which way a tie falls. The two
+  namespaces share names, so call these qualified (`q15::saturate`,
+  `q31::saturate`).
 - **64-bit arithmetic** and floating point may need software helpers. The
   build links only the required authenticated [arithmetic runtime](toolchain.md)
   members; their code counts toward module memory.
@@ -226,7 +259,10 @@ relies on:
 - **R4 to R7 and P3 to P5 are preserved**: push the ones the routine uses
   (`[--SP] = (R7:4, P5:3);`) and pop them before `RTS`. FP and SP are preserved
   too, and RETS when the routine calls anything. R0 to R3, P0 to P2, I0 to I3,
-  M0 to M3, B0 to B3, A0, A1 and ASTAT are free to use.
+  M0 to M3, B0 to B3, A0, A1 and ASTAT are free to use, except ASTAT's
+  rounding mode (`RND_MOD`): code built by the SDK never changes it, so a
+  routine that sets biased rounding saves ASTAT, calls nothing while it is set
+  and restores it before it returns.
 - **L0 to L3 are zero on entry and must be zero on return**: compiled code
   addresses through I0 to I3 assuming no circular buffer. A routine that sets an
   L register for a circular buffer clears it again before it returns.
@@ -379,21 +415,28 @@ its own [header text](display.md#frame). Custom send effects also
 use the slower Shift rate for continuous controls, with stock FX captions
 except for `enum` and `division` controls.
 
-A sample engine declares `voiceCapacity`, which must be 256 (stock creates a
-voice for each of its 256 voice indices and binds each to its sample), and the
+A sample engine declares `voiceCapacity`, 27 to 256 (below 256: SDK 1.17): stock's voice manager
+has 27 voice wrappers and passes each one's number, 0..26, as the voice index,
+and the adapter binds a voice to its sample when created, so it keeps one per
+index. Each voice costs the machine's voice size plus the adapter's own state, so
+27 is the smallest image. Below 256, an index at or above the capacity (which
+stock is not known to pass; indirect calls were not traced) gets a shared silent
+object and adds one to `<prefix>_voice_refusals`, an exported per-engine word
+that nothing in the SDK reads: a debugger, a simulator or a build's own code may. It also declares the
 optional [sample services](#sample-engines) it uses. An effect declares no resources (`{}`).
 A synth declares:
 
 | Field | Required value or meaning |
 | --- | --- |
 | `voiceBytes`, `voiceAlignment` | `Voice` size (whole words) and alignment, checked against the compiled type |
-| `voiceCapacity` | Notes that sound at once, 1..256. Stock plays at most 8 notes per track and fades a note it takes, so 8 keeps a machine on one track within its own voices; allow 8 for each track it plays on at once. Values above 27, stock's voice slots, keep 27 voices plus the spare (28). Stock's 256 voice indices share these voices and one spare ([synth voices](abi-1.2.1.md#synth-voices)) |
+| `voiceCapacity` | Notes that sound at once, 1..256. Stock plays at most 8 notes per track and fades a note it takes, so 8 keeps a machine on one track within its own voices; allow 8 for each track it plays on at once. Values above 27, stock's voice slots, keep 27 voices plus the spare (28). Every voice index the adapter answers, 0 to 255, shares these voices and one spare ([synth voices](abi-1.2.1.md#synth-voices)) |
 | `sharedBytes` | `Shared` size, or 0 when `Shared` is empty |
 | `outputPeakQ31` | Positive declared oscillator peak; the preview uses it for audition gain |
 | `stereoOutput` | Optional integer 0/1 (SDK 1.12): write 64 interleaved left/right frames, 128 words |
 | `releaseCallback` | Optional integer 0/1 (SDK 1.12): receive the [voice release event](synth-release.md) |
 | `display` | The screen's frame budget; see the [display API](display.md) |
 | `trackControl` | Optional: the [track control](#track-control) state's `stateBytes` and `stateAlignment`, and optionally `unique`, `savedBytes`, `aux` and `sharedLfo` |
+| `trackStage` | Optional (SDK 1.24): the [track stage](#track-stage)'s `stateBytes`, `stateAlignment` and `tailFrames` |
 
 The SDK never runs constructors or destructors for `Voice`, `Shared` or
 `DisplayState`: their storage starts zeroed and the callbacks set it up.
@@ -534,6 +577,101 @@ method table and voice pool; none of that belongs in `Voice`.
 ownership; `release` cannot free a stolen lease. The engine decides how a
 voice behaves after losing a resource. This pool has no locks and requires
 serialized access.
+
+### Idle cut
+
+SDK 1.22. A synth or kit may tell the SDK that a voice can no longer get louder, so the
+project's idle threshold (the `release_floor` setting) can end it once it is
+quiet, as stock's release floor ends a released synth note:
+
+```cpp
+bool settled(const Voice& voice, const Shared& shared);   // optional; in the machine namespace
+```
+
+Return true only when nothing can raise the voice's output again: its note is
+released (or it is a one-shot), nothing is scheduled (a pending note, a ratchet,
+a second stage), and no control or modulation the engine reads per block can
+bring energy back. An LFO that can swell a decaying tail means the voice is not
+settled. While it returns true, the adapter compares each block's peak against
+the note's own peak so far; after 8 blocks in a row at or below the threshold
+times that peak, the voice fades out (a synth over one block, through stock's
+own kill; a kit over two, through the adapter's choke fade) and is freed. A new note on the
+voice starts a new peak. With the setting off, or without `settled`, nothing
+changes, and a machine without it links none of the idle cut. Only a build that
+selects the `idle` capability ([CPU capabilities](cpu-capabilities.md#idle); deprecated,
+not in the `cpu` extension, `sdk.py build` only) asks
+`settled` at all: without it the voice adapters carry none of the idle cut's
+state or calls, whatever the engine defines. A machine declaring an SDK before 1.22
+is never asked, even if its namespace defines a `settled`. The browser preview does
+not model it.
+
+### Track stage
+
+SDK 1.24. A synth may process its track's voices together, as one stereo
+signal: a chorus or widener that belongs to the track rather than to
+each voice. It declares `trackStage` in `resources` and defines, in its
+namespace:
+
+```cpp
+struct TrackState { ... };   // one per instrument track; storage starts zeroed
+
+void track_reset(TrackState& state, Shared& shared, opxy::u32 track);
+void track_process(TrackState& state, Shared& shared, opxy::u32 track,
+                   opxy::Output sum, opxy::Parameters parameters, opxy::u32 voices);
+```
+
+| Argument | Contract |
+| --- | --- |
+| `sum` | The track's voice sum, 64 interleaved left/right frames (128 Q31 words), read and overwritten in place; a word left alone passes as it is. Always stereo, for mono and `stereoOutput` synths alike, since stock pans each voice into it |
+| `parameters` | The track's words as its voices get them in the same block, with parameter locks and the track's LFO modulation as stock leaves them after the voice loop (modulation stock applies to a single voice is not in them): the declared controls in order, then zero; sixteen with a [Shift row](#a-synths-shift-row) |
+| `voices` | How many voices stock rendered on the track this block; with 0 the sum is silent |
+| `track` | The instrument track, 0..7 |
+
+The sum holds every voice of the track after stock's per-voice filter,
+amplitude envelope, pan and gain. Everything else comes after the stage: the
+track's volume, scene mute and group level, its meter, and the main mix, tape,
+aux output and both sends, which all get the processed sum, as from an insert
+before the fader. Stock keeps a synth voice 3 bits below the scale `render`
+writes, so eight voices at half scale sum to about half scale. Keep the stage's
+nominal gain at unity, saturate (the [Q31 helpers](../sdk/include/opxy/q31.hpp)),
+and do not rely on the absolute level.
+
+`track_process` runs once per block on each instrument track that holds the
+synth, in the same block as its voices: the SDK adds no latency. `track_reset`
+runs before it whenever a track takes this synth, including each track's first
+block after startup, after the SDK zeroes that track's state. A project load
+that leaves the synth on a track keeps its state. Stock does not mix a MIDI
+track at all, so a track switched to MIDI and back to the synth keeps its state
+without a reset. The callbacks follow `render`'s rules, run serially on
+the audio role and get the same `Shared` as the voices; the voices do not learn
+their track. The [CPU diagnostic](profiling.md#what-is-measured) also calls them, as
+track 0 on a state of its own: keep per-track data in `TrackState`, not in
+`Shared` indexed by track.
+
+`trackStage` declares the state and how long the stage can still sound once
+the track's voices stop:
+
+| Key | Meaning |
+| --- | --- |
+| `stateBytes`, `stateAlignment` | `TrackState` size (whole words) and alignment (4 or 8), checked against the compiled type |
+| `tailFrames` | Frames the stage can sound after its input stops, at most 2^24 (6.3 minutes), or `"unbounded"` |
+
+While the stage sounds after the track's last voice, stock keeps mixing the
+track as if a voice still played. Once the track has had no voice, and the
+stage's output has stayed below the idle floor (64 raw, as for [idle
+sends](#idle-sends)), for its tail plus 64 blocks of margin, the stage
+**sleeps**: `track_process` is not called and the sum stays silent until the
+next block with a voice, which resumes on the state as it was. A stage that
+can sound without voices (noise, an LFO driving a resonance, feedback at a gain
+of 1 or more) must declare `"unbounded"`, which never sleeps. Sleeping is part
+of the stage, not a [CPU capability](cpu-capabilities.md).
+
+Memory is 8 × `stateBytes` of module memory, counted in the synth's share. The
+SDK zeroes a track's whole state in the block the track takes the synth, so a
+large state costs that block more. The stage runs once for each track that holds the synth. A build with a stage adds a
+check to every instrument track's block (whether the track holds a stage); a
+build without one is unchanged. A synth's [CPU record](profiling.md) times its
+stage too, in a run of its own, counted once per track beside a voice. The browser preview does not model the stage.
 
 ## Track control
 
@@ -732,7 +870,8 @@ with no step held, Shift and the first encoder choose the selected key's model, 
 the second encoder its choke group, NONE or 1..3; keys sharing a group cut
 each other off. While Shift is held the first encoder's cell shows MACHINE and
 the model, the second's CHOKE and the group, and the third and fourth are
-blank and turn nothing. For a held step, see the step locks below.
+blank and turn nothing (a `padVolume` kit's third and a `padRandom` kit's
+fourth: [the drum-kit controls](#the-drum-kit-controls)). For a held step, see the step locks below.
 
 A kit may name groups of consecutive models in `resources.modelGroups`, such
 as `[{"label": "TRX", "count": 13}, {"label": "EFM", "count": 8}]`: 2..16
@@ -740,8 +879,9 @@ groups, each with a label of at most eight letters, digits, spaces or hyphens
 and at least one model, whose counts add up
 to `modelCount`. With no step held, Shift's first encoder then chooses the group (KIT), keeping
 the model's place in it, so a kit's first model stays first; the second the
-model within the group (MACHINE); the third the choke group (CHOKE); and the
-fourth turns nothing. A kit with `padMix` (below) may name groups too, but its
+model within the group (MACHINE); the third the choke group (CHOKE), or a
+`padVolume` kit's volume in its place; and the fourth turns nothing, or sets a
+`padRandom` kit's random. A kit with `padMix` (below) may name groups too, but its
 Shift row has no KIT: MACHINE scrolls every model through the groups, and a
 group only titles its models.
 
@@ -792,7 +932,9 @@ OP-XY ignores `random` from bit 16, so older firmware plays each amount's
 nearest step. A region
 without `random` loads every pad field at 0; the OP-XY's own preset writer
 names it on every key the kit has set up, and a kit preset written by other
-tools should name it on every region, `"random": 0` included.
+tools for loading on the OP-XY should name it on every region, `"random": 0`
+included. A `padMix` kit's own [presets](#presets), which the SDK installs,
+keep empty regions.
 
 A `padMix` kit may declare up to two small settings of each key's own in
 `resources.padControls` (SDK 1.10), such as a filter and a sample-rate
@@ -896,6 +1038,50 @@ const char* parameter_name(opxy::u32 model, opxy::u32 slot);
 opxy::u32 parameter_count(opxy::u32 model); // 0..8: slots 0 to count - 1 are used
 ```
 
+From SDK 1.21 a kit can declare `resources.parameterEdit: 1` and add this callback in
+`core.h` and its engine:
+
+```cpp
+opxy::u32 edit_parameter(opxy::u32 model, opxy::u32 slot,
+                        opxy::u32 value, opxy::i32 delta, opxy::u32 speed);
+```
+
+It edits an available control on the GUI role, before stock's existing pad publication.
+`value` is the stored 0..127 value and `delta` the signed detent count, bounded
+to -127..127. `speed` is how fast the encoder turns, 0 for a slow turn and more
+for a faster one, bounded to 0..127: stock's own editor moves pan `speed + 1` a
+detent, and a kit may accelerate the same way or ignore it. Return a new 0..127 value, or the input value for no change; an
+out-of-range result is ignored. It is called only for a turn of an available
+control (below the model's count and named), without Shift and with no step
+held: a Shift turn never calls it, and with a step held a turn locks the
+control instead, as the step locks above describe, so a control the kit steps
+through discrete values plays whatever 0..127 value the lock gives it. Without this flag, controls keep their existing unit
+steps. A kit with a per-model discrete selector can use this callback to jump
+directly to the next available option while other controls keep unit steps.
+It does not run during audio rendering or alter saved-value encoding.
+
+From SDK 1.25 a kit can instead declare `resources.modelEdit: 1` and add, in place of
+`edit_parameter`, a callback that may move the key to another model:
+
+```cpp
+opxy::u32 edit_model_parameter(opxy::u32 model, opxy::u32 slot,
+                               opxy::u32 value, opxy::i32 delta, opxy::u32 speed);
+```
+
+It is called for the same turns, with the same arguments, as `edit_parameter`, and
+returns the key's position after the turn, `model * 128 + value`: the key's model
+and this control's new value. Return `model * 128 + value` of the input for no
+change; a position at or past `modelCount * 128`, or in a model that does not use
+this control (below its count and named), is ignored. A new model keeps the
+key's other controls, as Shift's MACHINE does (in a kit of more than 16 models, those
+the new model stores), and the key is stored and published as any edit is. So one
+encoder can run through every model of the kit: past 127 into the next model and
+below 0 into the previous, with that control's 128 values inside each, at whatever
+step and speed the kit chooses. A kit declares `modelEdit` or `parameterEdit`, not
+both; any other option goes with it. Shift's MACHINE and KIT keep choosing the model
+as before, a held step still locks the control instead, and an `ampEnvelope` key
+keeps its amp values across a change of model.
+
 Keys passed to `drum_defaults` are canonical keys 53..76. Controls are
 integers 0..127; the model must be below `modelCount`. In a kit of more than 16
 models, a key on a model of seven or fewer controls stores its first seven, so
@@ -907,7 +1093,8 @@ unused slots. The screen shows the selected key's controls and labels with
 the track's offsets applied, so a held step shows the values its locks play;
 the display's `Input::model` is the selected key's model. A slot is available
 when it is below the count and named: an unnamed slot shows blank and ignores
-turns. Integer edits already have one-unit precision.
+turns. Integer edits already have one-unit precision, unless the kit declares
+`parameterEdit` (above).
 
 The adapter stores the model and the eight controls losslessly in four
 existing per-key preset words (eight 7 bits, the model 4), and marks the pad
@@ -931,7 +1118,72 @@ none is free, a voice already fading goes before the oldest note's. Without the
 flag, notes on one key layer, up to `voiceCapacity`. This is separate from the
 choke groups Shift chooses, which stock applies to keys sharing a group. A
 synth or an effect cannot declare it; sample engines have their own
-`chokeSameKey` (see [Services](#services)).
+`chokeSameKey` (see [Services](#services)). With `ampEnvelope` (below) a cut
+voice fades over one block (64 frames, 1.45 ms) instead, and the note that cut
+it waits that block out: it renders silence for that block and starts with the
+next, so a retrigger sounds 64 frames late, and a note cut again while it waits
+never sounds. A note on a pad with nothing sounding starts at once.
+
+### The drum-kit controls
+
+From SDK 1.23 a kit without `padMix` may ask for each of three controls of a
+key's own, each `0` or `1` in `resources` (omitted means 0). A kit declaring
+none of them builds and plays exactly as before, and a build without such a
+kit compiles the SDK's code as before. They play on keys the kit has marked as
+its own (any edit, scramble, reset or kit preset marks a key): a key never
+marked plays at 0 dB, with no random and the kit's default amp envelope,
+whatever stock left in its record. The first time the kit marks a key it sets
+the key's volume to 0 dB and its random to none, so it sounds as it did. A key
+an older version of the kit marked keeps what stock left there: when an existing
+kit adds `padVolume` or `padRandom`, such keys in saved projects can play a level
+or random of stock's (its default kit gives the last key about 30% random) until
+they are set on Shift.
+
+- **`padVolume`**: Shift and the third encoder set the selected key's volume:
+  stock's own per-pad level, in whole dB from -30 to +20, one a detent, 0 dB by
+  default. While Shift is held its cell shows VOLUME and the level, such as
+  `-6dB` or `+3dB`. In a kit with groups it takes the choke group's place:
+  such a kit's keys keep the choke groups their presets give them, but Shift
+  does not change them. The adapter multiplies each note's output by the
+  volume after the amp envelope, saturating above full scale (a boost can take
+  a voice past its `outputPeakQ31`), and ramps a change over one block while the
+  note sounds. It is saved with the pad, follows pad copy and paste, and presets
+  carry it as the region's `gain`.
+- **`padRandom`**: Shift and the fourth encoder set the selected key's random,
+  0..100% in 1% steps, none by default; its cell shows RANDOM and the percentage.
+  Each note on the key moves each of its eight controls by a random amount of up
+  to ±(random × 32) steps, drawn once when the note first renders and held for
+  the note, after the track's offsets, clamped to 0..127. It is stock Drumline's
+  per-pad random: saved with the pad and carried by presets as the region's
+  `random`. The generator is the SDK's own and runs on the audio side only.
+- **`ampEnvelope`**: M2 shows the drum sampler's amp page for the kit (start,
+  attack, hold, decay), and each key keeps its own four values: selecting a key
+  puts its values on the page, and turning M2 stores them to that key alone.
+  The adapter shapes each note with them after stock's gain, as stock's drum
+  sampler shapes a sample: the attack is a linear fade-in by stock's own step
+  table (0 starts at full); the hold is when the fade-out begins, hold × 2 s
+  after the attack is over (full holds to the end); the decay is the fade-out's length (about 4 ms at 0
+  to 0.97 s at full); the start has no use without a sample. A note-off starts
+  the fade-out at the decay's rate, and a note faded to silence is freed. A key
+  keeps its values in its pad record, so they are saved with the project and
+  follow pad and track copy and paste, but presets do not carry them: a key
+  without its own (one never edited on M2, a key of a loaded preset, or every
+  key of a project saved before the kit declared `ampEnvelope`) plays and shows
+  the kit's defaults, its init preset's amp `attack`, `decay`, `sustain` and
+  `release` (`presetDefaults`), which land on start, attack, hold and decay.
+  The shared template's give a short fade-in (its amp `decay` is M2's attack);
+  set `presetDefaults.amp.decay` to 0 for an instant attack. A
+  note takes its key's values when it first renders; step locks and modulation
+  of the amp words do not reach it.
+
+The display's `Input::choices` holds the third and fourth Shift choices at
+all times: a `padVolume` kit's volume as dB + 30 (0..50, 30 is 0 dB) and a
+`padRandom` kit's random in percent ([display](display.md#shift-and-a-drum-kits-machine-sdk-18)).
+For a kit with `padRandom` or `ampEnvelope`, `finished` is not asked for a voice
+that has not rendered its note yet. The profiling workload plays such a kit's
+keys with a 6 dB boost (`padVolume`), no random and the kit's amp defaults.
+The browser preview shows the Shift choices of a key it has not set up (0 dB,
+no random) and plays neither the volume, the random nor the envelope.
 
 Holding the track key and choosing scramble re-rolls every key of a kit, as on
 Drumline: its model, from all the kit's models, and each control that model
@@ -1103,6 +1355,11 @@ means 0. Callbacks are functions in the machine's namespace.
 | `chokeSameKey` | 0 or 1 | A note silences earlier voices on the same track and key (drum sampler base: the same pad, at any octave) | |
 | `padControls` | Up to two `{label, bits, signed}` fields, 1..7 bits each (2..8 signed), 9 in all; needs `padMix` | Each key's own small settings on Shift's second row ([drum kits](#synthesis-drum-kits)) | `drum_pad`, `pad_control_text` |
 | `padMix` | 0 or 1; drum kits, SDK 1.10 | Shift: the model, choke group and each key's stock pan and level; on the second row the key's pad controls and its own FX I and FX II sends; a held step locks pan, level, pad controls and sends per hit ([drum kits](#synthesis-drum-kits)) | |
+| `padVolume` | 0 or 1; drum kits without `padMix`, SDK 1.23 | Shift's third encoder sets each key's volume, -30..+20 dB, which its notes play at ([drum-kit controls](#the-drum-kit-controls)) | |
+| `padRandom` | 0 or 1; drum kits without `padMix`, SDK 1.23 | Shift's fourth encoder sets each key's random, which moves each hit's controls by up to ±32 steps ([drum-kit controls](#the-drum-kit-controls)) | |
+| `ampEnvelope` | 0 or 1; drum kits without `padMix`, SDK 1.23 | M2's start, attack, hold and decay kept per key and shaping each note, fading on note-off ([drum-kit controls](#the-drum-kit-controls)) | |
+| `parameterEdit` | 0 or 1; drum kits, SDK 1.21 | A turn of an available control (below the model's count and named), without Shift and with no step held, asks the kit for the control's next stored value instead of moving it one unit a detent ([drum kits](#synthesis-drum-kits)) | `edit_parameter` |
+| `modelEdit` | 0 or 1; drum kits, SDK 1.25; not with `parameterEdit` | The same turns ask the kit for the key's next model and value, so one encoder can run through every model ([drum kits](#synthesis-drum-kits)) | `edit_model_parameter` |
 | `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
 | `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |
@@ -1230,6 +1487,56 @@ prepared while the sample browser is open, and a sample that does not fit stays
 unanalyzed. Results are released before stock frees the sample. A collection's
 analysis budgets together may not exceed 2 MiB.
 
+### Sample kernel
+
+SDK 1.17.
+
+```cpp
+struct SampleTaps { const i16* origin; u32 shift, last, reverse, channels, level; };
+void sample_interpolate(i32* output, const u32* positions, u32 count, const SampleTaps&);
+```
+
+[sample_kernel.hpp](../sdk/include/opxy/sample_kernel.hpp) is a sample voice's
+second pass as one routine. The machine computes its playhead positions itself
+(frames << `shift` plus a fraction, as many as the block plays); the routine
+reads the two neighbouring frames at each, interpolates linearly with the
+fraction's top 14 bits, applies the pad `level` (Q27, `sample_unity_level` is
+unity) and writes `output[0 .. 2 * count - 1]` as interleaved stereo words
+(a mono source gives both). Past `last` the next frame is the region's first;
+`reverse` reads backwards from `origin`, which may be any `i16` address: a stereo
+origin that is not 4-byte aligned is read in 16-bit halves rather than with a
+32-bit load, which would fault on the device. Every position must be below
+`frames << shift`; nothing checks it. `sample_interpolate_reference` in the
+header defines every word; the host build runs it, and golden vectors in
+`tests/test_sample_kernel.py` pin it. The device runs hand-written BF707 code
+(`sdk/platform/blackfin/sample_kernel.s`), which no test in the SDK runs: the
+SDK has no Blackfin simulator. Its words were compared with the reference's on a
+BF707 simulator outside the SDK, and a test pins that code by digest, so any
+change to it fails until it is compared again (the failure says how). About 15
+cycles a frame at unity level, 24 (mono) to 32 (stereo) below 2^28, 51 above,
+and about 6 more a frame for an unaligned stereo origin: counts from that
+simulator, not from a device. The code, 2,872 bytes (a test checks the size when
+the toolchain is present), sits in the module's normal text and is cached
+like the machine's own code: the loops are short and run 64 frames at a time,
+so they stay in the instruction cache after the first frame, and fast memory
+is left alone. Only a build with a machine whose own C++ includes the header
+(SDK 1.17) links it; other builds are byte-identical. When the machine or any of
+its tests includes the header, its host tests (`sdk.py test`) link the host
+build, `sdk/host/sample_kernel.cpp`.
+
+```cpp
+struct SampleFade { const u32* from; const u32* to; const u16* weights; };
+void sample_crossfade(i32* output, const SampleFade&, u32 count, const SampleTaps&);
+```
+
+`sample_crossfade` mixes two playheads, as a grain splice does: each frame reads
+`from[i]` and `to[i]` exactly as `sample_interpolate` would, mixes them as
+`(a * (16384 - w) + b * w) >> 14` with `w = weights[i]` (0 to 16384; 0 gives
+`from` exactly), then applies the level. The machine keeps every decision (when a
+splice starts, the fade's shape and length) and hands over only the positions
+and weights. `sample_crossfade_reference` defines it; about 40 cycles a stereo
+frame in that simulator.
+
 ## Effects
 
 [effect.hpp](../sdk/include/opxy/effect.hpp) defines the effect interface. An
@@ -1255,6 +1562,39 @@ declared controls. Do not depend on the absolute level of the send buffers.
 No destructor ever runs, so it holds no resources. The generated adapter
 checks both limits at compile time. Effects use the stock FX page, with any controls after the fourth as
 [alternates](#alternate-controls) or a [second page](#effect-pages-and-shift-rows), and have no browser preview.
+
+### Idle sends
+
+With the `idle` capability ([deprecated](cpu-capabilities.md#idle), not in the `cpu`
+extension; `sdk.py build` only), a send with nothing to play is not processed.
+Once its input, its effect's output and the send's result have all stayed
+below the idle floor (64 raw, 2^6, in raw bus units: silence on the send bus) for the effect's **hold**, with its controls, the tempo, the
+play state and the send's filter unchanged and no effect change, fade or
+engine reset pending, the send skips `process` and outputs silence. The first
+block that breaks any of those conditions, such as input at the floor, runs
+`process` again on the state as it was. Time an effect counts itself (an LFO
+phase, a sample count) pauses while its send is idle.
+
+The hold is the effect's tail plus 64 blocks (93 ms) of margin, in 64-frame
+blocks. The tail is `"tailFrames"` in `resources` if the effect declares it:
+how many frames it can still sound after its input stops, at most 2^24, or
+`"unbounded"`, which never idles the send (SDK 1.22). Without it, the tail is
+the longest a plain line of 16-bit mono samples in the effect's memory holds,
+half its [`bufferBytes`](#effect-buffers) in frames (262,144 frames, 5.9 s, for
+the largest buffer), but the hold of an effect that declares nothing is never
+shorter than 2,112 blocks (3.07 s).
+
+An effect that can sound without send input **must** declare `"unbounded"`:
+one that self-oscillates or feeds back at a gain of 1 or more, one that makes
+sound of its own (noise, crackle, clicks, an LFO driving a resonant filter, a
+transport-driven generator), or one that plays another source (such as the
+live input). Idling skips `process`, so such an effect would freeze silent
+until send input came back, however long its hold. An effect that keeps audio
+longer than the derived figure in its memory, such as 8-bit samples, a line
+written at a reduced rate, or a looper or freeze, must declare `tailFrames`
+(or `"unbounded"`); an effect that cannot sound on its own after its input
+stops may declare `0` to idle sooner. Stock's delay, reverb and chorus get the hold
+of a 512 KiB request read the same way: 4,160 blocks (6.0 s).
 
 ### Effect pages and shift rows
 
@@ -1367,7 +1707,15 @@ raises both channels' 64 words by N bits, saturating at the Q31 limits, before
 halves rounding up, after it. The shift row's words and the effect's
 parameters are not shifted. A word below 2^(31-N) in magnitude comes back
 unchanged through an effect that passes it on; louder input clips at that
-level, N times 6 dB under full scale.
+level, N times 6 dB under full scale. The `idle` capability's floor does not
+follow N: it is 64 raw (2^6) in raw bus units for every effect, so only silence idles a
+send.
+An effect whose output or result rests at 64 raw or more with no input (a DC
+offset, a limit cycle in a truncating feedback path) never idles: it costs its
+whole call every block while it is loaded. The floor is chosen, not derived from what
+the bus can carry: well under the send levels the author read on one OP-XY, and above the
+small residue a stock effect was seen to leave at rest in a simulator outside this
+repository (both observations this repository cannot reproduce).
 
 **Choosing N.** The level the send bus runs at depends on the project: how many
 tracks send, at what send amounts and levels. It is not documented by stock and
@@ -1421,7 +1769,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.16 and builds 1.0 to 1.16 machines |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.26 and builds 1.0 to 1.26 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
@@ -1430,7 +1778,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | `presetDefaults` | Optional `{"amp": {...}, "volume": n}` overriding generated factory preset values: the envelope's `attack`, `decay`, `release` and `sustain`, and the track `volume` (16384 by default; 32767 is full), each 0..32767. It does not rewrite existing projects or presets |
 | `presets` | Optional folder inside the machine folder holding the machine's own [presets](#presets); `sdk` 1.3, instruments only |
 | `samples` | Optional folder inside the machine folder holding a sample engine's own [samples](#own-samples), which its presets load; `sdk` 1.10, sample engines forking the sampler |
-| `graphics` | Optional `{"grayscale": "panel.grayscale.svg.fragment"}` for a synth's developer-authored [grayscale artwork](display.md#grayscale-artwork); `sdk` 1.5 |
+| `graphics` | Optional `{"grayscale": "panel.grayscale.svg.fragment"}` for developer-authored [grayscale artwork](display.md#grayscale-artwork): a synth's (`sdk` 1.5), or an effect's that draws its own page (`sdk` 1.7) |
 
 An effect's optional `dryParameter` field names the control used by the stock
 source dry mixer, as described under [effects](#effects).
@@ -1456,6 +1804,17 @@ firmware that holds it.
   as the device saved them, except that a synth with a
   [Shift row](#a-synths-shift-row) keeps it in up to 24 regions that point at
   no sample.
+
+From SDK 1.21 a synthesis drum kit without `padMix` may store exactly 24 sample-free pad records instead of empty
+`regions`: `model` is `"fm slap"` (the stored-pad marker), `params` holds four packed
+Q15 words, and optional `playmode` selects a stock choke/play mode. Optional `hikey`
+is the canonical key 53..76 in pad order. No other fields or sample paths are
+accepted. Keep track parameters neutral to edit saved pad controls freely.
+A `padMix` kit's shipped presets keep empty `regions`: its keys' records also
+carry each key's level and pad word (`gain` and `random`, as
+[synthesis drum kits](#synthesis-drum-kits) describes for presets saved on the OP-XY), and the
+SDK does not check those fields in a shipped preset yet. Presets the user saves
+and loads on the OP-XY keep them as before.
 
 #### Own samples
 
@@ -1570,7 +1929,8 @@ passed to a build with `--machine`.
 SDK 1.8 adds `"kind": "player"`. A player transforms live and sequenced notes
 before the track's instrument receives them. Its `machine.json` declares no
 identity or base; the layout assigns an unused player type and its own page.
-Use four parameters (or five to eight, below), `"resources": {}`, `player.cpp` and `panel.svg.fragment`.
+Use four parameters (or five to eight, below), `"resources": {}`, `player.cpp` and `panel.svg.fragment`
+(or, drawing its [own page](#a-players-own-drawn-page-sdk-126), a display in `resources`, `display.h` and `display.cpp`).
 A parameter an encoder doesn't need may be left empty, declared `"absent": true`
 as for a synth's empty slot: its title and value stay empty and its encoder turns nothing.
 A player with five to eight parameters declares `"press": "page"` (SDK 1.16):
@@ -1583,7 +1943,8 @@ Stock keeps all eight parameter words in the project and sets them to the
 declared defaults only when the player is chosen, so a project saved while a
 player had four parameters opens a later version with five to eight with the 0
 its words 4..7 held then, not the new parameters' defaults.
-Its header shows [both pages in place](ux.md#more-than-four-controls).
+Its header shows [both pages in place](ux.md#more-than-four-controls) (on the dot page; a
+[drawn page](#a-players-own-drawn-page-sdk-126) draws it itself).
 Players have no instrument presets, audio-render CPU estimate or browser audio preview.
 
 Include `<opxy/player.hpp>` and implement, in the machine's namespace:
@@ -1595,6 +1956,9 @@ bool press(State&, const opxy::player::Controls&, opxy::u32 note,
 bool release(State&, opxy::u32 note);
 void display(const State&, const opxy::player::Controls&, opxy::player::Display&);
 ```
+
+(`display` is the dot page's; a player [drawing its own page](#a-players-own-drawn-page-sdk-126) supplies its
+`display.cpp` instead.)
 
 `press` returns false to pass a note through, or true with a plan of zero to
 eight tones. Each tone has a MIDI pitch and velocity, and a delay in stock
@@ -1664,6 +2028,47 @@ around the input keyboard and every emitted note. This preserves octaves
 under voicing, spread and simultaneous chords. MIDI endpoints use partial
 octaves. Hidden nodes move beyond the display.
 
+### A player's own drawn page (SDK 1.26)
+
+A player may instead draw its page as a synth draws its screen: declare
+`"resources": {"display": {...}}` with the [display fields](display.md#declaration)
+(plain drawing; the [extended](display.md#extended-drawing) keys are for synths and
+effects), `"sdk": "1.26"`, and supply `display.h` (the `DisplayState` and `Frame`
+types, as a synth's) and `display.cpp`:
+
+```cpp
+void display_reset(DisplayState&);
+void display(DisplayState&, const State&, const opxy::player::Controls&,
+             const opxy::draw::Input&, Frame&);
+```
+
+The SDK compiles `display.cpp` in the player's one unit, after `player.cpp`, so
+it reads `State` directly: the same advisory GUI read as `display(const State&, ...)`
+above, while the sequencer may be changing it. The frame, its validation and its
+artwork bindings are a synth's ([display](display.md#frame)); the dot page's
+`<id>_dot_*`, `<id>_text`, keyboard and output-keyboard nodes are not used, and
+the SDK fills no `played` notes. `draw::Input` carries the player's eight controls
+in `slots`, the page shown in `shown` and `parameters` (slots 4..7 on a paged
+player's second page, `line` 1 there), `elapsed`, `track`, the track's
+`note_serial` and [note activity](display.md#note-activity-sdk-11), its
+[amp envelope](display.md#amp-envelope-sdk-110), and `shift` as `Controls.shift`;
+the shift row's values and turns are in `Controls`. `reduced_motion` is 0, the
+drum fields 0. The display resets when its page is shown again or the track
+changes, as a synth's does.
+
+A one-page player keeps the stock header: its labels, and each value the frame's
+`header` caption or else the amount 0..100. A paged player draws the
+[two-page header](display.md#two-page-header) itself, in its own frame and
+artwork, as a paged synth does; the SDK adds none. No fragment is generated for a player: copy the
+header block, with its cover over the stock header, from the `panel.svg.fragment` of an eight-control
+synth (`sdk.py new --controls 8`), or the stock header's values show beneath its own. `sdk.py test` checks the
+artwork against the declared display and runs the display on the host with
+`player.cpp` over a held key's frames, refusing invalid ones.
+
+Not yet run on a device: the renderer is the dot page's registration and
+compositor path with the synth renderer's frame application, compiled into the
+player's unit.
+
 Player types remain stable when a subsequent build uses the saved layout.
 Stock firmware replaces an unknown saved player with Arpeggio. Project
 companions currently describe engine/effect identities only: preserve the
@@ -1732,3 +2137,29 @@ turn hook while Shift is held (if it does not, Shift turns do nothing), and
 that stock delivers keyboard notes to the player while Shift is held. Key
 events other than notes (the -/+ keys, Shift + key) and Shift + encoder clicks
 are not available to players; they need a new hook.
+
+### A player's track instrument (SDK 1.25)
+
+A player declaring `"sdk": "1.25"` or later also receives `Controls.instrument`, the
+kind of instrument its track holds, as stock classifies it:
+`opxy::player::DrumInstrument` for stock's drum sampler, its drum synth or an
+SDK drum kit, `OtherInstrument` for anything else (a synth, the keyboard
+sampler, a sample engine, an empty track) and on a track outside the eight
+instrument tracks. A player can then behave differently on a drum track, for
+example playing fixed pads (keys 53..76) instead of notes of a scale. Like
+`shift`, the GUI publishes it once per frame for every instrument track and
+a callback reads the latest, so after the track's instrument changes, `press`,
+`update` and `display` see the new kind within a frame. A sample engine that
+forks the drum sampler reads `OtherInstrument`: stock does not classify it as
+a drum.
+
+`instrument` follows `clicks` (offset 112; `Controls` is 116 bytes). It exists
+only in a build with a player declaring SDK 1.25 or later, where every player
+of the build gets it; a build without one keeps the 112-byte `Controls` and
+compiles every player and the SDK's player code exactly as before. A player
+that reads it declares 1.25: one declaring an older version that reads it
+compiles only beside a 1.25 player, and reads the kind there. In such a
+build, building `Controls` takes about 12 instructions more on the usual path
+(a published byte per track), and each GUI frame asks stock for eight tracks'
+engines, counted from the compiler's listing, not timed on a device
+([firmware](abi-1.2.1.md#players-track-instrument)).

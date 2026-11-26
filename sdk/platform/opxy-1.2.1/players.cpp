@@ -64,6 +64,23 @@ static_assert(kInputOffset + sizeof(PlayerInput) <= 0x10000, "Player input excee
 // whether Shift is held, and the page stock selected.
 volatile u32 shift_published, page_selected;
 
+#if OPXY_PLAYER_INSTRUMENT
+// Each instrument track's kind of instrument (Controls.instrument, SDK 1.25),
+// published with Shift so note callbacks never call stock's project getters:
+// stock's drum predicate (1 for its drum sampler, engine 3, or its drum synth,
+// engine 4) on the track's engine (stock's getter). The drums service hooks
+// that predicate's entry to alias an SDK kit to 4 (drum_hooks.s), so in a
+// build with kits it answers for them too; without that service there are
+// none. Only a build with a player declaring SDK 1.25 compiles this.
+const u32 kDrumPredicate = 0x8d5b79f0;
+volatile u8 instrument_published[kTracks];
+
+u32 track_instrument(u32 track) {
+    return stock<u32(u32)>(kDrumPredicate)(track_engine(track)) ? opxy::player::DrumInstrument
+                                                                 : opxy::player::OtherInstrument;
+}
+#endif
+
 char* bytes(void* object) { return static_cast<char*>(object); }
 
 const Player* owned(u32 type) {
@@ -164,6 +181,9 @@ opxy::player::Controls player_controls(void* object) {
         controls.shift_turns[i] = input->shift_turns[i];
     }
     for (u32 i = 0; i < 4; ++i) controls.clicks[i] = input->clicks[i];
+#if OPXY_PLAYER_INSTRUMENT
+    controls.instrument = track < kTracks ? instrument_published[track] : opxy::player::OtherInstrument;
+#endif
     return controls;
 }
 
@@ -304,9 +324,14 @@ u32 sdk_player_id(const void* name) {
 u32 sdk_player_substitute(u32 selected) {
     // The compositor calls once per GUI frame, even when the player page is
     // hidden. Sequenced players on unselected tracks need fresh octaves too,
-    // and every player the Shift state (Controls.shift).
+    // and every player the Shift state (Controls.shift) and, from SDK 1.25, its
+    // track's kind of instrument (Controls.instrument).
     refresh_keyboard_octaves();
     shift_published = shift_held() ? 1 : 0;
+#if OPXY_PLAYER_INSTRUMENT
+    for (u32 track = 0; track < kTracks; ++track)
+        instrument_published[track] = static_cast<opxy::u8>(track_instrument(track));
+#endif
     page_selected = selected;
     if (selected != kMaestroPage) return 0;
     const u32 track = selected_track();

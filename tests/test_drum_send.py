@@ -29,7 +29,7 @@ SITES = {'0x8d510bea': ('sdk_drum_send_track', '00e38f5d'),
          '0x8d511088': ('sdk_drum_send_source_1', '09da901100360000'),
          '0x8d5110ca': ('sdk_drum_send_source_2', '09da901100360000'),
          '0x8d511116': ('sdk_drum_send_own', '30e51200')}
-SITE_SERVICES = {'0x8d510bea': 'mixer', '0x8d51c7b2': 'mixer', '0x8d510ea8': 'mixer', '0x8d511116': 'mixer',
+SITE_SERVICES = {'0x8d510bea': 'track_call', '0x8d51c7b2': 'mixer', '0x8d510ea8': 'mixer', '0x8d511116': 'mixer',
                  '0x8d511088': 'drum_sends', '0x8d5110ca': 'drum_sends'}
 
 
@@ -177,7 +177,7 @@ int main() {
 '''
 
 
-def kit(pad_mix=None, sdk='1.10'):
+def kit(pad_mix=None, sdk=(1, 10)):
     definition = copy.deepcopy(fixture('probesynth').definition)
     definition['resources'].update(modelCount=12)
     if pad_mix is not None:
@@ -274,18 +274,23 @@ class DrumSend(unittest.TestCase):
         self.assertNotIn('weak', (PLATFORM / 'drum_send.cpp').read_text(encoding='utf-8'))
 
     def test_the_profile_reviews_six_call_sites_outside_hardware_loops(self):
-        hooks = {p['address']: p for p in PROFILE['patches'] if p.get('service') in ('mixer', 'drum_sends')}
+        # The voice loop's call is the track call, which per-key sends and Sample Studio (the
+        # mixer) share with track stages (tests/test_track_stage.py); the mixer's three other
+        # sites are the mixer's, the send buses' sources the sends' alone.
+        hooks = {p['address']: p for p in PROFILE['patches'] if p.get('service') in ('mixer', 'drum_sends', 'track_call')}
         self.assertEqual(set(hooks), set(SITES))
+        self.assertEqual(hooks['0x8d510bea']['service'], 'track_call')
+        self.assertLessEqual(set(PROFILE['services']['drum_sends']), set(PROFILE['services']['track_call']))
         for address, (symbol, before) in SITES.items():
             patch = hooks[address]
             self.assertEqual((patch['kind'], patch['symbol'], patch['before'], patch['call'], patch['service']),
                              ('hook', symbol, before, True, SITE_SERVICES[address]))
             self.assertEqual(patch['length'], len(before) // 2)
         stubs = stubs_text()
-        for name, service in (('mixer_hooks.s', 'mixer'), ('drum_send_hooks.s', 'drum_sends')):
+        for name, service in (('mixer_hooks.s', ('mixer', 'track_call')), ('drum_send_hooks.s', ('drum_sends',))):
             own = (PLATFORM / name).read_text(encoding='utf-8')
             self.assertEqual(sorted(re.findall(r'\.global (\w+)', own)),
-                             sorted(SITES[a][0] for a, s in SITE_SERVICES.items() if s == service), name)
+                             sorted(SITES[a][0] for a, s in SITE_SERVICES.items() if s in service), name)
         for symbol, _before in SITES.values():
             self.assertIn('.global %s' % symbol, stubs)
         # Each stub replays the instruction it replaces: the loop's call, P2's and P1's loads.

@@ -1,6 +1,9 @@
-/* Stock 1.2.1's mixer, the engine block 8d510760: four sites the per-key sends
+/* Stock 1.2.1's mixer, the engine block 8d510760: the sites the per-key sends
  * (drum_send.hpp, service drum_sends) and Sample Studio's player (service
- * sample_studio) share, as service mixer. Per instrument track the engine calls
+ * sample_studio) share, as service mixer: each rendered voice, the track gain and
+ * the send loops' end, and the track's voice-loop call (8d510bea, service
+ * track_call) when no track stage takes it (track_call.s, which then calls
+ * sdk_mixer_begin itself). Per instrument track the engine calls
  * the voice loop 8d51c708 (only from 8d510bea), which renders each voice into
  * 0x11b01548 and adds it into the track's stereo sum at 0x11903600
  * (8d51c7b0..8d51c7d8); the engine then scales that sum in place by the track's
