@@ -423,7 +423,7 @@ index. Each voice costs the machine's voice size plus the adapter's own state, s
 stock is not known to pass; indirect calls were not traced) gets a shared silent
 object and adds one to `<prefix>_voice_refusals`, an exported per-engine word
 that nothing in the SDK reads: a debugger, a simulator or a build's own code may. It also declares the
-optional [sample services](#sample-engines) it uses. An effect needs no resources (`{}`). Any kind may
+optional [sample services](#sample-engines) it uses. An effect requires no resources (`{}`). Any kind may
 also declare `deviceIdentity` (SDK 1.30) to read the [device identity](#device-identity).
 A synth declares:
 
@@ -697,8 +697,11 @@ if (opxy::device_identity(identity, opxy::device_identity_bytes)) {
 and returns true, or returns false and writes nothing while the identity is not
 known yet. On the device that is the case for a moment after boot: the GUI
 processor reads the identity and then sends it to the audio processor, normally
-within a second. From the first true it returns the same bytes until the
-device restarts. Any callback may call it, `render`, `process` and display code
+within a second. Display code runs on the GUI processor and reads its copy;
+`render` and `process` run on the audio processor and read that one's, so the
+screen can show the identity while the sound still gets false, briefly or, if
+every message is lost, for good. Don't assume the two agree. From the first
+true it returns the same bytes until the device restarts. Any callback may call it, `render`, `process` and display code
 included; it does not block. It copies up to 18 bytes each time, so a machine that
 reads it often can keep its own copy after the first true. Code that needs the
 identity in `init` or at a note's start must handle false: keep a default and switch once it is known,

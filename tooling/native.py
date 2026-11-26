@@ -600,7 +600,7 @@ def service_fallbacks(services):
         # The global parameter receiver's next step after the device identity's
         # (device_identity.cpp): the master processor's; kit_absent tells it to call
         # stock's own setter instead.
-        fallbacks['master_filter'] = {'sdk_master_receive': 'kit_absent'}
+        fallbacks.setdefault('master_filter', {})['sdk_master_receive'] = 'kit_absent'
     return fallbacks
 
 

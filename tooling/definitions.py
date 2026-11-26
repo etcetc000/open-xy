@@ -144,7 +144,8 @@ DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls', 'paramet
 # SDK 1.30: deviceIdentity, 0 or 1, for a machine of any kind that reads the device identity
 # (opxy/device_identity.hpp, the device_identity service). A renumber changes this line,
 # SDK_VERSION and its history (tooling/machines.py) and the "1.30" text in the docs,
-# the header and the fixture.
+# the header, the fixture (machine.json), tests/test_device_identity.py and
+# tests/machine_fixtures.py.
 DEVICE_IDENTITY_SDK = (1, 30)
 # Pad controls share 9 bits of stock's pad word +0x14; its sends take 6 more (drum_storage.hpp).
 PAD_CONTROL_FIELDS, PAD_CONTROL_BITS = 2, 9
