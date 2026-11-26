@@ -252,6 +252,10 @@ void audio() {
     loose.erase(loose.begin());
     deliver(loose);
     // A value of 2^24 or more ends the message, here a word whose low bytes still check.
+    std::vector<Call> wide_begin = message(11, kIdentity);
+    wide_begin[0].value |= 0x1000000;  // a begin of 2^24 or more opens nothing
+    deliver(wide_begin);
+    require(!opxy_device_identity(out, 18), "a begin of 2^24 or more opens nothing");
     std::vector<Call> wide = message(6, kIdentity);
     wide[3].value |= 0x1000000;
     deliver(wide);

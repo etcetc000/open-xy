@@ -41,7 +41,7 @@ const u32 kClock = 0x8d5be3a0;
 // Parameter numbers: stock sends 0..3, the master processor 128..137.
 // A message is begin(sequence), six words, commit(check).
 const u32 kBegin = 138, kFirstWord = 139, kCommit = 145;
-// The GUI looks for the identity at most 600 times, 100 ms apart (about a minute),
+// The GUI looks for the identity at most 600 times, at least 100 ms apart (a minute or more),
 // until it has it, then sends it once a second, 32 times.
 const u32 kProbeMicroseconds = 100000, kProbes = 600, kSendMicroseconds = 1000000, kSends = 32;
 
@@ -124,7 +124,10 @@ void sdk_identity_gui_service() {
         if (probes && !due(now, next_probe)) return;
         ++probes;
         next_probe = now + kProbeMicroseconds;
-        if (!read_boot(identity)) return;
+        // A look reads into its own buffer: the copy readers see is written only once.
+        u8 candidate[kBytes];
+        if (!read_boot(candidate)) return;
+        for (u32 i = 0; i < kBytes; ++i) identity[i] = candidate[i];
         barrier();
         known = 1;
         sends_left = kSends;
