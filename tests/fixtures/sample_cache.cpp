@@ -37,20 +37,25 @@ static unsigned fake_prepared(opxy::SampleAnalysis* out) {
     *out = opxy::SampleAnalysis{preparation.sample, preparation.storage, preparation.words, 0x51a7u};
     return 1;
 }
-// Two analysis machines: engine 35 with the full budget, and engine 46, only
-// registered for the per-engine checks, with 64 KiB.
-static bool second_registered;
+// Three analysis machines: engine 34, first in the table with 8 KiB and only
+// registered for the refusal-notice checks; engine 35 with the full budget; and
+// engine 46 with 64 KiB, only registered for the per-engine and shared-allowance
+// checks.
+static bool second_registered, third_registered;
 static int first_ready() { return 1; }
 static int second_ready() { return second_registered; }
+static int third_ready() { return third_registered; }
 // Engine IDs are absolute link-time symbols on the device; here, their values.
 static const char* engine_symbol(unsigned id) { return reinterpret_cast<const char*>(static_cast<__UINTPTR_TYPE__>(id)); }
 const opxy::platform::SampleMachine sdk_sample_machines[] = {
+    {engine_symbol(34), 7, third_ready, nullptr, nullptr, nullptr, nullptr, 8u * 1024u,
+     fake_words, fake_begin, fake_step, fake_prepared},
     {engine_symbol(35), 7, first_ready, nullptr, nullptr, nullptr, nullptr, 2u * 1024u * 1024u,
      fake_words, fake_begin, fake_step, fake_prepared},
     {engine_symbol(46), 7, second_ready, nullptr, nullptr, nullptr, nullptr, 64u * 1024u,
      fake_words, fake_begin, fake_step, fake_prepared},
 };
-const unsigned sdk_sample_machine_count = 2;
+const unsigned sdk_sample_machine_count = 3;
 extern "C" const opxy::platform::SampleMachine* sdk_sample_machine(unsigned engine) {
     for (const auto& m : sdk_sample_machines)
         if (m.engine() == engine) return m.ready() == 1 ? &m : nullptr;
@@ -247,7 +252,48 @@ int main() {
     sdk_sample_cache_release(&large_objects[0]);
     sdk_sample_cache_prepare(&large_objects[fitting]);
     require(sdk_sample_cache_find(&large_objects[fitting], 35) != nullptr, "failed sample did not retry once budget was freed");
+
+    // Every machine's analyses come from one allowance. With engine 35 holding
+    // all but 130,832 bytes of it, a sample of 64 KiB for each machine fits
+    // engine 35 and then, though within engine 46's own budget, not engine 46.
+    second_registered = true;
+    opxy::SampleView half{pcm.data(), 16380 * 32, 44100, 1};
+    require(4 * analysis_words(half) == 64u * 1024u, "shared allowance sample is not a whole budget");
+    Object shared(half);
+    sdk_sample_cache_prepare(&shared);
+    require(sdk_sample_cache_find(&shared, 35) && !sdk_sample_cache_find(&shared, 46) &&
+            sdk_sample_cache_failed(&shared, 46) && held_bytes() <= kAllowanceBytes,
+            "machines together exceeded the shared allowance");
+    const unsigned shared_allocations = allocations;
+    sdk_sample_cache_prepare(&shared);
+    require(allocations == shared_allocations, "sample over the shared allowance retried without a release");
+    // Any machine's release frees allowance for another's waiting sample.
+    sdk_sample_cache_release(&large_objects[1]);
+    sdk_sample_cache_prepare(&shared);
+    require(sdk_sample_cache_find(&shared, 46) != nullptr && !sdk_sample_cache_failed(&shared, 46),
+            "waiting sample did not retry once the shared allowance was freed");
+    sdk_sample_cache_release(&shared);
+    second_registered = false;
     for (auto& object : large_objects) sdk_sample_cache_release(&object);
+    require(blocks.empty(), "budget test leaked storage");
+
+    // One status reaches the GUI at a time. Engine 34, first in the table, is
+    // refused a 64 KiB sample; engine 35 then prepares it. The refusal is still
+    // the state the GUI reads.
+    third_registered = true;
+    Object noticed(half);
+    sdk_sample_cache_prepare(&noticed);
+    require(sdk_sample_cache_failed(&noticed, 34) && sdk_sample_cache_find(&noticed, 35) != nullptr &&
+            progress.state == 4, "a later machine's progress replaced a refusal");
+    sdk_sample_cache_release(&noticed);
+    // With nothing refused, the last state is the last machine's.
+    Object unrefused(tiny);
+    sdk_sample_cache_prepare(&unrefused);
+    require(sdk_sample_cache_find(&unrefused, 34) && sdk_sample_cache_find(&unrefused, 35) &&
+            progress.state == 2, "a pass without a refusal announced one");
+    sdk_sample_cache_release(&unrefused);
+    third_registered = false;
+    require(blocks.empty(), "refusal notice test leaked storage");
 
     for (unsigned frames : {0u, 1u, 0x100000u, 0xffffffffu}) {
         opxy::SampleView invalid{pcm.data(), frames, 44100, 1};
@@ -444,6 +490,25 @@ int main() {
     sdk_sample_cache_prepare_keys(); // Missing stock cache entries never allocate.
     require(allocations == prepared_allocations && acquired == released,
             "missing cache entry allocated or released a foreign reference");
+    sdk_sample_cache_reset_keys();
+
+    // The same within one worker pass: a refused sample, then one that fits
+    // every machine. The pass ends on the refusal.
+    third_registered = true;
+    Object refused_first(half), fits_after(tiny);
+    const unsigned refused_key = 0x34a, fitting_key = 0x34b;
+    samples[refused_key] = &refused_first;
+    samples[fitting_key] = &fits_after;
+    sdk_sample_cache_accept_key(refused_key, 128);
+    sdk_sample_cache_accept_key(fitting_key, 128);
+    sdk_sample_cache_prepare_keys();
+    require(sdk_sample_cache_failed(&refused_first, 34) && sdk_sample_cache_find(&refused_first, 35) &&
+            sdk_sample_cache_find(&fits_after, 34) && sdk_sample_cache_find(&fits_after, 35) &&
+            progress.state == 4 && acquired == released, "a later sample's progress replaced a refusal in the same pass");
+    sdk_sample_cache_release(&refused_first);
+    sdk_sample_cache_release(&fits_after);
+    samples.clear();
+    third_registered = false;
     sdk_sample_cache_reset_keys();
     sdk_sample_gui_tick();
     require(overlay_calls && blocks.empty() && used_bytes(35) == 0, "GUI delivery or final ownership failure");
