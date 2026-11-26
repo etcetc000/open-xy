@@ -208,7 +208,7 @@ class Plan(unittest.TestCase):
         self.assertIn('if (reinterpret_cast<Address>(master) == absent) stock<Receiver>(kStockSet)(base, id, value);', unit)
         self.assertIn('int kit_absent() __asm__("kit_absent");', (PLATFORM / 'startup.cpp.in').read_text(encoding='utf-8'))
 
-    def test_machines_and_the_header_never_touch_the_hardware_themselves(self):
+    def test_the_header_calls_only_the_sdk_unit_on_the_device(self):
         header = HEADER.read_text(encoding='utf-8')
         # On the device the header only calls the SDK unit; elsewhere it gives the preview identity.
         self.assertIn('return opxy_device_identity(output, size);', header)
@@ -237,7 +237,7 @@ class Host(unittest.TestCase):
                 result = subprocess.run([*command[:-2], '-DSTOCK_SETTER=%d' % setter, *command[-2:]],
                                         capture_output=True, text=True, timeout=120, **HIDDEN)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                for mode in ('gui', 'torn', 'giveup', 'audio'):
+                for mode in ('gui', 'torn', 'giveup', 'lastlook', 'audio'):
                     result = subprocess.run([str(binary), mode], capture_output=True, text=True, timeout=120, **HIDDEN)
                     with self.subTest(setter=setter, mode=mode):
                         self.assertEqual((result.returncode, result.stdout.strip()), (0, 'ok'), result.stdout + result.stderr)

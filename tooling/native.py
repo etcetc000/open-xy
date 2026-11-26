@@ -27,7 +27,7 @@ from .adapters import (kit_controls, model_edit, pad_mix, player_instrument, pla
                        generate_voice, generate_drum_callbacks, preset_files, sample_callbacks, track_control,
                        control_callbacks)
 from .contributors import validate_source_boundary
-from .definitions import device_identity as reads_device_identity, extended_display, paged, synth_shift
+from .definitions import device_identity as declares_device_identity, extended_display, paged, synth_shift
 from .firmware import active_services, assemble, hook_instruction, hook_symbol, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
 from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, sample_path, tree
@@ -443,7 +443,7 @@ def service_users(machines):
             ['trackStage' for m in machines if track_stage.track_stage(m) is not None] +
             ['kitControls' for m in machines if kit_controls(m)] +
             ['ampEnvelope' for m in machines if kit_controls(m) & 4] +
-            ['deviceIdentity' for m in machines if reads_device_identity(m.definition)] +
+            ['deviceIdentity' for m in machines if declares_device_identity(m.definition)] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
             (['drumline_page'] if any(e.drumline_page is not None for e in extensions_of(machines)) else []) +
             [c for e in extensions_of(machines) for c in e.capabilities])

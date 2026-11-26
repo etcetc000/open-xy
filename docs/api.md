@@ -438,7 +438,7 @@ A synth declares:
 | `display` | The screen's frame budget; see the [display API](display.md) |
 | `trackControl` | Optional: the [track control](#track-control) state's `stateBytes` and `stateAlignment`, and optionally `unique`, `savedBytes`, `aux` and `sharedLfo` |
 | `trackStage` | Optional (SDK 1.24): the [track stage](#track-stage)'s `stateBytes`, `stateAlignment` and `tailFrames` |
-| `deviceIdentity` | Optional integer 0/1 (SDK 1.30): read the [device identity](#device-identity); any kind may declare it |
+| `deviceIdentity` | Optional integer 0/1 (SDK 1.30, the key itself, even as 0): read the [device identity](#device-identity); any kind may declare it |
 
 The SDK never runs constructors or destructors for `Voice`, `Shared` or
 `DisplayState`: their storage starts zeroed and the callbacks set it up.

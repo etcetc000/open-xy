@@ -4,7 +4,7 @@
 // to host memory through host_stock_address: the test writes a host stock.hpp
 // beside a copy of the unit, device_identity_unit.cpp. One processor per run:
 // "gui", "torn" (the boot information changes while it is read), "giveup" (it
-// never is in place) or "audio".
+// never is in place), "lastlook" (in place on the last look) or "audio".
 // Built with STOCK_SETTER, sdk_master_receive is kit_absent, as in a firmware
 // without the master processor, and other numbers go to stock's setter.
 // Prints "ok".
@@ -113,7 +113,7 @@ void place(const u8* identity, u32 marker) {
     put_marker(marker);
 }
 
-void gui(bool torn, bool giveup = false) {
+void gui(bool torn, bool giveup = false, bool lastlook = false) {
     role = 1;
     // Near the clock's 32-bit wrap: every interval spans it.
     now_us = 0xffff0000ull;
@@ -138,6 +138,25 @@ void gui(bool torn, bool giveup = false) {
         now_us += 100000;
         sdk_identity_gui_service();
         require(reads(kIdentity), "the next look reads it");
+        return;
+    }
+    if (giveup && lastlook) {
+        // In place only for the 600th look: it still counts, and all 32 sends follow.
+        put_marker(0);
+        for (u32 i = 0; i < 598; ++i) {
+            now_us += 100000;
+            sdk_identity_gui_service();
+        }
+        require(marker_reads == 599 && !opxy_device_identity(out, 18), "599 looks without it");
+        place(kIdentity, 0x84000);
+        now_us += 100000;
+        sdk_identity_gui_service();
+        require(reads(kIdentity), "the 600th look reads it");
+        for (u32 i = 0; i < 40; ++i) {
+            now_us += 1000000;
+            sdk_identity_gui_service();
+        }
+        require(sent.size() == 32 * 8, "all 32 sends follow the last look");
         return;
     }
     if (giveup) {
@@ -268,7 +287,7 @@ void audio() {
 }
 
 int main(int argc, char** argv) {
-    require(argc == 2, "usage: device_identity gui|torn|giveup|audio");
+    require(argc == 2, "usage: device_identity gui|torn|giveup|lastlook|audio");
     // The host header's own identity is the documented preview one.
     u8 preview[18];
     require(configure_preview_device_identity(nullptr) && !device_identity(preview, 18), "unknown on request");
@@ -276,6 +295,7 @@ int main(int argc, char** argv) {
             preview[0] == 0xa0 && preview[17] == 0xb1, "the preview identity");
     if (!std::strcmp(argv[1], "gui")) gui(false);
     else if (!std::strcmp(argv[1], "giveup")) gui(false, true);
+    else if (!std::strcmp(argv[1], "lastlook")) gui(false, true, true);
     else if (!std::strcmp(argv[1], "torn")) gui(true);
     else if (!std::strcmp(argv[1], "audio")) audio();
     else require(false, "unknown run");

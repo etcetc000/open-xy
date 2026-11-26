@@ -2507,7 +2507,8 @@ project save/deserialize hooks are shared, not replaced or duplicated.
 MIX page is word `+0x88`, with EQ at index 1; M2 key 7 takes the shifted
 vtable method while Shift is held. Keys 10–13 are encoder clicks. Stock
 continuous stepping is `8d4d6cc8`; an actual edit uses dirty marker `8d585ee8`.
-B3 virtual IDs 128–137, and in a build with the [device identity](#device-identity) 138–145, are consumed before stock's unbounded parameter setter
+B3 virtual IDs 128–137, and in a build with the [device identity](#device-identity)
+138–145, are consumed before stock's unbounded parameter setter
 `8d50eb8c`, including malformed values. ID 128 begins a parameter transaction:
 selection in bits 0–4 (0 is EQ, 1–16 are registered processors), count in bits
 5–8, explicit audio reset in bit 9, and a 21-bit sequence in bits 10–30.
@@ -2569,6 +2570,10 @@ starts a message and the six words follow it; a value of 2^24 or more ends it.
 The commit sets the identity only if all six words arrived since the begin and
 the check matches. The first such message sets it and later ones change
 nothing. The check guards against a lost or mixed-up message, not against a
-forged one. The GUI processor ignores these IDs. Nothing else in the GUI's or
+forged one. The GUI processor ignores these IDs and does not pass them to
+stock's setter either. Neither path has a computed stack bound, as the master
+processor's audio entry does: the GUI handler adds its saved registers and the
+service's few words to the main loop's stack, the receiver one small frame in
+front of the master processor's. Nothing else in the GUI's or
 the audio processor's traffic changes, and a build without the service sends
 none of them.
