@@ -25,7 +25,7 @@ HIDDEN = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else
 
 def stage_text(text):
     """The adapter's stage entries: from track_process's definition to the end."""
-    return text[text.index('void probestage'):]
+    return text[text.index('// parameters: the track\'s words, as stock passes them'):]
 
 
 class TrackStageAudio(unittest.TestCase):

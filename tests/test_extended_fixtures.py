@@ -1,7 +1,7 @@
 """The extended-drawing fixtures (tests/fixtures/machines/probecanvas, probecurves, probelarge,
-probescope, probemeter, probestagemeter): counted, open, segment, quadratic and cubic paths, RGBA and
-palette nodes, encoder activity on a synth and an effect, the last control touched, a glyph atlas, a
-synth's, an effect's and a track stage's own audio and stock's output levels. Release verification builds them for the device, so
+probescope, probemeter, probestagemeter): counted, open, segment, quadratic and cubic paths,
+RGBA and palette nodes, encoder activity on a synth and an effect, the last control touched, a
+glyph atlas, a synth's, an effect's and a track stage's own audio and stock's output levels. Release verification builds them for the device, so
 the extended renderer, the control capture and the audio transport keep compiling and linking there."""
 import os
 from pathlib import Path

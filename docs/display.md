@@ -608,10 +608,10 @@ A synth's [track stage](api.md#track-stage) declaring `audio: 1` in
 `track_process`, on the same track's words, after that block's voices: it can
 publish what the whole track plays, or apply a reset request while the track's
 voices are silent and the stage still runs. Voices and stage update the words
-separately, so a snapshot can fall between them: a stage's `publish_word` replaces
-a voice's word of the same block only from the next snapshot on (on an accumulator
-word it also drops what was summed since the last snapshot), and its `add_packed16`
-adds to theirs. Whichever of voices or stage calls `command_applied` first takes a
+separately, so a snapshot can fall between them: a stage's `publish_word`
+overwrites a voice's word from that block, and the screen may see the voice's value
+first (on an accumulator word it also drops what was summed since the last
+snapshot); its `add_packed16` adds to theirs. Whichever of voices or stage calls `command_applied` first takes a
 reset request: the other's `pending_command()` then reads 0, so let only one of them
 handle resets. As for a voice's `render`, the words count as being updated for the
 whole of `track_process`, and a snapshot that meets an update waits for a later

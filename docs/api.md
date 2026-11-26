@@ -639,10 +639,10 @@ writes, so eight voices at half scale sum to about half scale. Keep the stage's
 nominal gain at unity, saturate (the [Q31 helpers](../sdk/include/opxy/q31.hpp)),
 and do not rely on the absolute level. A synth's [audio
 snapshots](display.md#audio-snapshots) come from its voices' `render`, before the
-stage, unless the stage declares `audio: 1` (SDK 1.27, with the display's
-`audioTransport`): then `track_process` takes a final `const opxy::AudioContext&`
-for its track, on the words its voices publish to, after them in the block, and can
-publish the track's own sound to the synth's screen.
+stage. A stage declaring `audio: 1` (SDK 1.27, with the display's `audioTransport`)
+can also publish: `track_process` then takes a final `const opxy::AudioContext&` for
+its track, on the words its voices publish to, after them in the block, so it can
+show the track's own sound on the synth's screen.
 
 `track_process` runs once per block on each instrument track that holds the
 synth, in the same block as its voices: the SDK adds no latency. `track_reset`
