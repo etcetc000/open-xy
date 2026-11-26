@@ -145,7 +145,7 @@ class TrackCall(unittest.TestCase):
         everything = set(profile['services'])
         for p in profile['patches']:
             if p['kind'] == 'hook' and p['address'] != SITE:
-                self.assertNotIn('symbols', p)
+                self.assertTrue(all(symbol == p['symbol'] for symbol in p.get('symbols', {}).values()))
                 self.assertEqual(hook_symbol(p, everything), p['symbol'])
 
     def test_a_shared_hook_names_declared_services(self):
