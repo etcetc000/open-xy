@@ -494,7 +494,7 @@ def collection_services(profile,machines):
     require('block_trims' not in selected, 'The resident loader has no reviewed stock fallback for block_trims')
     # Track stage selects a different handler at the per-key sends hook. Freeze
     # that choice in the interface and only generate its table when it has rows.
-    optional = capabilities | {'track_stage'}
+    optional = capabilities | {'track_stage', 'kit_controls', 'amp_envelope', 'drumline'}
     return (set(profile.get('services', {})) - optional) | (selected & optional)
 
 
