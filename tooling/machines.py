@@ -24,7 +24,7 @@ from .pipeline import config
 
 KINDS = ('synth', 'drum', 'sample', 'effect', 'player')
 FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources', 'includes', 'icon', 'presetDefaults',
-          'presets', 'samples', 'dryParameter', 'dryLevel', 'graphics'}
+          'presets', 'samples', 'dryParameter', 'dryLevel', 'graphics', 'title'}
 # The public machine contract: headers, definition schema, artwork rules and
 # callbacks. A machine names the version it was written for; the SDK builds a
 # machine of the same major version and an equal or older minor version.
@@ -88,7 +88,11 @@ IDLE_SDK = (1, 22)
 # State and Controls each GUI frame, as a synth draws its screen. PLAYER_DRAWING_SDK is
 # the one place to renumber it, with the "SDK 1.26" text of docs/api.md and docs/display.md.
 PLAYER_DRAWING_SDK = (1, 26)
-SDK_VERSION = (1, 26)
+# 1.27 adds a machine's builder title (machine.json `title`): the name the builder shows,
+# where the OP-XY shows definition.json's `name`. MACHINE_TITLE_SDK is the one place to
+# renumber it, with the "SDK 1.27" text of docs/api.md.
+MACHINE_TITLE_SDK = (1, 27)
+SDK_VERSION = (1, 27)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -155,6 +159,7 @@ class Machine:
     grayscale: str | None = None
     native: tuple = ()  # its NativeUnits (native/<name>.s), in name order
     sdk: tuple = (1, 0)  # the SDK version machine.json declares, (major, minor)
+    title: str = None  # the builder's name, machine.json `title` (SDK 1.27); `name` where absent
 
     @property
     def sample_page(self):
@@ -731,12 +736,17 @@ def machine_at(root, identity=None):
         path = root / grayscale
         require(path.resolve() == path and path.is_file() and 0 < path.stat().st_size <= 65536,
                 'Missing, redirected or oversized grayscale artwork: ' + grayscale)
+    title = value.get('title', definition['name'])
+    if 'title' in value:
+        require_sdk(version, MACHINE_TITLE_SDK, 'A builder title (title)')
+        require(isinstance(title, str) and 0 < len(title) <= 40 and title == title.strip() and title.isprintable(),
+                'title is the builder\'s name for the machine: 1 to 40 printable characters, no surrounding spaces')
     result = Machine(id=identity, kind=kind, name=definition['name'], description=value['description'],
                    display=display, sources=sources, includes=includes,
                    definition=definition,
                    identity=requested, preset_defaults=defaults,
                    root=root, icon=icon, dry_parameter=dry_parameter, dry_level=dry_level, presets=presets, samples=samples,
-                   grayscale=grayscale, native=native, sdk=version)
+                   grayscale=grayscale, native=native, sdk=version, title=title)
     if grayscale:
         from .native import validate_panel
         validate_panel(result)
