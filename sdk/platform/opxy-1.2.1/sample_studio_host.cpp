@@ -4,6 +4,7 @@
 #include <opxy/sample_studio.hpp>
 #include <opxy/sample_engine.hpp>
 #include "barrier.hpp"
+#include "drum_machines.hpp"
 #include "retained_drawing.hpp"
 #include "stock.hpp"
 #include "stock_sample.hpp"
@@ -125,6 +126,12 @@ bool library_on_top() {
 bool library_busy() { return byte(kRenaming) || byte(kDeletePrompt); }
 u32 selected_track() { return byte(opxy::platform::kSelectedTrack); }
 u32 sample_engine(u32 track) { return sdk_sample_ui_engine(track); }
+// Stock's drum sampler, Drumline (engine 4, "dbox") or a synthesis drum kit: pads, each at its own pitch.
+bool drum_track(u32 track) {
+    if (track >= 8) return false;
+    const u32 id = opxy::platform::track_engine(track);
+    return sdk_sample_ui_engine(track) == engine_drum || id == 4 || sdk_drum_machine(id) != nullptr;
+}
 u32 selected_key(u32 track) { return opxy::platform::drum_selected_key(track); }
 bool shift_held() { return opxy::platform::shift_held(); }
 u32 project_bpm_x10() { return opxy::platform::project_bpm_x10(); }

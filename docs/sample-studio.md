@@ -74,8 +74,9 @@ Its services:
 
 - the library: whether it is on top or busy, its highlighted file, the
   audition, listing the folder again, and stock's preset browser;
-- the track: the selected track and key, its sample engine, note starts and
-  held notes, Shift, the project tempo;
+- the track: the selected track and key, its sample engine, whether it is a
+  drum track (drum sampler, Drumline or a synthesis kit), note starts and held
+  notes, Shift, the project tempo;
 - a key's sample, as stock's region entry: path, length, region, level,
   direction and tuning; putting a file on a key as stock's library does; sending
   the table to the voices;

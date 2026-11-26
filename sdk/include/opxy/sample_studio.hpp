@@ -70,6 +70,7 @@ bool library_on_top();                   // the library is the screen, with noth
 bool library_busy();                     // renaming or a delete prompt is up
 u32 selected_track();                    // 0..7, or 8 and up for none
 u32 sample_engine(u32 track);            // the sample page's engine: sampler, drum, multi or other
+bool drum_track(u32 track);              // a drum sampler, Drumline or a synthesis drum kit: pads at their own pitch
 const u32 engine_sampler = 2, engine_drum = 3, engine_multisampler = 30;
 u32 selected_key(u32 track);             // a drum or multisampler track's selected key (a note)
 bool shift_held();
