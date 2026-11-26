@@ -137,7 +137,9 @@ while the pack is imported, as a native build of the site's collection with the
 pack's machines compiles them: with the player define, the site's own players
 take it too (a player that does not read the instrument plays the same notes
 with it). Builds without such a pack link the site's objects, unchanged. The
-carried objects add some kilobytes to the site's download.
+carried objects add to the site's download: about 250 KB (110 KB compressed)
+for a catalog of a hundred machines with four players, most of it the players'
+own objects.
 A machine published to the catalog after the site's release is exported as
 a catalog machine, not a custom one, and cannot be imported. A pack that imports
 replaces the previous one, so export the desired custom machines together; a
