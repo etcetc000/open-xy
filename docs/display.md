@@ -615,8 +615,9 @@ adds to theirs. Whichever of voices or stage calls `command_applied` first takes
 reset request: the other's `pending_command()` then reads 0, so let only one of them
 handle resets. As for a voice's `render`, the words count as being updated for the
 whole of `track_process`, and a snapshot that meets an update waits for a later
-one: a long stage makes snapshots rarer. A sleeping stage publishes nothing. The browser preview does not run stages, so a stage's words
-reach the screen on the device only.
+one: a long stage makes snapshots rarer. A sleeping stage publishes nothing. The
+browser preview does not run stages, so a stage's words reach the screen on the
+device only.
 
 An effect's words are its send's: the effect on each send has its own, cleared
 when stock places or resets it there, and its page reads the send it shows.

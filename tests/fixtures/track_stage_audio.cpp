@@ -54,7 +54,12 @@ int main() {
     // same track's bank): the stage's words replace theirs, and a reset the voices acknowledge
     // is no longer pending for the stage.
     {
-        auto* voices_bank = sdk_audio.resolve(2);
+        // The voices find their track from the track words stock renders them with.
+        const opxy::u32 voices_track =
+            opxy::platform::synth_audio_track(reinterpret_cast<const opxy::i32*>(0x84eab39cu + 2 * 0xe8u));
+        if (voices_track != 2) return 13;
+        auto* voices_bank = sdk_audio.resolve(voices_track);
+        if (voices_bank != bank) return 14;
         const opxy::AudioContext voices = sdk_audio.context(2, voices_bank);
         sdk_audio.begin(voices_bank);
         voices.publish_word(0, 77);

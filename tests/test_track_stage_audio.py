@@ -57,7 +57,7 @@ class TrackStageAudio(unittest.TestCase):
             machine_at(root)
             record = (root / 'machine.json').read_text(encoding='utf-8')
             (root / 'machine.json').write_text(record.replace('"1.27"', '"1.26"'), encoding='utf-8')
-            with self.assertRaisesRegex(ValueError, r'needs "sdk": "1\.27"'):
+            with self.assertRaisesRegex(ValueError, r'trackStage audio\) needs "sdk": "1\.27"'):
                 machine_at(root)
             # The key itself is 1.27's, even as 0 beside a display without audio.
             definition = json.loads((root / 'definition.json').read_text(encoding='utf-8'))
@@ -98,7 +98,7 @@ class TrackStageAudio(unittest.TestCase):
         # The voices' bank: one per track, the same object the transport's registry reads.
         self.assertEqual(text.count('NativeBank<3, 0, true, 1> sdk_audio;'), 1)
         # The diagnostic's run times the stage's publishing into scratch words.
-        self.assertIn('    static volatile u32 audio_words[3], audio_handshake[3];\n'
+        self.assertIn('    static volatile u32 audio_words[3];\n    volatile u32 audio_handshake[3] = {1, 0, 1};\n'
                       '    const AudioContext audio_context(0, audio_words, 3, audio_handshake, audio_handshake + 1, '
                       'audio_handshake + 2, 0, true);\n    i32 sum[128];\n', stage)
         self.assertIn('probestagemeter::track_process(state, shared, 0, sum, parameters, voices, audio_context);', stage)

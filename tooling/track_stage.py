@@ -82,7 +82,10 @@ def audio_values(m):
                            '    sdk_audio.begin(audio_bank);\n'),
         STAGE_AUDIO_ARGUMENT=', audio_context',
         STAGE_AUDIO_END='\n    sdk_audio.end(audio_bank);',
-        STAGE_BENCHMARK_AUDIO=(f'    static volatile u32 audio_words[{count}]' + (', audio_handshake[3]' if reset else '') + ';\n'
+        # With the handshake, one reset is pending (requested 1, applied 0, target 1), so the
+        # first block times the stage's reset branch.
+        STAGE_BENCHMARK_AUDIO=(f'    static volatile u32 audio_words[{count}];\n' +
+                               ('    volatile u32 audio_handshake[3] = {1, 0, 1};\n' if reset else '') +
                                f'    const AudioContext audio_context(0, audio_words, {count}, {handshake}, 0, true);\n'))
 
 
