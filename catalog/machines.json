@@ -2688,6 +2688,20 @@
         "block_percent": 1.979095,
         "peak_percent": 3.778134
       }
+    },
+    {
+      "id": "twin_arp",
+      "kind": "player",
+      "maintainer": "yfukami",
+      "status": "published",
+      "repository": "https://github.com/yfukami/op-xy-twin-arp",
+      "tag": "v1.0.0",
+      "commit": "d814ffd42def5972f3b77d4014428bd581954f24",
+      "path": "machines/twin_arp",
+      "keywords": [
+        "experimental",
+        "chord"
+      ]
     }
   ]
 }
