@@ -423,7 +423,8 @@ index. Each voice costs the machine's voice size plus the adapter's own state, s
 stock is not known to pass; indirect calls were not traced) gets a shared silent
 object and adds one to `<prefix>_voice_refusals`, an exported per-engine word
 that nothing in the SDK reads: a debugger, a simulator or a build's own code may. It also declares the
-optional [sample services](#sample-engines) it uses. An effect declares no resources (`{}`).
+optional [sample services](#sample-engines) it uses. An effect declares no resources (`{}`). Any kind may also
+declare `deviceIdentity` (SDK 1.30) to read the [device identity](#device-identity).
 A synth declares:
 
 | Field | Required value or meaning |
@@ -437,6 +438,7 @@ A synth declares:
 | `display` | The screen's frame budget; see the [display API](display.md) |
 | `trackControl` | Optional: the [track control](#track-control) state's `stateBytes` and `stateAlignment`, and optionally `unique`, `savedBytes`, `aux` and `sharedLfo` |
 | `trackStage` | Optional (SDK 1.24): the [track stage](#track-stage)'s `stateBytes`, `stateAlignment` and `tailFrames` |
+| `deviceIdentity` | Optional integer 0/1 (SDK 1.30): read the [device identity](#device-identity); any kind may declare it |
 
 The SDK never runs constructors or destructors for `Voice`, `Shared` or
 `DisplayState`: their storage starts zeroed and the callbacks set it up.
@@ -672,6 +674,55 @@ large state costs that block more. The stage runs once for each track that holds
 check to every instrument track's block (whether the track holds a stage); a
 build without one is unchanged. A synth's [CPU record](profiling.md) times its
 stage too, in a run of its own, counted once per track beside a voice. The browser preview does not model the stage.
+
+## Device identity
+
+SDK 1.30. A machine of any kind may read the device identity: 18 bytes that
+the OP-XY's boot information holds for the unit, the same on every boot. A
+machine can derive per-unit values from them, such as a seed that makes each
+unit's instrument sound slightly different, and get the same values on every
+boot. It declares `"deviceIdentity": 1` in `resources` and includes
+[`opxy/device_identity.hpp`](../sdk/include/opxy/device_identity.hpp):
+
+```cpp
+#include <opxy/device_identity.hpp>
+
+opxy::u8 identity[opxy::device_identity_bytes];  // 18
+if (opxy::device_identity(identity, opxy::device_identity_bytes)) {
+    // identity holds the unit's bytes
+}
+```
+
+`device_identity(output, size)` copies the first `size` bytes (at most 18)
+and returns true, or returns false and writes nothing while the identity is not
+known yet. On the device that is the case for a moment after boot: the GUI
+processor reads the identity and then sends it to the audio processor, normally
+within a second. From the first true it returns the same bytes until the
+device restarts. Any callback may call it, `render`, `process` and display code
+included; it does not block. Code that needs the identity in `init` or at a
+note's start must handle false: keep a default and switch once it is known,
+or stay silent until then.
+
+The identity is not secret, but it identifies the unit, like a serial number.
+A machine that declares `deviceIdentity` reads data that can tell one OP-XY
+from another, and its users have only the machine's word for what it does
+with it. Use the bytes on the device, for the machine's own behaviour: don't
+save them in a project, preset or file or send them anywhere, and say in the
+machine's description what it uses them for.
+
+The browser preview and host tests give `opxy::preview_device_identity`: the
+bytes `0xa0, 0xa1, ..., 0xb1`. A host test can change it with
+`configure_preview_device_identity(bytes)`, or pass `nullptr` to make the
+identity unknown, as on the device just after boot; on the device that call
+does nothing and returns false.
+
+A machine that includes the header must declare `deviceIdentity`. Only a
+firmware with such a machine links the service that reads, sends and receives
+the identity; others are unchanged. The service adds a check to each pass of
+the GUI processor's main loop and to each of stock's global parameter messages
+the audio processor receives, and sends one identity message a second for the
+first 32 seconds after the identity is read ([firmware
+ABI](abi-1.2.1.md#device-identity)).
 
 ## Track control
 
@@ -1769,7 +1820,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.26 and builds 1.0 to 1.26 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.30 and builds 1.0 to 1.30 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |

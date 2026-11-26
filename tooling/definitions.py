@@ -141,6 +141,11 @@ KIT_CONTROLS_SDK = (1, 23)
 SDK_1_25 = (1, 25)
 DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls', 'parameterEdit', 'modelEdit',
                 *DRUM_KIT_CONTROLS)
+# SDK 1.30: deviceIdentity, 0 or 1, for a machine of any kind that reads the device identity
+# (opxy/device_identity.hpp, the device_identity service). A renumber changes this line,
+# SDK_VERSION and its history (tooling/machines.py) and the "1.30" text in the docs,
+# the header and the fixture.
+DEVICE_IDENTITY_SDK = (1, 30)
 # Pad controls share 9 bits of stock's pad word +0x14; its sends take 6 more (drum_storage.hpp).
 PAD_CONTROL_FIELDS, PAD_CONTROL_BITS = 2, 9
 EFFECT_BUFFER_LIMIT = 524288
@@ -223,11 +228,14 @@ def validate_definition(value, kind):
     resources = value['resources']
     options = {'sample': SAMPLE_OPTIONS, 'effect': EFFECT_OPTIONS, 'drum': DRUM_OPTIONS,
                'synth': ('trackControl', 'stereoOutput', 'releaseCallback', 'trackStage'), 'player': ('display',)}.get(kind, ())
+    if kind != 'master':
+        options = (*options, 'deviceIdentity')
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
     require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'stockShift', 'padControls',
                                                                    'tailFrames', 'trackStage')),
             'Numeric resource requirements must be integers')
+    require(resources.get('deviceIdentity', 0) in (0, 1), 'deviceIdentity must be 0 or 1')
     if kind == 'synth':
         for flag in ('stereoOutput', 'releaseCallback'):
             require(resources.get(flag, 0) in (0, 1), flag + ' must be 0 or 1')
@@ -471,6 +479,11 @@ def shift_preset_params(definition, values=None):
     fields += [0] * (SYNTH_SHIFT_ENTRIES - len(fields))
     bits = sum(field << (7 * i) for i, field in enumerate(fields))
     return [bits >> (15 * w) & 0x7fff for w in range(4)]
+
+
+def device_identity(definition):
+    """Whether a machine reads the device identity (resources.deviceIdentity, SDK 1.30)."""
+    return definition['resources'].get('deviceIdentity', 0) == 1
 
 
 def synth_shift(definition):

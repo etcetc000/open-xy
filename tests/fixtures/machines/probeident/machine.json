@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "sdk": "1.30",
+  "kind": "synth",
+  "description": "Test fixture: shows the device identity's bytes on its screen and sounds a saw once the audio processor has them."
+}

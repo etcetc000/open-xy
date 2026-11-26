@@ -54,6 +54,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Aux tracks | 13 | Lets a track control machine take over aux track 12 (CV): its chooser on Shift + M1 (the effect list on the sends), its presets on Shift + track key, its page on M1, its parameter names on the LFO's destinations, its own LFO whichever track is selected, and CV and gate kept silent; four MTP allowlist edits show the user's aux presets |
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
+| Device identity | 1, and the global parameter receiver call | Reads the [device identity](api.md#device-identity) on the GUI processor and sends it to the audio processor ([device identity](#device-identity)); linked only with a machine declaring `deviceIdentity` |
 | Extension events | 8 | Observes live input, stock transport and queued controls for extensions, lets a Record double-tap owner edit notes through stock editing and undo, and lets an extension add [USB host drivers](#usb-host-drivers) while the host stack starts; linked only when an extension is selected |
 | Module | 1 record | One loader block holding the linked module |
 
@@ -73,6 +74,11 @@ build with it enters, the first one the build has winning (`tooling/firmware.py`
 site: its record is the `track_call` service, used by per-key sends and [track
 stages](#track-stage) alike; a build with a track stage enters the shared
 handler, which runs both, and one with per-key sends alone their own, as before.
+Stock's call of its global parameter setter (`8d5b145e`) is another: its record
+is the `parameter_receive` service, used by the master processor and the
+[device identity](#device-identity); a build with the device identity enters its
+receiver, which hands every number it does not own to the master processor's
+receiver, or to stock's setter in a build without the master processor.
 The step locks of a kit's Shift fields are the `drum_locks` service, used by a
 `padMix` kit, by a synth with a Shift row and by a `drumline_page` extension.
 The `played_pad` service has no edit: it links the [drum trigger](#screens)
@@ -2493,7 +2499,7 @@ project save/deserialize hooks are shared, not replaced or duplicated.
 | `8c093888` | MIX encoder entry | `4360990900e80300` |
 | `8d537d04` | EQ frame entry | `00e82400e305666f` |
 | `8d511b80` | Master stereo EQ processing call | `00dea011102c0000` |
-| `8d5b145e` | B3 parameter receiver call | `fae397eb` |
+| `8d5b145e` | B3 parameter receiver call (shared with the [device identity](#device-identity)) | `fae397eb` |
 | `8d598a3c` | Active project publication getter call | `ffe3ea5b` |
 | `8d588114` | New-project preparation entry | `00e80c15e305666f` |
 
@@ -2523,3 +2529,37 @@ before binding; EQ slot 33 is never overwritten. Path commands remain fixed
 32-byte records (type at +24); the shared retained renderer checks exact command counts
 and types and caches geometry/palette references. Author frames use the normal
 positive-scale hide transform for degenerate geometry. All this runs on the GUI role.
+
+## Device identity
+
+The `device_identity` service gives machines declaring `deviceIdentity` the
+[device identity](api.md#device-identity) (`device_identity.cpp`,
+`device_identity_hooks.s`). Each processor keeps its own copy, written once and
+then marked known; `opxy_device_identity` copies it out.
+
+| Site | Purpose | Original bytes |
+| --- | --- | --- |
+| `8c0b73a8` | The main loop's call of `8d57c0f8` (no arguments), every pass, whatever the screen | `00de578df8c00000` |
+| `8d5b145e` | B3 parameter receiver call (the `parameter_receive` record, shared with the [master processor](#master-processor-capability)) | `fae397eb` |
+
+The main-loop handler makes stock's call, then saves every register, runs the
+service and restores them, so the loop continues as after stock's call. The
+service does nothing on the audio processor (role byte `86c05ca4` zero). On the
+GUI processor, until it has the identity, it looks every 100 ms (stock's
+microsecond clock `8d5be3a0`): the boot information's word at `08010e68` must
+hold an address in the 1000 bytes from `0x84000`, the 18 bytes at `08010e52`
+are the identity, and the word must be unchanged after they are read. It then
+sends the identity once a second, 32 times, as seven B3 global parameter
+messages (`8d4dc84c(id, value)`): ID 138 with a sequence number, IDs 139–143
+with the bytes as five little-endian words (the last two bytes zero), and ID
+144 with FNV-1a, 32-bit, over the sequence and the five words, each
+little-endian. Stock sends IDs 0–3 and the master processor 128–137.
+
+The audio processor's receiver consumes IDs 138–144 before stock's unbounded
+setter `8d50eb8c`, whatever their values, and passes every other ID on
+unchanged. A begin starts a message; the five words follow it; the commit sets
+the identity only if all five arrived since the begin, the check matches and
+the padding is zero. The first such message sets it and later ones change
+nothing. The GUI processor ignores these IDs. Nothing else in the GUI's or the
+audio processor's traffic changes, and a build without the service sends none
+of them.

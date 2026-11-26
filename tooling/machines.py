@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import (DRUM_KIT_CONTROLS, EXTENDED_SDK, KIT_CONTROLS_SDK, SDK_1_25, extended_display, ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
+from .definitions import (DEVICE_IDENTITY_SDK, DRUM_KIT_CONTROLS, EXTENDED_SDK, KIT_CONTROLS_SDK, SDK_1_25, extended_display, ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
@@ -88,7 +88,9 @@ IDLE_SDK = (1, 22)
 # State and Controls each GUI frame, as a synth draws its screen. PLAYER_DRAWING_SDK is
 # the one place to renumber it, with the "SDK 1.26" text of docs/api.md and docs/display.md.
 PLAYER_DRAWING_SDK = (1, 26)
-SDK_VERSION = (1, 26)
+# 1.30 lets a machine of any kind read the device identity (resources.deviceIdentity,
+# opxy/device_identity.hpp; DEVICE_IDENTITY_SDK in definitions.py).
+SDK_VERSION = (1, 30)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -604,6 +606,8 @@ def machine_at(root, identity=None):
         require_sdk(version, IDLE_SDK, "An effect's declared tail (tailFrames)")
     if 'trackStage' in definition['resources']:
         require_sdk(version, track_stage.TRACK_STAGE_SDK, "A synth's track stage (trackStage)")
+    if 'deviceIdentity' in definition['resources']:
+        require_sdk(version, DEVICE_IDENTITY_SDK, 'The device identity (deviceIdentity)')
     if any(p['display'] == 'division' for p in definition['parameters']):
         require_sdk(version, (1, 2), 'A division control')
     if kind == 'sample' and definition['resources']['voiceCapacity'] < STOCK_VOICES:
@@ -685,6 +689,10 @@ def machine_at(root, identity=None):
         require(kind == 'synth', "Only a synth's own screen reads opxy/control_interaction.hpp")
     if reads_sample_overview(root, 'sample_kernel'):
         require_sdk(version, (1, 17), 'The sample kernel (opxy/sample_kernel.hpp)')
+    # Only a firmware with a machine declaring it links the identity's device code.
+    if reads_sample_overview(root, 'device_identity'):
+        require(definition['resources'].get('deviceIdentity', 0) == 1,
+                'A machine that includes opxy/device_identity.hpp declares "deviceIdentity": 1 in its resources')
     native = read_native(root, identity)
     # The native plan compiles extra translation units only into synths.
     if kind not in ('synth', 'drum'):
