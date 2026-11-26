@@ -2041,7 +2041,7 @@ around the input keyboard and every emitted note. This preserves octaves
 under voicing, spread and simultaneous chords. MIDI endpoints use partial
 octaves. Hidden nodes move beyond the display.
 
-### A player's own drawn page (SDK 1.27)
+### A player's own drawn page (SDK 1.26)
 
 A player may instead draw its page as a synth draws its screen: declare
 `"resources": {"display": {...}}` with the [display fields](display.md#declaration)
