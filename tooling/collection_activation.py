@@ -7,7 +7,7 @@ import hashlib
 import json
 import struct
 
-from .firmware import branch_instruction, decode_branch, patch_active
+from .firmware import branch_instruction, decode_branch, hook_symbol, patch_active
 from .formats import require
 
 HEADER_BYTES = 160
@@ -34,7 +34,7 @@ def geometry(profile, resident_bytes=RESIDENT_BYTES):
 
 def interface(profile, services, profiling, resident_bytes=RESIDENT_BYTES):
     require(set(services) <= set(profile.get('services', {})), 'Unknown resident capability')
-    entries = [dict(site=p['address'], symbol=p['symbol'], call=p['call'], length=p['length'], before=p['before'])
+    entries = [dict(site=p['address'], symbol=hook_symbol(p, services), call=p['call'], length=p['length'], before=p['before'])
                for p in profile['patches'] if p['kind'] == 'hook' and p['symbol'] not in RESIDENT_HOOKS
                and patch_active(p, set(services), profiling)]
     entries.sort(key=lambda p: int(p['site'], 16))

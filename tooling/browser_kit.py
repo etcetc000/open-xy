@@ -212,12 +212,11 @@ def unit_sources(output, tools, compiler, profile, machines, objects):
 
 
 def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False, compiler=None):
-    require(not document(Path(package) / 'manifest.json').get('collection_probe', False),
-            'Collection-probe builds cannot be exported as browser kits')
-    require(not document(Path(package)/'manifest.json').get('collection_loader',False),
-            'Resident-loader builds cannot be exported as browser kits')
     profile, machines, definitions = native.configuration(native.package_collection(package))
     refuse_adapter_capabilities(native.extensions_of(machines))
+    manifest = document(Path(package) / 'manifest.json')
+    require(not manifest.get('collection_probe', False), 'Collection-probe builds cannot be exported as browser kits')
+    require(not manifest.get('collection_loader', False), 'Resident-loader builds cannot be exported as browser kits')
     sources = catalog_sources(machines, personal)
     require(sha(stock_catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     runtime_members = document(package / 'analysis/compile-report.json').get('runtime', [])

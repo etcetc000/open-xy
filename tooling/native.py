@@ -491,7 +491,11 @@ def collection_services(profile,machines):
         return selected
     # Fixed firmware capabilities remain opt-in; they cannot be switched by a RAM payload.
     capabilities = set(extensions.capabilities())
-    return (set(profile.get('services', {})) - capabilities) | (selected & capabilities)
+    require('block_trims' not in selected, 'The resident loader has no reviewed stock fallback for block_trims')
+    # Track stage selects a different handler at the per-key sends hook. Freeze
+    # that choice in the interface and only generate its table when it has rows.
+    optional = capabilities | {'track_stage'}
+    return (set(profile.get('services', {})) - optional) | (selected & optional)
 
 
 def collection_interface(profile,machines):

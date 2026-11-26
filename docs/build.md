@@ -260,6 +260,9 @@ and durable rollback still require separate qualification.
 
 ### Resident RAM collections
 
+Resident builds refuse the `block_trims` capability while its stock fallback paths
+are awaiting review. The track-stage handler is fixed when the kernel is built.
+
 `build --collection-loader` creates an opt-in resident kernel and embeds the
 selected machines as its fallback. Add `--expanded-memory` to use the
 [experimental 4 MiB reservation](builder.md#capacity-and-machine-numbers),

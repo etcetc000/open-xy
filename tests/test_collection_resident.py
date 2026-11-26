@@ -7,7 +7,7 @@ import struct
 import tempfile
 import unittest
 
-from tooling import collection_activation as activation, collection_resident as resident
+from tooling import collection_activation as activation, collection_resident as resident, extensions
 from tooling.formats import elf32, elf_sections
 from tooling.pipeline import config
 
@@ -15,14 +15,14 @@ from tooling.pipeline import config
 class Resident(unittest.TestCase):
     def interface(self, profiling=True):
         profile=config()
-        return activation.interface(profile, set(profile['services']), profiling, 32768)
+        return activation.interface(profile, set(profile['services']) - set(extensions.capabilities()), profiling, 32768)
 
     def test_each_supported_hook_has_an_exact_stock_path(self):
         for profiling in (True, False):
             with self.subTest(profiling=profiling):
                 abi = self.interface(profiling)
                 kinds = {resident.stock_path(e)['kind'] for e in abi['entries']}
-                self.assertEqual(kinds, {'branch', 'replay', 'return', 'conditional', 'call_suffix', 'call_prefix'})
+                self.assertEqual(kinds, {'branch', 'replay', 'return', 'conditional', 'call_suffix', 'call_prefix', 'two_calls'})
                 source = resident.guarded_dispatch(abi)
                 self.assertEqual(source.count('    [--SP] = ASTAT;'), len(abi['entries']))
                 self.assertEqual(source.count('    ASTAT = [SP++];'), len(abi['entries'])*2)
@@ -31,7 +31,7 @@ class Resident(unittest.TestCase):
 
     def test_unknown_displaced_code_and_changed_return_modes_are_refused(self):
         abi = self.interface()
-        for kind in ('branch', 'replay', 'return', 'conditional', 'call_suffix', 'call_prefix'):
+        for kind in ('branch', 'replay', 'return', 'conditional', 'call_suffix', 'call_prefix', 'two_calls'):
             entry = copy.deepcopy(next(e for e in abi['entries'] if resident.stock_path(e)['kind'] == kind))
             entry['call'] = not entry['call']
             with self.assertRaises(ValueError): resident.stock_path(entry)

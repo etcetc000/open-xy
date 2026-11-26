@@ -82,6 +82,7 @@ AUX_SHIFT_RETURN = (0x8c08f6ec, '01e8000008601000', True)
 CALL_SUFFIX = (0x8c0b6184, 'ffe3eafd00da0208783c0000', True)
 SHIFT_PRESS_CALL_SUFFIX = (0x8c0b2a5e, 'ffe358fe0160492f', True)
 CALL_PREFIX = (0x8c084d18,'05301930ffe3f0fe',True)
+USB_HOST_INIT = (0x8c073c34, 'ffe30eefffe38ce3', True)
 
 RESIDENT_OBJECTS = ('sdk/divide.o', 'sdk/memory.o', 'sdk/hook.o', 'sdk/voice_clock.o', 'sdk/startup_label.o',
                     'sdk/collection_inspector.o', 'sdk/collection_probe.o', 'sdk/collection_rpc.o',
@@ -153,6 +154,12 @@ def stock_path(entry):
         target,original_call=decode_branch(site+4,raw[4:])
         require(original_call and target==0x8c084afc, 'Changed player-turn stock call')
         return dict(kind='call_prefix',target=target,raw=raw[:4])
+    if exact == USB_HOST_INIT:
+        first_target, first_call = decode_branch(site, raw[:4])
+        second_target, second_call = decode_branch(site + 4, raw[4:])
+        require(first_call and second_call and (first_target, second_target) == (0x8c071a50, 0x8c070350),
+                'Changed USB host stock initialization path')
+        return dict(kind='two_calls', first=first_target, second=second_target)
     if exact == AUX_SHIFT_RETURN:
         # UNLINK restores the containing method's RETS before its stock return.
         return dict(kind='return', raw=raw)
@@ -235,6 +242,12 @@ def guarded_dispatch(interface):
         elif path['kind']=='call_prefix':
             # The wide hook CALL already supplies the exact original RETS.
             lines += [_halfwords(path['raw']),_absolute(path['target'])]
+        elif path['kind'] == 'two_calls':
+            continuation = site + entry['length']
+            lines += [_absolute(path['first'], True), '    [--SP] = P0;',
+                      f'    P0.H = {continuation >> 16:#x};',
+                      f'    P0.L = {continuation & 65535:#x};',
+                      '    RETS = P0;', '    P0 = [SP++];', _absolute(path['second'])]
         else:
             # The callee sees the original SP, including all stack arguments.
             # Restore the stock CALL's RETS before its trailing address load.
@@ -295,6 +308,11 @@ def check_guarded_dispatch(elf, interface):
                         end + absolute_jump(path['target']))
         elif path['kind']=='call_prefix':
             expected=path['raw']+absolute_jump(path['target'])
+        elif path['kind'] == 'two_calls':
+            continuation = site + entry['length']
+            expected = (absolute_call(path['first']) + bytes.fromhex('4801') +
+                        struct.pack('<4H', 0xe148, continuation >> 16, 0xe108, continuation & 65535) +
+                        bytes.fromhex('78387090') + absolute_jump(path['second']))
         else:
             expected = (absolute_call(path['target'])+bytes.fromhex('4801')+
                         struct.pack('<4H', 0xe148, (site+4) >> 16, 0xe108, (site+4) & 65535)+
