@@ -91,20 +91,27 @@ class Sites(unittest.TestCase):
             self.assertIn(f'__asm__("{stub}")', host)
             fallback = 'studio::stock_frame()' if symbol.endswith('frame') else stub + '('
             self.assertIn(fallback, body.group(1), symbol)              # what the editor doesn't take is stock's
-            editor = ('const studio::Editor* e = studio::library_on_top() ? editor() : nullptr;' if symbol.endswith('frame')
-                      else 'const studio::Editor* e = editor();')
-            self.assertIn(editor, body.group(1), symbol)
+            self.assertIn('const studio::Editor* e = editor();', body.group(1), symbol)
         self.assertIn('const studio::Editor* editor() { return sdk_sample_studio_editor(); }', host)
         frame = re.search(r'\nvoid sdk_sample_studio_frame\(void\* screen, i32 elapsed\) \{(.*?)\n\}', host, re.S).group(1)
         self.assertIn('e->frame(elapsed)', frame)
 
-    def test_the_editor_sees_only_the_librarys_frames(self):
-        # The frame site is the browser screen stock's other browsers share: their frames stay stock's.
+    def test_the_editor_hears_every_frame_and_draws_only_the_librarys(self):
+        # The frame site is the browser screen stock's other browsers share. The editor hears every
+        # frame, so it closes at once when the library leaves (029 handed it only the library's frames,
+        # so opening the preset browser left the studio open and its close-time work undone); in a frame
+        # the library doesn't own, stock draws whatever the editor returns, and the surface draws nothing.
         host = code(HOST)
         frame = re.search(r'\nvoid sdk_sample_studio_frame\(void\* screen, i32 elapsed\) \{(.*?)\n\}', host, re.S).group(1)
-        self.assertLess(frame.index('studio::library_on_top()'), frame.index('e->frame(elapsed)'))
-        self.assertIn('const bool drew = e && e->frame(elapsed);', frame)
+        self.assertIn('const studio::Editor* e = editor();', frame)
+        self.assertNotIn('? editor() : nullptr', frame)
+        self.assertLess(frame.index('library_frame = studio::library_on_top();'), frame.index('e->frame(elapsed)'))
+        self.assertIn('const bool drew = e && e->frame(elapsed) && library_frame;', frame)
         self.assertIn('if (!drew) studio::stock_frame();', frame)
+        self.assertTrue(frame.rstrip().endswith('library_frame = false;'))
+        for name in ('surface_present(const Surface& frame)', 'surface_blank()'):
+            body = re.search(r'\nvoid ' + re.escape(name) + r' \{\n(.*?)\n', host).group(1)
+            self.assertRegex(body, r'^\s*if \((?:!bound \|\| )?!library_frame\) return;', name)
 
     def test_only_encoders_0_to_3_reach_the_editor(self):
         # The library's other positions go to stock as they are, never folded onto 0..3.

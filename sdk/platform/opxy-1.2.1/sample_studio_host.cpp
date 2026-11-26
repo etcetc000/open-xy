@@ -256,6 +256,9 @@ using Renderer = opxy::screen::RetainedDrawing<studio::Surface>;
 using Object = Renderer::Object;
 Object object;
 bool constructed, bound;
+// Set for the frames the library draws: the surface draws in those only, so the browser screen's
+// other browsers stay stock's whatever the editor does in their frames.
+bool library_frame;
 const char* const* bound_ids;
 u32 bound_paths, bound_nodes, bound_texts, bound_palette;
 // The artwork's IDs in the renderer's order, unbound slots past each part's count.
@@ -344,7 +347,7 @@ bool refusal_said;
 namespace opxy { namespace studio {
 // Only the bound slots are checked and applied: the rest of the Surface is the editor's to leave empty.
 void surface_present(const Surface& frame) {
-    if (!bound) return;
+    if (!bound || !library_frame) return;
     if (!bound_valid(frame)) {
         if (!refusal_said) log(__LINE__, "surface: a frame out of range, not drawn");
         refusal_said = true;
@@ -356,6 +359,7 @@ void surface_present(const Surface& frame) {
     opxy::screen::draw(&object.base);
 }
 void surface_blank() {
+    if (!library_frame) return;
     i32 a[2] = {-4096, 110 * 1024}, b[2] = {484 * 1024, 110 * 1024};
     const u32 black = 0xff000000;
     stock<void(i32*, i32*, i32, const u32*)>(0x8d5fe884)(a, b, 224 * 1024, &black);
@@ -397,13 +401,16 @@ void opxy::studio::stock_frame() {
     sdk_sample_studio_stock_frame(frame_screen, frame_elapsed);
 }
 void sdk_sample_studio_frame(void* screen, i32 elapsed) {
-    // The hook is on the browser screen stock's other browsers share: the editor sees only the
-    // library's frames, and every other browser's frame is stock's, untouched.
-    const studio::Editor* e = studio::library_on_top() ? editor() : nullptr;
+    // The hook is on the browser screen stock's other browsers share. The editor hears every frame,
+    // so it learns at once when the library has left (and closes, as on leaving); but only the
+    // library's frames are its to draw: in any other, stock draws and the surface draws nothing.
+    const studio::Editor* e = editor();
+    library_frame = studio::library_on_top();
     frame_screen = screen;
     frame_elapsed = elapsed;
     stock_drawn = false;
-    const bool drew = e && e->frame(elapsed);
+    const bool drew = e && e->frame(elapsed) && library_frame;
     if (!drew) studio::stock_frame();
     frame_screen = nullptr;
+    library_frame = false;
 }

@@ -52,10 +52,14 @@ machine or a `drumline_page` extension, for the samples service.
 | `press(key, shift)` | A key in the library: M1 to M4, the encoder clicks, Sample. |
 | `release(key)` | Its release. |
 | `turn(encoder, detents)` | An encoder turn, encoders 0 to 3; any other position stays stock's. |
-| `frame(elapsed)` | Every frame of the library, while it is on top. |
+| `frame(elapsed)` | Every frame of the browser screen; stock draws the ones the library doesn't own. |
 
 Each returns whether it took the input. What it doesn't take goes to stock's
-library, unchanged. `frame` returns true when it drew the frame. It can call
+library, unchanged. `frame` returns true when it drew the frame. The browser
+screen is shared with stock's other browsers: the editor hears all its frames,
+so it knows at once when the library has left, but while the library isn't on
+top stock draws the frame whatever `frame` returns, and the surface draws
+nothing. It can call
 `stock_frame()` first to draw over stock's library, or return false to leave
 the frame to stock.
 

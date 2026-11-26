@@ -17,8 +17,10 @@ struct Editor {
     bool (*press)(u32 key, bool shift);   // a key pressed in the library (codes below)
     bool (*release)(u32 key);
     bool (*turn)(u32 encoder, i32 detents);   // encoders 0..3; the library's other positions stay stock's
-    // Every frame of the library, while it is on top (the browser screen's other browsers stay
-    // stock's): true when it drew it (stock_frame() first, if wanted).
+    // Every frame of the browser screen, which stock's other browsers share: true when it drew it
+    // (stock_frame() first, if wanted). While the library isn't on top (library_on_top()), stock
+    // draws the frame whatever this returns and the surface draws nothing; the editor hears the
+    // frame so it knows the library has left.
     bool (*frame)(i32 elapsed);
 };
 // Library key codes (press, release).
@@ -111,7 +113,8 @@ typedef draw::Frame<surface_paths, surface_points, surface_nodes, surface_texts,
 // IDs or counts, it binds again.
 bool surface_ready(const char* const* ids, u32 paths, u32 nodes, u32 texts, u32 palette);
 // Shows the bound slots of `frame`; the rest are ignored and may stay empty. A frame whose bound
-// slots are out of range (draw::valid's rules) is not drawn at all.
+// slots are out of range (draw::valid's rules) is not drawn at all, and nothing is drawn in a frame
+// the library doesn't own (frame() above).
 void surface_present(const Surface& frame);
 void surface_blank();                            // the stage's area cleared, while the artwork loads
 void stock_frame();                              // stock's library frame, now (inside frame() only)
