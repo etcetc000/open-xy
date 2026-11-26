@@ -1,15 +1,17 @@
 """Sample-playback engines: flag-1 registration, stock-page readiness and dispatch."""
 import json
 import copy
+import shutil
 import tempfile
 import unittest
 from dataclasses import replace
+from pathlib import Path
 
 from tooling import adapters
-from tooling.machines import check_analysis_budgets
-from tooling.definitions import validate_definition
+from tooling import machines
+from tooling.definitions import ANALYSIS_HEAP_LIMIT, ROOT, validate_definition
 from tooling import firmware
-from machine_fixtures import fixture
+from machine_fixtures import FOLDER, fixture
 
 
 class Generation(unittest.TestCase):
@@ -65,14 +67,27 @@ class Generation(unittest.TestCase):
                          .replace('if (index >= 32) return refused();', 'if (index >= 256) return nullptr;')
                          .replace('voices[32]', 'voices[256]'), full)
 
-    def test_analysis_budgets_share_one_collection_limit(self):
-        def analyzing(name, budget):
-            definition = copy.deepcopy(fixture('probesample').definition)
-            definition['resources']['sampleAnalysis'] = budget
-            return replace(fixture('probesample'), id=name, definition=definition)
-        check_analysis_budgets([analyzing('one', 1 << 20), analyzing('two', 1 << 20)])
-        with self.assertRaisesRegex(ValueError, 'analysis budgets'):
-            check_analysis_budgets([analyzing('one', 1 << 20), analyzing('two', (1 << 20) + 4)])
+    def test_analysis_budgets_share_one_allowance_on_the_device(self):
+        # The cache holds every machine's analyses within one allowance (fixtures/sample_cache.cpp
+        # exercises it), so a collection's budgets may add up to more than the device will hold.
+        cache = (ROOT / 'sdk/platform/opxy-1.2.1/sample_cache.cpp').read_text(encoding='utf-8')
+        self.assertEqual(ANALYSIS_HEAP_LIMIT, 2 * 1024 * 1024)
+        self.assertIn('constexpr u32 kAllowanceBytes = 2u * 1024u * 1024u;', cache)
+        with tempfile.TemporaryDirectory() as temporary:
+            entries = []
+            for number, name in enumerate(('probeone', 'probetwo')):
+                folder = Path(temporary).resolve() / name
+                shutil.copytree(FOLDER / 'probesample', folder)
+                definition = json.loads((folder / 'definition.json').read_text(encoding='utf-8'))
+                definition['id'] = name
+                definition['resources']['sampleAnalysis'] = ANALYSIS_HEAP_LIMIT
+                (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+                record = json.loads((folder / 'machine.json').read_text(encoding='utf-8'))
+                record['identity'] = dict(engine=47 + number, page=7)
+                (folder / 'machine.json').write_text(json.dumps(record), encoding='utf-8')
+                entries.append({'path': str(folder)})
+            budgets = [m.definition['resources']['sampleAnalysis'] for m in machines.collection(entries)]
+        self.assertEqual(budgets, [ANALYSIS_HEAP_LIMIT, ANALYSIS_HEAP_LIMIT])
 
     def test_absolute_calls_reject_invalid_width_opcode_padding_and_alignment(self):
         for target in (0, 0x8d450380, 0xfffffffe):

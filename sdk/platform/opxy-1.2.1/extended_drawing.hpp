@@ -223,7 +223,7 @@ template <class Machine> struct ExtendedDrawing {
         input.pan = static_cast<i8>(controls.pan);
         input.level = static_cast<i8>(controls.level);
         input.line = static_cast<u8>(controls.line);
-        input.reserved = 0;
+        input.selected_key = 0;
         const u32 pads = sizeof(controls.pads) / sizeof(controls.pads[0]);
         for (u32 i = 0; i < 4; ++i) input.pad[i] = static_cast<i8>(i < pads ? controls.pads[i] : 0);
         for (u32 i = platform::kDrumKitPadFields; i < 4 && i < pads; ++i)

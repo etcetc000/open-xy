@@ -10,6 +10,13 @@
 #include <cstring>
 #include <initializer_list>
 #include "drumline.hpp"
+#if OPXY_KIT_CONTROLS
+#include "drum_kit_controls.hpp"
+#include "drum_values.hpp"
+#endif
+#if OPXY_MODEL_EDIT
+#include "drum_model_edit.hpp"
+#endif
 // Built without a drumline_page extension: the generated startup's accessor answers null.
 const void* sdk_drumline_get() { return nullptr; }
 
@@ -66,6 +73,24 @@ u32 custom_edit(u32 model, u32 slot, u32 value, i32 delta, u32 speed) {
     if (next >= static_cast<i32>(size)) next = static_cast<i32>(size) - 1;
     return next == static_cast<i32>(current) ? value : choices[model][next];
 }
+#if OPXY_MODEL_EDIT
+// A modelEdit kit's editor: slot 0 one dial over every model of the kit (128 positions in
+// each), eight a detent and sixteen on a fast turn, ends held; any other slot one value a
+// detent within the key's model. With dial_override it answers dial_answer instead.
+u32 dial_calls, dial_model, dial_slot, dial_value, dial_speed, dial_models = 3;
+i32 dial_delta;
+bool dial_override;
+u32 dial_answer;
+u32 dial_edit(u32 model, u32 slot, u32 value, i32 delta, u32 speed) {
+    ++dial_calls; dial_model = model; dial_slot = slot; dial_value = value; dial_delta = delta; dial_speed = speed;
+    if (dial_override) return dial_answer;
+    const i32 here = static_cast<i32>(model * 128 + value);
+    const i32 low = slot ? static_cast<i32>(model * 128) : 0;
+    const i32 high = slot ? static_cast<i32>(model * 128 + 127) : static_cast<i32>(dial_models * 128 - 1);
+    const i32 next = here + (slot ? delta : delta * (speed ? 16 : 8));
+    return static_cast<u32>(next < low ? low : next > high ? high : next);
+}
+#endif
 bool format(u32, i32, char*) { return false; }
 // The send tracks (14, 15) hold no owned effect.
 u32 get_engine(u32 selected) { if (selected >= 8) return 0; require(selected == track); return engine; }
@@ -208,9 +233,37 @@ const opxy::platform::DrumMachine sdk_drum_machines[] = {
     {reinterpret_cast<const char*>(41), ready, 5, defaults, label, name, count, 2, group_sizes, group_names, 1,
      2, pad_bits, 1, pad_labels, pad_text},
     {reinterpret_cast<const char*>(42), ready, 2, defaults, label, name, count, 0, nullptr, nullptr,
-     0, 0, nullptr, 0, nullptr, nullptr, nullptr, custom_edit}
+     0, 0, nullptr, 0, nullptr, nullptr, nullptr, custom_edit},
+#if OPXY_KIT_CONTROLS
+    // The drum-kit controls (drum_kit_controls.hpp): engine 43 with padVolume and
+    // padRandom, engine 44 with all three and groups.
+    {reinterpret_cast<const char*>(43), ready, 2, defaults, label, name, count},
+    {reinterpret_cast<const char*>(44), ready, 5, defaults, label, name, count, 2, group_sizes, group_names},
+#endif
+#if OPXY_MODEL_EDIT
+    // modelEdit (drum_model_edit.hpp): engine 45, three models, its first control one dial over them.
+    {reinterpret_cast<const char*>(45), ready, 3, defaults, label, name, count},
+#endif
 };
-const opxy::u32 sdk_drum_machine_count = 7;
+const opxy::u32 sdk_drum_machine_count = sizeof(sdk_drum_machines) / sizeof(sdk_drum_machines[0]);
+#if OPXY_MODEL_EDIT
+const opxy::platform::DrumModelEdit sdk_drum_model_edits[] = {
+    {reinterpret_cast<const char*>(45), dial_edit},
+#if OPXY_KIT_CONTROLS
+    // An ampEnvelope kit with a dial keeps its keys' amp values across a turn into another model.
+    {reinterpret_cast<const char*>(44), dial_edit},
+#endif
+};
+const opxy::u32 sdk_drum_model_edit_count = sizeof(sdk_drum_model_edits) / sizeof(sdk_drum_model_edits[0]);
+#endif
+#if OPXY_KIT_CONTROLS
+static const opxy::i32 kit_amp_words[] = {128 << 16, 8192 << 16, 0x7fff0000, 0x7fff0000};
+const opxy::platform::DrumKit sdk_drum_kits[] = {
+    {reinterpret_cast<const char*>(43), 3, nullptr},
+    {reinterpret_cast<const char*>(44), 7, kit_amp_words},
+};
+const opxy::u32 sdk_drum_kit_count = 2;
+#endif
 // Engine 50: a paged synth with a Shift row of eight amounts (SDK 1.13); engine 51
 // the same synth without one.
 static const char* const probe_shift_titles[] = {"s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7"};
@@ -225,9 +278,16 @@ const opxy::platform::SynthControls sdk_synth_controls[] = {
     {reinterpret_cast<const char*>(42), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
     {reinterpret_cast<const char*>(50), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true, 0, 0,
      0, {1, 1, 1, 1}, nullptr, {0, 0, 0, 0}, &probe_shift},
-    {reinterpret_cast<const char*>(51), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true}
+    {reinterpret_cast<const char*>(51), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
+#if OPXY_KIT_CONTROLS
+    {reinterpret_cast<const char*>(43), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
+    {reinterpret_cast<const char*>(44), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
+#endif
+#if OPXY_MODEL_EDIT
+    {reinterpret_cast<const char*>(45), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
+#endif
 };
-const opxy::u32 sdk_synth_control_count = 9;
+const opxy::u32 sdk_synth_control_count = sizeof(sdk_synth_controls) / sizeof(sdk_synth_controls[0]);
 }
 
 namespace {
@@ -319,6 +379,258 @@ opxy::platform::Address opxy::platform::host_stock_address(Address address) {
         std::abort();
     }
 }
+
+#if OPXY_KIT_CONTROLS
+// The drum-kit controls in a build with such a kit: every check in main runs on kits
+// without them, unchanged; these run on engines 43 and 44.
+namespace {
+using namespace opxy;
+using namespace opxy::platform;
+u8* pad_bytes(u32 note) { return reinterpret_cast<u8*>(regions[note - 53]); }
+bool cell(u32 position, u32 choice, const char* title, const char* value) {
+    u8 got = 99;
+    const char* named = nullptr;
+    char text[16] = {};
+    return sdk_drum_kit_readout(0, position, &got, &named, text) && got == choice && !std::strcmp(named, title) &&
+           !std::strcmp(text, value);
+}
+bool no_cell(u32 position) {
+    u8 got = 99;
+    const char* named = nullptr;
+    char text[16] = {};
+    return !sdk_drum_kit_readout(0, position, &got, &named, text) && got == 99;
+}
+void turn_shift(u32 note, u32 position, i32 detents) {
+    const u32 event[3] = {0, static_cast<u32>(detents), 0};
+    sdk_drum_edit(note, 4 + position, event, 0);
+}
+i32& m2(u32 word) { return object[0x3864 / 4 + word]; }
+void kit_controls_checks() {
+    const u32 saved_engine = engine, saved_key = key;
+    const bool saved_shift = shifted;
+    shifted = true;
+    // A kit without them: no cell, and M2's words stay stock's.
+    engine = 34; key = 53;
+    require(no_cell(2) && no_cell(3) && !sdk_drum_kit(34));
+    m2(9) = 77;
+    sdk_drum_amp_tick();
+    require(m2(9) == 77);
+    // Engine 43, key 60: unmarked, its level byte and pad word as stock left them. It
+    // reads 0 dB and no random, as it plays.
+    engine = 43; key = 60;
+    pad_bytes(60)[24] = 0x10;   // stock's model byte: not the kit's
+    pad_bytes(60)[kDrumLevel] = 5;
+    regions[7][5] = 987654;
+    require(cell(2, 30, "VOLUME", "0dB") && cell(3, 0, "RANDOM", "0%") && no_cell(0) && no_cell(1));
+    u32 before = publications;
+    turn_shift(60, 2, 3);   // its first edit sets it up: 0 dB, no random, then +3 dB
+    require(publications == before + 1 && drum_marked(pad_bytes(60)[24]) && regions[7][5] == 0);
+    require(static_cast<signed char>(pad_bytes(60)[kDrumLevel]) == 3 && cell(2, 33, "VOLUME", "+3dB"));
+    turn_shift(60, 2, -40);
+    require(cell(2, 0, "VOLUME", "-30dB") && static_cast<signed char>(pad_bytes(60)[kDrumLevel]) == -30);
+    before = publications;
+    turn_shift(60, 2, -1);   // at its floor: nothing
+    require(publications == before);
+    turn_shift(60, 2, 60);
+    require(cell(2, 50, "VOLUME", "+20dB"));
+    turn_shift(60, 3, 5);
+    require(regions[7][5] == 5 * kKitRandomStep && cell(3, 5, "RANDOM", "5%"));
+    turn_shift(60, 3, -10);
+    require(regions[7][5] == 0 && cell(3, 0, "RANDOM", "0%"));
+    turn_shift(60, 3, 127);
+    turn_shift(60, 3, 1);
+    require(regions[7][5] == 0x7fffffff && cell(3, 100, "RANDOM", "100%"));
+    // The key's model and controls stay its defaults through those edits.
+    u8 model = 99, raw[8];
+    require(sdk_drum_values(0, &model, raw) && model == 1 && raw[0] == 20 && raw[7] == 60);
+    // Shift's first two encoders stay the model and the choke group.
+    turn_shift(60, 1, 2);
+    require(drum_choke(pad_bytes(60)[24]) == 2 && static_cast<signed char>(pad_bytes(60)[kDrumLevel]) == 20);
+    // A control turn on another unmarked key sets it up as well.
+    key = 61;
+    pad_bytes(61)[24] = 0x10;
+    pad_bytes(61)[kDrumLevel] = 9;
+    regions[8][5] = 987654;
+    shifted = false;
+    const u32 up[3] = {0, 1, 0};
+    sdk_drum_edit(61, 0, up, 0);
+    require(drum_marked(pad_bytes(61)[24]) && regions[8][5] == 0 && pad_bytes(61)[kDrumLevel] == 0);
+    shifted = true;
+    // Engine 44 groups its models: Shift's third encoder is its volume, and the key's
+    // choke group stays as it is.
+    engine = 44; key = 62;
+    pad_bytes(62)[24] = 0x47;   // marked, choke group 4 (mute2)
+    regions[9][5] = 0;
+    pad_bytes(62)[kDrumLevel] = 0;
+    {
+        const u8 c[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+        require(drum_pack(0, c, regions[9] + 1));
+    }
+    turn_shift(62, 2, -6);
+    require(cell(2, 24, "VOLUME", "-6dB") && pad_bytes(62)[24] == 0x47);
+    // ampEnvelope: a key's amp values in its words' low halves are read past, and kept
+    // across a Shift edit, a control edit and a held pad's scramble.
+    const i32 amp[4] = {5 << 16, 1000 << 16, 20000 << 16, 300 << 16};
+    for (u32 i = 0; i < 4; ++i) regions[9][1 + i] = kit_amp_store(regions[9][1 + i], amp[i]);
+    require(sdk_drum_values(0, &model, raw) && model == 0 && raw[0] == 1 && raw[7] == 8);
+    turn_shift(62, 3, 7);
+    for (u32 i = 0; i < 4; ++i) require(kit_amp(regions[9][1 + i], -1) == amp[i]);
+    shifted = false;
+    sdk_drum_edit(62, 1, up, 0);
+    require(sdk_drum_values(0, &model, raw) && raw[1] == 3);
+    for (u32 i = 0; i < 4; ++i) require(kit_amp(regions[9][1 + i], -1) == amp[i]);
+    rolling = true;
+    sdk_drum_pad_scramble(62);
+    rolling = false;
+    for (u32 i = 0; i < 4; ++i) require(kit_amp(regions[9][1 + i], -1) == amp[i]);
+    require(regions[9][5] == 7 * kKitRandomStep && sdk_drum_values(0, &model, raw));
+    // M2 follows the selected key: its values go to words 8..11 ...
+    for (u32 i = 0; i < 4; ++i) m2(8 + i) = 0;
+    sdk_drum_amp_tick();
+    for (u32 i = 0; i < 4; ++i) require(m2(8 + i) == amp[i]);
+    before = publications;
+    sdk_drum_amp_tick();
+    require(publications == before);
+    // ... and an M2 turn goes to the key.
+    m2(9) = 2000 << 16;
+    sdk_drum_amp_tick();
+    require(publications == before + 1 && kit_amp(regions[9][2], -1) == (2000 << 16) && kit_amp(regions[9][1], -1) == amp[0]);
+    // A key the kit has not stored shows the kit's defaults, and an M2 turn marks it,
+    // set up as an edit sets a key up.
+    key = 63;
+    pad_bytes(63)[24] = 0x10;
+    regions[10][5] = 987654;
+    sdk_drum_amp_tick();
+    for (u32 i = 0; i < 4; ++i) require(m2(8 + i) == kit_amp_words[i]);
+    m2(11) = 100 << 16;
+    sdk_drum_amp_tick();
+    require(drum_marked(pad_bytes(63)[24]) && kit_amp(regions[10][4], -1) == (100 << 16) && regions[10][5] == 0);
+    require(kit_amp(regions[10][2], -1) == kit_amp_words[1]);
+    require(sdk_drum_values(0, &model, raw) && model == 0 && raw[7] == 63);
+    // Engine 43 has no amp envelope: M2 stays stock's.
+    engine = 43; key = 60;
+    m2(9) = 55;
+    sdk_drum_amp_tick();
+    require(m2(9) == 55);
+    engine = saved_engine; key = saved_key; shifted = saved_shift;
+}
+}
+#endif
+
+#if OPXY_MODEL_EDIT
+// modelEdit in a build with such a kit: every check in main runs on kits without it,
+// unchanged; these run on engine 45 (and, with the drum-kit controls, 44).
+namespace {
+using namespace opxy;
+using namespace opxy::platform;
+bool values_of(u8& model, u8* raw) { return sdk_drum_values(0, &model, raw); }
+void model_edit_checks() {
+    const u32 saved_engine = engine, saved_key = key;
+    const bool saved_shift = shifted;
+    engine = 45; key = 53; shifted = false;
+    shown(0,1,2,3);
+    // Only the kits the table names have a model editor.
+    require(drum_model_edit(*sdk_drum_machine(45)) == &sdk_drum_model_edits[0]);
+    require(!drum_model_edit(*sdk_drum_machine(42)) && !drum_model_edit(*sdk_drum_machine(34)));
+    const u8 start[8] = {120, 21, 22, 23, 24, 25, 26, 27};
+    require(drum_pack(0, start, regions[0] + 1));
+    reinterpret_cast<u8*>(regions[0])[24] = drum_mark(0);
+    const u32 plus[3] = {0, 1, 0}, minus[3] = {0, static_cast<u32>(-1), 0}, fast[3] = {0, 1, 3};
+    u8 model = 99, raw[8];
+    u32 before = publications;
+    // Within the model: the editor gets the key's model, the slot, its value, the detents
+    // and the speed; the shared editor stores and publishes what it answers.
+    sdk_drum_edit(53, 0, minus, 0);
+    require(dial_model == 0 && dial_slot == 0 && dial_value == 120 && dial_delta == -1 && dial_speed == 0);
+    require(values_of(model, raw) && model == 0 && raw[0] == 112 && publications == before + 1);
+    // Past 127 into the next model: the model and that control move together and the key's
+    // other controls stay.
+    sdk_drum_edit(53, 0, plus, 0);
+    sdk_drum_edit(53, 0, plus, 0);
+    require(dial_model == 0 && dial_value == 120);
+    require(values_of(model, raw) && model == 1 && raw[0] == 0 && raw[1] == 21 && raw[2] == 22);
+    require(publications == before + 3 && last_key == 53);
+    // And back below 0 into the previous one.
+    sdk_drum_edit(53, 0, minus, 0);
+    require(dial_model == 1 && dial_value == 0);
+    require(values_of(model, raw) && model == 0 && raw[0] == 120);
+    // The turn's speed reaches the editor, bounded to 0..127, as parameterEdit's does.
+    sdk_drum_edit(53, 0, fast, 0);
+    require(dial_speed == 3 && values_of(model, raw) && model == 1 && raw[0] == 8);
+    const u32 faster[3] = {0, 1, 1000}, slower[3] = {0, 1, static_cast<u32>(-4)};
+    sdk_drum_edit(53, 0, faster, 0);
+    require(dial_speed == 127 && values_of(model, raw) && model == 1 && raw[0] == 24);
+    sdk_drum_edit(53, 0, slower, 0);
+    require(dial_speed == 0 && values_of(model, raw) && model == 1 && raw[0] == 32);
+    // Delta is bounded to -127..127 before the editor sees it.
+    const u32 huge[3] = {0, 0x80000000u, 0};
+    sdk_drum_edit(53, 0, huge, 0);
+    require(dial_delta == -127 && values_of(model, raw) && model == 0 && raw[0] == 0);
+    // At the dial's first position a turn down changes and publishes nothing.
+    before = publications;
+    sdk_drum_edit(53, 0, minus, 0);
+    require(publications == before && values_of(model, raw) && model == 0 && raw[0] == 0);
+    // The last model's last position holds too.
+    const u8 last[8] = {127, 21, 22, 23, 24, 25, 26, 27};
+    require(drum_pack(2, last, regions[0] + 1));
+    sdk_drum_edit(53, 0, plus, 0);
+    require(publications == before && values_of(model, raw) && model == 2 && raw[0] == 127);
+    // Another control moves within the model, as the kit answers it.
+    sdk_drum_edit(53, 1, plus, 0);
+    require(dial_slot == 1 && values_of(model, raw) && model == 2 && raw[1] == 22 && publications == before + 1);
+    // An answer outside the kit's positions is ignored: nothing stored or published.
+    dial_override = true;
+    before = publications;
+    for (u32 answer : {3u * 128, 0xffffffffu, 1000u}) {
+        dial_answer = answer;
+        sdk_drum_edit(53, 0, plus, 0);
+        require(publications == before && values_of(model, raw) && model == 2 && raw[0] == 127);
+    }
+    // Any position inside is taken as it is, a jump of several models included.
+    dial_answer = 5;
+    sdk_drum_edit(53, 1, plus, 0);
+    require(publications == before + 1 && values_of(model, raw) && model == 0 && raw[1] == 5 && raw[0] == 127);
+    // A position in a model that does not use the turned control is ignored too: from the
+    // second model's slot 2 into the first, which leaves slot 2 unnamed.
+    const u8 second[8] = {10, 11, 12, 23, 24, 25, 26, 27};
+    require(drum_pack(1, second, regions[0] + 1));
+    before = publications;
+    dial_answer = 9;
+    sdk_drum_edit(53, 2, plus, 0);
+    require(dial_slot == 2 && publications == before && values_of(model, raw) && model == 1 && raw[2] == 12);
+    dial_answer = 2 * 128 + 9;   // the third model uses it
+    sdk_drum_edit(53, 2, plus, 0);
+    require(publications == before + 1 && values_of(model, raw) && model == 2 && raw[2] == 9 && raw[0] == 10);
+    dial_answer = 5;
+    sdk_drum_edit(53, 1, plus, 0);
+    require(values_of(model, raw) && model == 0 && raw[1] == 5);
+    dial_override = false;
+    // An unnamed slot of the key's model (the first model's slot 2) never asks the editor,
+    // and neither does a Shift encoder: Shift's first still turns the model, keeping controls.
+    const u32 calls = dial_calls;
+    sdk_drum_edit(53, 2, plus, 0);
+    shifted = true;
+    sdk_drum_edit(53, 4, plus, 0);
+    require(dial_calls == calls && values_of(model, raw) && model == 1 && raw[0] == 10 && raw[1] == 5);
+    shifted = false;
+#if OPXY_KIT_CONTROLS
+    // ampEnvelope: a key's amp values stay across a dial turn into another model.
+    engine = 44; key = 62;
+    reinterpret_cast<u8*>(regions[9])[24] = 0x47;
+    const u8 near[8] = {124, 2, 3, 4, 5, 6, 7, 8};
+    require(drum_pack(0, near, regions[9] + 1));
+    const i32 amp[4] = {5 << 16, 1000 << 16, 20000 << 16, 300 << 16};
+    for (u32 i = 0; i < 4; ++i) regions[9][1 + i] = kit_amp_store(regions[9][1 + i], amp[i]);
+    dial_models = 5;
+    sdk_drum_edit(62, 0, plus, 0);
+    require(values_of(model, raw) && model == 1 && raw[0] == 4 && raw[1] == 2);
+    for (u32 i = 0; i < 4; ++i) require(kit_amp(regions[9][1 + i], -1) == amp[i]);
+    dial_models = 3;
+#endif
+    engine = saved_engine; key = saved_key; shifted = saved_shift;
+}
+}
+#endif
 
 int main() {
     using namespace opxy;
@@ -1343,6 +1655,12 @@ int main() {
         engine = saved_engine; key = saved_key; shifted = false;
     }
 
+#if OPXY_KIT_CONTROLS
+    kit_controls_checks();
+#endif
+#if OPXY_MODEL_EDIT
+    model_edit_checks();
+#endif
     ownership = 0;
     require(sdk_drum_edit(53, 0, one, 0) == 1234 && fallback == 1);
     require(!sdk_drum_values(0, &model, raw));
