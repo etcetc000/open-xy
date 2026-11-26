@@ -706,7 +706,7 @@ included; it does not block. It copies up to 18 bytes each time, so a machine th
 reads it often can keep its own copy after the first true. Code that needs the
 identity in `init` or at a note's start must handle false: keep a default and switch once it is known,
 or stay silent until then. It can also stay false for good: the GUI stops
-looking after 600 looks, 100 ms apart (about a minute), and sends the identity only 32 times, so a unit whose
+looking after 600 looks, at least 100 ms apart (a minute or more), and sends the identity only 32 times, so a unit whose
 boot information is not in place, or an audio processor that misses every
 message, never has it. A machine must still work then.
 
@@ -731,9 +731,9 @@ does nothing and returns false.
 A machine that includes the header must declare `deviceIdentity`. Only a
 firmware with such a machine links the service that reads, sends and receives
 the identity; others are unchanged. The service adds a check to each pass of
-the GUI processor's main loop and to each of stock's global parameter messages
-the audio processor receives, and sends the identity 32 times, once a second
-from when it is read ([firmware
+stock's main loop (on the audio processor it returns at once) and to each of
+stock's global parameter messages the audio processor receives, and sends the
+identity 32 times, at most once a second, from when it is read ([firmware
 ABI](abi-1.2.1.md#device-identity)). A machine pack cannot add a machine
 declaring `deviceIdentity` to a site yet: the builder's list of features a
 pack machine may use does not include it.

@@ -2548,10 +2548,10 @@ The main-loop handler makes stock's call, then saves every register, runs the
 service and restores them, so the loop continues as after stock's call. The
 service does nothing on the audio processor (role byte `86c05ca4` zero). On the
 GUI processor, until it has the identity, it looks every 100 ms (stock's
-microsecond clock `8d5be3a0`), 600 times at most (about a minute): the boot information's word at `08010e68` must
+microsecond clock `8d5be3a0`), 600 times at most (a minute or more, as the loop passes): the boot information's word at `08010e68` must
 hold an address in the 1000 bytes from `0x84000`, the 18 bytes at `08010e52`
 are the identity, and the word must be unchanged after they are read. It then
-sends the identity once a second, 32 times, and after that does nothing more
+sends the identity at most once a second, 32 times, and after that does nothing more
 than check that it is done. Each time is eight B3 global parameter messages
 (`8d4dc84c(id, value)`, a five-byte payload: the ID byte and the value's four
 bytes): ID 138 with a 24-bit sequence number, IDs 139–144 with the bytes three

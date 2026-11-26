@@ -70,12 +70,13 @@ class Declaration(unittest.TestCase):
         if sdk is not None:
             record = json.loads((folder / 'machine.json').read_text(encoding='utf-8'))
             record['sdk'] = sdk
+            record.pop('identity', None)  # older fixtures carry one; from 1.5 the build gives the numbers
             (folder / 'machine.json').write_text(json.dumps(record), encoding='utf-8')
         definition = json.loads((folder / 'definition.json').read_text(encoding='utf-8'))
-        if declared:
-            definition['resources']['deviceIdentity'] = 1
-        else:
+        if declared is False:
             definition['resources'].pop('deviceIdentity', None)
+        else:
+            definition['resources']['deviceIdentity'] = int(declared)
         (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
         return folder
 
@@ -90,6 +91,10 @@ class Declaration(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'deviceIdentity'):
                 machine_at(self.copy_fixture(directory, declared=False))
         with tempfile.TemporaryDirectory() as directory:
+            # Declaring it as 0 is not declaring it.
+            with self.assertRaisesRegex(ValueError, 'deviceIdentity'):
+                machine_at(self.copy_fixture(directory, declared=0))
+        with tempfile.TemporaryDirectory() as directory:
             # Nor may one declare the reader itself.
             folder = self.copy_fixture(directory, 'probestage', sdk='1.30', declared=False)
             engine = folder / 'engine.cpp'
@@ -100,6 +105,11 @@ class Declaration(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             # Declaring it without the header is allowed: the build links the service for nothing.
             m = machine_at(self.copy_fixture(directory, 'probestage', sdk='1.30'))
+            self.assertIn('deviceIdentity', native.service_users([m]))
+        with tempfile.TemporaryDirectory() as directory:
+            # Any kind: an effect too.
+            m = machine_at(self.copy_fixture(directory, 'probefx', sdk='1.30'))
+            self.assertEqual(m.kind, 'effect')
             self.assertIn('deviceIdentity', native.service_users([m]))
 
 
