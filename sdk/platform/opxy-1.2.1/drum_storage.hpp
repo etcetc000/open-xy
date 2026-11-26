@@ -32,7 +32,7 @@ inline u8 drum_mark(u8 byte) {
 }
 inline bool drum_marked(u8 byte) { return (byte & 15u) == kDrumModelMark && (byte >> 4) <= 5; }
 
-// A key's choke group, as Shift and the second encoder offer it: none, then
+// A key's choke group, as Shift offers it: none, then
 // 1..3. The high nibble is stock's play mode, as presets name it: gate 0,
 // oneshot 1, mute1 2, loop 3, mute2 4, mute3 5. Pads sharing a mute cut each
 // other off; gate and loop read as none.
@@ -160,7 +160,7 @@ inline bool drum_marked_q31(i32 word) {
 
 // The values a note plays: each stored control plus its track parameter as an
 // offset around Q31 0.5, clamped to 0..127. Step locks and modulation reach a
-// kit only as these offsets; null parameters are neutral. The model has none.
+// kit's controls only as these offsets; null parameters are neutral. The model has none.
 inline void drum_offset(const u8* controls, const i32* parameters, u8* live) {
     for (u32 i = 0; i < kDrumControlCount; ++i) {
         i32 value = controls[i];

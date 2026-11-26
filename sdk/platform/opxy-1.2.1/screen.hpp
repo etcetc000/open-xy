@@ -37,8 +37,8 @@ struct PathNode {
 struct Command { i32 x, y; u32 stock8[4]; unsigned char type, stock25[7]; };
 // The loaded artwork: its fill (4-byte) and stroke (20-byte) palette records.
 struct Document { u32 stock0[25]; Vector fills; u32 stock112[5]; Vector strokes; };
-// The stock control parameter vector: eight Q31 words from begin.
-struct Parameters { u32 stock0; u32 begin, end; };
+// The stock control parameter vector: eight Q31 words from begin (stock.hpp).
+typedef platform::TrackParameters Parameters;
 static_assert(sizeof(Leaf) == 40 && __builtin_offsetof(PathNode, fill) == 112 &&
               __builtin_offsetof(PathNode, stroke) == 114 && __builtin_offsetof(PathNode, commands) == 120 &&
               sizeof(Command) == 32 && __builtin_offsetof(Command, type) == 24 &&
@@ -74,7 +74,7 @@ inline void draw_hold_strip(u32 track, i32 elapsed) {
     if (track < platform::kTracks && sdk_drum_machine(platform::track_engine(track)))
         platform::drum_hold_strip(elapsed);
 }
-inline const Parameters* parameters(u32 track) { return stock<const Parameters*(u32)>(0x8d4d72a8)(track); }
+inline const Parameters* parameters(u32 track) { return platform::track_parameters(track); }
 inline void update_controls(Base* o, u32 track, const Parameters* p) {
     stock<void(Leaf**, u32, const Parameters*)>(0x8d5466ac)(o->values, track, p);
 }
@@ -158,12 +158,12 @@ struct Controls {
     i32 slots[parameter_slots];
     u32 model;   // a drum kit's selected key's model; 0 otherwise
     u32 pad;     // a drum kit's selected canonical pad, 53..76; 0 otherwise
-    bool choosing;   // a drum kit's Shift page: the cells name the model and choke group
+    bool choosing;   // a drum kit's Shift page: the cells name what Shift chooses (DrumMachine::shift)
     u32 shift;       // an effect's page: Shift held on its shift row
-    u8 choices[4];   // that row's choices, or a drum kit's Shift controls' (draw::Input::choices)
+    u8 choices[4];   // that row's choices, or a drum kit's (see draw::Input::choices)
     i32 pan, level;  // a padMix kit's selected key's pan (-100..100) and level (dB, -30..0)
-    u32 line;        // the row the encoders and Shift edit: 0 the first, 1 the second
-    i32 pads[platform::kDrumPadFields];  // a kit's selected key's pad controls (padControls)
+    u32 line;        // the row the encoders (and on a padMix kit Shift) edit: 0 the first, 1 the second
+    i32 pads[platform::kDrumPadFields];  // a padMix kit's selected key's pad fields: pad controls, FX I, FX II; 0 otherwise
 };
 
 // Fills controls.slots and values from the stock parameter vector,
@@ -288,8 +288,9 @@ inline bool refresh_controls(Base* o, Controls& controls) {
     if (controls.valid) {
         // While Shift is held, each encoder names and shows what it chooses
         // for the selected key (DrumMachine::shift): the model, as on stock
-        // Drumline, the group with groups, the choke group, and with padMix
-        // the key's pan and level. An encoder that chooses nothing is blank.
+        // Drumline, the group with groups and no padMix, the choke group, and with
+        // padMix the key's pan and level, or on its second row the key's pad
+        // fields. An encoder that chooses nothing is blank.
         const bool choosing = drum && platform::shift_held();
         controls.choosing = choosing;
         // A sample engine's own screen whose Shift gives encoders to the stock

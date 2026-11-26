@@ -130,8 +130,8 @@ static int destroy(void* self) {
     slot->analysis = nullptr;
     return 0;
 }
-void* @PREFIX@_factory(opxy::u32 index, opxy::u32 track) {
-    if (index >= @CAPACITY@) return nullptr;
+@REFUSAL_DEFINITIONS@void* @PREFIX@_factory(opxy::u32 index, opxy::u32 track) {
+    if (index >= @CAPACITY@) return @REFUSED@;
     Slot* slot = &voices[index];
     clear_owner(slot);
     slot->track = track < 8 ? static_cast<unsigned char>(track) : 255;

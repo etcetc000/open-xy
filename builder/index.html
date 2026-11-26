@@ -41,9 +41,22 @@
     <noscript><p>JavaScript is required to acknowledge this notice and use the builder.</p></noscript>
   </section>
   <div id="builder-workspace" hidden inert>
+  <div class="mode-bar"><button id="expert-mode" class="secondary" disabled>Expert mode</button></div>
   <div class="manager-mode"><button id="open-manager" class="secondary" type="button">Manage my OP–XY</button></div>
   <section id="manager-workspace" hidden></section>
   <p id="status" role="status" aria-live="polite">Loading machines…</p>
+  <section data-page="5" hidden aria-labelledby="expert-title">
+    <div class="page-header"><span class="eyebrow">Expert mode</span><h1 id="expert-title" tabindex="-1">Build &amp; copy</h1><p>Use your saved selection or load a config. Choose your OS, then build and copy in one action.</p></div>
+    <dl id="expert-summary" class="machine-facts"></dl>
+    <div class="expert-inputs">
+      <label>OS file<input id="expert-firmware" type="file" accept=".ldr"></label>
+      <label>Config / layout.json<input id="expert-config" type="file" accept=".json"></label>
+    </div>
+    <p id="expert-reason" class="caption" role="status"></p>
+    <p class="caption">XY in dev-menu MTP mode. Quit OpenMTP and Field Kit. Files are read back and verified; writing the boot partition and rebooting remain device actions.</p>
+    <div class="actions"><button id="expert-edit" class="secondary">Edit machines</button><button id="expert-extensions" class="secondary">Edit extensions</button><button id="expert-save" class="secondary">Save config</button></div>
+    <div class="actions"><button id="expert-guided" class="secondary">Guided mode</button><button id="expert-build" class="secondary" disabled>Build ZIP</button><button id="expert-run" class="primary" disabled>Build &amp; copy to XY</button></div>
+  </section>
   <section data-page="1" class="input-page" aria-labelledby="input-title">
     <div class="page-header"><div><span class="eyebrow">Step 1 of 4 · OS</span><h1 id="input-title" class="sr-only" tabindex="-1">Choose OS</h1></div></div>
     <!-- Step 1 screens share the guide's layout: the OP–XY on the left, the step on the right. -->
@@ -104,6 +117,7 @@
           <p class="presets-note">Kept in this browser only.</p>
         </div>
       </details></div></div>
+    <p id="selection-memory" class="caption" role="status"></p>
     <div class="workspace">
       <div><div class="browse" role="search" aria-label="Find machines">
         <div class="browse-row"><input id="machine-search" type="search" placeholder="Search by name, author or keyword" aria-label="Search machines" autocomplete="off" spellcheck="false">
@@ -121,7 +135,13 @@
       </aside>
     </div>
 
-    <div class="actions"><button data-step="1" class="secondary">← OS</button><button id="choose-extensions" class="primary" disabled>Choose extensions <span aria-hidden="true">→</span></button></div>
+    <div class="actions machine-actions"><button data-step="1" class="secondary">← OS</button><div class="action-buttons"><label class="file-button">Import machines ZIP<input id="machine-pack" type="file" accept=".zip,application/zip" disabled></label><button id="choose-extensions" class="primary" disabled>Choose extensions <span aria-hidden="true">→</span></button></div></div>
+    <p id="machine-pack-result" role="status" aria-live="polite"></p>
+    <p class="machine-import-trust">Only import machine ZIPs from authors you trust: their code runs in every build while imported. <button id="remove-machine-pack" type="button" class="secondary" hidden>Remove imported machines</button></p>
+    <details class="machine-import"><summary>About machine ZIPs</summary>
+      <p>Import an SDK machine pack made for this catalog. Files stay in this browser. Only import code from authors you trust: while a pack is imported, every build includes its startup and machine tables.</p>
+      <p>One pack can contain several machines. A pack that imports replaces the current one. Reloading clears imported machines.</p>
+    </details>
   </section>
   <section data-page="3" hidden aria-labelledby="extensions-title">
     <div class="page-header"><div><span class="eyebrow">Step 3 of 4 · Extensions</span><h1 id="extensions-title" tabindex="-1">Choose extensions</h1><p>Choose optional changes to your OP–XY’s look and workflow.</p></div><span id="extension-count" class="counter">None selected</span></div>
@@ -139,7 +159,7 @@
         <section class="selection-summary" aria-label="Your firmware"><h3>Your firmware</h3><dl id="build-selection" class="machine-facts"></dl><p id="extension-memory" class="caption" role="status"></p></section>
       </aside>
     </div>
-    <div class="actions"><button data-step="2" class="secondary">← Machines</button><button id="build" class="primary" disabled>Build firmware <span aria-hidden="true">→</span></button></div>
+    <div class="actions"><button data-step="2" class="secondary">← Machines</button><button id="build" class="primary" aria-describedby="build-reason" disabled>Build firmware <span aria-hidden="true">→</span></button></div><p id="build-reason" class="caption" role="status"></p><button id="build-setup" class="secondary" hidden>Go to OS setup</button>
   </section>
   <dialog id="selected-previews" aria-labelledby="selected-previews-title" aria-describedby="selected-previews-note">
     <div class="selected-previews-heading"><div class="selected-previews-title-group"><h2 id="selected-previews-title">Machine graphics</h2><span id="selected-previews-count"></span></div><button id="close-selected-previews" type="button" class="secondary" autofocus>Done</button></div>

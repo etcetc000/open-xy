@@ -14,6 +14,9 @@
 #endif
 
 extern "C" opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
+// A drum-kit control's Shift cell (drum_kit_controls.hpp; reached only by a kit declaring one).
+extern "C" bool sdk_drum_kit_readout(opxy::u32 track, opxy::u32 position, opxy::u8* choice, const char** title,
+                                     char* value) __asm__("sdk_drum_kit_readout");
 // Refreshes opxy_sample_overview for a sample engine's own screen (sample_overview.cpp).
 extern "C" void sdk_sample_overview_update(opxy::u32) __asm__("sdk_sample_overview_update");
 
@@ -23,12 +26,87 @@ binding::DisplayState display_state;
 u32 display_activation;
 binding::Frame display_frame;
 
-// Stock counts both live and sequenced note starts. Selection stays in the
-// control snapshot; the latest played drum is supplied independently below.
-u32 display_note_serial(const Controls& controls) {
+// The track's note-start counter: stock counts live and sequenced note starts
+// alike. A synth's, a sample engine's and, from SDK 1.21, a drum kit's serial,
+// which reads the played pad from its snapshot (sdk_drum_trigger).
+u32 track_note_serial(const Controls& controls) {
     return controls.track < 8 ? note_serial(controls.track) : 0;
 }
+// A drum kit declaring an SDK before 1.21 keeps the serial it was written
+// against: its display is struck only by its selected pad's notes. Audio and
+// GUI are separate roles, so this reads only GUI state: when stock's note
+// counter moves, the pitches that started since the last frame (newly held,
+// or released since) are mapped to their pads. A start no pitch accounts for
+// strikes as before, so the screen never misses a hit it cannot place.
+struct PadNotes { u32 track, valid, notes, serial; u8 held[128], released[128], now[128], now_released[128]; };
+PadNotes pad_notes;
+u32 selected_pad_serial(const Controls& controls) {
+    if (controls.track >= 8) return 0;
+    const u32 notes = note_serial(controls.track);
+    if (!controls.pad) {
+        pad_notes.valid = 0;
+        return notes;
+    }
+    PadNotes& s = pad_notes;
+    sdk_note_pitches(controls.track, s.now, s.now_released);
+    if (s.valid && s.track == controls.track && notes != s.notes) {
+        bool placed = false, struck = false;
+        for (u32 p = 0; p < 128 && !struck; ++p) {
+            const bool released = s.now_released[p] != s.released[p];
+            if (!(s.now[p] && !s.held[p]) && !(released && (s.now[p] || !s.held[p]))) continue;
+            placed = true;
+            struck = sdk_drum_pad(controls.track, p) == controls.pad;
+        }
+        if (struck || !placed) ++s.serial;
+    }
+    for (u32 p = 0; p < 128; ++p) {
+        s.held[p] = s.now[p];
+        s.released[p] = s.now_released[p];
+    }
+    s.track = controls.track;
+    s.notes = notes;
+    s.valid = 1;
+    return s.serial;
+}
 extern "C" void sdk_drum_trigger(u32, draw::Input*) __asm__("sdk_drum_trigger");
+// A 1.21 kit's played-pad snapshot names no pad (all zero) until the track's
+// serial moves after the screen's activation or a track change, so the screen
+// never shows a pad from stock's last-played byte before its first hit there
+// (that byte keeps an earlier track's or kit's key, or whatever it holds at
+// boot). Like the serial's own baseline, it fabricates no note. serial is the
+// value the frame gives the machine as note_serial, read once: a second read
+// could see a note start the machine's serial does not, and the machine would
+// then see its serial move with the snapshot still zero.
+struct PlayedPad { u32 track, serial, valid, moved; };
+PlayedPad played;
+void played_pad_snapshot(const Controls& controls, u32 serial, draw::Input& input) {
+    PlayedPad& s = played;
+    if (!s.valid || s.track != controls.track) s = {controls.track, serial, 1, 0};
+    else if (serial != s.serial) s.moved = 1;
+    if (s.moved) { sdk_drum_trigger(controls.track, &input); return; }
+    input.trigger_key = input.trigger_model = 0;
+    for (u32 i = 0; i < 8; ++i) input.trigger_controls[i] = 0;
+}
+
+// A kit's Shift cells of the drum-kit controls (padVolume, padRandom; SDK 1.23,
+// drum_kit_controls.cpp): each position the kit sets something on holds its choice in
+// controls.choices at all times (the key's volume as dB + 30, its random's percent)
+// and, while Shift is held, names and shows it, over what refresh_controls put there.
+void kit_cells(Base* o, Controls& controls) {
+    if (!controls.valid || !controls.pad) return;
+    for (u32 i = 0; i < 4; ++i) {
+        u8 choice = 0;
+        const char* title = "";
+        char value[16];
+        value[0] = 0;
+        if (!sdk_drum_kit_readout(controls.track, i, &choice, &title, value)) continue;
+        controls.choices[i] = choice;
+        if (!controls.choosing) continue;
+        value[15] = 0;
+        set_text(o->titles[i], title);
+        set_text(o->values[i], value);
+    }
+}
 
 // Machine: ids[] names mutable paths, other nodes, text slots, then palette entries.
 template <class Machine> struct Drawing {
@@ -42,6 +120,7 @@ template <class Machine> struct Drawing {
     static void init(Object* o) {
         clear(o);
         display_activation=0;
+        played.valid=0;
         binding::display_reset(&display_state,&display_frame);
         if(!o->base.svg)return;
         bind_controls(&o->base);
@@ -56,6 +135,7 @@ template <class Machine> struct Drawing {
             // A reset may reuse earlier nonzero geometry keys with new points.
             for (u32 p = 0; p < path_count; ++p) o->keys[p] = 0;
             display_activation = activation;
+            played.valid = 0;
         }
         draw::Input display_input = {};
         for (u32 i = 0; i < page_controls; ++i) {
@@ -67,7 +147,9 @@ template <class Machine> struct Drawing {
         display_input.pan = static_cast<i8>(controls.pan);
         display_input.level = static_cast<i8>(controls.level);
         display_input.line = static_cast<u8>(controls.line);
-        display_input.reserved = 0;
+        // A kit declaring SDK 1.23 or later: its selected key, 0..23 (pad 53 + n); 0 otherwise.
+        display_input.selected_key = Machine::selected_key && controls.pad >= 53 && controls.pad < 77
+            ? static_cast<u8>(controls.pad - 53) : 0;
         const u32 pads = sizeof(controls.pads) / sizeof(controls.pads[0]);
         for (u32 i = 0; i < 4; ++i) display_input.pad[i] = static_cast<i8>(i < pads ? controls.pads[i] : 0);
         // FX I and FX II: a send's index (drum_send.hpp) as the kit's SDK reads it.
@@ -77,12 +159,16 @@ template <class Machine> struct Drawing {
         for (u32 i = 0; i < 4; ++i) display_input.choices[i] = controls.choices[i];
         display_input.elapsed = o->delta;
         display_input.track = controls.track;
-        display_input.note_serial = display_note_serial(controls);
-        display_input.trigger_key = display_input.trigger_model = 0;
-        for (u32 i = 0; i < parameter_slots; ++i) display_input.trigger_controls[i] = 0;
-#if OPXY_SCREEN_DRUM
-        sdk_drum_trigger(controls.track, &display_input);
-#endif
+        // played_pad: a drum kit declaring SDK 1.21 or later, which reads the
+        // track's serial and, once it has moved since activation, the played
+        // pad's snapshot; selected_pad: an older kit, struck by its selected
+        // pad only. Other screens never write the snapshot, which stays zero.
+        if (Machine::selected_pad) {
+            display_input.note_serial = selected_pad_serial(controls);
+        } else {
+            display_input.note_serial = track_note_serial(controls);
+            if (Machine::played_pad) played_pad_snapshot(controls, display_input.note_serial, display_input);
+        }
         sdk_display_note_activity(controls.track, &display_input);
         // A sample engine's own screen reads its sample (opxy_sample_overview).
         if (Machine::sample) sdk_sample_overview_update(controls.track);
@@ -100,6 +186,7 @@ template <class Machine> struct Drawing {
         o->delta = elapsed;
         Controls controls;
         if (!refresh_controls(&o->base, controls)) return;
+        if (Machine::kit_controls) kit_cells(&o->base, controls);
         animate(o, controls);
         draw(&o->base);
         // A drum kit's held pad: Drumline's slide-up strip, over the page.

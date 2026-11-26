@@ -54,6 +54,16 @@ def patch_active(patch, services, profiling=True):
             ('profiling' not in patch or patch['profiling'] is profiling))
 
 
+def hook_symbol(patch, services):
+    """The module symbol a hook enters. A stock site has one hook: when several services
+    need it, the record's `symbols` maps each of them to the handler a build with it
+    enters, and the first one active wins: a handler shared by several services runs
+    them all in a fixed order (builder/core.mjs hookSymbol). Otherwise the record's
+    `symbol`."""
+    return next((symbol for service, symbol in patch.get('symbols', {}).items() if service in services),
+                patch['symbol'])
+
+
 def hooks(profile):
     """Hook site -> (module symbol, call) for every redirect the profile reviews."""
     return {int(p['address'], 16): (p['symbol'], p['call']) for p in profile['patches'] if p['kind'] == 'hook'}
@@ -126,7 +136,7 @@ def check_edit(patch, original, services, profiling, low, module_bytes):
     require(all(patch[k] == original[k] for k in ('kind', 'address', 'before', 'file_offset', 'length')),
             'Changed patch boundary')
     after = bytes.fromhex(patch['after'])
-    require(all(patch.get(k) == original.get(k) for k in ('service', 'profiling', 'symbol', 'call', 'absolute_jump')),
+    require(all(patch.get(k) == original.get(k) for k in ('service', 'profiling', 'symbol', 'symbols', 'call', 'absolute_jump')),
             'Changed patch policy')
     if not patch_active(original, services, profiling):
         require(patch['after'] == original['before'], 'An inactive hook changed stock')

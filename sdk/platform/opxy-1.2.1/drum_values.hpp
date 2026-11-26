@@ -3,6 +3,9 @@
 #include "drum_machines.hpp"
 #include "drum_storage.hpp"
 #include "stock.hpp"
+#if OPXY_KIT_CONTROLS
+#include "drum_kit_controls.hpp"   // an ampEnvelope kit's keys (sdk_drum_kit_unpack)
+#endif
 
 namespace opxy { namespace platform {
 // Stock's GUI record stores its canonical pad key at +26; the selected key
@@ -22,6 +25,10 @@ inline bool drum_region_values(const DrumMachine& machine, u32 track, u32 key,
     machine.defaults(canonical, model, controls);
     // A pad the kit has not stored (stock's defaults, or the eight-value
     // layout of earlier SDK builds) keeps the key's defaults.
+#if OPXY_KIT_CONTROLS
+    // An ampEnvelope kit's key, past its amp values (drum_kit_controls.cpp); any other's as before.
+    if (sdk_drum_kit_unpack(machine, region, model, controls)) {} else
+#endif
     if (drum_marked(record[24])) drum_unpack(static_cast<const i32*>(region) + 1, model, controls, codec);
     if (*model >= machine.model_count) machine.defaults(canonical, model, controls);
     return *model < machine.model_count;

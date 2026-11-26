@@ -27,7 +27,7 @@ const char* sdk_synth_title(opxy::u32, opxy::u32) __asm__("sdk_synth_title");
 opxy::u32 (*sdk_aux_engine)(opxy::u32) = nullptr;
 bool (*sdk_aux_owns_page)(opxy::u32) = nullptr;
 bool (*sdk_control_turn)(opxy::u32, opxy::u32, const opxy::i32*) = nullptr;
-void (*sdk_player_press)() = nullptr;
+void (*sdk_player_press)(opxy::u32) = nullptr;
 
 namespace {
 using opxy::u32;
@@ -78,8 +78,8 @@ Track* state(u32 track, u32 engine) {
     return &t;
 }
 
-// Whether the track's drum kit, if it is one, names a slot in 4..7 for the
-// selected key's model. Any other machine has its second row, and so has every
+// Whether the track's drum kit, if it is one, uses a slot in 4..7 for the
+// selected key's model (DrumMachine::used: below its count and named). Any other machine has its second row, and so has every
 // key of a padMix kit: its second Shift row holds the key's pad fields.
 bool second_row(u32 engine, u32 track) {
     const DrumMachine* drum = sdk_drum_machine(engine);
@@ -98,8 +98,9 @@ const SynthControls* machine(u32 track, Track*& t) {
     if (track >= kTracks && !engine) return nullptr;
     const SynthControls* m = owned(engine);
     t = state(track, m ? engine : 0);
-    // A drum key whose model names nothing in slots 4..7 has one row: its
-    // encoders stay on (or return to) slots 0..3.
+    // A key without a second row (second_row: on a kit without padMix, a model
+    // using nothing in slots 4..7) has one row: its encoders stay on (or return
+    // to) slots 0..3.
     if (m && t->slots[0] >= opxy::page_controls && !second_row(engine, track))
         for (u32 i = 0; i < opxy::page_controls; ++i) t->slots[i] = static_cast<u8>(i);
     return m;
@@ -123,6 +124,12 @@ opxy::i32 key_send(u32 track, u32 send) {
     return drum_send_lock_of(static_cast<u32>(values[kDrumKitPadFields + send]));
 }
 }  // namespace
+
+#if OPXY_CONTROL_INTERACTION
+// A build where a machine reads the last control touched (opxy/control_interaction.hpp,
+// tooling.native.control_interaction_unit): presses and turns below record it.
+#include "control_interaction_native.inc"
+#endif
 
 // Whether Shift on a track's own screen gives an encoder to the stock sampler
 // page (stockShift). Here rather than with the sample page's objects, because
@@ -229,7 +236,7 @@ u32 shift_entry(const SynthShift& s, const Track& t, u32 position) {
 }
 // A Shift turn of a position: its entry moves by the turn's detents (event[1]),
 // an amount (speed + 1) a detent up to four (event[2]), a choice one. With a step
-// held, the turn locks the entry at that step, as the kit's Shift fields lock
+// held, the turn locks the entry at that step, as a padMix kit's Shift fields lock
 // (lock_handles.hpp): a step-wide entry of the step's handle, field = the entry,
 // unlocked when it is turned back to the track's own value. Otherwise the word
 // goes to the track's stored words, which projects save, and live through
@@ -328,6 +335,9 @@ void sdk_synth_press(u32 encoder) {
             const u32 next = m->next[t->slots[i]];
             if (next < opxy::parameter_slots) t->slots[i] = static_cast<u8>(next);
         }
+#if OPXY_CONTROL_INTERACTION
+        capture_interaction(kProject, byte(kSelectedTrack), m->engine(), encoder, t->slots[encoder]);
+#endif
     } else if (controller == kAuxController && sdk_aux_owns_page && sdk_aux_owns_page(byte(kSelectedTrack)) &&
                (m = machine(byte(kSelectedTrack), t))) {
         // The page of a machine holding an aux track, as on an instrument track.
@@ -345,7 +355,7 @@ void sdk_synth_press(u32 encoder) {
             if (next < opxy::parameter_slots) t->slots[i] = static_cast<u8>(next);
         }
     } else if (controller == kPlayerController && sdk_player_press) {
-        sdk_player_press();
+        sdk_player_press(encoder);
     }
 }
 
@@ -445,6 +455,9 @@ u32 sdk_synth_turn(u32 project, u32 track, u32 index, u32 event) {
         drumline_track(track) && drumline_service()->lock(track, index, event ? at<const u32>(event) : nullptr))
         return 0;
     const u32 original_index = index;
+#if OPXY_CONTROL_INTERACTION
+    const u32 physical = fine_turn ? index - 4 : index;
+#endif
     if (fine_turn) index -= 4;
     const SynthControls* m = index < opxy::page_controls ? machine(track, t) : nullptr;
     // A synth with a Shift row (SDK 1.13): Shift turns the row, not fine steps.
@@ -463,10 +476,22 @@ u32 sdk_synth_turn(u32 project, u32 track, u32 index, u32 event) {
             // acceleration intact for its parameter-lock/quantized paths.
             const opxy::i32* source = reinterpret_cast<const opxy::i32*>(event);
             const opxy::i32 fine[3] = {source[0] / 10, source[1], source[2]};
+#if OPXY_CONTROL_INTERACTION
+            const u32 result = stock<u32(u32, u32, u32, const opxy::i32*)>(0x8d5ad5bc)(project, track, index, fine);
+            capture_interaction(project, track, m->engine(), physical, index);
+            return result;
+#else
             return stock<u32(u32, u32, u32, const opxy::i32*)>(0x8d5ad5bc)(project, track, index, fine);
+#endif
         }
     } else index = original_index;
+#if OPXY_CONTROL_INTERACTION
+    const u32 result = stock<u32(u32, u32, u32, u32)>(0x8d5ad5bc)(project, track, index, event);
+    if (m && event && word(kInstrumentPage) == 0) capture_interaction(project, track, m->engine(), physical, index);
+    return result;
+#else
     return stock<u32(u32, u32, u32, u32)>(0x8d5ad5bc)(project, track, index, event);
+#endif
 }
 
 // 8c08fade: auxiliary-track page, including send FX tracks 14/15. Its controller

@@ -82,7 +82,7 @@ int main() {
 
 
 # A synth's Shift row (SDK 1.13) in the header: both rows while Shift is held, page 1's
-# entries on top and page 2's under them, as a drum kit's two Shift rows.
+# entries on top and page 2's under them, as a padMix kit's two Shift rows.
 SHIFT_PROGRAM = r'''
 #include <opxy/page_header.hpp>
 #include <cstring>

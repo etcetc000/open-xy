@@ -38,6 +38,32 @@ class Generation(unittest.TestCase):
             validate_definition(timed, 'sample')
         definition['resources'] = {'voiceCapacity': 256}
         validate_definition(definition, 'sample')
+        # Stock passes its 27 voice wrappers' numbers as indices: 27 covers them.
+        for capacity in (27, 32):
+            definition['resources'] = {'voiceCapacity': capacity}
+            validate_definition(definition, 'sample')
+        definition['resources'] = {'voiceCapacity': 26}
+        with self.assertRaisesRegex(ValueError, 'voiceCapacity 27 or more'):
+            validate_definition(definition, 'sample')
+
+    def test_a_refused_index_gets_an_inert_object_only_below_256(self):
+        plain = fixture('probesample')
+        def adapter(capacity):
+            m = replace(plain, identity=dict(engine=46, page=2),
+                        definition=dict(plain.definition, resources=dict(plain.definition['resources'], voiceCapacity=capacity)))
+            with tempfile.TemporaryDirectory() as directory:
+                return adapters.generate_sample_voice(directory, m).read_text(encoding='utf-8')
+        full = adapter(256)
+        self.assertIn('    if (index >= 256) return nullptr;', full)
+        self.assertNotIn('refused', full)
+        small = adapter(32)
+        self.assertIn('    if (index >= 32) return refused();', small)
+        self.assertIn('probesample_voice_refusals', small)
+        # Apart from the refusal, the adapter is the same text.
+        stereo = plain.definition['resources'].get('stereoOutput', 0)
+        self.assertEqual(small.replace(adapters.sample_refusal('probesample', stereo), '')
+                         .replace('if (index >= 32) return refused();', 'if (index >= 256) return nullptr;')
+                         .replace('voices[32]', 'voices[256]'), full)
 
     def test_analysis_budgets_share_one_collection_limit(self):
         def analyzing(name, budget):

@@ -21,7 +21,8 @@
 // Then track control machines get back what they kept, through startup.cpp, which
 // does nothing in a build without the control service.
 //
-// SDK step locks (lock_handles.cpp, linked with a padMix kit) keep their values in
+// SDK step locks (lock_handles.cpp, linked with a padMix kit, a Shift-row synth or a
+// drumline_page extension) keep their values in
 // open-xy.locks, through startup.cpp too: a save collects their garbage and sizes the
 // section first, so the control section before it leaves it room; a load decodes the
 // section's pool into a staged pool, and the locks service then clears every handle the

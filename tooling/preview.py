@@ -8,7 +8,7 @@ import sys
 from xml.etree.ElementTree import ParseError
 
 from .formats import require, sha
-from .definitions import ROOT, synth_shift
+from .definitions import EXTENDED_KEYS, ROOT, extended_display, synth_shift
 from .machines import machine_at
 from .pipeline import NO_WINDOW, add_overwrite_argument, fresh_output
 
@@ -19,11 +19,15 @@ VOICE_EXPORTS = ('opxy_preview_abi', 'opxy_state_bytes', 'opxy_state_alignment',
                  '__heap_base')
 DISPLAY_EXPORTS = tuple('opxy_display_' + name for name in ('abi', 'state_bytes', 'input_bytes', 'frame_bytes', 'state',
                                                             'input', 'frame', 'reset', 'render', 'valid', 'sample'))
+# An extended display's: what its input appends, and the browser's control gestures.
+EXTENDED_EXPORTS = ('opxy_display_extension', 'opxy_control_source', 'opxy_control_event')
+# A drum kit's keys and names (adapters.DRUM_KEYS), which the builder reads.
+DRUM_EXPORTS = ('opxy_drum_defaults', 'opxy_drum_model_name', 'opxy_drum_label', 'opxy_drum_count')
 MANIFEST_LIMIT = 65536
 # Shared inputs of every curated preview; the machine's own folder is added per build.
 SDK_SOURCES = ('tooling/preview.py', 'tooling/machines.py', 'tooling/adapters.py', 'tooling/definitions.py',
                'tooling/contributors.py', 'tooling/graphics.py', 'tools/check_preview_contract.mjs', 'sdk/host/voice_preview.cpp.in',
-               'sdk/host/display_preview.cpp', 'sdk/platform/blackfin/memory.cpp')
+               'sdk/host/display_preview.cpp', 'sdk/host/display_preview_extended.cpp', 'sdk/platform/blackfin/memory.cpp')
 SDK_FOLDERS = ('sdk/include', 'sdk/browser', 'sdk/platform/blackfin/freestanding')
 FLAGS = ['--target=wasm32', '-std=c++11', '-O2', '-ffreestanding', '-fno-exceptions', '-fno-rtti',
          '-fno-threadsafe-statics', '-fno-use-cxa-atexit', '-fno-c++-static-destructors', '-nostdlib',
@@ -39,12 +43,17 @@ def compile_preview(compiler, definition, out, root, sources=(), includes=(), *,
     units = [generate_voice_preview(out, definition, kind=kind), *(root / s for s in sources),
              ROOT / 'sdk/platform/blackfin/memory.cpp']
     generate_display(out, definition=definition, kind=kind)
-    units += [out / 'display_binding.cpp', ROOT / 'sdk/host/display_preview.cpp']
+    display = definition.get('resources', {}).get('display', {})
+    extended = kind == 'synth' and extended_display(display)
+    units += [out / 'display_binding.cpp',
+              ROOT / ('sdk/host/display_preview_extended.cpp' if extended else 'sdk/host/display_preview.cpp')]
     paths = [ROOT, ROOT / 'sdk/include', ROOT / 'sdk/platform/blackfin/freestanding', root,
              *(root / extra for extra in includes), out]
     memory = MEMORY
     # A synth with a Shift row (SDK 1.13) also exports the row its display reads.
     exports = VOICE_EXPORTS + DISPLAY_EXPORTS + (('opxy_display_shift',) if kind == 'synth' and synth_shift(definition) else ())
+    exports += DRUM_EXPORTS if kind == 'drum' else ()
+    exports += EXTENDED_EXPORTS if extended else ()
     command = [compiler, *FLAGS, *('-I' + str(path) for path in paths), *units, '-o', out / 'engine.wasm',
                '-Wl,--no-entry', '-Wl,-z,stack-size=16384', f'-Wl,--initial-memory={memory}',
                f'-Wl,--max-memory={memory}', *('-Wl,--export=' + name for name in exports)]
@@ -52,13 +61,15 @@ def compile_preview(compiler, definition, out, root, sources=(), includes=(), *,
                             creationflags=NO_WINDOW)
     require(result.returncode == 0, 'Preview compilation failed:\n' + result.stderr +
             f'\nCheck the compiler with: python sdk.py doctor --preview --cxx "{compiler}"')
-    display = definition.get('resources', {}).get('display', {})
-    check_runtime(out / 'engine.wasm', display.get('paths', 0), display.get('points', 0))
+    # A drum kit's model count, for the contract to read every key and model the builder shows.
+    models = (definition['resources']['modelCount'],) if kind == 'drum' else ()
+    check_runtime(out / 'engine.wasm', display.get('paths', 0), display.get('points', 0), *models)
 
 
-def check_runtime(module, paths=0, points=0):
+def check_runtime(module, paths=0, points=0, models=0):
     """Smoke-test host contracts without requiring a particular sound."""
-    result = subprocess.run(['node', str(ROOT / 'tools/check_preview_contract.mjs'), str(module), str(paths), str(points)],
+    result = subprocess.run(['node', str(ROOT / 'tools/check_preview_contract.mjs'), str(module), str(paths), str(points),
+                             str(models)],
                             capture_output=True, text=True, timeout=120,
                             creationflags=NO_WINDOW)
     require(result.returncode == 0, 'Preview contract check failed:\n' + result.stdout + result.stderr)
@@ -88,8 +99,12 @@ def graphics_metadata(m):
 def drawing_bindings(ids, display):
     """Browser renderer bindings: node, text and palette IDs, how many nodes are paths, and their point count."""
     count = display['nodes'] + display['texts']
-    return dict(nodes=ids[:display['nodes']], texts=ids[display['nodes']:count], palette=ids[count:],
-                paths=display['paths'], points=display['points'])
+    bindings = dict(nodes=ids[:display['nodes']], texts=ids[display['nodes']:count], palette=ids[count:],
+                    paths=display['paths'], points=display['points'])
+    if extended_display(display):
+        # An extended display's options (docs/display.md#extended-drawing).
+        bindings.update({key: display[key] for key in EXTENDED_KEYS if key in display and key != 'encoderActivity'})
+    return bindings
 
 
 def build(compiler, m, out, overwrite=False):

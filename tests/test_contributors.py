@@ -13,8 +13,13 @@ class ContributorBoundary(unittest.TestCase):
     def test_voice_adapter_includes_only_the_machine_and_sdk(self):
         with tempfile.TemporaryDirectory() as directory:
             source = generate_voice(directory, fixture('probesynth')).read_text(encoding='utf-8')
-        self.assertEqual(re.findall(r'#include "([^"]+)"', source),
-                         ['core.h', 'engine.cpp', 'stock.hpp', 'synth_controls.hpp', 'voice_zero.hpp'])
+            (Path(directory) / 'idle').mkdir()
+            idle = generate_voice(Path(directory) / 'idle', fixture('probesynth'), idle=True).read_text(encoding='utf-8')
+        base = ['core.h', 'engine.cpp', 'stock.hpp', 'synth_controls.hpp', 'voice_zero.hpp']
+        # Without the idle capability the adapter names none of the idle cut; with it, the settle detector's header
+        # and the idle cut's own (settles.hpp, idle_cut.hpp).
+        self.assertEqual(re.findall(r'#include "([^"]+)"', source), base)
+        self.assertEqual(sorted(re.findall(r'#include "([^"]+)"', idle)), sorted(base + ['idle_cut.hpp', 'settles.hpp']))
         # A new owner's voice is cleared by words, or only its declared prefix.
         self.assertIn('opxy::platform::zero_voice(slot.voice);', source)
         self.assertNotIn('bytes[i] = 0', source)

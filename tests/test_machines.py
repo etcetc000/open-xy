@@ -49,13 +49,27 @@ class DrumPresets(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'sample regions'):
                 machines.check_preset(value, 'kit', kind=kind)
 
-    def test_drum_features_require_sdk_1_17(self):
+    def test_a_padmix_kit_keeps_empty_regions(self):
+        # A padMix kit's records would carry each key's level and pad word (gain,
+        # random), which the SDK does not check: refused, however well-formed.
+        value = self.preset()
+        with self.assertRaisesRegex(ValueError, 'padMix'):
+            machines.check_preset(value, 'kit', kind='drum', pad_mix=True)
+        for region in value['regions']:
+            region.update(gain=0, random=0)
+        for pad_mix in (False, True):
+            with self.subTest(pad_mix=pad_mix), self.assertRaises(ValueError):
+                machines.check_preset(value, 'kit', kind='drum', pad_mix=pad_mix)
+        empty = dict(self.preset(), regions=[])
+        self.assertIs(machines.check_preset(empty, 'kit', kind='drum', pad_mix=True), empty)
+
+    def test_drum_features_require_sdk_1_21(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve() / 'probesynth'
             shutil.copytree(FOLDER / 'probesynth', root)
             record_path, definition_path = root / 'machine.json', root / 'definition.json'
             record = json.loads(record_path.read_text())
-            record.update(kind='drum', sdk='1.17')
+            record.update(kind='drum', sdk='1.21')
             record.pop('identity', None)
             definition = json.loads(definition_path.read_text())
             definition['presets'] = {}
@@ -79,10 +93,79 @@ class DrumPresets(unittest.TestCase):
                     loaded = machines.machine_at(root)
                     if feature == 'presets':
                         self.assertEqual(loaded.presets['default']['regions'], value['regions'])
-                    current['sdk'] = '1.10'
-                    record_path.write_text(json.dumps(current))
-                    with self.assertRaisesRegex(ValueError, '1.17'):
-                        machines.machine_at(root)
+                        # The same preset on a padMix kit (machine_at reads the flag).
+                        mixed = copy.deepcopy(settings)
+                        mixed['resources']['padMix'] = 1
+                        definition_path.write_text(json.dumps(mixed))
+                        with self.assertRaisesRegex(ValueError, 'padMix'):
+                            machines.machine_at(root)
+                        definition_path.write_text(json.dumps(settings))
+                    # Refused by every earlier SDK, the last one before 1.21 included.
+                    for earlier in ('1.20', '1.17', '1.10'):
+                        current['sdk'] = earlier
+                        record_path.write_text(json.dumps(current))
+                        with self.subTest(sdk=earlier), self.assertRaisesRegex(ValueError, '1.21'):
+                            machines.machine_at(root)
+
+    def test_the_fixture_kits_differ_only_in_their_sdk(self):
+        # probekit16 and probekit21 build the kit rows of an image-size comparison. Their
+        # ids and names are the same length and every file is the same but for them and
+        # the declared SDK, so a build differs only by what SDK 1.21 opts into.
+        from tooling import native
+        old, new = fixture('probekit16'), fixture('probekit21')
+        self.assertEqual((old.kind, old.sdk, new.kind, new.sdk), ('drum', (1, 16), 'drum', (1, 21)))
+        self.assertEqual((len(old.id), len(old.name), old.description), (len(new.id), len(new.name), new.description))
+        for name in sorted(path.name for path in (FOLDER / 'probekit16').iterdir()):
+            with self.subTest(file=name):
+                self.assertEqual(sorted(path.name for path in (FOLDER / 'probekit16').iterdir()),
+                                 sorted(path.name for path in (FOLDER / 'probekit21').iterdir()))
+                text = lambda kit, digits: ((FOLDER / kit / name).read_text(encoding='utf-8')
+                                            .replace(kit, 'ID').replace('Probe Kit ' + digits, 'NAME')
+                                            .replace('"sdk": "1.%s"' % digits, '"sdk": SDK'))
+                self.assertEqual(text('probekit16', '16'), text('probekit21', '21'))
+        units = lambda m: {step for _name, owner, step in native.plan(native.Collection([m])) if owner is None}
+        self.assertEqual(units(new) - units(old), {'drum_trigger'})
+        self.assertEqual(units(old) - units(new), set())
+
+    def test_any_preset_with_records_needs_sdk_1_21(self):
+        # The gate is on the kit, not on each preset: one preset with records among
+        # empty ones needs SDK 1.21, whichever order the folder lists them in.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve() / 'probesynth'
+            shutil.copytree(FOLDER / 'probesynth', root)
+            record_path, definition_path = root / 'machine.json', root / 'definition.json'
+            record = json.loads(record_path.read_text())
+            record.update(kind='drum', presets='presets')
+            record.pop('identity', None)
+            definition = json.loads(definition_path.read_text())
+            definition['presets'] = {}
+            for control, parameter in enumerate(copy.deepcopy(definition['parameters'])):
+                parameter.update(id=parameter['id'] + '_alt', label='Alt ' + str(control), control=control)
+                definition['parameters'].append(parameter)
+            definition['resources']['modelCount'] = 2
+            definition_path.write_text(json.dumps(definition))
+            records = self.preset(); records['type'] = 'probesynth'
+            empty = dict(copy.deepcopy(records), regions=[])
+            cases = (('records first', [records, empty]), ('records last', [empty, records]),
+                     ('records in the middle', [empty, records, empty]),
+                     ('two of three with records', [records, empty, records]),
+                     ('every preset with records', [records, records]), ('none with records', [empty, empty, empty]))
+            for name, values in cases:
+                shutil.rmtree(root / 'presets', ignore_errors=True)
+                (root / 'presets').mkdir()
+                for index, value in enumerate(values):
+                    (root / 'presets' / ('preset%d.json' % index)).write_text(json.dumps(value))
+                with_records = any(value['regions'] for value in values)
+                for sdk in ('1.10', '1.17', '1.20', '1.21'):
+                    record_path.write_text(json.dumps(dict(record, sdk=sdk)))
+                    with self.subTest(case=name, sdk=sdk):
+                        if with_records and sdk != '1.21':
+                            with self.assertRaisesRegex(ValueError, 'Sample-free drum-kit preset records.*1.21'):
+                                machines.machine_at(root)
+                        else:
+                            loaded = machines.machine_at(root)
+                            self.assertEqual([loaded.presets['preset%d' % i]['regions'] for i in range(len(values))],
+                                             [value['regions'] for value in values])
 
     def test_drum_region_bounds_and_sample_exclusion(self):
         bad_regions = [[], [0]*3, [0, 1, 2, 32768], [0, 1, 2, -1], [True, 1, 2, 3], [1.5, 1, 2, 3]]
@@ -93,8 +176,12 @@ class DrumPresets(unittest.TestCase):
             value = self.preset(); value['regions'][0].update(change)
             with self.subTest(change=change), self.assertRaises(ValueError):
                 machines.check_preset(value, 'kit', kind='drum')
+        # Each record valid on its own (no hikey, which a 25th could not match): only the count is wrong.
+        keyless = [{k: v for k, v in region.items() if k != 'hikey'} for region in self.preset()['regions']]
+        value = self.preset(); value['regions'] = keyless
+        self.assertIs(machines.check_preset(value, 'kit', kind='drum'), value)
         for size in (1, 23, 25):
-            value = self.preset(); value['regions'] = (value['regions']*2)[:size]
+            value = self.preset(); value['regions'] = (keyless*2)[:size]
             with self.subTest(size=size), self.assertRaises(ValueError):
                 machines.check_preset(value, 'kit', kind='drum')
 
@@ -429,6 +516,39 @@ class OutsideMachines(unittest.TestCase):
         self.numberless(effect, sdk='1.7')
         self.assertEqual(machines.machine_at(effect).definition['resources']['busShift'], 0)
 
+    def test_a_sample_engine_below_256_voices_needs_sdk_1_17(self):
+        sample = self.copy('probesample')
+        path = sample / 'definition.json'
+        definition = json.loads(path.read_text(encoding='utf-8'))
+        definition['resources']['voiceCapacity'] = 32
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(sample, sdk='1.16')
+        with self.assertRaisesRegex(ValueError, 'fewer than 256 voices.*needs "sdk": "1.17"'):
+            machines.machine_at(sample)
+        self.numberless(sample, sdk='1.17', base='drumSampler')
+        self.assertEqual(machines.machine_at(sample).definition['resources']['voiceCapacity'], 32)
+        # 256 is what every sample engine declared before, at any version.
+        definition['resources']['voiceCapacity'] = 256
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        self.numberless(sample, sdk='1.10')
+        self.assertEqual(machines.machine_at(sample).definition['resources']['voiceCapacity'], 256)
+
+    def test_an_effect_tail_needs_its_sdk_version(self):
+        effect = self.copy('probefx')
+        path = effect / 'definition.json'
+        definition = json.loads(path.read_text(encoding='utf-8'))
+        for tail in (0, 44100, 'unbounded'):
+            with self.subTest(tail=tail):
+                definition['resources']['tailFrames'] = tail
+                path.write_text(json.dumps(definition), encoding='utf-8')
+                # The version before the tail's has no tailFrames.
+                major, minor = machines.IDLE_SDK
+                self.numberless(effect, sdk=f'{major}.{minor - 1}')
+                with self.assertRaisesRegex(ValueError, f'tailFrames.*needs "sdk": "{major}.{minor}"'):
+                    machines.machine_at(effect)
+                self.numberless(effect, sdk=f'{major}.{minor}')
+                self.assertEqual(machines.machine_at(effect).definition['resources']['tailFrames'], tail)
+
     def test_sdk_1_5_machines_name_no_numbers(self):
         self.numberless(self.folder)
         m = machines.machine_at(self.folder)
@@ -578,6 +698,23 @@ class OutsideMachines(unittest.TestCase):
         # Without it the row leaves every code zero, and Shift turns stay fine steps.
         declare(None)
         self.assertNotIn('{1, 1, 1, 1}, nullptr', table())
+
+    def test_the_sample_kernel_needs_sdk_1_17(self):
+        include = '#include <opxy/sample_kernel.hpp>\n'
+        sample = self.copy('probesample')
+        source = sample / 'sample.cpp'
+        source.write_text(include + source.read_text(encoding='utf-8'), encoding='utf-8')
+        self.numberless(sample, sdk='1.16', base='drumSampler')
+        with self.assertRaisesRegex(ValueError, r'The sample kernel \(opxy/sample_kernel.hpp\) needs "sdk": "1.17"'):
+            machines.machine_at(sample)
+        self.numberless(sample, sdk='1.17', base='drumSampler')
+        self.assertEqual(machines.machine_at(sample).id, sample.name)
+        # In its tests it's the machine's own business, at any version.
+        source.write_text(source.read_text(encoding='utf-8').replace(include, ''), encoding='utf-8')
+        (sample / 'tests').mkdir(exist_ok=True)
+        (sample / 'tests/kernel.cpp').write_text(include, encoding='utf-8')
+        self.numberless(sample, sdk='1.10', base='drumSampler')
+        self.assertEqual(machines.machine_at(sample).id, sample.name)
 
     def test_only_a_sample_engines_own_screen_reads_the_overview_from_sdk_1_8(self):
         include = '#include <opxy/sample_overview.hpp>\n'

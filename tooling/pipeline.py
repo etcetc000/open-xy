@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sys
+import sysconfig
 import xml.etree.ElementTree as ET
 
 from .formats import elf32, header, ldr, mapped_offset, require, sha
@@ -74,6 +75,16 @@ def check_patch_boundaries(profile, count):
                     'A hook names its module symbol and call/jump form')
         require('absolute_jump' not in patch or (kind == 'hook' and patch['absolute_jump'] is True
                 and patch['call'] is False and patch['length'] == 8), 'Invalid absolute jump hook policy')
+        # A site several services need has one hook (firmware.hook_symbol): `symbols` maps
+        # each service to the handler a build with it enters, the first active one winning.
+        # Whenever the record's service is active one of them is, so `symbol` is one of them.
+        if 'symbols' in patch:
+            shared, services = patch['symbols'], profile.get('services', {})
+            require(kind == 'hook' and 'service' in patch and isinstance(shared, dict) and shared and
+                    all(s in services and isinstance(v, str) and v for s, v in shared.items()) and
+                    patch['symbol'] in shared.values() and
+                    set(services[patch['service']]) == {u for s in shared for u in services[s]},
+                    'A shared hook maps the services that use its site to module symbols')
         # Protected code is only ever redirected into the module by a hook whose
         # destination the build verifies, or by the separately reviewed startup label.
         require(kind != 'startup' or startup_label_allowed(profile, patch), 'Unexpected startup label edit')
@@ -131,6 +142,12 @@ def host_platform():
     system, machine = platform.system().lower(), platform.machine().lower()
     if system.startswith(('msys_nt', 'cygwin', 'mingw')):
         system = 'windows'  # MSYS2/Cygwin Python runs the same Windows executables
+    if system == 'windows' and not machine:
+        # Windows Python asks WMI for the processor and falls back to PROCESSOR_ARCHITECTURE;
+        # under parallel builds the query can fail in a shell without that variable, leaving
+        # it empty. A native Windows interpreter's own build platform (win-amd64, win-arm64)
+        # still holds; MinGW and 32-bit builds keep failing with the no-tools message.
+        machine = sysconfig.get_platform().rpartition('-')[2]
     return system + '-' + {'amd64': 'x86_64', 'aarch64': 'arm64'}.get(machine, machine)
 
 

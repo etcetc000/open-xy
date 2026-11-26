@@ -15,7 +15,7 @@ import re
 from pathlib import Path
 
 from .benchmark import append_callback
-from .definitions import (ROOT, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
+from .definitions import (KIT_CONTROLS_SDK, SDK_1_25, extended_display, ROOT, STOCK_VOICES, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
                           shift_choices, shift_field, shift_parameters, stock_shift_codes, synth_shift,
                           validate_definition)
 
@@ -23,6 +23,8 @@ from .definitions import (ROOT, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_po
 SHIFT_SLOT = 8
 from .formats import require
 from .stock_tables import REGISTRATION as RELOCATED
+from .voice_heap import on_heap, placement
+from . import track_stage
 
 TEMPLATES = ROOT / 'sdk/platform/opxy-1.2.1'
 # The init preset's authored settings, shared with builder/core.mjs's defaultPreset
@@ -54,7 +56,28 @@ def voice_values(definition):
                 RELEASE_CALLBACK=f"{definition['id']}::release(*voice, shared, owner(voice));" if resources.get('releaseCallback') else '')
 
 
-def generate_voice(directory, m, sweep=False, benchmark=True):
+def idle_values(m, drum, idle, output_frames='opxy::block_frames', voice_of_held='slot->voice'):
+    """The idle cut's pieces of a voice adapter (voice.cpp.in, drum_voice.cpp.in): only in a
+    build with the idle capability. Without it every placeholder is empty and the adapter is
+    the public one, whether or not its engine defines `settled`."""
+    pieces = DRUM_IDLE if drum else VOICE_IDLE
+    if not idle:
+        return {key: '' for key in pieces}
+    # settled() is SDK 1.22 API (machines.IDLE_SDK): a machine declaring an older SDK is
+    # never asked, whatever its namespace happens to define.
+    from .machines import IDLE_SDK, SDK_VERSION
+    asked = getattr(m, 'sdk', SDK_VERSION) >= IDLE_SDK
+    settles = 'sdk_settles::has<Voice, Shared>::value' if asked else 'false'
+    if not asked:
+        # Not even instantiated: the engine's own settled, whatever it returns, is never named.
+        pieces = {key: text.replace('sdk_settles::query(@VOICE_OF_HELD@, shared)', 'false')
+                  .replace('sdk_settles::query(slot->voice, shared)', 'false') for key, text in pieces.items()}
+    # voice_of_held: the held slot's voice, in module memory or a heap arena (voice_heap.py).
+    return {key: text.replace('@PREFIX@', m.prefix).replace('@OUTPUT_FRAMES@', output_frames)
+            .replace('@VOICE_OF_HELD@', voice_of_held).replace('@SETTLES@', settles) for key, text in pieces.items()}
+
+
+def generate_voice(directory, m, sweep=False, idle=False, benchmark=True):
     """The native machine object, method table and voice pool for a synth. In a sweep
     build (benchmark.cpp.in) its voices render with the swept controls while a sweep run
     of this machine is active; other builds' voices never look."""
@@ -84,19 +107,23 @@ def generate_voice(directory, m, sweep=False, benchmark=True):
                   CAPACITY=m.definition['resources']['voiceCapacity'])
     values.pop('PEAK')
     values.pop('RELEASE_CALLBACK')
+    # Where a synth's voices live: module memory, or a heap arena for a large pool (voice_heap.py).
+    values.update(placement(m))
+    # A synth's track stage (track_stage.py): nothing for a synth without one.
+    values.update(track_stage.adapter_values(m, bool(synth_shift(m.definition))))
     release = m.definition['resources'].get('releaseCallback', 0)
     values.update(RELEASE_METHOD=f'{m.prefix}_release' if release else 'noop',
                   RELEASE_FUNCTION=f'''int {m.prefix}_release(void* self) {{
     Handle* handle = static_cast<Handle*>(self);
     if (Slot* slot = held(handle))
-        {m.definition['id']}::release(slot->voice, shared, slot->owner);
+        {m.definition['id']}::release({values['VOICE_OF_HELD']}, shared, slot->owner);
     else if (pending(handle) || handle->wants) handle->released = 1;
     return 0;
 }}
 ''' if release else '')
     values.update(RELEASE_STATE=', released' if release else '',
                   RELEASE_CLEAR='    handle->released = 0;' if release else '',
-                  RELEASE_PENDING=f"    if (handle->released) {m.definition['id']}::release(slot.voice, shared, id);" if release else '')
+                  RELEASE_PENDING=f"    if (handle->released) {m.definition['id']}::release({values['VOICE_OF_SLOT']}, shared, id);" if release else '')
     # Expand to the original mono text when omitted, preserving its native code.
     values.update(OUTPUT_FRAMES='opxy::block_frames' if values['CHANNELS'] == 1 else '2 * opxy::block_frames',
                   STEREO_METHOD='zero' if values['CHANNELS'] == 1 else 'stereo',
@@ -114,8 +141,101 @@ def generate_voice(directory, m, sweep=False, benchmark=True):
         values['PAD_SIGNS'] = sum(1 << i for i, f in enumerate(pads) if f.get('signed'))
         values['TRANSPORT'] = 'true' if drum_transport(m) else 'false'
         values['PARAMETER_EDIT'] = m.definition['resources'].get('parameterEdit', 0)
+        # A modelEdit kit's editor (SDK 1.25), which drum_callbacks.cpp's model-edit table names;
+        # nothing for any other kit, whose adapter stays as it was.
+        values['MODEL_EDIT'] = (
+            f'opxy::u32 {m.prefix}_drum_edit_model(opxy::u32, opxy::u32, opxy::u32, opxy::i32, opxy::u32) '
+            f'__asm__("{m.prefix}_drum_edit_model");\n'
+            f'opxy::u32 {m.prefix}_drum_edit_model(opxy::u32 model, opxy::u32 slot, opxy::u32 value, '
+            f'opxy::i32 delta, opxy::u32 speed) {{\n'
+            f'    return {m.definition["id"]}::edit_model_parameter(model, slot, value, delta, speed);\n}}\n'
+            if model_edit(m) else '')
+        values['KIT_CONTROLS'] = kit_controls(m)
+        values['AMP_DEFAULTS'] = ', '.join(f'{w:#x}' for w in kit_amp_defaults(m))
+    values.update(idle_values(m, m.kind == 'drum', idle, values.get('OUTPUT_FRAMES', 'opxy::block_frames'),
+                              values.get('VOICE_OF_HELD', 'slot->voice')))
     path = expand('drum_voice.cpp.in' if m.kind == 'drum' else 'voice.cpp.in', values, Path(directory) / 'voice.cpp')
     return append_callback(path, m) if benchmark and m.kind == 'drum' else path
+
+
+# The idle cut's pieces of the synth voice adapter (voice.cpp.in), in builds with idle.
+VOICE_IDLE = {
+    'IDLE_INCLUDE': '#include "idle_cut.hpp"\n#include "settles.hpp"\n',
+    'IDLE_DECLARATIONS': '''// The idle cut's threshold and its registry of machines it asks (idle_cut.cpp).
+opxy::i32 sdk_idle_floor() __asm__("sdk_idle_floor");
+bool sdk_idle_register(const void* methods, int (*settled)(void*)) __asm__("sdk_idle_register");
+''',
+    # follow, idle: the idle cut's follower and its answer (engines with `settled`).
+    'IDLE_SLOT': ' opxy::platform::idle_cut::Follower follow; bool idle;',
+    'IDLE_DEFINITIONS': '''const bool kSettles = @SETTLES@;
+static bool idle_asked;
+// The idle cut's own symbols (idle_cut.cpp), reached only by a machine whose engine
+// settles: the others reference nothing.
+template <bool On> struct IdleLinks {
+    static opxy::i32 floor() { return 0; }
+    static bool add(const void*, int (*)(void*)) { return true; }
+};
+template <> struct IdleLinks<true> {
+    static opxy::i32 floor() { return sdk_idle_floor(); }
+    static bool add(const void* methods, int (*settled)(void*)) { return sdk_idle_register(methods, settled); }
+};
+''',
+    'IDLE_BEGIN': '''    opxy::platform::idle_cut::restart(slot.follow);
+    slot.idle = false;
+''',
+    'IDLE_SETTLED': '''// The idle cut's question (idle_cut.cpp): whether the voice may go.
+static int @PREFIX@_settled(void* self) {
+    const Slot* slot = held(static_cast<Handle*>(self));
+    return slot && !slot->next && slot->idle;
+}
+''',
+    'IDLE_START': '''            opxy::platform::idle_cut::restart(slot->follow);
+            slot->idle = false;
+''',
+    'IDLE_FOLLOW': '''        // The idle cut: the engine's own output, before stock's envelope, against
+        // the note's peak. Stock's kill fades the voice once its note is released
+        // (idle_cut.cpp asks @PREFIX@_settled).
+        if (kSettles) {
+            // Asked once: a full registry (idle_cut.cpp) leaves this machine uncut, not rescanned.
+            if (!idle_asked) {
+                idle_asked = true;
+                IdleLinks<kSettles>::add(@PREFIX@_vtable, &@PREFIX@_settled);
+            }
+            slot->idle = opxy::platform::idle_cut::follow(slot->follow, opxy::platform::idle_cut::peak(output, @OUTPUT_FRAMES@),
+                                                          sdk_settles::query(@VOICE_OF_HELD@, shared), IdleLinks<kSettles>::floor());
+        }
+''',
+}
+# The idle cut's pieces of the kit voice adapter (drum_voice.cpp.in), in builds with idle:
+# a settled voice below the threshold fades out as a choked one does, then is freed.
+DRUM_IDLE = {
+    'IDLE_INCLUDE': '#include "idle_cut.hpp"\n#include "settles.hpp"\n',
+    'IDLE_DECLARATIONS': '''// The idle cut's threshold (idle_cut.cpp).
+opxy::i32 sdk_idle_floor() __asm__("sdk_idle_floor");
+''',
+    'IDLE_SLOT': ' opxy::platform::idle_cut::Follower follow;',
+    'IDLE_DEFINITIONS': '''const bool kSettles = @SETTLES@;
+// The idle cut's own symbols (idle_cut.cpp), reached only by a machine whose engine
+// settles: the others reference nothing.
+template <bool On> struct IdleLinks {
+    static opxy::i32 floor() { return 0; }
+};
+template <> struct IdleLinks<true> {
+    static opxy::i32 floor() { return sdk_idle_floor(); }
+};
+''',
+    'IDLE_START': '    opxy::platform::idle_cut::restart(slot->follow);\n',
+    'IDLE_FOLLOW': '''        // The idle cut: the engine's own output, before any gain, against the hit's
+        // peak; once it may go it fades out as a choked voice does.
+        if (kSettles && !slot->fade &&
+            opxy::platform::idle_cut::follow(slot->follow, opxy::platform::idle_cut::peak(output, opxy::block_frames),
+                                             sdk_settles::query(slot->voice, shared), IdleLinks<kSettles>::floor()))
+            slot->fade = kChokeFrames;
+''',
+    # kChoke | kSettles && slot->fade: | binds before &&, so the condition reads
+    # (kChoke || kSettles) && fade and the text without idle is the plain kit's.
+    'IDLE_FADE': ' | kSettles',
+}
 
 
 # A synth's Shift row in its voice adapter (SDK 1.13): each entry's default field, its
@@ -166,6 +286,66 @@ def drum_transport(m):
     return m.kind == 'drum' and getattr(m, 'sdk', (1, 0)) >= (1, 10)
 
 
+# The SDK version from which a drum kit's screen reads the track's note serial and the
+# played pad's snapshot; an older kit keeps the selected-pad strike filter (screen_drawing.hpp).
+PLAYED_PAD_SDK = (1, 21)
+
+
+def played_pad(m):
+    """Whether a drum kit's screen reads the played-pad snapshot (SDK 1.21): it alone calls
+    sdk_drum_trigger, so only a build with such a kit links that unit (native.UNIT_SERVICES)."""
+    return getattr(m, 'kind', 'synth') == 'drum' and getattr(m, 'sdk', (1, 0)) >= PLAYED_PAD_SDK
+
+
+def kit_controls(m):
+    """A drum kit's drum-kit controls (SDK 1.23) as drum_kit_controls.hpp's bits: padVolume 1,
+    padRandom 2, ampEnvelope 4; 0 for a kit declaring none, whose generated code is as before."""
+    if getattr(m, 'kind', 'synth') != 'drum':
+        return 0
+    resources = m.definition['resources']
+    return sum(bit for bit, key in ((1, 'padVolume'), (2, 'padRandom'), (4, 'ampEnvelope')) if resources.get(key, 0))
+
+
+def kit_amp_defaults(m):
+    """The amp words 8..11 an ampEnvelope kit's key plays when it keeps none: its init preset's amp
+    attack, decay, sustain and release (the shared template's, under the kit's presetDefaults), << 16.
+    A kit's M2 page (the drum sampler's) names those words start, attack, hold and decay."""
+    amp = dict(DEFAULT_PRESET_TEMPLATE['envelope']['amp'])
+    amp.update((getattr(m, 'preset_defaults', None) or {}).get('amp', {}))
+    return [amp[key] << 16 for key in ('attack', 'decay', 'sustain', 'release')]
+
+
+def player_instrument(m):
+    """Whether a note player reads Controls.instrument: one declaring SDK 1.25 or later. A build
+    with one compiles its SDK units and its players with OPXY_PLAYER_INSTRUMENT (native.py)."""
+    return getattr(m, 'kind', 'synth') == 'player' and getattr(m, 'sdk', (1, 0)) >= SDK_1_25
+
+
+def model_edit(m):
+    """Whether a drum kit declares modelEdit (SDK 1.25): its edit_model_parameter may move a key to
+    another model. A build with one compiles its SDK units with OPXY_MODEL_EDIT (native.py)."""
+    return getattr(m, 'kind', 'synth') == 'drum' and bool(m.definition['resources'].get('modelEdit', 0))
+
+
+def model_edit_table(machines):
+    """drum_callbacks.cpp's table of modelEdit kits' editors (drum_model_edit.hpp), or nothing for a
+    build without such a kit, whose shared units never name it (native.py OPXY_MODEL_EDIT)."""
+    kits = [m for m in machines if model_edit(m)]
+    if not kits:
+        return ''
+    declarations = [f'extern "C" opxy::u32 {m.prefix}_drum_edit_model(opxy::u32, opxy::u32, opxy::u32, opxy::i32, '
+                    f'opxy::u32) __asm__("{m.prefix}_drum_edit_model");' for m in kits]
+    rows = [f'    {{{m.prefix}_engine_id, {m.prefix}_drum_edit_model}},' for m in kits]
+    return ('#include "drum_model_edit.hpp"\n' + '\n'.join(declarations) +
+            '\nconst opxy::platform::DrumModelEdit sdk_drum_model_edits[] = {\n' + '\n'.join(rows) + '\n};\n'
+            f'const opxy::u32 sdk_drum_model_edit_count = {len(kits)};\n')
+
+
+def selected_key(m):
+    """Whether a drum kit's screen fills draw::Input::selected_key: a kit declaring SDK 1.23 or later."""
+    return getattr(m, 'kind', 'synth') == 'drum' and getattr(m, 'sdk', (1, 0)) >= KIT_CONTROLS_SDK
+
+
 def pad_mix(m):
     """Whether a drum kit's Shift row is each key's mixer channel (resources.padMix), whose
     pan, level, pad controls and sends also lock per hit (drum_locks.hpp)."""
@@ -176,6 +356,23 @@ def sends_per_key(m):
     """Whether a drum kit's keys keep their own share of the track's sends: padMix, whose
     Shift row edits FX I and FX II."""
     return m.kind == 'drum' and bool(m.definition['resources'].get('padMix', 0))
+
+
+def kit_table(machines):
+    """drum_callbacks.cpp's table of kits declaring the drum-kit controls (drum_kit_controls.hpp
+    sdk_drum_kits); empty for a build without one, whose source is then as before."""
+    kits = [m for m in machines if kit_controls(m)]
+    if not kits:
+        return ''
+    declarations, rows = [], []
+    for m in kits:
+        amp = kit_controls(m) & 4
+        if amp:
+            declarations.append(f'static const opxy::i32 {m.prefix}_amp[] = {{{", ".join(f"{w:#x}" for w in kit_amp_defaults(m))}}};')
+        rows.append(f'    {{{m.prefix}_engine_id, {kit_controls(m)}, {m.prefix + "_amp" if amp else "nullptr"}}},')
+    return ('#include "drum_kit_controls.hpp"\n' + ''.join(d + '\n' for d in declarations) +
+            'const opxy::platform::DrumKit sdk_drum_kits[] = {\n' + '\n'.join(rows) + '\n};\n'
+            f'const opxy::u32 sdk_drum_kit_count = {len(kits)};\n')
 
 
 def generate_drum_callbacks(directory, machines):
@@ -199,7 +396,8 @@ def generate_drum_callbacks(directory, machines):
                              f'static const char* const {p}_pad_labels[] = {{{", ".join(json.dumps(f["label"]) for f in pads)}}};']
         edit = m.definition['resources'].get('parameterEdit', 0)
         if edit:
-            declarations.append(f'opxy::u32 {p}_drum_edit_value(opxy::u32, opxy::u32, opxy::u32, opxy::i32) __asm__("{p}_drum_edit_value");')
+            declarations.append(f'opxy::u32 {p}_drum_edit_value(opxy::u32, opxy::u32, opxy::u32, opxy::i32, opxy::u32) '
+                                f'__asm__("{p}_drum_edit_value");')
         if groups:
             declarations += [f'static const opxy::u8 {p}_group_sizes[] = {{{", ".join(str(g["count"]) for g in groups)}}};',
                              f'static const char* const {p}_group_names[] = {{{", ".join(json.dumps(g["label"]) for g in groups)}}};']
@@ -220,11 +418,29 @@ def generate_drum_callbacks(directory, machines):
     source = '#include "drum_machines.hpp"\n#include "drum_send.hpp"\nextern "C" {\n' + '\n'.join(declarations) + '\n}\n'
     source += 'const opxy::platform::DrumMachine sdk_drum_machines[] = {\n' + ('\n'.join(rows) or '    {},') + '\n};\n'
     source += f'const opxy::u32 sdk_drum_machine_count = {len(rows)};\n'
+    source += model_edit_table(machines)
+    source += kit_table(machines)
     source += 'const opxy::platform::DrumSendKit sdk_drum_send_kits[] = {\n' + ('\n'.join(sends) or '    {},') + '\n};\n'
     source += f'const opxy::u32 sdk_drum_send_kit_count = {len(sends)};\n'
     destination = Path(directory) / 'drum_callbacks.cpp'
     destination.write_text(source, encoding='utf-8', newline='\n')
     return destination
+
+
+# A drum kit's keys and names, as the device's adapter reads them (drum_voice.cpp.in),
+# for the builder's audition and screen header: a key's default model and eight
+# controls (nine bytes), a model's name, a slot's label and the slots it uses.
+DRUM_KEYS = '''static opxy::u8 drum_key[9];
+const opxy::u8* opxy_drum_defaults(opxy::u32 key) {
+    drum_key[0] = 0; drum_key[1] = 0; drum_key[2] = 0; drum_key[3] = 0; drum_key[4] = 0;
+    drum_key[5] = 0; drum_key[6] = 0; drum_key[7] = 0; drum_key[8] = 0;
+    @NAMESPACE@::drum_defaults(key, &drum_key[0], &drum_key[1]);
+    return drum_key;
+}
+const char* opxy_drum_model_name(opxy::u32 model) { return @NAMESPACE@::model_name(model); }
+const char* opxy_drum_label(opxy::u32 model, opxy::u32 slot) { return @NAMESPACE@::parameter_name(model, slot); }
+opxy::u32 opxy_drum_count(opxy::u32 model) { return @NAMESPACE@::parameter_count(model); }
+'''
 
 
 def generate_voice_preview(directory, definition, *, kind='synth'):
@@ -236,11 +452,14 @@ def generate_voice_preview(directory, definition, *, kind='synth'):
     count = definition['resources'].get('modelCount', 0)
     values['DRUM_SELECT'] = (f"{values['NAMESPACE']}::drum_select(*voice, shared, owner(voice), drum_model < {count} ? drum_model : 0);\n    "
                              if kind == 'drum' else '')
+    values['DRUM_KEYS'] = DRUM_KEYS.replace('@NAMESPACE@', values['NAMESPACE']) if kind == 'drum' else ''
     return expand('voice_preview.cpp.in', values, Path(directory) / 'voice_preview.cpp', ROOT / 'sdk/host')
 
 
 def drawing_layout(display):
     """Frame byte layout shared by the C++ frame and the browser."""
+    if extended_display(display):
+        return extended_layout(display)
     paths, points, nodes, texts, palette = (display[k] for k in ('paths', 'points', 'nodes', 'texts', 'palette'))
     path_bytes = 4 + 8 * points
     # An empty path or text array keeps one unused element (draw.hpp).
@@ -252,6 +471,46 @@ def drawing_layout(display):
                 FRAME_BYTES=header_at + 32)
 
 
+def extended_layout(display):
+    """An extended frame's byte layout (draw.hpp ExtendedFrame): its path and node types."""
+    paths, points, nodes, texts, palette = (display[k] for k in ('paths', 'points', 'nodes', 'texts', 'palette'))
+    commands = display.get('commands', 0)
+    if display.get('quadratic'):
+        path_bytes, points_at = 8 + 20 * commands, 8
+    else:
+        points_at = 8 if display.get('countedPaths') else 4
+        path_bytes = points_at + 8 * points
+    node_bytes = 32 if display.get('affine') else 28
+    nodes_at = max(paths, 1) * path_bytes
+    texts_at = nodes_at + node_bytes * nodes
+    header_at = texts_at + 36 * max(texts, 1)
+    return dict(PATHS=paths, POINTS=points, COMMANDS=commands, NODES=nodes, TEXTS=texts, PALETTE=palette,
+                PATH_BYTES=path_bytes, POINTS_AT=points_at, NODE_BYTES=node_bytes, FRAME_NODES_AT=nodes_at,
+                FRAME_TEXTS_AT=texts_at, FRAME_HEADER_AT=header_at, FRAME_BYTES=header_at + 32)
+
+
+def extended_frame(display):
+    """The C++ type of an extended display's frame, spelled as draw.hpp's aliases resolve."""
+    layout, flag = extended_layout(display), lambda k: 'true' if display.get(k) else 'false'
+    size = layout['COMMANDS'] if display.get('quadratic') else layout['POINTS']
+    frame = (f"opxy::draw::ExtendedFrame<{layout['PATHS']}, {size}, {layout['NODES']}, {layout['TEXTS']}, "
+             f"{layout['PALETTE']}, {flag('affine')}, {flag('cubic')}, {display.get('openPaths', 0)}u, "
+             f"{display.get('segmentPaths', 0)}u, {flag('quadratic')}, {flag('countedPaths')}>")
+    if display.get('rgba'):
+        frame = f'opxy::draw::RgbaFrame<{frame} >'
+    return frame
+
+
+def display_extension(definition):
+    """What an extended display's input appends to draw::Input, as the browser reads it
+    (display.mjs): 4 the encoders' activity. Bits 1 and 2 are left for later inputs."""
+    return 4 if definition['resources']['display'].get('encoderActivity') else 0
+
+
+def display_input_type(definition):
+    return 'EncoderInput' if definition['resources']['display'].get('encoderActivity') else 'Input'
+
+
 def screen_bytes(m):
     """Renderer object size: the 76-byte stock screen, then the renderer's words
     (screen_drawing.hpp). The generated renderer asserts its C++ object has this size."""
@@ -260,6 +519,10 @@ def screen_bytes(m):
     # delta; then validated geometry and applied key per path (one word each when absent).
     texts, paths = max(display['texts'], 1), max(display['paths'], 1)
     words = display['nodes'] + 7 * texts + display['palette'] + 1 + 2 * paths
+    if extended_display(display):
+        # extended_drawing.hpp: a palette word even without a palette, and each node's
+        # authored visibility byte (whole words).
+        words += (display['palette'] == 0) + (display['nodes'] + 3) // 4
     return 76 + 4 * words
 
 
@@ -272,6 +535,8 @@ def generate_display(directory, *, machine=None, definition=None, kind="synth", 
         assignment = {'symbol_prefix': 'local_preview'}
     namespace, prefix = namespace or definition['id'], symbol_prefix or assignment['symbol_prefix']
     display = definition['resources']['display']
+    if extended_display(display):
+        return generate_extended_display(Path(directory), definition, namespace, prefix)
     layout = drawing_layout(display)
     frame = 'opxy::draw::Frame<{PATHS}, {POINTS}, {NODES}, {TEXTS}, {PALETTE}>'.format(**layout)
     header = f'''// Generated by the SDK; no renderer addresses in author code.
@@ -337,6 +602,86 @@ extern "C" unsigned {prefix}_display_validate(const Frame* frame) {{
     (directory / 'display_binding.cpp').write_text(source, encoding='utf-8', newline='\n')
 
 
+def generate_extended_display(directory, definition, namespace, prefix):
+    """An extended display's binding (docs/display.md#extended-drawing): its frame and input
+    types, and the encoder activity the renderer gives its input."""
+    display = definition['resources']['display']
+    layout, frame, input_type = extended_layout(display), extended_frame(display), display_input_type(definition)
+    header = f'''// Generated by the SDK; no renderer addresses in author code.
+#pragma once
+#include "display.h"
+#include <opxy/encoder_activity.hpp>
+namespace opxy {{ namespace binding {{
+using DisplayState = {namespace}::DisplayState;
+using DisplayInput = draw::{input_type};
+typedef {frame} Frame;
+const unsigned display_bytes = {display['stateBytes']};
+const unsigned display_alignment = {display['stateAlignment']};
+const bool full_canvas = {'true' if display.get('fullCanvas') else 'false'};
+const unsigned display_extension = {display_extension(definition)};
+}}}}
+extern "C" {{
+void {prefix}_display_reset(opxy::binding::DisplayState*, opxy::binding::Frame*);
+void {prefix}_display_render(opxy::binding::DisplayState*, const opxy::binding::DisplayInput*, opxy::binding::Frame*);
+unsigned {prefix}_display_validate(const opxy::binding::Frame*);
+}}
+namespace opxy {{ namespace binding {{
+static inline void display_reset(DisplayState* state, Frame* frame) {{ {prefix}_display_reset(state, frame); }}
+static inline void display_render(DisplayState* state, const DisplayInput* input, Frame* frame) {{
+    {prefix}_display_render(state, input, frame);
+}}
+static inline bool display_valid(const Frame* frame) {{ return {prefix}_display_validate(frame) != 0; }}
+}}}}
+''' + encoder_binding(display)
+    member = 'commands' if display.get('quadratic') else 'points'
+    source = f'''// Generated translation unit. One display implementation, bounded SDK frame.
+#include "display_binding.hpp"
+#include "display.cpp"
+using opxy::binding::Frame;
+static_assert(sizeof(opxy::binding::DisplayState) == opxy::binding::display_bytes,
+              "Declared display size differs from C++ type");
+static_assert(alignof(opxy::binding::DisplayState) == opxy::binding::display_alignment,
+              "Declared display alignment differs from C++ type");
+static_assert(__is_trivial(opxy::binding::DisplayState) && __is_standard_layout(opxy::binding::DisplayState),
+              "Display state must be trivial standard-layout data");
+static_assert(sizeof(Frame) == {layout['FRAME_BYTES']} &&
+              sizeof(Frame::path_type) == {layout['PATH_BYTES']} && sizeof(Frame::node_type) == {layout['NODE_BYTES']} &&
+              __builtin_offsetof(Frame::path_type, {member}) == {layout['POINTS_AT']} &&
+              __builtin_offsetof(Frame, nodes) == {layout['FRAME_NODES_AT']} &&
+              __builtin_offsetof(Frame, texts) == {layout['FRAME_TEXTS_AT']} &&
+              __builtin_offsetof(Frame, header) == {layout['FRAME_HEADER_AT']} &&
+              __builtin_offsetof(opxy::draw::Text, chars) == 12,
+              "Drawing frame layout differs from the declared display");
+extern "C" void {prefix}_display_reset(opxy::binding::DisplayState* state, Frame* frame) {{
+    {namespace}::display_reset(*state);
+    for (opxy::u32 i = 0; i < Frame::path_count; ++i) frame->paths[i].key = 0;
+}}
+extern "C" void {prefix}_display_render(opxy::binding::DisplayState* state,
+                                       const opxy::binding::DisplayInput* input, Frame* frame) {{
+    {namespace}::display(*state, *input, *frame);
+}}
+extern "C" unsigned {prefix}_display_validate(const Frame* frame) {{
+    return opxy::draw::valid(*frame);
+}}
+'''
+    (directory / 'display_binding.hpp').write_text(header, encoding='utf-8', newline='\n')
+    (directory / 'display_binding.cpp').write_text(source, encoding='utf-8', newline='\n')
+
+
+def encoder_binding(display):
+    if not display.get('encoderActivity'):
+        return 'namespace opxy { namespace binding { inline void snapshot_encoders(DisplayInput&) {} }}\n'
+    return '''#if defined(__bfin__)
+#include "encoder_activity.hpp"
+namespace opxy { namespace binding {
+inline void snapshot_encoders(DisplayInput& input) { input.encoders = platform::encoder_activity(); }
+}}
+#else
+namespace opxy { namespace binding { inline void snapshot_encoders(DisplayInput&) {} }}
+#endif
+'''
+
+
 def generate_registration(directory, m):
     """A machine's stock record (and own screen) for the SDK's checked registration."""
     p, effect = m.prefix, m.kind == 'effect'
@@ -371,6 +716,11 @@ def generate_registration(directory, m):
         entries[p + '_ready()'] = f'sdk_effect_ready(&record, {screen})'
     else:
         entries[p + '_register()'] = 'sdk_register_engine(&record)'
+        if on_heap(m):
+            # A synth with heap voices reserves their arena as it first registers on the audio
+            # role at boot (voice_heap.hpp); an unselected synth in a browser kit never reserves.
+            declarations.append(f'opxy::u32 {p}_voice_heap_reserve() __asm__("{p}_voice_heap_reserve");')
+            entries[p + '_register()'] = f'({p}_voice_heap_reserve(), sdk_register_engine(&record))'
         entries[p + '_record_ready()'] = 'sdk_engine_ready(&record, nullptr)'
         entries[p + '_name_matches(const void* string)'] = 'sdk_name_matches(&record, string)'
         entries[p + '_ready()'] = f'sdk_engine_ready(&record, {screen})'
@@ -402,6 +752,9 @@ def generate_screen(directory, m, artwork=None):
         require(re.fullmatch(r'openxy-[0-9a-f]{64}\.svg',artwork) is not None, 'Invalid content-addressed artwork')
     ids = display_ids(m.prefix, m.definition['resources']['display'])
     table = ''.join(f'    "{name}",\n' for name in ids)
+    if extended_display(m.definition['resources']['display']):
+        return generate_extended_screen(Path(directory), m, ids, table)
+    drum = getattr(m, 'kind', 'synth') == 'drum'
     source = f'''// Generated by the SDK: {m.native_name}'s declared display as renderer data.
 #include "display_binding.hpp"
 #define OPXY_SCREEN_DRUM {int(m.kind == 'drum')}
@@ -409,8 +762,15 @@ def generate_screen(directory, m, artwork=None):
 namespace {{
 struct Machine {{
     static const char* const ids[{len(ids)}];
+    // A drum kit's note serial and played-pad snapshot (screen_drawing.hpp): from SDK 1.21
+    // the track's serial and the snapshot, before it the selected pad's strikes only.
+    static const bool played_pad = {'true' if played_pad(m) else 'false'};
+    static const bool selected_pad = {'true' if drum and not played_pad(m) else 'false'};
     static const bool sample = {'true' if getattr(m, 'kind', 'synth') == 'sample' else 'false'};   // reads its sample's overview
     static const bool percent_sends = {'true' if getattr(m, 'sdk', (1, 0)) >= (1, 15) else 'false'};   // pad[2..3] as percent + 1 (SDK 1.15)
+    // A drum kit's Shift cells and choices of the drum-kit controls, and its selected key (SDK 1.23).
+    static const bool kit_controls = {'true' if kit_controls(m) & 3 else 'false'};
+    static const bool selected_key = {'true' if selected_key(m) else 'false'};
 }};
 const char* const Machine::ids[{len(ids)}] = {{
 {table}}};
@@ -418,6 +778,26 @@ const char* const Machine::ids[{len(ids)}] = {{
 OPXY_SCREEN(opxy::screen::Drawing<Machine>, "{m.prefix}", "{artwork or m.native_name+'.svg'}", {RELOCATED['PAGE_LIMIT']}, {screen_bytes(m)})
 '''
     destination = Path(directory) / 'screen.cpp'
+    destination.write_text(source, encoding='utf-8', newline='\n')
+    return destination
+
+
+def generate_extended_screen(directory, m, ids, table):
+    """An extended display's renderer (extended_drawing.hpp)."""
+    source = f'''// Generated by the SDK: {m.native_name}'s declared display as renderer data.
+#include "display_binding.hpp"
+#include "extended_drawing.hpp"
+namespace {{
+struct Machine {{
+    static const char* const ids[{len(ids)}];
+    static const bool percent_sends = {'true' if getattr(m, 'sdk', (1, 0)) >= (1, 15) else 'false'};
+}};
+const char* const Machine::ids[{len(ids)}] = {{
+{table}}};
+}}
+OPXY_SCREEN(opxy::screen::ExtendedDrawing<Machine>, "{m.prefix}", "{m.native_name}.svg", {RELOCATED['PAGE_LIMIT']}, {screen_bytes(m)})
+'''
+    destination = directory / 'screen.cpp'
     destination.write_text(source, encoding='utf-8', newline='\n')
     return destination
 
@@ -443,6 +823,12 @@ def sample_callbacks(m):
     return [m.prefix + suffix for flag, entries in SAMPLE_SERVICES if resources.get(flag, 0) for suffix, *_ in entries]
 
 
+def sample_refusal(prefix, stereo):
+    """The inert voice object and refusal counter of a sample adapter below 256 voices."""
+    source = (TEMPLATES / 'sample_voice_refusal.cpp.in').read_text(encoding='utf-8')
+    return source.replace('@PREFIX@', prefix).replace('@STEREO@', str(int(bool(stereo))))
+
+
 def generate_sample_voice(directory, m, benchmark=False):
     resources = m.definition['resources']
     values = dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'], NAME=m.native_name,
@@ -453,6 +839,12 @@ def generate_sample_voice(directory, m, benchmark=False):
                   # The drum page edits outer markers only; an engine with its own screen spans them.
                   OUTER_MARKERS=int(bool(resources.get('drumControls', 0)) or 'display' in resources),
                   SLICE_TIMING=resources.get('sliceTiming', 0))
+    # Below stock's 256 a refused index gets a shared inert object, not null
+    # (sample_voice_refusal.cpp.in); at 256 nothing is ever refused and the
+    # adapter stays as it was.
+    refusing = resources['voiceCapacity'] < STOCK_VOICES
+    values['REFUSED'] = 'refused()' if refusing else 'nullptr'
+    values['REFUSAL_DEFINITIONS'] = sample_refusal(m.prefix, values['STEREO']) if refusing else ''
     path = expand('sample_voice.cpp.in', values, Path(directory) / f'sample_voice_{m.prefix}.cpp')
     return append_callback(path, m) if benchmark else path
 
@@ -574,7 +966,8 @@ def generate_synth_controls(directory, machines):
                              '        return true;'])
         body.extend(['    default: return false;', '    }', '}'])
         formatters.append('\n'.join(body))
-        # A drum kit's press always pages its whole row.
+        # A drum kit's press pages its whole row, on a key that has a second row
+        # (synth_controls.cpp second_row).
         page = m.kind == 'drum' or own_screen and count > 4 or paged(m.definition)
         # An effect's shift row: its choice counts and titles; other rows leave the fields zero.
         extra = ''
@@ -735,7 +1128,7 @@ SHIFT_PRELUDE = '''    opxy::i32 words[12];
     shift_words(object->slot, parameters, words);'''
 
 
-def generate_fx_object(directory, m, benchmark=False):
+def generate_fx_object(directory, m, benchmark=False, idle=False):
     resources = m.definition['resources']
     bytes_ = resources.get('bufferBytes')
     if bytes_ is None:
@@ -766,8 +1159,8 @@ def generate_fx_object(directory, m, benchmark=False):
     # The buffer's scratch call, the transport and the shift row use stock addresses.
     if bytes_ is not None or resources.get('transport') or shift:
         values['OBJECT'] = '#include "stock.hpp"\n' + ('#include "shift_row.hpp"\n' if shift else '') + values['OBJECT']
-    values.update(effect_bus_values(m))
-    if resources.get('busShift'):
+    values.update(effect_bus_values(m, idle))
+    if resources.get('busShift') or idle:
         values['OBJECT'] = '#include "send_bus.hpp"\n' + values['OBJECT']
     path = expand('fx_object.cpp.in', dict(values, PREFIX=m.prefix, NAMESPACE=m.definition['id'],
                                            NAME=m.native_name, LABELS=stock_labels(m),
@@ -777,15 +1170,46 @@ def generate_fx_object(directory, m, benchmark=False):
     return append_callback(path, m) if benchmark else path
 
 
-def effect_bus_values(m):
+def effect_bus_values(m, idle=False):
     """An effect's bus shift (resources.busShift, send_bus.hpp): the block raised by
     N bits, saturating, ahead of the shift row, and the result lowered by N, rounded,
-    after process. Empty, leaving the object's source as it was, without one."""
+    after process. In a build with the idle capability its init also records, per send,
+    its vtable and the hold its tail needs (send_hold) for the send hook
+    (send_fx.cpp). Empty, leaving the object's source as it was, for an effect without a
+    shift in a build without idle."""
     n = m.definition['resources'].get('busShift', 0)
-    if not n:
-        return dict(BUS_RAISE='', BUS_LOWER='')
-    return dict(BUS_RAISE=f'    opxy::platform::send_bus::raise<{n}>(left, right);\n',
-                BUS_LOWER=f'\n    opxy::platform::send_bus::lower<{n}>(left, right);')
+    values = dict(BUS_INIT='', BUS_RAISE='', BUS_LOWER='')
+    if idle:
+        values['BUS_INIT'] = (f'\n    opxy::platform::send_bus::declare(slot, {m.prefix}_fx_vtable, '
+                              f'{send_hold(m.definition):#x}u);')
+    if n:
+        values.update(BUS_RAISE=f'    opxy::platform::send_bus::raise<{n}>(left, right);\n',
+                      BUS_LOWER=f'\n    opxy::platform::send_bus::lower<{n}>(left, right);')
+    return values
+
+
+# The idle capability's send hold (send_fx.cpp), in 64-frame blocks: the effect's
+# tail plus 64 blocks of margin for parameter smoothing. The tail is what the
+# effect declares (resources.tailFrames), or else the longest a plain line in its
+# memory holds: 16-bit mono samples, in bufferBytes or in its state, and for an effect that
+# declares nothing never less than a fixed 3.07 s (SEND_HOLD_UNDECLARED): the derivation
+# may lengthen an undeclared effect's hold, never shorten it below that. "unbounded"
+# (a looper, a freeze, anything that sounds without send input) never idles.
+SEND_HOLD_MARGIN = 64
+SEND_HOLD_UNDECLARED = 2048 + 64   # 3.07 s at 44.1 kHz
+SEND_HOLD_ENDLESS = 0xffffffff
+EFFECT_STATE_BYTES = 476   # opxy/effect.hpp effect_state_bytes
+
+
+def send_hold(definition):
+    resources = definition['resources']
+    tail = resources.get('tailFrames')
+    if tail == 'unbounded':
+        return SEND_HOLD_ENDLESS
+    if tail is None:
+        derived = -(-(resources.get('bufferBytes', EFFECT_STATE_BYTES) // 2) // 64) + SEND_HOLD_MARGIN
+        return max(derived, SEND_HOLD_UNDECLARED)
+    return -(-tail // 64) + SEND_HOLD_MARGIN
 
 
 def stock_labels(m):
@@ -861,36 +1285,72 @@ def catalog_entry(m):
 
 
 def generate_player_object(directory, m, artwork=None):
-    """A player's stock object methods around its press and release, and its own page when it has one."""
+    """A player's stock object methods around its press and release, and its own page: the SDK's
+    dot page (screen_player.hpp), or the one its display draws (SDK 1.26, screen_player_drawing.hpp)."""
     from .native import player_header_ids, player_page_ids
     values = dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'], NAME=m.native_name,
                   PAGE='nullptr', PAGE_READY='nullptr', PAGE_DECLARATIONS='', PAGE_UNIT='',
-                  PAGED='true' if paged(m.definition) else 'false')
+                  PAGED='true' if paged(m.definition) else 'false',
+                  CLICKS='true' if m.definition.get('press') == 'click' else 'false')
     # One choice marks an absent slot: its encoder turns nothing (players.cpp).
     # So do the second page's slots a player leaves out.
     steps = [1 if p.get('absent') else enum_steps(p) for p in m.definition['parameters']]
     values['STEPS'] = ', '.join(map(str, steps + [1] * (8 - len(steps))))
-    if m.display == 'player':
+    values.update(player_shift_values(m))
+    if m.display in ('player', 'drawing'):
         p = m.prefix
-        page = (TEMPLATES / 'player_page.cpp.in').read_text(encoding='utf-8')
-        if artwork is not None:
-            require(re.fullmatch(r'openxy-[0-9a-f]{64}\.svg',artwork) is not None, 'Invalid content-addressed player artwork')
-            require(page.count('"@NAME@.svg"')==1,'Changed player artwork boundary')
-            page=page.replace('"@NAME@.svg"',json.dumps(artwork))
         titles = [json.dumps(parameter['label'].lower()) for parameter in m.definition['parameters']]
         titles += ['""'] * (8 - len(titles))
-        # A paged player's page also drives the two-row header in its artwork (native.page_artwork).
-        ids = player_page_ids(p) + (player_header_ids(p + '_header') if paged(m.definition) else [])
-        for key, value in dict(IDS='\n'.join(f'    "{name}",' for name in ids), ID_COUNT=str(len(ids)),
-                               PAGED=values['PAGED'], TITLES=', '.join(titles),
-                               PAGE_LIMIT=RELOCATED['PAGE_LIMIT'], PREFIX=p,
-                               NAMESPACE=m.definition['id'], NAME=m.native_name).items():
+        fields = dict(PAGED=values['PAGED'], TITLES=', '.join(titles), PAGE_LIMIT=RELOCATED['PAGE_LIMIT'], PREFIX=p,
+                      NAMESPACE=m.definition['id'], NAME=m.native_name)
+        if m.display == 'drawing':
+            # Its own drawn page (SDK 1.26): display.cpp in this unit, after player.cpp.
+            from .native import display_ids
+            display = m.definition['resources']['display']
+            page = (TEMPLATES / 'player_drawing.cpp.in').read_text(encoding='utf-8')
+            ids = display_ids(p, display)
+            fields.update({key: str(value) for key, value in drawing_layout(display).items()
+                           if key in ('PATHS', 'POINTS', 'NODES', 'TEXTS', 'PALETTE')})
+            fields.update(STATE_BYTES=str(display['stateBytes']), STATE_ALIGNMENT=str(display['stateAlignment']),
+                          SCREEN_BYTES=str(screen_bytes(m)))
+        else:
+            page = (TEMPLATES / 'player_page.cpp.in').read_text(encoding='utf-8')
+            # A paged player's page also drives the two-row header in its artwork (native.page_artwork).
+            ids = player_page_ids(p) + (player_header_ids(p + '_header') if paged(m.definition) else [])
+        if artwork is not None:
+            require(re.fullmatch(r'openxy-[0-9a-f]{64}\.svg', artwork) is not None,
+                    'Invalid content-addressed player artwork')
+            require(page.count('"@NAME@.svg"') == 1, 'Changed player artwork boundary')
+            page = page.replace('"@NAME@.svg"', json.dumps(artwork))
+        fields.update(IDS='\n'.join(f'    "{name}",' for name in ids), ID_COUNT=str(len(ids)))
+        for key, value in fields.items():
             page = page.replace('@' + key + '@', value)
         values.update(PAGE=f'{p}_page_id', PAGE_READY=f'{p}_screen_ready', PAGE_UNIT=page,
                       PAGE_DECLARATIONS='\n'.join([f'extern const char {p}_page_id[] __asm__("{p}_page_id");',
                                                     f'int {p}_screen_register() __asm__("{p}_screen_register");',
                                                     f'int {p}_screen_ready() __asm__("{p}_screen_ready");']))
     return expand('player_object.cpp.in', values, Path(directory) / f'player_object_{m.prefix}.cpp')
+
+
+def player_shift_values(m):
+    """A player's shift row (SDK 1.16) as its Player's table, or nothing, which leaves the
+    generated source of a player without one as it was."""
+    shift = shift_parameters(m.definition)
+    if not shift:
+        return dict(SHIFT_TABLE='', SHIFT='')
+    choices, defaults = [], []
+    for parameter in shift:
+        count = len(parameter['mapping']['labels'])
+        # The stored default (catalog_defaults' Q15) and its choice, as the SDK steps an enum.
+        bucket = min((math.floor(parameter['default'] * 32767 + 0.5) * count) >> 15, count - 1)
+        width = 0x7fffffff // count
+        choices.append(count)
+        defaults.append(bucket * width + width // 2)
+    choices += [0] * (8 - len(shift))
+    defaults += [0] * (8 - len(shift))
+    table = (f'static const opxy::platform::PlayerShift player_shift = {{{len(shift)}, '
+             f'{{{", ".join(map(str, choices))}}}, {{{", ".join(map(str, defaults))}}}}};\n')
+    return dict(SHIFT_TABLE=table, SHIFT=', &player_shift')
 
 
 def generate_player_table(directory, machines):

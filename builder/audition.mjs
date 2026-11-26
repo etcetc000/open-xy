@@ -16,7 +16,7 @@ export class Audition {
     this.volume = 0.5; this.revision = 0; this.disposed = false; this.playing = false;
     // The note a key holds, from its press: a release during audio setup still ends it.
     this.held = null;
-    this.kind = kind; this.model = 0; this.bypass = false; this.wet = 0.5;
+    this.kind = kind; this.model = null; this.bypass = false; this.wet = 0.5;
   }
   async start() {
     const context = this.context = new AudioContext({sampleRate:44100, latencyHint:'interactive'});
@@ -59,7 +59,7 @@ export class Audition {
       if (this.disposed || revision !== this.revision) return;
       this.processor.port.postMessage({type:'panic'});
       this.processor.port.postMessage({type:'parameters', value:this.parameters});
-      this.processor.port.postMessage({type:'model', value:this.model});
+      if (this.model !== null) this.processor.port.postMessage({type:'model', value:this.model});
       if (this.kind === 'effect') {
         this.processor.port.postMessage({type:'bypass', value:this.bypass});
         this.processor.port.postMessage({type:'wet', value:this.wet});

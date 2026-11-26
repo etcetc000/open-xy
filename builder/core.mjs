@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '1f027443a1407cd693aed05cf36429b5776a39def3a45e5a57a9ee95851bcaa7';
+export const PROFILE_SHA256 = '1bad5bdbf79ade17ef46bb0a668787cdb359254329809d888e953e1311b22bd1';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -155,6 +155,8 @@ const fits = (requested, numbers) => Object.keys(requested).length === Object.ke
 // each content folder. A machine named after one would overwrite stock's file or write into
 // stock's folder, and stock can then fail at boot, so the name is refused. Case is ignored,
 // as tooling/device.py assumes the device's FAT storage does.
+// tooling.screen.CANVAS: a whole-screen canvas's display file before its artwork.
+const CANVAS_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220"></svg>';
 export const machineContentPaths = id => [`content/display/${id}.svg`, `content/presets/${id}`,
   `content/samples/${id}`, `content/aux_presets/${id}`];
 export function stockContentFile(profile, path) {
@@ -327,6 +329,19 @@ export function readLayout(kit, saved) {
   const memory = saved.memory === undefined ? {} : offered ? {expanded: true} : {memoryUnavailable: saved.reserved_bytes};
   return {machines: numbers, selected, ...memory};
 }
+// Browser convenience state is separate from a build's durable machine layout.
+// A refreshed catalog can remove entries; never silently select newly added ones.
+export function readSelection(kit, saved) {
+  check(saved?.format === 'opxy-selection/1' && saved.profile === kit.profile.id &&
+    Array.isArray(saved.selected) && Array.isArray(saved.extensions) &&
+    [...saved.selected, ...saved.extensions].every(id => typeof id === 'string'),
+    'Invalid saved selection.');
+  return {
+    selected: kit.machines.filter(m => saved.selected.includes(m.id)).map(m => m.id),
+    // Keep conflicting choices visible so they can be corrected without losing machines.
+    extensions: (kit.extensions ?? []).filter(e => saved.extensions.includes(e.id)).map(e => e.id),
+  };
+}
 // The kit's machines numbered for this selection, in kit order, and the layout after.
 export function assignNumbers(kit, selection, layout = null) {
   return numberLayout(kit.profile.identities, Object.entries(kit.fixed).map(([id, identity]) => [id, null, identity]),
@@ -390,12 +405,18 @@ export const CPU_HIGH_PERCENT = 4.5;
 // average per block when its record reports no peak; null without a cpu record.
 // A drum kit is judged by its worst single sound, never its whole-kit runs: its
 // single-voice peak (voice_peak_percent), else its heaviest single voice's average.
+// A synth with a track stage adds its stage run's worst block (or mean) once, as a
+// track playing it runs one stage beside its voices (tooling.cpu_measurement.track_cost).
 export function cpuWorstCase(m) {
   const usable = n => typeof n === 'number' && Number.isFinite(n) && n > 0;
   const cpu = m.cpu && typeof m.cpu === 'object' ? m.cpu : {};
-  const peak = m.kind === 'drum' ? cpu.voice_peak_percent : cpu.peak_percent;
-  if (usable(peak)) return {percent: peak, metric: 'peak'};
-  if (usable(cpu.block_percent)) return {percent: cpu.block_percent, metric: 'average'};
+  const drum = m.kind === 'drum';
+  const staged = !drum && usable(cpu.stage_percent) && usable(cpu.stage_peak_percent);
+  const add = (n, stage) => staged ? Math.round((n + stage) * 1e6) / 1e6 : n;
+  const peak = drum ? cpu.voice_peak_percent : cpu.peak_percent;
+  const stage = staged ? {stage: true} : {};
+  if (usable(peak)) return {percent: add(peak, cpu.stage_peak_percent), metric: 'peak', ...stage};
+  if (usable(cpu.block_percent)) return {percent: add(cpu.block_percent, cpu.stage_percent), metric: 'average', ...stage};
   return null;
 }
 // The CPU-high label, derived from the cpu record so it follows the catalog: the worst
@@ -411,7 +432,8 @@ export function cpuHigh(m) {
     : worst.metric === 'peak'
     ? 'worst observed block peak ' + figure + ', above ' + CPU_HIGH_PERCENT + '%'
     : 'average ' + figure + ', above ' + CPU_HIGH_PERCENT + '% (no peak reported)';
-  return {...worst, detail, text: 'CPU-high: ' + detail};
+  const stage = worst.stage ? ' (a voice with its track stage)' : '';
+  return {...worst, detail: detail + stage, text: 'CPU-high: ' + detail + stage};
 }
 // The keywords the machines use, with how many use each, most used first, then by name: the
 // order in which the builder keeps keyword filters when only some fit (builder/app.mjs).
@@ -597,7 +619,8 @@ export function expandedProfile(profile) {
 // The kit linked and patched for the chosen memory; the reviewed kit is unchanged.
 export const memoryKit = (kit, expanded) => {
   check(typeof expanded === 'boolean', 'Expanded memory must be a boolean');
-  return expanded ? {...kit, profile: expandedProfile(kit.profile)} : kit;
+  // experimental marks the kit (not the profile, which matches the release check's) for linkKit.
+  return expanded ? {...kit, profile: expandedProfile(kit.profile), experimental: true} : kit;
 };
 const screenTemplateOk = async kit => typeof kit.screenTemplate === 'string' &&
   await sha256(utf8.encode(kit.screenTemplate)) === kit.profile.screen_template_sha256;
@@ -637,18 +660,21 @@ export async function openKit(kit) {
       (e.drumline_page === undefined || e.drumline_page === true),
       'Invalid extension metadata');
     // A settings extension (linked: false) links no code: it only turns on its
-    // capabilities, each the profile service of the same name (tooling.extensions).
+    // capabilities, each the profile service of the same name (tooling.extensions), each one
+    // the kit carries (carriedCapability).
     check((e.capabilities === undefined || Array.isArray(e.capabilities) && e.capabilities.length > 0 &&
       new Set(e.capabilities).size === e.capabilities.length &&
-      e.capabilities.every(c => /^[a-z][a-z0-9_]{0,31}$/.test(c) && kit.profile.services?.[c]?.join() === c &&
-        kit.profile.patches.some(edit => edit.service === c && !edit.choices && edit.before !== edit.after))) &&
+      e.capabilities.every(c => /^[a-z][a-z0-9_]{0,31}$/.test(c) && carriedCapability(kit, c))) &&
       (e.linked === undefined || e.linked === false && e.capabilities && !e.claims.length && !e.actions.length &&
         !processorOf(e) && !kit.objects.some(o => o.extension === e.id)), 'Invalid extension capabilities');
-    // A capability setting: its range and the extension's value; the profile lists every value's bytes.
+    // A capability setting: its range and the extension's value; the profile lists every value's bytes,
+    // or, for a unit capability, the kit every value's objects.
     check(e.settings === undefined || typeof e.settings === 'object' && Object.entries(e.settings).every(([c, v]) =>
       e.capabilities?.includes(c) && [v.minimum, v.maximum, v.default, v.value].every(Number.isInteger) &&
       v.minimum <= v.value && v.value <= v.maximum && typeof v.label === 'string' && typeof v.unit === 'string' &&
-      kit.profile.patches.some(edit => edit.setting === c && Object.hasOwn(edit.choices ?? {}, String(v.value)))),
+      (kit.profile.patches.some(edit => edit.setting === c && Object.hasOwn(edit.choices ?? {}, String(v.value))) ||
+        // A unit capability is off (0) or on (1), each value with the kit's objects.
+        v.minimum === 0 && v.maximum === 1 && ['0', '1'].every(value => Object.hasOwn(kit.unitSources?.[c] ?? {}, value)))),
       'Invalid extension settings');
     if(processorOf(e)) {
       check(!(e.master_processor && e.master_filter), 'Repeated master processor capability');
@@ -685,6 +711,30 @@ export async function openKit(kit) {
     check(await sha256(bytes) === o.sha256, 'Curated object hash mismatch: ' + o.name);
     objects.push({...o, ...readObject(bytes)});
   }
+  // Each unit capability's objects for every value of its setting (tooling.browser_kit.unit_sources):
+  // SDK objects of the kit, by name, each value naming the same ones.
+  const unitSources = {};
+  check(kit.unitSources === undefined || typeof kit.unitSources === 'object' && kit.unitSources !== null &&
+    Object.keys(kit.unitSources).length > 0, 'Invalid unit sources');
+  for (const [c, values] of Object.entries(kit.unitSources ?? {})) {
+    const named = new Set();
+    check(kit.profile.services?.[c]?.join() === c && !kit.profile.patches.some(edit => edit.service === c) &&
+      values && typeof values === 'object' && Object.keys(values).sort().join() === '0,1', 'Invalid unit sources: ' + c);
+    unitSources[c] = {};
+    for (const [value, entries] of Object.entries(values)) {
+      check(Array.isArray(entries) && entries.length > 0 && new Set(entries.map(o => o.name)).size === entries.length &&
+        entries.every(o => objects.some(base => base.name === o.name && base.owner === null && base.service === undefined &&
+          base.extension === undefined && !base.runtime)) &&
+        (named.size === 0 || entries.length === named.size && entries.every(o => named.has(o.name))), 'Invalid unit sources: ' + c);
+      entries.forEach(o => named.add(o.name));
+      unitSources[c][value] = [];
+      for (const o of entries) {
+        const bytes = decode64(o.bytes);
+        check(await sha256(bytes) === o.sha256, 'Curated object hash mismatch: ' + o.name);
+        unitSources[c][value].push({name: o.name, owner: null, path: `unit-sources/${c}/${value}/${o.name}`, ...readObject(bytes)});
+      }
+    }
+  }
   for (const id of extensionIds) {
     const owned = objects.filter(o => o.extension === id);
     if (extensions.find(e => e.id === id).linked === false) {
@@ -698,8 +748,38 @@ export async function openKit(kit) {
       check((has('processor') && has('panel')) || has('filter'), 'Missing master processor accessors: '+id);
     }
   }
-  return {...kit, objects};
+  return {...kit, objects, ...(kit.unitSources ? {unitSources} : {})};
 }
+
+// Whether a kit carries a capability an extension declares (docs/builder.md#capabilities): one
+// whose edits are fixed bytes, at least one of them not stock's when it has no hooks (image edits,
+// load_governor's and pitch_constants' included); one whose hooks enter its own service's SDK
+// objects, which the kit holds (block_trims, output_slack); or one with no edit that chooses its
+// SDK units' sources (fast_helpers: kit.unitSources). A capability that changes every machine's
+// generated code (idle) has none of its objects in a kit, whose export refuses it: never carried.
+function carriedCapability(kit, c) {
+  if (kit.profile.services?.[c]?.join() !== c) return false;
+  const edits = kit.profile.patches.filter(edit => edit.service === c);
+  if (!edits.length) return Object.hasOwn(kit.unitSources ?? {}, c);
+  if (!edits.every(edit => ['limit', 'hook'].includes(edit.kind))) return false;
+  return edits.some(edit => edit.kind === 'hook') ? kit.objects.some(o => o.service === c)
+    : edits.some(edit => !edit.choices && edit.before !== edit.after);
+}
+
+// The value of each unit capability (fast_helpers) a build links (linkKit): the chosen one, else
+// the selected extension's own, when a selected extension carries it; 0 (off, the plain sources
+// every build without it links) otherwise.
+export function unitSettings(kit, extensionIds = [], settings = {}) {
+  const chosen = chosenSettings(kit, {extensions: extensionIds}, settings), carried = carriedUnits(kit, extensionIds), values = {};
+  for (const c of Object.keys(kit.unitSources ?? {})) {
+    values[c] = carried.includes(c) ? chosen[c] ?? 0 : 0;
+    check(Object.hasOwn(kit.unitSources[c], String(values[c])), 'Setting outside its range: ' + c);
+  }
+  return values;
+}
+// The unit capabilities the selected extensions carry.
+const carriedUnits = (kit, extensionIds) => Object.keys(kit.unitSources ?? {}).filter(c =>
+  (kit.extensions ?? []).some(e => extensionIds.includes(e.id) && (e.capabilities ?? []).includes(c)));
 
 // Profile services a selection needs: each names the machine kinds that use it,
 // and 'extension' for any selected extension. tooling.firmware.active_services
@@ -744,21 +824,35 @@ export function selectRuntime(objects, candidates, definitions = {}) {
   return entries.filter(e => chosen.has(e.o)).map(e => e.o);
 }
 
-// Extensions are linked only when named: omitting them builds none.
-export function linkKit(kit, selection, layout = null, extensionIds = []) {
+// Extensions are linked only when named: omitting them builds none. `settings` are capability
+// settings chosen over the extensions' own; here only the unit capabilities' (unitSettings) count.
+export function linkKit(kit, selection, layout = null, extensionIds = [], settings = {}) {
   const extensions = new Set(extensionSelection(kit, extensionIds));
   check(Array.isArray(selection) && selection.length > 0 && new Set(selection).size === selection.length &&
     selection.every(id => kit.machines.some(m => m.id === id)), 'Choose each machine once.');
   const numbers = assignNumbers(kit, selection, layout);
   const definitions = {...kit.definitions, ...numberSymbols(kit, selection, numbers)};
   const selected = new Set(selection), limit = moduleBytes(kit.profile);
+  // Heap voices (SDK 1.19) hold stock heap from boot; with a layout that shrinks that heap
+  // further their headroom is unknown, so the pair is refused (tooling/voice_heap.py).
+  const heapSynths = kit.machines.filter(m => selected.has(m.id) && m.heapVoices);
+  if (kit.experimental === true && heapSynths.length) {
+    const error = new Error(`${heapSynths.map(m => m.name).join(', ')} keep their voices in the stock heap, which ` +
+      'the experimental memory makes smaller: build with standard memory.');
+    error.heapVoices = true;
+    throw error;
+  }
   const services = activeServices(kit.profile, [...kit.machines.filter(m => selected.has(m.id)),
     ...(kit.extensions?.some(e => extensions.has(e.id) && e.linked !== false) ? [{kind: 'extension'}] : []),
     ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : []),
     ...(kit.extensions?.some(e => extensions.has(e.id) && e.drumline_page) ? [{kind: 'drumline_page'}] : []),
     ...(kit.extensions ?? []).filter(e => extensions.has(e.id)).flatMap(e => (e.capabilities ?? []).map(kind => ({kind})))]);
+  // A unit capability's chosen value links its objects in place of the native build's, under the
+  // same names and in the same place (tooling.native UNIT_SOURCES).
+  const units = unitSettings(kit, [...extensions], settings);
+  const replaced = new Map(Object.entries(units).flatMap(([c, value]) => kit.unitSources[c][String(value)].map(o => [o.name, o])));
   const objects = kit.objects.filter(o => !o.runtime && (o.extension === undefined || extensions.has(o.extension)) &&
-    (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner)));
+    (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner))).map(o => replaced.get(o.name) ?? o);
   objects.push(...selectRuntime(objects, kit.objects.filter(o => o.runtime), definitions));
   const globals = new Map(Object.entries(definitions)), placements = new Map(), segments = [];
   let cursor = kit.profile.module_base, initializedEnd;
@@ -848,6 +942,7 @@ export function linkKit(kit, selection, layout = null, extensionIds = []) {
     }
   }
   return {module, globals, aliases, objects, segments, services, extensions: [...extensions], numbers, definitions,
+    ...(Object.keys(units).length ? {units} : {}),
     sizes: {initialized, bss: cursor - bssStart, allocated, available: limit - allocated}};
 }
 
@@ -876,6 +971,29 @@ const words = (...values) => {
   const bytes = new Uint8Array(values.length * 2);
   values.forEach((word, i) => view(bytes).setUint16(i * 2, word, true)); return bytes;
 };
+// The module symbol a hook enters: when several services need one stock site, the
+// edit's `symbols` maps each to the handler a selection with it enters, the first
+// one the selection uses winning; otherwise its `symbol` (tooling.firmware.hook_symbol).
+// Whether an edit's `symbols` map is absent or valid (tooling.pipeline.check_patch_boundaries):
+// a service hook's, naming declared services with a handler each, its own symbol among them,
+// and together used by exactly the users of the record's service. `services` is the profile's.
+export function validSharedHook(edit, services) {
+  const shared = edit.symbols;
+  if (shared === undefined) return true;
+  if (edit.kind !== 'hook' || edit.service === undefined || typeof shared !== 'object' || shared === null ||
+      Array.isArray(shared) || !Object.keys(shared).length || !Object.values(shared).includes(edit.symbol) ||
+      !Object.entries(shared).every(([service, symbol]) => Object.hasOwn(services, service) &&
+        typeof symbol === 'string' && symbol) || !Object.hasOwn(services, edit.service)) return false;
+  const users = new Set(Object.keys(shared).flatMap(s => services[s]));
+  const own = new Set(services[edit.service]);
+  return users.size === own.size && [...users].every(u => own.has(u));
+}
+
+export function hookSymbol(edit, services) {
+  const shared = Object.entries(edit.symbols ?? {}).find(([service]) => services.has(service));
+  return shared ? shared[1] : edit.symbol;
+}
+
 // Replacement bytes of a profile edit whose destination is a module symbol
 // (tooling.firmware.hook_instruction and tooling.startup_label.jump).
 export function redirect(edit, destination) {
@@ -908,6 +1026,9 @@ function chosenSettings(kit, linked, settings) {
 export async function patchFirmware(kit, linked, stock, {profiling = true, settings = {}} = {}) {
   check(typeof profiling === 'boolean', 'Profiling must be a boolean');
   const values = chosenSettings(kit, linked, settings);
+  // The module was linked with the same unit capability values (linkKit, unitSettings).
+  check(JSON.stringify(unitSettings(kit, linked.extensions ?? [], settings)) === JSON.stringify(linked.units ?? {}),
+    'The module was linked for other capability settings');
   const p = kit.profile;
   check(stock.length === p.stock_bytes && await sha256(stock) === p.stock_sha256,
     'Only OP–XY OS 1.2.1 is supported. Choose the OS file, os.ldr, copied from your OP–XY, not a .tfw update file.');
@@ -935,10 +1056,11 @@ export async function patchFirmware(kit, linked, stock, {profiling = true, setti
       'Undeclared service: ' + edit.service);
     check(edit.profiling === undefined || (edit.profiling === false && edit.kind === 'hook'),
       'Invalid profiling hook');
+    check(validSharedHook(edit, p.services ?? {}), 'Invalid shared hook');
     if ((edit.service && !linked.services.has(edit.service)) || (edit.profiling === false && profiling)) {
       after = before;  // inactive hooks leave the corresponding stock code unchanged
     } else if (['hook', 'startup'].includes(edit.kind)) {
-      const destination = linked.globals.get(edit.symbol);
+      const destination = linked.globals.get(edit.kind === 'hook' ? hookSymbol(edit, linked.services) : edit.symbol);
       check(destination >= low && destination < low + linked.module.length, 'Hook destination outside module');
       after = redirect(edit, destination);
     } else {
@@ -1030,19 +1152,26 @@ export function presentSelections(kit, present) {
   for (let count = 1; count <= lookalikes.length; count++) drop(count, 0, []);
   return selections;
 }
+// A settings extension looks present when its capabilities are on in the image and one of them has
+// an edit that shows it (an extension of edit-less capabilities alone is tried, never guessed).
 const presentExtensions = (kit, payload, input) => (kit.extensions ?? [])
-  .filter(e => e.linked === false ? e.capabilities.every(c => capabilityApplied(kit.profile, c, input))
+  .filter(e => e.linked === false ? e.capabilities.every(c => capabilityApplied(kit.profile, c, input)) &&
+      e.capabilities.some(c => kit.profile.patches.some(edit => edit.service === c))
     : holdsCode(kit.objects.filter(o => o.extension === e.id), payload)).map(e => e.id);
-// A capability's edits are fixed bytes (tooling.extensions.capabilities). It is on in
-// an image exactly when each of its fixed edits (those without choices; there is at
-// least one) holds its reviewed bytes and each setting edit holds one of its choices.
-// A setting's bytes may equal stock's, so only the fixed edits say on or off, as
-// tooling.settings.state reads it.
+// Whether an image has a capability on, as tooling.settings reads it. Its fixed edits (those
+// without choices) hold their reviewed bytes and each setting edit one of its choices; a setting's
+// bytes may equal stock's, so only the fixed edits say on or off. A hook's bytes depend on the
+// module, so it only has to differ from stock's (a profiling-only hook may keep them). A capability
+// with no edit (fast_helpers) cannot be read from an image: it may be on. Only a guess for hooks;
+// recoverFirmware accepts a build only by rebuilding it exactly.
 const siteBytes = (input, edit) => input.subarray(Number(edit.file_offset), Number(edit.file_offset) + edit.length);
 const capabilityApplied = (p, service, input) => {
-  const edits = p.patches.filter(edit => edit.service === service), fixed = edits.filter(edit => !edit.choices);
-  return fixed.length > 0 && fixed.every(edit => equal(siteBytes(input, edit), unhex(edit.after))) &&
-    edits.every(edit => !edit.choices || Object.values(edit.choices).some(b => equal(siteBytes(input, edit), unhex(b))));
+  const edits = p.patches.filter(edit => edit.service === service);
+  // Only an edit without choices says on or off; a capability with edits has one.
+  return (!edits.length || edits.some(edit => !edit.choices)) && edits.every(edit =>
+    edit.choices ? Object.values(edit.choices).some(b => equal(siteBytes(input, edit), unhex(b)))
+      : edit.kind === 'hook' ? edit.profiling === false || !equal(siteBytes(input, edit), unhex(edit.before))
+      : equal(siteBytes(input, edit), unhex(edit.after)));
 };
 // The setting values an image holds: each applied capability's chosen value, read from
 // its reviewed bytes, including a value whose bytes equal stock's.
@@ -1083,25 +1212,35 @@ export async function recoverFirmware(kit, input, layout = null) {
     .find(k => k.profile.module_base === module.target && k.profile.patches.every(e => e.kind !== 'heap' ||
       equal(input.subarray(Number(e.file_offset), Number(e.file_offset) + e.length), unhex(e.after))));
   // The memory layout this OS used, when its module base and heap edits match one.
-  const found = built ? {memory: built === kit ? 'standard' : 'expanded'} : {};
+  const memory = built ? {memory: built === kit ? 'standard' : 'expanded'} : {};
   if (built && module.count <= moduleBytes(built.profile)) {
     // Reconstruct a selection's entire image; never trust the uploaded module
     // or infer ownership from its label. SDK builds retain timing; site builds
     // omit the per-voice bookkeeping. Accept only a complete reconstruction of
     // one mode, never mixed hooks.
-    const settings = imageSettings(kit, input), withSettings = Object.keys(settings).length ? {settings} : {};
+    const settings = imageSettings(kit, input);
+    // No image site shows a unit capability's value (fast_helpers): each of its values is tried,
+    // and the one that rebuilds the image is reported with the image's settings.
+    let found = null;
     const rebuilds = async (selected, extensions) => {
-      // A selection that does not fit is not this build, so the exhaustive search
-      // below goes on; any other link or patch error is a real defect and reported.
-      let linked;
-      try { linked = linkKit(built, selected, layout, extensions); }
-      catch (error) { if (error.capacity === true) return false; throw error; }
-      if (!equal(linked.module, payload)) return false;
-      for (const profiling of [true, false]) {
-        if (equal(await patchFirmware(built, linked, stock, {profiling, settings}), input)) return true;
+      for (const units of carriedUnits(built, extensions).reduce((all, c) => all.flatMap(chosen =>
+        Object.keys(built.unitSources[c]).map(value => ({...chosen, [c]: Number(value)}))), [{}])) {
+        // A selection that does not fit is not this build, so the exhaustive search
+        // below goes on; any other link or patch error is a real defect and reported.
+        let linked;
+        try { linked = linkKit(built, selected, layout, extensions, units); }
+        catch (error) { if (error.capacity === true) continue; throw error; }
+        if (!equal(linked.module, payload)) continue;
+        for (const profiling of [true, false]) {
+          if (equal(await patchFirmware(built, linked, stock, {profiling, settings: {...settings, ...units}}), input)) {
+            found = {...settings, ...units};
+            return true;
+          }
+        }
       }
       return false;
     };
+    const withSettings = () => Object.keys(found).length ? {settings: found} : {};
     // First the machines and extensions whose code the module holds, one link at
     // any kit size. Then every extension choice for a small collection, or the
     // present ones and none for a larger one, so links never grow exponentially.
@@ -1114,7 +1253,7 @@ export async function recoverFirmware(kit, input, layout = null) {
     for (const selected of present.length ? presentSelections(kit, present) : []) {
       for (const extensions of tries) {
         try {
-          if (await rebuilds(selected, extensions)) return {stock, selected, extensions, ...found, ...withSettings};
+          if (await rebuilds(selected, extensions)) return {stock, selected, extensions, ...memory, ...withSettings()};
         } catch {}  // a guess that cannot link is not this kit's build
       }
       // Yield between candidates, as the exhaustive search below does.
@@ -1127,7 +1266,7 @@ export async function recoverFirmware(kit, input, layout = null) {
       for (let mask = 1; mask < 2 ** kit.machines.length; mask++) {
         const selected = kit.machines.filter((_, i) => mask & 2 ** i).map(m => m.id);
         for (const extensions of choices) {
-          if (await rebuilds(selected, extensions)) return {stock, selected, extensions, ...found, ...withSettings};
+          if (await rebuilds(selected, extensions)) return {stock, selected, extensions, ...memory, ...withSettings()};
         }
         await new Promise(resolve => setTimeout(resolve, 0));
       }
@@ -1135,7 +1274,7 @@ export async function recoverFirmware(kit, input, layout = null) {
   }
   // Another open-xy OS: an earlier release, other machines or another build.
   // Its stock OS is verified above; its machines and extensions are chosen again.
-  return {stock, selected: null, earlier: true, ...found};
+  return {stock, selected: null, earlier: true, ...memory};
 }
 
 export function presetPath(machine) {
@@ -1146,10 +1285,7 @@ export function presetPath(machine) {
   return `content/presets/${machine.id}/default.json`;
 }
 
-// The machine's init preset, then its own presets (tooling.machines.read_presets):
-// each a version 4 preset of this machine, pointing at no samples: a kit empties the
-// regions of those loading a sample engine's own samples, which the builder doesn't
-// install (tooling.browser_kit.kit_presets). Its own default replaces the generated init preset.
+// A synthesis kit's 24 sample-free pad records (SDK 1.21), as tooling.machines checks them.
 function drumPresetRegions(regions) {
   return Array.isArray(regions) && regions.length === 24 && regions.every((region,index) =>
     region && typeof region === 'object' && !Array.isArray(region) && region.model === 'fm slap' &&
@@ -1160,6 +1296,10 @@ function drumPresetRegions(regions) {
     (!Object.hasOwn(region,'hikey') || region.hikey === 53+index));
 }
 
+// The machine's init preset, then its own presets (tooling.machines.read_presets):
+// each a version 4 preset of this machine, pointing at no samples: a kit empties the
+// regions of those loading a sample engine's own samples, which the builder doesn't
+// install (tooling.browser_kit.kit_presets). Its own default replaces the generated init preset.
 export function presetFiles(machine) {
   // An aux machine's presets: the files the kit generated (tooling.adapters.aux_preset_files).
   if (machine.catalog === '') {
@@ -1184,7 +1324,8 @@ export function presetFiles(machine) {
     check(/^[a-z0-9][a-z0-9_-]{0,23}$/.test(name) && preset && typeof preset === 'object' &&
       preset.version === 4 && preset.platform === 'OP-XY' && preset.type === machine.id &&
       Array.isArray(preset.regions) && (preset.regions.length === 0 ||
-        machine.kind === 'drum' && drumPresetRegions(preset.regions) ||
+        // Not on a padMix kit, whose records would carry each key's level and pad word (gain, random).
+        machine.kind === 'drum' && !(machine.features ?? []).includes('padMix') && drumPresetRegions(preset.regions) ||
         // A synth's Shift row (SDK 1.13) rides in sample-less regions, as Drumline's keys do.
         machine.shiftRow === true && preset.regions.length <= 24 &&
         preset.regions.every(r => r && typeof r === 'object' && !Array.isArray(r) && !r.sample)) &&
@@ -1218,6 +1359,58 @@ function defaultPreset(machine) {
     type: entry.type,
   };
 }
+
+// A drum kit's preview (the kit's `preview.kit`): its 24 keys, canonical 53..76, each
+// with its own model and eight controls, which the device stores as 0..127 and plays
+// as Q31 words, 127 as full scale (drum_voice.cpp.in). The preview module reports a
+// key's defaults and each model's name and labels, as the device's adapter reads them.
+export const KIT_KEYS = Array.from({length:24}, (_, i) => 53 + i);
+export const kitWord = value => value === 127 ? 0x7fffffff : value << 24;
+function kitText(api, address) {
+  if (!address) return '';
+  const memory = new Uint8Array(api.memory.buffer);
+  requireThat(Number.isInteger(address) && address > 0 && address < memory.length, 'Invalid kit text');
+  const end = memory.indexOf(0, address);
+  requireThat(end >= 0 && end - address <= 64, 'Unterminated kit text');
+  return new TextDecoder().decode(memory.subarray(address, end));
+}
+// A key as the kit sets it up: its model, its controls, no choke group, centred at 0 dB.
+export function kitKey(api, kit, key) {
+  requireThat(KIT_KEYS.includes(key), 'Invalid kit key');
+  const at = api.opxy_drum_defaults(key) >>> 0, memory = new Uint8Array(api.memory.buffer);
+  requireThat(at > 0 && at + 9 <= memory.length, 'Invalid kit key defaults');
+  const model = memory[at] < kit.models ? memory[at] : 0;
+  return {key, model, controls:Array.from(memory.subarray(at + 1, at + 9), value => Math.min(value, 127)), choke:0};
+}
+// A model's name and each slot's label; a slot is used when below the model's count and named.
+export function kitModel(api, kit, model) {
+  requireThat(Number.isInteger(model) && model >= 0 && model < kit.models, 'Invalid kit model');
+  const count = Math.min(8, api.opxy_drum_count(model) >>> 0);
+  const labels = Array.from({length:8}, (_, slot) => slot < count ? kitText(api, api.opxy_drum_label(model, slot) >>> 0) : '');
+  return {name:kitText(api, api.opxy_drum_model_name(model) >>> 0), labels, used:labels.map(label => label !== '')};
+}
+// The model's group and the model's place in it, or the model without groups, then the choke group.
+export function kitGroup(kit, model) {
+  let group = 0, first = 0;
+  while (group + 1 < (kit.groups?.length ?? 0) && model >= first + kit.groups[group].count) first += kit.groups[group++].count;
+  return {group, place:model - first, label:kit.groups?.[group]?.label ?? ''};
+}
+// A key the kit has not set up: with padVolume, 0 dB (dB + 30) on the third encoder, in the
+// choke group's place with groups; with padRandom, none on the fourth (SDK 1.23).
+export function kitChoices(kit, model, choke = 0) {
+  const {group, place} = kitGroup(kit, model);
+  const choices = kit.groups?.length ? [group, place, choke, 0] : [model, choke, 0, 0];
+  if (kit.padVolume) choices[2] = 30;
+  if (kit.padRandom) choices[3] = 0;
+  return choices;
+}
+// A kit's selected key as its screen is told it (SDK 1.23): 0..23, or 0 for an older kit.
+export const kitSelectedKey = (kit, key) => kit.selectedKey ? key - KIT_KEYS[0] : 0;
+// The display's pan, level and pad fields for a key the kit has not set up: centred, 0 dB, neutral.
+export const kitMix = kit => kit.padMix ? {pan:0, level:0, pad:[0, 0, 0, 0]} : {pan:0, level:0};
+// The stock header of a kit's page: each shown slot's label and its 0..127 value, blank when unused.
+export const kitHeader = (names, controls, shown) =>
+  [shown.map(slot => names.labels[slot]), shown.map(slot => names.used[slot] ? String(controls[slot]) : '')];
 
 export function graphicsForMachine(machine, {graphics = 'colorful', graphicsOverrides = {}} = {}) {
   const mode = machine.artwork && Object.hasOwn(graphicsOverrides, machine.id) ? graphicsOverrides[machine.id] : graphics;
@@ -1282,7 +1475,9 @@ export async function buildAssets(kit, selection, catalog, numbers, options = {}
       check(files['content/display/' + m.asset] === undefined, 'Display asset collision: ' + m.asset);
       try {
         const fragment = selectArtwork(m, graphicsForMachine(m, {graphics, graphicsOverrides}));
-        const artwork = baseSvg.replace('</svg>', fragment + '</svg>');
+        // A whole-screen canvas (fullCanvas) leaves the stock header out (tooling.screen.compose).
+        check(m.fullCanvas === undefined || m.fullCanvas === 0 || m.fullCanvas === 1, 'Invalid full canvas flag');
+        const artwork = (m.fullCanvas === 1 ? CANVAS_SVG : baseSvg).replace('</svg>', fragment + '</svg>');
         files['content/display/' + m.asset] = utf8.encode(artwork);
       } catch (error) {
         throw new Error('Could not prepare ' + m.id + ' graphics: ' + error.message + '. Keep this machine’s original design or use corrected artwork.');
@@ -1295,14 +1490,270 @@ export async function buildAssets(kit, selection, catalog, numbers, options = {}
   return files;
 }
 
+export const MACHINE_PACK_LIMIT = 64 * 1024 ** 2;
+const packFile = 'machines.json';
+// The SDK objects generated from the machines of a collection (tooling.native.build_unit);
+// every other SDK object is the same whichever machines a collection holds.
+const collectionObjects = new Set(['sdk/startup.o', 'sdk/benchmark.o', 'sdk/sample_callbacks.o',
+  'sdk/synth_control_table.o', 'sdk/project_companion_table.o', 'sdk/drum_callbacks.o', 'sdk/player_table.o',
+  'sdk/track_control_table.o', 'sdk/track_stage_table.o']);
+const canonical = value => JSON.stringify(value, (_key, v) => v && typeof v === 'object' && !Array.isArray(v)
+  ? Object.fromEntries(Object.keys(v).sort().map(key => [key, v[key]])) : v);
+const sameValue = (a, b) => canonical(a) === canonical(b);
+// Preview compilers can differ between hosts. Existing previews and provenance
+// always come from the site; only its native machine contract must match.
+function machineContract(m) {
+  const contract = Object.fromEntries(Object.entries(m ?? {})
+    .filter(([key]) => !['preview', 'origin', 'source', 'cpu', 'keywords'].includes(key)));
+  // An aux machine has no menu entry ('').
+  if (typeof contract.catalog === 'string' && contract.catalog !== '') {
+    contract.catalog = JSON.parse(contract.catalog.trim().replace(/^,/, ''));
+    // This is the author's collection-assigned number, not the machine's
+    // requested identity. The receiver uses its own saved per-selection layout.
+    if (contract.kind === 'effect') delete contract.catalog.id;
+  }
+  return contract;
+}
+const objectRecord = o => Object.fromEntries(['name', 'owner', 'bytes', 'sha256', 'service', 'extension', 'runtime']
+  .filter(key => o[key] !== undefined).map(key => [key, o[key]]));
+const CRC_TABLE = Uint32Array.from({length:256}, (_, n) => {
+  for (let i = 0; i < 8; i++) n = n >>> 1 ^ (n & 1 ? 0xedb88320 : 0);
+  return n;
+});
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (const b of bytes) c = CRC_TABLE[(c ^ b) & 0xff] ^ c >>> 8;
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+// SDK packs contain exactly one stored JSON entry. Reject compressed, encrypted,
+// multi-disk, ZIP64, duplicate/traversal entries and trailing data before parsing.
+export function readMachinePack(bytes) {
+  check(bytes instanceof Uint8Array && bytes.length >= 124 && bytes.length <= MACHINE_PACK_LIMIT,
+    'Choose an SDK machine ZIP: this file is empty, too small or larger than 64 MiB.');
+  const d = view(bytes), u16 = at => d.getUint16(at, true), u32 = at => d.getUint32(at, true);
+  const end = bytes.length - 22;
+  check(u32(end) === 0x06054b50 && u16(end + 4) === 0 && u16(end + 6) === 0 &&
+    u16(end + 8) === 1 && u16(end + 10) === 1 && u16(end + 20) === 0,
+    'Expected an SDK machine pack with one manifest. Source and firmware ZIPs cannot be imported.');
+  const central = u32(end + 16), directoryBytes = 46 + packFile.length;
+  check(central >= 30 + packFile.length && central + directoryBytes === end && u32(end + 12) === directoryBytes,
+    'Invalid machine ZIP directory');
+  check(u32(central) === 0x02014b50 && u16(central + 8) === 0 && u16(central + 10) === 0 &&
+    u16(central + 28) === packFile.length && u16(central + 30) === 0 && u16(central + 32) === 0 &&
+    u16(central + 34) === 0 && u32(central + 42) === 0 &&
+    decoder.decode(bytes.subarray(central + 46, end)) === packFile, 'Invalid machine ZIP entry');
+  const start = 30 + packFile.length, size = u32(central + 24), crc = u32(central + 16);
+  check(u32(0) === 0x04034b50 && u16(6) === 0 && u16(8) === 0 && u16(26) === packFile.length &&
+    u16(28) === 0 && u32(14) === crc && u32(18) === size && u32(22) === size &&
+    u32(central + 20) === size && start + size === central &&
+    decoder.decode(bytes.subarray(30, start)) === packFile, 'Invalid machine ZIP header');
+  const data = bytes.subarray(start, central);
+  check(crc32(data) === crc, 'Machine ZIP is damaged');
+  return JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(data), (key, value) => {
+    check(!['__proto__', 'prototype', 'constructor'].includes(key), 'Invalid machine manifest key');
+    return value;
+  });
+}
+
+// The keys tooling.browser_kit.machine_entry writes for a custom synth, effect or sample
+// engine; anything else (a catalog source, keywords, aux presets) is refused.
+// Names a machine may not take (tooling.definitions.STOCK_TYPES and RESERVED_PREFIXES).
+const STOCK_TYPES = ['sampler', 'drum', 'drumline', 'organ', 'epiano', 'prism', 'hardsync', 'dissolve', 'axis',
+  'wavetable', 'simple', 'midi', 'multisampler', 'delay', 'reverb', 'chorus', 'phaser', 'dist', 'lofi', 'arpeggio',
+  'hold', 'maestro'];
+const RESERVED_PREFIXES = ['extensions', 'sdk', 'kit', 'stock', 'local'];
+// Imported artwork as tooling.svg_safety accepts the SDK's authored SVG, read token by token:
+// comments, CDATA and text are inert; every tag is one of its drawing elements, with no event,
+// style or link attribute and no url() paint in a value (as the XML parser decodes it). A
+// processing instruction, declaration or anything unparsed ends the scan and is refused.
+const ARTWORK_ELEMENTS = new Set(['svg', 'g', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path', 'text']);
+// A reference beyond Unicode is not XML: it is refused.
+const codePoint = n => n <= 0x10ffff ? String.fromCodePoint(n) : '\\';
+const xmlValue = value => value.replace(/&#x([0-9a-f]+);/gi, (_, n) => codePoint(parseInt(n, 16)))
+  .replace(/&#(\d+);/g, (_, n) => codePoint(Number(n)))
+  .replace(/&(lt|gt|quot|apos|amp);/g, (_, n) => ({lt:'<', gt:'>', quot:'"', apos:"'", amp:'&'})[n]);
+function safeArtwork(text) {
+  if (typeof text !== 'string' || text.length > 65536) return false;
+  const tokens = /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<(\/?)([A-Za-z][\w:.-]*)((?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*\/?>|[^<]+/y;
+  const attributes = /\s+([^\s=/>]+)\s*=\s*("[^"]*"|'[^']*')/g;
+  let at = 0, token;
+  while (at < text.length) {
+    tokens.lastIndex = at;
+    if (!(token = tokens.exec(text))) return false;
+    at = tokens.lastIndex;
+    if (token[2] === undefined) continue;
+    if (!ARTWORK_ELEMENTS.has(token[2])) return false;
+    for (const [, name, quoted] of token[3].matchAll(attributes)) {
+      const value = xmlValue(quoted.slice(1, -1));
+      if (/^on/i.test(name) || name.toLowerCase() === 'style' || /href/i.test(name) || /url\s*\(|\\/i.test(value))
+        return false;
+    }
+  }
+  return true;
+}
+const PACK_MACHINE_KEYS = new Set(['id', 'name', 'kind', 'prefix', 'description', 'identity', 'controls', 'positions',
+  'pages', 'catalog', 'origin', 'features', 'presetDefaults', 'presets', 'icon', 'absent', 'artwork', 'grayscaleArtwork',
+  'asset', 'fullCanvas', 'preview', 'shiftRow', 'heapVoices']);
+function checkPackMachine(m, fixed = {}) {
+  check(m && typeof m === 'object' && Object.keys(m).every(key => PACK_MACHINE_KEYS.has(key)),
+    'Invalid custom machine metadata');
+  // An ID as layouts and presets hold it (MACHINE_ID), which is also its symbol prefix
+  // (tooling.machines), and a description as machine.json holds it.
+  check(m && typeof m.id === 'string' && MACHINE_ID.test(m.id) && !Object.hasOwn(Object.prototype, m.id) &&
+    // Fixed numbers belong to Open-XY's own machines, even one this site does not carry.
+    !Object.hasOwn(fixed, m.id) &&
+    !STOCK_TYPES.includes(m.id) && !RESERVED_PREFIXES.some(p => m.id === p || m.id.startsWith(p + '_')) &&
+    m.prefix === m.id && ['synth', 'effect', 'sample'].includes(m.kind) &&
+    m.origin === 'personal' && m.source === undefined && m.cpu === undefined &&
+    typeof m.name === 'string' && m.name.length > 0 && m.name.length <= 80 &&
+    typeof m.description === 'string' && [...m.description].length <= 160,
+    'Invalid custom machine metadata');
+  check(Array.isArray(m.controls) && m.controls.length >= (m.kind === 'synth' ? 4 : 1) && m.controls.length <= 8 &&
+    m.controls.every(c => typeof c === 'string' && c.length <= 80) &&
+    Array.isArray(m.positions) && m.positions.length === m.controls.length &&
+    m.positions.every(p => m.kind === 'synth' && p === null || Number.isInteger(p) && p >= 0 && p <= 3) &&
+    typeof m.pages === 'boolean',
+    'Invalid custom machine controls');
+  check(m.absent && typeof m.absent === 'object' && !Array.isArray(m.absent) &&
+    Object.entries(m.absent).every(([symbol, fallback]) => symbol.startsWith(m.prefix + '_') &&
+      /^[a-z][a-z0-9_]*$/.test(symbol) && fallback === 'kit_absent'), 'Invalid machine callbacks');
+  check(m.icon === undefined || typeof m.icon === 'string' && m.icon.length <= 4096 &&
+    /^[MmZzLlHhVvCcSsQqTtAa0-9eE+.,\s-]*$/.test(m.icon), 'Invalid machine icon');
+  check(typeof m.catalog === 'string' && m.catalog.length < 4096 && m.catalog.trim().startsWith(','),
+    'Invalid machine menu');
+  let entry = null;
+  try { entry = JSON.parse(m.catalog.trim().slice(1)); } catch { /* refused below */ }
+  check(entry && typeof entry === 'object' && !Array.isArray(entry) &&
+    entry.type === m.id && Array.isArray(entry.default_params) && entry.default_params.length === 8 &&
+    entry.default_params.every(n => Number.isInteger(n) && n >= 0 && n <= 32767) &&
+    Object.keys(entry).every(key => ['type', 'id', 'default_params'].includes(key)) &&
+    // An effect's entry carries its number (catalogEntry); an instrument's has none.
+    (m.kind === 'effect' ? Number.isInteger(entry.id) : !Object.hasOwn(entry, 'id')), 'Invalid machine menu');
+  presetFiles(m);
+  check(m.artwork === undefined || safeArtwork(m.artwork) && m.asset === m.id + '.svg' &&
+    (m.grayscaleArtwork === undefined || safeArtwork(m.grayscaleArtwork)), 'Invalid machine artwork');
+  check(m.kind !== 'synth' || typeof m.artwork === 'string', 'Missing synth artwork');
+  // A synth's preview (tooling.browser_kit.machine_entry): no drum kit's, and a Shift row's
+  // eight words only with that row.
+  const word = n => Number.isInteger(n) && n >= 0 && n <= 0x7fffffff;
+  check(m.preview === undefined || m.preview && typeof m.preview === 'object' && m.kind === 'synth' &&
+    Object.keys(m.preview).every(key => ['wasm', 'sha256', 'graphics', 'defaults', 'shift'].includes(key)) &&
+    typeof m.preview.wasm === 'string' &&
+    m.preview.wasm.length <= 16 * 1024 ** 2 && /^[a-f0-9]{64}$/.test(m.preview.sha256) &&
+    Array.isArray(m.preview.defaults) && m.preview.defaults.length === m.controls.length && m.preview.defaults.every(word) &&
+    (m.preview.shift === undefined || m.shiftRow === true && Array.isArray(m.preview.shift) &&
+      m.preview.shift.length === 8 && m.preview.shift.every(word)), 'Invalid machine preview');
+  // The services it uses beyond its kind's (activeServices): only the features an imported
+  // kind can declare (tooling.native.service_users), never a capability or another kind's.
+  check(m.features === undefined || Array.isArray(m.features) && m.features.length <= 4 &&
+    m.features.every(f => ['trackControl', 'hidePages', 'trackStage'].includes(f) || f === 'synthShift' && m.kind === 'synth'),
+    'Invalid machine features');
+  // A Shift row is declared both ways (machine_entry): its feature and its presets' row.
+  check((m.shiftRow === undefined || m.shiftRow === true && m.kind === 'synth') &&
+    (m.features ?? []).includes('synthShift') === (m.shiftRow === true), 'Invalid machine Shift row');
+  check(m.fullCanvas === undefined || m.fullCanvas === 1, 'Invalid full canvas flag');
+  check(m.grayscaleArtwork === undefined || typeof m.artwork === 'string', 'Invalid machine artwork');
+  check(m.heapVoices === undefined || m.kind === 'synth' && Number.isInteger(m.heapVoices) && m.heapVoices > 0,
+    'Invalid machine heap voices');
+}
+
+// Import a complete compiled extension of the site's collection. Never replace
+// its firmware profile, stock content, fixed numbers, runtime or existing machines.
+// The collection-specific objects (collectionObjects) must accompany the added
+// machines: they carry their registration, controls, callbacks and project identities.
+// `base` is the site's kit as exported, before openKit: the candidate is opened from
+// it, keeping its unit sources and service fallbacks, which a pack cannot change.
+export async function importMachinePack(base, pack) {
+  const keys = ['format', 'version', 'profileSha256', 'definitions', 'fixed', 'machines', 'objects', 'extensions', 'notices'];
+  check(pack && typeof pack === 'object' && Object.keys(pack).sort().join() === keys.sort().join() &&
+    pack.format === 'opxy-machine-pack/1', 'Unsupported machine pack');
+  check(pack.version === base.version && pack.profileSha256 === await sha256(decode64(base.profileSource)) &&
+    sameValue(pack.definitions, base.definitions) && sameValue(pack.fixed, base.fixed) &&
+    // Whether an extension is the SDK's own depends on the exporting checkout, not its contents.
+    Array.isArray(pack.extensions) && sameValue(pack.extensions.map(e => ({...e, origin:undefined})),
+      (base.extensions ?? []).map(e => ({...e, origin:undefined}))),
+    'This pack targets a different Open-XY release or extension collection. Ask its author for a matching pack.');
+  check(Array.isArray(pack.machines) && pack.machines.length > base.machines.length &&
+    pack.machines.length <= base.profile.identities.engines &&
+    base.machines.every((m, i) => sameValue(machineContract(m), machineContract(pack.machines[i]))),
+    'This pack must extend the current catalog without replacing its machines. Ask its author for a matching pack.');
+  // The menu entry is rebuilt from its checked values in tooling.adapters.catalog_entry's
+  // layout, so the stock menu gets exactly those (an effect's number is the layout's).
+  const users = new Set(Object.values(base.profile.services ?? {}).flat());
+  const added = pack.machines.slice(base.machines.length).map(m => {
+    checkPackMachine(m, base.fixed);
+    check((m.features ?? []).every(f => users.has(f)), 'Invalid machine features');
+    const entry = JSON.parse(m.catalog.trim().slice(1)), indent = '\n            ';
+    // An effect's menu number is one stock offers (catalogEntry replaces it with the layout's).
+    check(m.kind !== 'effect' || base.profile.identities.effects.includes(entry.id), 'Invalid machine menu');
+    return {...m, catalog: ',\n        {' + indent + '"type": ' + JSON.stringify(entry.type) +
+      (m.kind === 'effect' ? ',' + indent + '"id": ' + entry.id : '') +
+      ',' + indent + '"default_params": [' + entry.default_params.join(', ') + ']\n        }' + (m.kind === 'effect' ? '' : '\n')};
+  });
+  check(new Set(pack.machines.map(m => m.id)).size === pack.machines.length &&
+    new Set(pack.machines.map(m => m.prefix)).size === pack.machines.length, 'Duplicate machine identity');
+  check(Array.isArray(pack.objects) && pack.objects.length <= 4096 &&
+    pack.objects.every(o => o && sameValue(o, objectRecord(o)) && typeof o.name === 'string' &&
+      typeof o.bytes === 'string' && /^[a-f0-9]{64}$/.test(o.sha256)) &&
+    new Set(pack.objects.map(o => o.name)).size === pack.objects.length, 'Invalid machine objects');
+  const existingIds = new Set(base.machines.map(m => m.id));
+  const existingObjects = base.objects.map(objectRecord);
+  const preserved = pack.objects.filter(o => o.owner === null || existingIds.has(o.owner));
+  const changed = [...Array(Math.max(preserved.length, existingObjects.length)).keys()].find(i => {
+    const o = preserved[i], old = existingObjects[i];
+    return !o || !old || !(o.owner === null && collectionObjects.has(o.name)
+      ? sameValue({...o, bytes:'', sha256:''}, {...old, bytes:'', sha256:''}) : sameValue(o, old));
+  });
+  // A custom machine that needs SDK objects the site's machines do not (another service,
+  // arithmetic runtime member or SDK header unit) cannot extend this collection.
+  check(changed === undefined, 'This pack changes the existing machines or SDK runtime (' +
+    (preserved[changed]?.name ?? existingObjects[changed]?.name) + '). Rebuild it with the matching SDK and catalog.');
+  const addedIds = new Set(added.map(m => m.id));
+  check(pack.objects.every(o => o.owner === null || existingIds.has(o.owner) || addedIds.has(o.owner) &&
+    o.name.startsWith(o.owner + '/') && /^[A-Za-z0-9_./-]+\.o$/.test(o.name) && !o.name.split('/').includes('..') &&
+    o.service === undefined && o.extension === undefined && o.runtime === undefined) &&
+    added.every(m => pack.objects.some(o => o.owner === m.id)), 'Missing or unowned machine objects');
+  check(typeof pack.notices === 'string' && pack.notices.length <= 1024 ** 2, 'Invalid machine notices');
+  const candidate = await openKit({...base, linked:undefined, machines:[...base.machines, ...added], objects:pack.objects,
+    notices:base.notices + '\n\nImported machine pack\n\n' + pack.notices});
+  for (const m of added) {
+    if (m.preview) check(await sha256(decode64(m.preview.wasm)) === m.preview.sha256, 'Machine preview hash mismatch');
+    // Catch missing imports, duplicate exports and machines that cannot fit even
+    // alone, in the larger memory a site offers. The user's combined selection is
+    // checked by the normal memory meter.
+    try { linkKit(candidate, [m.id]); }
+    catch (error) {
+      if (error.capacity !== true || !offersExpandedMemory(candidate.profile)) throw error;
+      linkKit(memoryKit(candidate, true), [m.id]);
+    }
+  }
+  for (const m of added) {
+    // A service it switches on with hooks must have its objects in this kit (carriedCapability):
+    // a pack never adds them, and a build would hook into nothing.
+    for (const service of activeServices(base.profile, [m]))
+      check(!base.profile.patches.some(edit => edit.service === service && edit.kind === 'hook') ||
+        candidate.objects.some(o => o.service === service), `${m.id} needs the ${service} service, which this site does not link`);
+    // Its absent fallbacks name its own callbacks, not another machine's or the SDK's.
+    for (const symbol of Object.keys(m.absent))
+      check(!candidate.objects.some(o => o.owner !== m.id && o.symbols.some(s => s.binding && s.section && s.name === symbol)),
+        `${m.id} lists another object's ${symbol} as its own callback`);
+  }
+  // The pack's shared objects name added machines' callbacks: each one they import must be
+  // in its machine's `absent` list, so every selection without that machine still links.
+  const imported = new Set(candidate.objects.filter(o => o.owner === null)
+    .flatMap(o => o.symbols.filter(s => s.binding && !s.section && s.name).map(s => s.name)));
+  for (const m of added)
+    for (const o of candidate.objects.filter(o => o.owner === m.id))
+      for (const s of o.symbols.filter(s => s.binding && s.section && imported.has(s.name)))
+        check(Object.hasOwn(m.absent, s.name), `${m.id} has no absent fallback for ${s.name}`);
+  linkKit(candidate, [base.machines[0].id]);
+  return candidate;
+}
+
 // Stored ZIP: no dependencies or compression worker, deterministic metadata.
 export function zipFiles(files) {
   const locals = [], central = []; let offset = 0;
-  const crc32 = bytes => {
-    let c = 0xffffffff;
-    for (const b of bytes) { c ^= b; for (let i = 0; i < 8; i++) c = c >>> 1 ^ (c & 1 ? 0xedb88320 : 0); }
-    return (c ^ 0xffffffff) >>> 0;
-  };
   for (const [name, bytes] of Object.entries(files)) {
     check(/^[a-zA-Z0-9_./-]+$/.test(name) && !name.includes('..') && !name.startsWith('/'), 'Invalid bundle path');
     const path = utf8.encode(name), crc = crc32(bytes), local = new Uint8Array(30 + path.length), d = view(local);

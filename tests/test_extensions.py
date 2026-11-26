@@ -93,7 +93,8 @@ class Extensions(unittest.TestCase):
         profile = config()
         extensions.check_profile(profile)
         self.assertEqual(extensions.events(), ['context', 'recordable_note_on', 'selected_note_off',
-                                               'recording_tick', 'input_activity', 'queued_control'])
+                                               'recording_tick', 'input_activity', 'queued_control',
+                                               'usb_host_ready'])
         hook = lambda p: next(x for x in p['patches'] if x.get('events'))
         for mutate in (
             lambda p: hook(p).pop('events'),
@@ -163,4 +164,4 @@ class ExtensionCatalog(unittest.TestCase):
     def test_official_extensions_are_listed_by_id(self):
         self.assertTrue(catalog.official(self.entry()))
         self.assertFalse(catalog.official(self.entry(id='echo')))
-        self.assertEqual([e['id'] for e in catalog.load_extensions() if catalog.official(e)], ['capture'])
+        self.assertEqual([e['id'] for e in catalog.load_extensions() if catalog.official(e)], ['capture', 'long_samples'])

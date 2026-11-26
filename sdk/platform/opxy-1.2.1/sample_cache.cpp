@@ -2,6 +2,9 @@
 #include "sample_machines.hpp"
 #include "barrier.hpp"
 #include "stock_sample.hpp"
+#if OPXY_KIT_CONTROLS
+#include "drum_kit_controls.hpp"   // sdk_drum_amp_tick
+#endif
 
 extern "C" {
 void* sdk_sample_cache_alloc(opxy::u32) __asm__("sdk_sample_cache_alloc");
@@ -381,6 +384,10 @@ extern "C" u32 sdk_sample_cache_failed(const void* object, u32 engine) {
 }
 
 extern "C" void sdk_sample_gui_tick() {
+#if OPXY_KIT_CONTROLS
+    // M2's per-key amp sync of an ampEnvelope kit (drum_kit_controls.cpp).
+    sdk_drum_amp_tick();
+#endif
     // Read the worker on this firmware role, not unproven cross-role globals.
     // A preempted writer simply delays the overlay until the next GUI frame.
     const u32 sequence = progress.sequence;

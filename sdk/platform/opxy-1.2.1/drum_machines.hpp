@@ -13,7 +13,8 @@ struct DrumMachine {
     const char* (*model_name)(u32 model);
     u32 (*count)(u32 model);
     // Optional named groups of consecutive models (resources.modelGroups):
-    // Shift and the first encoder choose a group, the second a model in it.
+    // Shift and the first encoder choose a group, the second a model in it
+    // (without padMix; with it they only title the models).
     u32 group_count;
     const u8* group_sizes;
     const char* const* group_names;
@@ -33,8 +34,11 @@ struct DrumMachine {
     // unless the machine narrows it (its optional scramble_range).
     void (*scramble_range)(u32 model, u32 slot, u8* low, u8* high);
     // Optional GUI-side value editor. Input and output use stored 7-bit raw
-    // values; delta is bounded to -127..127. Not called for Shift or gaps.
-    u32 (*edit)(u32 model, u32 slot, u32 value, i32 delta);
+    // values; delta is bounded to -127..127 and speed, stock's turn speed
+    // (0 slow), to 0..127. Called only for a turn of an available control
+    // (below the model's count and named), without Shift and with no step
+    // held (docs/api.md, edit_parameter).
+    u32 (*edit)(u32 model, u32 slot, u32 value, i32 delta, u32 speed);
     u32 engine() const { return static_cast<u32>(reinterpret_cast<__UINTPTR_TYPE__>(id)); }
     // A model's group (0 without groups) and the group's first model.
     u32 group(u32 model) const {

@@ -67,9 +67,36 @@ for (let corner = 0; corner < 16; ++corner) {
   assert.ok(samples.every(value => value === 0), 'Panic clears voices');
   assert.ok(!right || silent(right), 'Panic clears right channel');
 }
+// A drum kit's keys and names, as the builder reads them (builder/core.mjs kitKey, kitModel):
+// each key's model within the kit and its controls 0..127, each model's name and labels text.
+const models = Number(process.argv[5] || 0);
+if (models) {
+  const api = engine.api, bytes = () => new Uint8Array(api.memory.buffer);
+  const text = (address, what) => {
+    if (!address) return '';
+    assert.ok(address > 0 && address < bytes().length, `${what} lies in the module's memory`);
+    const end = bytes().indexOf(0, address);
+    assert.ok(end >= 0 && end - address <= 64, `${what} ends within 64 bytes`);
+    return new TextDecoder().decode(bytes().subarray(address, end));
+  };
+  for (let key = 53; key <= 76; ++key) {
+    const at = api.opxy_drum_defaults(key) >>> 0;
+    assert.ok(at > 0 && at + 9 <= bytes().length, 'Key defaults lie in the module\'s memory');
+    const [model, ...controls] = bytes().subarray(at, at + 9);
+    assert.ok(model < models, `Key ${key}'s model is one of the kit's ${models}`);
+    assert.ok(controls.every(value => value <= 127), `Key ${key}'s controls are 0..127`);
+  }
+  for (let model = 0; model < models; ++model) {
+    text(api.opxy_drum_model_name(model) >>> 0, `Model ${model}'s name`);
+    const count = api.opxy_drum_count(model) >>> 0;
+    assert.ok(count <= 8, `Model ${model} uses at most eight slots`);
+    for (let slot = 0; slot < count; ++slot) text(api.opxy_drum_label(model, slot) >>> 0, `Model ${model}'s label ${slot}`);
+  }
+}
 // A warning, not a failure, while published machines still draw such outlines.
 for (const fault of outlines) {
   console.log(`WARNING: display ${fault}; the OP-XY draws streaks from it. ` +
               'Draw a line as a thin closed ribbon with distinct points (docs/display.md#artwork).');
 }
-console.log('PASS: preview ABI, fixed memory, controls/pitch ownership, peak bounds, lifecycle and drawing smoke checks.');
+console.log('PASS: preview ABI, fixed memory, controls/pitch ownership, peak bounds, lifecycle' +
+            (models ? ', kit keys' : '') + ' and drawing smoke checks.');

@@ -3,6 +3,7 @@ import {readFileSync, writeFileSync, mkdirSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import assert from 'node:assert/strict';
+import {referenceLink, capacityInputs, requireCapacityRejection} from './browser_link_reference.mjs';
 import {openKit, linkKit, readLayout, sha256, checkedSelections, extensionChoices, selectionBit, memoryKit, offersExpandedMemory, moduleBytes} from '../builder/core.mjs';
 
 const [kitFile, objectDir, ld, objcopy, packageLayout] = process.argv.slice(2);
@@ -18,6 +19,7 @@ const layout = resolve('linker/opxy-1.2.1.ld');
 // script is the reviewed one with only the module region moved and grown.
 const memoryLine = p => `MEMORY { MODULE (rwx) : ORIGIN = 0x${p.module_base.toString(16)}, LENGTH = 0x${(p.reserved_bytes - p.table_bytes).toString(16)} }`;
 const layouts = [{suffix: '', kit, script: layout, results: [], file: 'selections.json'}];
+const rejections = [];
 if (offersExpandedMemory(kit.profile)) {
   const reviewed = readFileSync(layout, 'utf8'), expanded = memoryKit(kit, true);
   assert.equal(reviewed.split(memoryLine(kit.profile)).length, 2, 'Linker module region differs from the profile');
@@ -25,22 +27,53 @@ if (offersExpandedMemory(kit.profile)) {
   writeFileSync(script, reviewed.replace(memoryLine(kit.profile), memoryLine(expanded.profile)));
   layouts.push({suffix: '-expanded', kit: expanded, script, results: [], file: 'selections-expanded.json'});
 }
+// A unit capability's other values (kit.unitSources: fast_helpers 1 where the extension's own is 0)
+// link other objects in place of the native build's. Each is checked with its extension alone and
+// with the largest extension choice that holds it, for every checked machine selection.
+const unitChecks = [];
+for (const e of kit.extensions ?? []) for (const c of Object.keys(kit.unitSources ?? {})) {
+  if (!(e.capabilities ?? []).includes(c)) continue;
+  const largest = extensionChoices(kit).filter(choice => choice.includes(e.id)).sort((a, b) => b.length - a.length)[0];
+  for (const value of Object.keys(kit.unitSources[c]).map(Number)) if (value !== (e.settings?.[c]?.value ?? 0))
+    for (const extensions of [[e.id], largest]) if (!unitChecks.some(u => u.extensions.join() === extensions.join() && u.settings[c] === value))
+      unitChecks.push({extensions, settings: {[c]: value}});
+}
 // Links one selection in the browser and with GNU ld and requires identical modules.
-async function parity(memory, mask, selected, extensions, numbering, name) {
-  const linked = linkKit(memory.kit, selected, numbering, extensions), prefix = resolve(destination, name);
-  const definitions = [...Object.entries(linked.definitions), ...linked.aliases.entries()]
-    .map(([key, value]) => `--defsym=${key}=0x${value.toString(16)}`);
-  execFileSync(ld, ['-T', memory.script, '-e', 'extensions_synth_exit', '-o', prefix + '.elf', ...definitions,
-    ...linked.objects.map(o => resolve(objectDir, o.name))], {stdio: 'pipe', windowsHide: true});
+async function parity(memory, mask, selected, extensions, numbering, name, settings = {}) {
+  const prefix = resolve(destination, name);
+  let linked;
+  try { linked = linkKit(memory.kit, selected, numbering, extensions, settings); }
+  catch (error) {
+    // Heap voices with experimental memory: refused before any link, by design.
+    if (error.heapVoices === true && memory.suffix) { console.log('Heap voices refused with experimental memory:', selected.join(' + ')); return; }
+    // Only a standard-memory overflow is an expected negative case. The same
+    // selection must still link in the reviewed larger layout and match GNU there.
+    if (error.capacity !== true || memory.suffix || layouts.length !== 2) throw error;
+    let expanded;
+    try { expanded = linkKit(layouts[1].kit, selected, numbering, extensions, settings); }
+    catch (refusal) { if (refusal.heapVoices === true) return; throw refusal; }
+    const inputs = capacityInputs(expanded, layouts[1].kit.profile, kit.profile);
+    const excess = expanded.sizes.allocated - moduleBytes(kit.profile);
+    let rejection;
+    try { referenceLink(ld, memory.script, prefix, inputs, objectDir); }
+    catch (failure) { rejection = failure; }
+    assert.ok(rejection, 'GNU accepted a selection the browser rejected');
+    requireCapacityRejection(rejection, excess);
+    rejections.push({name, selected, extensions, layout:numbering, excess, ...(Object.keys(settings).length ? {settings} : {})});
+    console.log('GNU capacity rejection:', selected.join(' + '), 'extensions:', extensions.join(','), excess, 'bytes over');
+    return;
+  }
+  referenceLink(ld, memory.script, prefix, linked, objectDir);
   execFileSync(objcopy, ['-O', 'binary', prefix + '.elf', prefix + '.bin'], {stdio: 'pipe', windowsHide: true});
   const actual = readFileSync(prefix + '.bin');
   assert.deepEqual(Buffer.from(linked.module), actual, 'GNU linker mismatch: ' + selected.join(', '));
   // Export exact symbol addresses for independent Python LDR assembly too.
   const result = {name, mask: mask.toString(), selected, extensions, layout: numbering, sizes: linked.sizes, globals: Object.fromEntries(linked.globals),
-    module_sha256: await sha256(linked.module)};
+    module_sha256: await sha256(linked.module), ...(Object.keys(settings).length ? {settings} : {})};
   writeFileSync(prefix + '.json', JSON.stringify(result)); memory.results.push(result);
   console.log('GNU link parity' + (memory.suffix && ' (experimental memory)') + ':', selected.join(' + '),
-    'extensions:', extensions.join(',') || 'none', linked.sizes.allocated, 'bytes');
+    'extensions:', extensions.join(',') || 'none', ...(Object.keys(settings).length ? ['settings:', JSON.stringify(settings)] : []),
+    linked.sizes.allocated, 'bytes');
 }
 for (const mask of checkedSelections(kit.machines, kit.linked)) {
   const selected = kit.machines.filter((_, i) => mask & selectionBit(i)).map(m => m.id);
@@ -50,9 +83,10 @@ for (const mask of checkedSelections(kit.machines, kit.linked)) {
   for (const numbering of mask === linkedMask ? [null, native] : [null])
   for (const memory of layouts) await parity(memory, mask, selected, extensions, numbering,
     `${digest}-${choice}` + (numbering ? '-native' : '') + memory.suffix);
+  for (const [i, {extensions, settings}] of unitChecks.entries())
+  for (const memory of layouts) await parity(memory, mask, selected, extensions, null, `${digest}-unit${i}` + memory.suffix, settings);
 }
-// The checked selections all fit standard memory. The reason to choose the larger
-// one is a selection that does not: the whole collection, with the largest valid
+// Also check the whole collection, with the largest valid
 // extension choice, is checked at it whenever it needs more than standard memory
 // and fits the larger.
 if (layouts.length > 1) {
@@ -60,7 +94,7 @@ if (layouts.length > 1) {
   // The whole collection's allocated bytes with an extension choice, or null when it does
   // not fit; any other link error is a real defect and fails the check.
   const link = (k, extensions) => { try { return linkKit(k, all, null, extensions).sizes.allocated; }
-    catch (error) { if (error.capacity === true) return null; throw error; } };
+    catch (error) { if (error.capacity === true || error.heapVoices === true) return null; throw error; } };
   // One link per choice, at the larger memory: it needs more than standard memory when
   // its allocation exceeds the standard module region.
   const tried = extensionChoices(kit).map(c => ({c, larger: link(layouts[1].kit, c)}));
@@ -75,3 +109,4 @@ if (layouts.length > 1) {
   }
 }
 for (const memory of layouts) writeFileSync(resolve(destination, memory.file), JSON.stringify(memory.results, null, 2));
+writeFileSync(resolve(destination, 'capacity-rejections.json'), JSON.stringify(rejections, null, 2));

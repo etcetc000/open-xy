@@ -95,7 +95,7 @@ class PlayerContracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             text = adapters.generate_player_object(directory, paged).read_text(encoding='utf-8')
         # The second page's missing slots are absent: one choice, an empty title.
-        self.assertIn('{0, 0, 0, 0, 3, 0, 1, 1}, true};', text)
+        self.assertIn('{0, 0, 0, 0, 3, 0, 1, 1}, true, false};', text)
         self.assertIn('titles[8] = {"p0", "p1", "p2", "p3", "p4", "p5", "", ""};', text)
         # Its page also binds the two-row header's eight bars and sixteen texts.
         self.assertIn('static const bool paged = true;', text)
@@ -104,10 +104,38 @@ class PlayerContracts(unittest.TestCase):
         self.assertIn('"probeplayer_header_text_15"', text)
         with tempfile.TemporaryDirectory() as directory:
             text = adapters.generate_player_object(directory, self.machine).read_text(encoding='utf-8')
-        self.assertIn('{0, 0, 0, 0, 1, 1, 1, 1}, false};', text)
+        self.assertIn('{0, 0, 0, 0, 1, 1, 1, 1}, false, false};', text)
         self.assertIn('static const bool paged = false;', text)
         self.assertIn('Page::ids[281] = {', text)
         self.assertNotIn('_header_', text)
+
+    def test_press_click_keeps_encoder_4_a_click_of_a_one_page_player(self):
+        # "press": "click": a player of up to four parameters whose presses are only
+        # its own clicks, so encoder 4's click skips stock's toggle of parameter 3
+        # (players.cpp, tests/fixtures/player_shift.cpp).
+        path = self.root / 'definition.json'
+        definition = json.loads(path.read_text(encoding='utf-8'))
+        definition['press'] = 'click'
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, r'presses are only its clicks.*1.16'):
+            machine_at(self.root)
+        machine = json.loads((self.root / 'machine.json').read_text(encoding='utf-8'))
+        machine['sdk'] = '1.16'
+        (self.root / 'machine.json').write_text(json.dumps(machine), encoding='utf-8')
+        clicking = assign_numbers([machine_at(self.root)])[0][0]
+        with tempfile.TemporaryDirectory() as directory:
+            text = adapters.generate_player_object(directory, clicking).read_text(encoding='utf-8')
+        self.assertIn('{0, 0, 0, 0, 1, 1, 1, 1}, false, true};', text)
+        self.assertIn('static const bool paged = false;', text)
+        # Not with a second page (other kinds: test_definitions), and no other press value.
+        definition['parameters'].append(dict(id='p4', label='P4', default=0,
+                                             mapping=dict(kind='linear', minimum=0, maximum=1), display='percent'))
+        path.write_text(json.dumps(definition), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, r'"press": "click" is for a note player of up to four parameters'):
+            machine_at(self.root)
+        from tooling.definitions import validate_definition
+        with self.assertRaisesRegex(ValueError, r'"press": "page" needs'):
+            validate_definition(dict(definition, press='turn'), 'player')
 
     def test_paged_player_artwork_gains_the_two_row_header(self):
         nodes = ''.join(f'<circle id="probeplayer_dot_{i}" transform="matrix(1 0 0 1 20 80)" '
@@ -265,11 +293,14 @@ inline void refresh_keyboard_octaves() {}
         (self.root / 'registration.hpp').write_text('''#pragma once
 #include "players.hpp"
 const void* stock_address(opxy::u32);
+extern int fake_register;
 namespace opxy { namespace platform {
 using Address=__UINTPTR_TYPE__;
 template<class F> F* stock(u32 a) { return reinterpret_cast<F*>(const_cast<void*>(stock_address(a))); }
 struct Record {}; struct Screen {};
-inline int sdk_register_screen(const Record*,const Screen*) { return 1; }
+inline int sdk_register_screen(const Record*,const Screen*) { return fake_register; }
+inline u32 audio_bpm_x10() { return 1200; }
+inline bool shift_held() { return false; }
 namespace registry { struct StockString { char text[16]; u32 length,capacity; }; }
 }}
 ''', encoding='utf-8')
@@ -333,8 +364,318 @@ template<class F> F* stock(u32 address) { return reinterpret_cast<F*>(const_cast
         subprocess.run([str(binary)], check=True, capture_output=True, timeout=30, **flags)
 
 
+# A player's shift row (SDK 1.16).
+PROBE_SHIFT = [dict(id='size', label='Size', default=0.5, display='enum',
+                    mapping=dict(kind='enum', labels=['S', 'M', 'L']))]
+
+
+class PlayerShiftRow(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / 'probeplayer'
+        self.root.mkdir()
+
+    def machine(self, sdk='1.16', shift=None, parameters=4):
+        (self.root / 'machine.json').write_text(json.dumps(dict(schema=1, sdk=sdk, kind='player',
+                                                               description='Player page fixture.')))
+        definition = dict(schema=1, id='probeplayer', name='Player', presets={},
+                          resources={},
+                          parameters=[dict(id='p'+str(i), label='P'+str(i), default=0,
+                                           mapping=dict(kind='linear', minimum=0, maximum=1), display='percent')
+                                      for i in range(parameters)])
+        if parameters > 4:
+            definition['press'] = 'page'
+        if shift is not None:
+            definition['shift'] = shift
+        (self.root / 'definition.json').write_text(json.dumps(definition))
+        return assign_numbers([machine_at(self.root)])[0][0]
+
+    def test_versions_and_limits(self):
+        with self.assertRaisesRegex(ValueError, "player's shift row.*1.16"):
+            self.machine(sdk='1.15', shift=PROBE_SHIFT)
+        wide = [dict(PROBE_SHIFT[0], mapping=dict(kind='enum', labels=[str(i) for i in range(256)]))]
+        with self.assertRaisesRegex(ValueError, 'at most 255 choices'):
+            self.machine(shift=wide)
+        with self.assertRaisesRegex(ValueError, 'one to four'):
+            self.machine(shift=[dict(PROBE_SHIFT[0], id='s%d' % i) for i in range(5)])
+        # Four controls of 255 choices each take no packing limit.
+        self.machine(shift=[dict(PROBE_SHIFT[0], id='s%d' % i,
+                                 mapping=dict(kind='enum', labels=[str(n) for n in range(255)]))
+                            for i in range(4)])
+        # As on a synth, a paged player's row has an entry under each page's encoders: up to eight.
+        self.machine(parameters=6, shift=[dict(PROBE_SHIFT[0], id='s%d' % i) for i in range(8)])
+        with self.assertRaisesRegex(ValueError, 'one to eight'):
+            self.machine(parameters=6, shift=[dict(PROBE_SHIFT[0], id='s%d' % i) for i in range(9)])
+
+    def test_a_paged_players_row_is_generated_in_entry_order(self):
+        m = self.machine(parameters=5, shift=[dict(PROBE_SHIFT[0], id='s%d' % i, default=0) for i in range(6)])
+        with tempfile.TemporaryDirectory() as folder:
+            generated = adapters.generate_player_object(folder, m).read_text(encoding='utf-8')
+        centre = 0x7fffffff // 3 // 2
+        self.assertIn('static const opxy::platform::PlayerShift player_shift = {6, {3, 3, 3, 3, 3, 3, 0, 0}, '
+                      '{%s, 0, 0}};' % ', '.join([str(centre)] * 6), generated)
+        self.assertIn('{0, 0, 0, 0, 0, 1, 1, 1}, true, false, &player_shift};', generated)
+
+    def test_exactly_one_click_function_the_hook_calls(self):
+        # The encoder 4 click hook calls sdk_player_click from assembly and reads R0
+        # as "skip stock's toggle". Exactly one C++ function may own that name, and it
+        # must return a u32 and take nothing; the press dispatch is another name.
+        declarations = []
+        for path in sorted((ROOT / 'sdk').rglob('*')):
+            if path.is_file() and path.suffix in ('.cpp', '.hpp', '.in', '.h'):
+                for line in path.read_text(encoding='utf-8').splitlines():
+                    if '"sdk_player_click"' in line:
+                        declarations.append((path.name, line.strip()))
+        self.assertEqual(declarations,
+                         [('players.cpp', 'opxy::u32 sdk_player_click() __asm__("sdk_player_click");')])
+        source = (PLATFORM / 'players.cpp').read_text(encoding='utf-8')
+        self.assertEqual(re.findall(r'^\S.*\bsdk_player_click\(.*\)\s*\{', source, re.M),
+                         ['u32 sdk_player_click() {'])
+        hook = (PLATFORM / 'player_hooks.s').read_text(encoding='utf-8')
+        self.assertRegex(hook, r'CALL sdk_player_click;\s*\n\s*CC = R0 == 0;')
+        # One press dispatch: the press handler calls the players service once, on the
+        # player controller only, with the encoder.
+        press = (PLATFORM / 'synth_controls.cpp').read_text(encoding='utf-8')
+        self.assertEqual(re.findall(r'.*\bsdk_player_press\(.*', press),
+                         ['        sdk_player_press(encoder);'])
+        self.assertIn('} else if (controller == kPlayerController && sdk_player_press) {\n'
+                      '        sdk_player_press(encoder);', press)
+
+    def test_player_without_shift_generates_as_before(self):
+        # The source is the template's expansion with the SDK 1.16 placeholders left out.
+        m = self.machine(sdk='1.8')
+        template = (PLATFORM / 'player_object.cpp.in').read_text(encoding='utf-8')
+        before = template.replace('@SHIFT_TABLE@', '').replace('@SHIFT@', '')
+        with tempfile.TemporaryDirectory() as folder:
+            generated = adapters.generate_player_object(folder, m).read_text(encoding='utf-8')
+        values = dict(PREFIX=m.prefix, NAMESPACE='probeplayer', NAME=m.native_name,
+                      STEPS='0, 0, 0, 0, 1, 1, 1, 1', PAGED='false', CLICKS='false',
+                      PAGE=f'{m.prefix}_page_id', PAGE_READY=f'{m.prefix}_screen_ready')
+        for key, value in values.items():
+            before = before.replace('@' + key + '@', value)
+        self.assertEqual(generated[:generated.index('extern const char probeplayer_page_id[]')],
+                         before[:before.index('@PAGE_DECLARATIONS@')])
+        tail = before[before.index('@PAGE_DECLARATIONS@') + len('@PAGE_DECLARATIONS@'):before.index('@PAGE_UNIT@')]
+        self.assertIn(tail, generated)
+        self.assertIn('opxy::screen::PlayerPage<Page>', generated)
+        self.assertNotIn('player_shift', generated)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_clock_ticks_keeps_another_resolution_on_steps(self):
+        # clock_ticks: after n steps a clock of t ticks per quarter has ticked
+        # ceil(n * t / 240) times, so it never drifts, and never more than
+        # ceil(t / 240) times on one step; a 96-tick clock ticks on steps 0, 2, 5, 7, 10.
+        (self.root / 'clock.cpp').write_text(r'''
+#include <opxy/player.hpp>
+using opxy::u32;
+int main() {
+    const u32 rates[] = {24, 96, 240, 480, 1000, 1920};
+    for (u32 t : rates) {
+        opxy::u16 phase = 0; u32 total = 0;
+        const u32 most = (t + opxy::player::steps_per_quarter - 1) / opxy::player::steps_per_quarter;
+        for (u32 n = 1; n <= 1000; ++n) {
+            const u32 ticks = opxy::player::clock_ticks(phase, t);
+            if (ticks > most) return 1;
+            total += ticks;
+            if (total != (n * t + opxy::player::steps_per_quarter - 1) / opxy::player::steps_per_quarter) return 2;
+        }
+    }
+    opxy::u16 phase = 0; u32 seen = 0;
+    for (u32 step = 0; step < 11; ++step)
+        if (opxy::player::clock_ticks(phase, 96)) seen |= 1u << step;
+    return seen == ((1u << 0) | (1u << 2) | (1u << 5) | (1u << 7) | (1u << 10)) ? 0 : 3;
+}
+''', encoding='utf-8')
+        binary = self.root / ('clock.exe' if os.name == 'nt' else 'clock')
+        flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I'+str(ROOT/'sdk/include'),
+                        str(self.root / 'clock.cpp'), '-o', str(binary)], check=True, capture_output=True, timeout=120, **flags)
+        self.assertEqual(subprocess.run([str(binary)], timeout=30, **flags).returncode, 0)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_shift_layer_turns_flag_and_clicks(self):
+        (self.root / 'players_under_test.cpp').write_bytes((PLATFORM / 'players.cpp').read_bytes())
+        (self.root / 'keyboard_octaves.hpp').write_text('''#pragma once
+#include <opxy/types.hpp>
+extern opxy::u32 fake_track;
+extern volatile opxy::i32 sdk_track_octaves[8];
+namespace opxy { namespace platform {
+const u32 kLowestKey=53, kTracks=8;
+inline u32 selected_track() { return fake_track; }
+inline void refresh_keyboard_octaves() {}
+}}
+''', encoding='utf-8')
+        (self.root / 'registration.hpp').write_text('''#pragma once
+#include "players.hpp"
+const void* stock_address(opxy::u32);
+extern bool fake_shift;
+extern opxy::u32 fake_bpm;
+extern int fake_register;
+namespace opxy { namespace platform {
+using Address=__UINTPTR_TYPE__;
+template<class F> F* stock(u32 a) { return reinterpret_cast<F*>(const_cast<void*>(stock_address(a))); }
+struct Record {}; struct Screen {};
+inline int sdk_register_screen(const Record*,const Screen*) { return fake_register; }
+inline u32 audio_bpm_x10() { return fake_bpm; }
+inline bool shift_held() { return fake_shift; }
+namespace registry { struct StockString { char text[16]; u32 length,capacity; }; }
+}}
+''', encoding='utf-8')
+        binary = self.root / ('shift.exe' if os.name == 'nt' else 'shift')
+        flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror',
+                        '-I'+str(self.root), '-I'+str(ROOT/'sdk/include'), '-I'+str(PLATFORM),
+                        str(ROOT/'tests/fixtures/player_shift.cpp'), '-o', str(binary)],
+                       check=True, capture_output=True, timeout=120, **flags)
+        result = subprocess.run([str(binary)], capture_output=True, timeout=30, **flags)
+        if result.returncode == 77:
+            self.skipTest(result.stdout.decode(errors='replace').strip())
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+
+# stock.hpp's track engine getter, which the host doubles of registration.hpp repeat word for
+# word (PlayerInstrument checks it).
+TRACK_ENGINE = 'inline u32 track_engine(u32 track) { return stock<u32(u32)>(0x8d58781c)(track); }'
+
+
+class PlayerInstrument(unittest.TestCase):
+    """Controls.instrument (SDK 1.25): the kind of instrument a player's track holds, for a build
+    with a player declaring 1.25; every other build keeps Controls and players.cpp as they were."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+
+    def player(self, sdk):
+        from machine_fixtures import FOLDER
+        folder = self.root / 'probepads'
+        shutil.copytree(FOLDER / 'probepads', folder)
+        record = json.loads((folder / 'machine.json').read_text(encoding='utf-8'))
+        record['sdk'] = sdk
+        (folder / 'machine.json').write_text(json.dumps(record), encoding='utf-8')
+        return machine_at(folder)
+
+    def test_only_a_build_with_a_1_25_player_defines_it(self):
+        from tooling.adapters import player_instrument
+        from tooling.definitions import SDK_1_25
+        from tooling.machines import SDK_VERSION
+        from machine_fixtures import fixture
+        self.assertEqual(SDK_1_25, (1, 25))
+        self.assertGreaterEqual(SDK_VERSION, SDK_1_25)
+        new, older = fixture('probepads'), self.player('1.24')
+        self.assertEqual((new.sdk, player_instrument(new), player_instrument(older)), ((1, 25), True, False))
+        self.assertEqual(native.sdk_defines([new]), (native.PLAYER_INSTRUMENT_DEFINE,))
+        self.assertEqual(native.sdk_defines([older]), ())
+        # Not a player: kits, synths and effects never ask for it, whatever they declare.
+        self.assertEqual(native.sdk_defines([fixture('probesynth'), fixture('probefx'), fixture('probekit23')]), ())
+        # The SDK units and the players of such a build see it; no other machine's units do.
+        source = (ROOT / 'tooling/native.py').read_text(encoding='utf-8')
+        self.assertIn("player_defines = tuple(d for d in defines if d == PLAYER_INSTRUMENT_DEFINE)", source)
+        self.assertIn("unit_defines = defines if m is None else ()\n"
+                      "        if m is not None and m.kind == 'player':\n"
+                      "            unit_defines = player_defines\n", source)
+        # Only the header member and the bridge's publication depend on it.
+        self.assertEqual((ROOT / 'sdk/include/opxy/player.hpp').read_text(encoding='utf-8').count(
+            '#if OPXY_PLAYER_INSTRUMENT'), 1)
+        self.assertEqual((PLATFORM / 'players.cpp').read_text(encoding='utf-8').count('#if OPXY_PLAYER_INSTRUMENT'), 3)
+        # A 1.25 player's generated adapter is the one an older player gets: only the define differs.
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            new_source = adapters.generate_player_object(a, new).read_text(encoding='utf-8')
+            old_source = adapters.generate_player_object(b, older).read_text(encoding='utf-8')
+        self.assertEqual(new_source, old_source)
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_controls_keeps_its_size_without_the_define_and_a_player_needs_it_to_read_the_kind(self):
+        check = self.root / 'size.cpp'
+        check.write_text('#include <opxy/player.hpp>\n'
+                         'static_assert(sizeof(opxy::player::Controls) == SIZE, "Controls size");\n', encoding='utf-8')
+        flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+        for defines, size in (((), 112), (('-DOPXY_PLAYER_INSTRUMENT=1',), 116)):
+            result = subprocess.run([HOST_CXX, '-std=c++11', '-fsyntax-only', '-I' + str(ROOT / 'sdk/include'),
+                                     *defines, '-DSIZE=%d' % size, str(check)], capture_output=True, timeout=60, **flags)
+            self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+        # The fixture player reads Controls.instrument: it compiles only where the build defines it.
+        from machine_fixtures import FOLDER
+        source = FOLDER / 'probepads/player.cpp'
+        for defines, ok in (((), False), (('-DOPXY_PLAYER_INSTRUMENT=1',), True)):
+            result = subprocess.run([HOST_CXX, '-std=c++11', '-fsyntax-only', '-I' + str(ROOT / 'sdk/include'),
+                                     *defines, str(source)], capture_output=True, timeout=60, **flags)
+            self.assertEqual(result.returncode == 0, ok, result.stderr.decode(errors='replace'))
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_instrument_kind_is_published_per_track(self):
+        # The GUI publishes each instrument track's kind with Shift, from stock's engine getter
+        # and its drum predicate; note callbacks read the published byte
+        # (tests/fixtures/player_instrument.cpp).
+        stock = (PLATFORM / 'stock.hpp').read_text(encoding='utf-8')
+        self.assertEqual(stock.count(TRACK_ENGINE), 1)
+        (self.root / 'players_under_test.cpp').write_bytes((PLATFORM / 'players.cpp').read_bytes())
+        (self.root / 'keyboard_octaves.hpp').write_text('''#pragma once
+#include <opxy/types.hpp>
+extern opxy::u32 fake_track;
+extern volatile opxy::i32 sdk_track_octaves[8];
+namespace opxy { namespace platform {
+const u32 kLowestKey=53, kTracks=8;
+inline u32 selected_track() { return fake_track; }
+inline void refresh_keyboard_octaves() {}
+}}
+''', encoding='utf-8')
+        (self.root / 'registration.hpp').write_text('''#pragma once
+#include "players.hpp"
+const void* stock_address(opxy::u32);
+extern bool fake_shift;
+extern int fake_register;
+namespace opxy { namespace platform {
+using Address=__UINTPTR_TYPE__;
+template<class F> F* stock(u32 a) { return reinterpret_cast<F*>(const_cast<void*>(stock_address(a))); }
+''' + TRACK_ENGINE + '''
+struct Record {}; struct Screen {};
+inline int sdk_register_screen(const Record*,const Screen*) { return fake_register; }
+inline u32 audio_bpm_x10() { return 1200; }
+inline bool shift_held() { return fake_shift; }
+namespace registry { struct StockString { char text[16]; u32 length,capacity; }; }
+}}
+''', encoding='utf-8')
+        binary = self.root / ('instrument.exe' if os.name == 'nt' else 'instrument')
+        flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-DOPXY_PLAYER_INSTRUMENT=1',
+                        '-I'+str(self.root), '-I'+str(ROOT/'sdk/include'), '-I'+str(PLATFORM),
+                        str(ROOT/'tests/fixtures/player_instrument.cpp'), '-o', str(binary)],
+                       check=True, capture_output=True, timeout=120, **flags)
+        result = subprocess.run([str(binary)], capture_output=True, timeout=30, **flags)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+
+
 @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Stock OS not supplied')
 class StockPlayer(unittest.TestCase):
+    def test_instrument_kind_stands_on_stock_engine_getter_and_drum_predicate(self):
+        # Controls.instrument (SDK 1.25) calls, on the GUI, the engine getter the drum services
+        # already call and stock's drum predicate, whose entry the drums service hooks.
+        from tooling.formats import sha
+        data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        self.assertEqual(sha(data), config()['stock_sha256'])
+        source = (PLATFORM / 'players.cpp').read_text(encoding='utf-8')
+        self.assertIn('stock<u32(u32)>(kDrumPredicate)(track_engine(track))', source)
+        self.assertIn('const u32 kDrumPredicate = 0x8d5b79f0;', source)
+        image = ldr(data)
+        at = mapped_offset(image, 0x8d58781c, 18)
+        # LINK 0xc; CALL 0x8d587708 (the track's object); P1 = R0; R0 = [P1 + 0x18]; UNLINK; RTS
+        self.assertEqual(data[at:at+18].hex(), '00e80300ffe374ff083288a101e800001000')
+        at = mapped_offset(image, 0x8d5b79f0, 36)
+        # CC = R0 < 3 (IU); LINK 0; IF CC JUMP no; CC = R0 == 3; IF CC JUMP yes; R1 = 4;
+        # CC = R0 == R1; IF !CC JUMP no; yes: UNLINK; R0 = 1; RTS; NOP; no: UNLINK; R0 = 0; RTS
+        self.assertEqual(data[at:at+36].hex(),
+                         '980d00e800000b18180c041821600808061001e8000008601000000001e8000000601000')
+        # The drums service hooks the predicate's first two instructions, aliasing an SDK kit to 4
+        # before repeating them (drum_hooks.s), and returns to the third.
+        hook = [p for p in config()['patches'] if p.get('symbol') == 'extensions_drum_classify']
+        self.assertEqual([(p['address'], p['before'], p['service']) for p in hook],
+                         [('0x8d5b79f0', '980d00e80000', 'drums')])
+        asm = (PLATFORM / 'drum_hooks.s').read_text(encoding='utf-8')
+        self.assertIn('extensions_drum_classify:\n    DRUM_ALIAS_R0\n    CC = R0 < 3 (IU);\n    LINK 0;\n'
+                      '    JUMP.L stock_drum_classify_tail;', asm)
+
     def test_enum_turn_hook_matches_stock_frame_and_continuations(self):
         from tooling.formats import sha
         from tooling.firmware import decode_branch

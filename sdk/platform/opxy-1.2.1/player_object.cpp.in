@@ -81,7 +81,7 @@ const void* const @PREFIX@_player_vtable[16] = {
     reinterpret_cast<const void*>(0x8d57d3cc), reinterpret_cast<const void*>(0x8d57d3c0)
 };
 }
-static const opxy::platform::Player player = {@PREFIX@_player_id, "@NAME@", @PREFIX@_player_vtable, @PAGE@, @PAGE_READY@, {@STEPS@}, @PAGED@};
+@SHIFT_TABLE@static const opxy::platform::Player player = {@PREFIX@_player_id, "@NAME@", @PREFIX@_player_vtable, @PAGE@, @PAGE_READY@, {@STEPS@}, @PAGED@, @CLICKS@@SHIFT@};
 const opxy::platform::Player* @PREFIX@_player() { return &player; }
 // Size-optimize only the GUI page below. Machine code and sequencer methods
 // above retain the normal speed optimization.
