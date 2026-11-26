@@ -141,9 +141,10 @@ host does fast and the Blackfin does not:
   arithmetic shift by a signed count: right when negative, wrapping left when
   positive), and pairs, two 1.15 values in one word such as a stereo frame:
   `q15::pack`, `low`, `high`, `multiply_pair` (both halves by one value) and
-  `add_pair` (saturating per half). Call these instead of writing inline
-  assembly: each compiles as its instruction written out with the arithmetic
-  flags (ASTAT and CC) declared changed; `q31::add` declares only ASTAT. The
+  `add_pair` (saturating per half); `low` and `high` are plain C. Call these
+  instead of writing inline assembly: each one written in assembly compiles as
+  its instruction written out with the arithmetic flags (ASTAT and CC) declared
+  changed, except `q31::add` (ASTAT only) and `product` (none). The
   two namespaces share names, so call these qualified (`q15::saturate`,
   `q31::saturate`).
 - **64-bit arithmetic** and floating point may need software helpers. The

@@ -87,7 +87,7 @@ IDLE_SDK = (1, 22)
 # 1.28 adds more one-instruction helpers to opxy/q15.hpp (half, subtract_wrapped and the pair
 # helpers pack, low, high, multiply_pair, add_pair) and an arithmetic shift by a signed count,
 # shift, to opxy/q31.hpp. A renumber changes this line, SDK_VERSION and the "SDK 1.28" text of
-# those headers and docs/api.md.
+# those headers, docs/api.md (its CPU notes and the sdk field) and tests/test_fixed_point_helpers.py.
 SDK_VERSION = (1, 28)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.

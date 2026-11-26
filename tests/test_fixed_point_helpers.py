@@ -71,7 +71,8 @@ PROBES = {
                    [r'R0 = ASHIFT R0 BY R1\.L;']),
     'q15::low': ('opxy::i16 probe(opxy::u32 a) { return opxy::q15::low(a); }', []),
 }
-# Each one-statement helper beside its instruction written out as inline assembly that
+# Each helper whose body is one assembly statement giving its result, beside that instruction
+# written out as inline assembly that
 # declares the arithmetic flags changed: its result and operand types, then the assembly
 # with its operands (a and b in, r out, t a scratch register). The strings copy the
 # headers' constraints, so the comparison detects a change of constraints, flags or
@@ -223,19 +224,19 @@ class Device(unittest.TestCase):
         # Read from the headers: every assembly statement declares ASTAT and CC changed,
         # except q31::add (ASTAT only, since SDK 1.7) and q15::product (an integer
         # multiply, none since it was added).
-        found = {}
+        found = []
         for header in ('q15', 'q31'):
             text = (ROOT / f'sdk/include/opxy/{header}.hpp').read_text()
             for match in re.finditer(r'__asm__\("((?:[^"\\]|\\.)*)"\s*((?:"[^"]*"|[^;])*?)\);', text):
                 if not match[2].strip():
                     continue  # a register variable's name, not a statement
                 parts = match[2].split(':')
-                found[(header, match[1])] = parts[3].strip() if len(parts) > 3 else ''
+                found.append((header, match[1], parts[3].strip() if len(parts) > 3 else ''))
         self.assertEqual(len(found), 20, found)
         exceptions = {('q31', '%0 = %1 + %2 (S);'): '"ASTAT"', ('q15', '%0 = %1.L * %2.L (IS);'): ''}
-        for key, clobbers in found.items():
-            with self.subTest(statement=key):
-                self.assertEqual(clobbers, exceptions.get(key, '"ASTAT", "CC"'))
+        for header, statement, clobbers in found:
+            with self.subTest(statement=(header, statement)):
+                self.assertEqual(clobbers, exceptions.get((header, statement), '"ASTAT", "CC"'))
 
     def test_the_comparison_sees_the_flags_declared(self):
         # The control: the same add written out declaring CC as well moves a compare in

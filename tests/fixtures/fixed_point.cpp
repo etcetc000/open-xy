@@ -75,8 +75,8 @@ static void binary16(int a, int b) {
     const int c = wrap16(a * 7 + 12345), d = wrap16(b * 3 - 777);
     const u32 ac = opxy::q15::pack(x, i16(c)), bd = opxy::q15::pack(y, i16(d));
     expect(ac == pair(a, c), "q15::pack", a, c, ac, pair(a, c));
-    expect(opxy::q15::low(ac) == a && opxy::q15::high(ac) == c, "q15::low/high", a, c, opxy::q15::low(ac),
-           opxy::q15::high(ac));
+    expect(opxy::q15::low(ac) == a && opxy::q15::high(ac) == c, "q15::low/high", a, c,
+           pair(opxy::q15::low(ac), opxy::q15::high(ac)), pair(a, c));
     long long word = opxy::q15::multiply_pair(ac, y), wanted = pair(truncated(a, b), truncated(c, b));
     expect(word == wanted, "q15::multiply_pair", (long long)ac, b, word, wanted);
     word = opxy::q15::add_pair(ac, bd); wanted = pair(clamp16(a + b), clamp16(c + d));

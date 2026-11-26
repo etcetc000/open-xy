@@ -36,8 +36,8 @@ inline i32 multiply(i32 a, i32 b) {
 inline i32 add(i32 a, i32 b) {
 #if defined(__bfin__)
     // Blackfin's saturating add: the same result as the portable path below in one instruction.
-    // Unlike the other helpers it declares only ASTAT changed, as it has since SDK 1.7: the add
-    // never writes CC, so a compare may move across it.
+    // Unlike the other helpers it declares only ASTAT changed, as it has since SDK 1.7, and keeps
+    // that so machines built with it keep their code. The others declare CC as well, alike.
     i32 result;
     __asm__("%0 = %1 + %2 (S);" : "=d"(result) : "d"(a), "d"(b) : "ASTAT");
     return result;
