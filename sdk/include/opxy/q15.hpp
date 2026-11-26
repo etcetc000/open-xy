@@ -109,7 +109,7 @@ inline i16 multiply_nearest(i16 a, i16 b) {
 #endif
 }
 
-// SDK 1.28: more of the processor's own 16-bit operations, one instruction each
+// SDK 1.29: more of the processor's own 16-bit operations, one instruction each
 // on the device and the same results on the host, so code that wants exactly
 // that instruction calls a helper rather than writing assembly. Like the
 // helpers above, each one that is an instruction declares the arithmetic flags

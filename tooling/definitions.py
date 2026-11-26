@@ -222,7 +222,7 @@ def validate_definition(value, kind):
     label(value['name'])
     resources = value['resources']
     options = {'sample': SAMPLE_OPTIONS, 'effect': EFFECT_OPTIONS, 'drum': DRUM_OPTIONS,
-               'synth': ('trackControl', 'stereoOutput', 'releaseCallback', 'trackStage')}.get(kind, ())
+               'synth': ('trackControl', 'stereoOutput', 'releaseCallback', 'trackStage'), 'player': ('display',)}.get(kind, ())
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
     require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'stockShift', 'padControls',
@@ -269,6 +269,9 @@ def validate_definition(value, kind):
                     'tailFrames is a whole number of frames, at most %d, or "unbounded"' % EFFECT_TAIL_LIMIT)
         if 'display' in resources:
             validate_display(resources['display'], kind)
+    # A note player's own drawn page (SDK 1.26, tooling.machines).
+    if kind == 'player' and 'display' in resources:
+        validate_display(resources['display'], kind)
     if kind in ('synth', 'drum'):
         validate_synth_resources(resources, kind)
     if kind == 'master':

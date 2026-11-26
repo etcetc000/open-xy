@@ -7,7 +7,7 @@ The device forms' results were checked once against the host forms on the BF707
 instruction-set simulator: every 1.15 value for the unary helpers, the edge
 cross-products, the ties and a million random pairs for the binary ones, Q31
 edges at every count 0..31 for shift_right, and edges plus random words for the
-saturates and q31::subtract; SDK 1.28's helpers the same way (every 1.15 value
+saturates and q31::subtract; SDK 1.29's helpers the same way (every 1.15 value
 for q15::half, edge and random pairs for the rest, every count -31..31 for
 q31::shift). These tests pin the shape that was checked.
 
@@ -56,7 +56,7 @@ PROBES = {
     'q31::shift_left': ('opxy::i32 probe(opxy::i32 a, opxy::u32 n) { return opxy::q31::shift_left(a, n); }',
                         [rf'{R} = ASHIFT {R} BY {R}\.L \(S\);']),
     'q31::half': ('opxy::i32 probe(opxy::i32 a) { return opxy::q31::half(a); }', [rf'{R} = {R} >>> 0x1;']),
-    # SDK 1.28.
+    # SDK 1.29.
     'q15::half': ('opxy::i16 probe(opxy::i16 a) { return opxy::q15::half(a); }', [rf'{R}\.L = {R}\.L >>> 0x1;']),
     'q15::subtract_wrapped': ('opxy::i16 probe(opxy::i16 a, opxy::i16 b) { return opxy::q15::subtract_wrapped(a, b); }',
                               [r'R0\.L = R0\.L - R1\.L \(NS\);']),

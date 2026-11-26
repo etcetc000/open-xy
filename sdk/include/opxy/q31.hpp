@@ -105,7 +105,7 @@ inline i32 shift_right(i32 value, u32 count) {
 #endif
 }
 
-// Arithmetic shift by a signed count (SDK 1.28), the processor's ASHIFT: for a
+// Arithmetic shift by a signed count (SDK 1.29), the processor's ASHIFT: for a
 // count of -31..-1, shift_right by -count; for 0..31, value * 2^count wrapped
 // to 32 bits, as an unsigned shift wraps (shift_left is the saturating one). Other counts are
 // undefined and differ between host and device. One instruction on the device

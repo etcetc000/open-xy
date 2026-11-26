@@ -1272,7 +1272,8 @@ def catalog_entry(m):
 
 
 def generate_player_object(directory, m):
-    """A player's stock object methods around its press and release, and its own page when it has one."""
+    """A player's stock object methods around its press and release, and its own page: the SDK's
+    dot page (screen_player.hpp), or the one its display draws (SDK 1.26, screen_player_drawing.hpp)."""
     from .native import player_header_ids, player_page_ids
     values = dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'], NAME=m.native_name,
                   PAGE='nullptr', PAGE_READY='nullptr', PAGE_DECLARATIONS='', PAGE_UNIT='',
@@ -1283,17 +1284,28 @@ def generate_player_object(directory, m):
     steps = [1 if p.get('absent') else enum_steps(p) for p in m.definition['parameters']]
     values['STEPS'] = ', '.join(map(str, steps + [1] * (8 - len(steps))))
     values.update(player_shift_values(m))
-    if m.display == 'player':
+    if m.display in ('player', 'drawing'):
         p = m.prefix
-        page = (TEMPLATES / 'player_page.cpp.in').read_text(encoding='utf-8')
         titles = [json.dumps(parameter['label'].lower()) for parameter in m.definition['parameters']]
         titles += ['""'] * (8 - len(titles))
-        # A paged player's page also drives the two-row header in its artwork (native.page_artwork).
-        ids = player_page_ids(p) + (player_header_ids(p + '_header') if paged(m.definition) else [])
-        for key, value in dict(IDS='\n'.join(f'    "{name}",' for name in ids), ID_COUNT=str(len(ids)),
-                               PAGED=values['PAGED'], TITLES=', '.join(titles),
-                               PAGE_LIMIT=RELOCATED['PAGE_LIMIT'], PREFIX=p,
-                               NAMESPACE=m.definition['id'], NAME=m.native_name).items():
+        fields = dict(PAGED=values['PAGED'], TITLES=', '.join(titles), PAGE_LIMIT=RELOCATED['PAGE_LIMIT'], PREFIX=p,
+                      NAMESPACE=m.definition['id'], NAME=m.native_name)
+        if m.display == 'drawing':
+            # Its own drawn page (SDK 1.26): display.cpp in this unit, after player.cpp.
+            from .native import display_ids
+            display = m.definition['resources']['display']
+            page = (TEMPLATES / 'player_drawing.cpp.in').read_text(encoding='utf-8')
+            ids = display_ids(p, display)
+            fields.update({key: str(value) for key, value in drawing_layout(display).items()
+                           if key in ('PATHS', 'POINTS', 'NODES', 'TEXTS', 'PALETTE')})
+            fields.update(STATE_BYTES=str(display['stateBytes']), STATE_ALIGNMENT=str(display['stateAlignment']),
+                          SCREEN_BYTES=str(screen_bytes(m)))
+        else:
+            page = (TEMPLATES / 'player_page.cpp.in').read_text(encoding='utf-8')
+            # A paged player's page also drives the two-row header in its artwork (native.page_artwork).
+            ids = player_page_ids(p) + (player_header_ids(p + '_header') if paged(m.definition) else [])
+        fields.update(IDS='\n'.join(f'    "{name}",' for name in ids), ID_COUNT=str(len(ids)))
+        for key, value in fields.items():
             page = page.replace('@' + key + '@', value)
         values.update(PAGE=f'{p}_page_id', PAGE_READY=f'{p}_screen_ready', PAGE_UNIT=page,
                       PAGE_DECLARATIONS='\n'.join([f'extern const char {p}_page_id[] __asm__("{p}_page_id");',
