@@ -45,6 +45,13 @@ class Folder:
 
 
 class Extensions(unittest.TestCase):
+    def test_an_extension_cannot_read_the_device_identity(self):
+        with Folder() as folder:
+            source = folder.root / 'extension.cpp'
+            source.write_text('#include <opxy/device_identity.hpp>\n' + source.read_text(encoding='utf-8'), encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, 'device identity'):
+                extensions.extension_at(folder.root)
+
     def test_a_folder_declares_itself_against_the_registry(self):
         probe = extensions.extension_at(PROBE)
         self.assertEqual((probe.id, probe.claims, probe.actions), ('probe', ('record_double_tap',), ('edit_notes', 'notify')))

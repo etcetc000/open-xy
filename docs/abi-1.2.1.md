@@ -2486,7 +2486,8 @@ sweep and the row still from the track.
 
 ## Master-processor capability
 
-The conditional `master_filter` service redirects these stock 1.2.1 sites.
+The conditional `master_filter` service redirects these stock 1.2.1 sites (the
+B3 parameter receiver call through the shared `parameter_receive` record).
 Eight-byte entry branches replay their exact original prologues in adapter
 trampolines before resuming stock. Four-byte call sites remain relative; the
 master audio call retains its eight-byte absolute footprint. The existing

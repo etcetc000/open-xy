@@ -178,6 +178,9 @@ class Plan(unittest.TestCase):
         self.assertEqual(native.service_fallbacks(active_services(profile, ['synth', 'deviceIdentity'])),
                          {'master_filter': {'sdk_master_receive': 'kit_absent'}})
         self.assertNotIn('master_filter', native.service_fallbacks(active_services(profile, ['synth', 'master_filter'])))
+        # With both, the fallback is declared for selections that leave the master processor out.
+        self.assertEqual(native.service_fallbacks(active_services(profile, ['synth', 'deviceIdentity', 'master_filter'])),
+                         {'master_filter': {'sdk_master_receive': 'kit_absent'}})
         unit = (PLATFORM / 'device_identity.cpp').read_text(encoding='utf-8')
         self.assertIn('if (reinterpret_cast<Address>(master) == absent) stock<Receiver>(kStockSet)(base, id, value);', unit)
         self.assertIn('int kit_absent() __asm__("kit_absent");', (PLATFORM / 'startup.cpp.in').read_text(encoding='utf-8'))

@@ -699,7 +699,7 @@ known yet. On the device that is the case for a moment after boot: the GUI
 processor reads the identity and then sends it to the audio processor, normally
 within a second. From the first true it returns the same bytes until the
 device restarts. Any callback may call it, `render`, `process` and display code
-included; it does not block. It copies 18 bytes each time, so a machine that
+included; it does not block. It copies up to 18 bytes each time, so a machine that
 reads it often can keep its own copy after the first true. Code that needs the
 identity in `init` or at a note's start must handle false: keep a default and switch once it is known,
 or stay silent until then.
@@ -709,11 +709,12 @@ A machine that declares `deviceIdentity` reads data that can tell one OP-XY
 from another, and its users have only the machine's word for what it does
 with it. Use the bytes on the device, for the machine's own behaviour: don't
 save them in a project, preset or file or send them anywhere, and say in the
-machine's description what it uses them for.
+machine's description what it uses them for. An extension cannot include the
+header.
 
-The bytes are not secret, and the audio processor's copy arrives in a message
-that is checked against loss, not forgery: don't treat them as a secret or as
-proof of which unit the machine runs on.
+The audio processor's copy arrives in a message that is checked against loss,
+not forgery: don't treat the bytes as a secret or as proof of which unit the
+machine runs on.
 
 The browser preview and host tests give `opxy::preview_device_identity`: the
 bytes `0xa0, 0xa1, ..., 0xb1`. A host test can change it with
@@ -725,8 +726,8 @@ A machine that includes the header must declare `deviceIdentity`. Only a
 firmware with such a machine links the service that reads, sends and receives
 the identity; others are unchanged. The service adds a check to each pass of
 the GUI processor's main loop and to each of stock's global parameter messages
-the audio processor receives, and sends one identity message a second for the
-first 32 seconds after the identity is read ([firmware
+the audio processor receives, and sends the identity 32 times, once a second
+from when it is read ([firmware
 ABI](abi-1.2.1.md#device-identity)). A machine pack cannot add a machine
 declaring `deviceIdentity` to a site yet: the builder's list of features a
 pack machine may use does not include it.
