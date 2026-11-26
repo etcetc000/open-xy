@@ -1,0 +1,19 @@
+{
+  "id": "cpu",
+  "name": "CPU (experimental)",
+  "description": "Experimental: block trims, output slack, boot fix, governor, pitch constants, fast helpers (off).",
+  "note": "Experimental. Governor on: cuts later, misses bursts. Fast helpers off, 1 on.",
+  "claims": [],
+  "actions": [],
+  "capabilities": [
+    "boot_log_fix",
+    "block_trims",
+    "output_slack",
+    "load_governor",
+    "pitch_constants",
+    "fast_helpers"
+  ],
+  "settings": {
+    "fast_helpers": 0
+  }
+}

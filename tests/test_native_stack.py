@@ -25,7 +25,7 @@ def image(entry, slot=8):
 
 
 SYMBOLS = {'_m_vtable': dict(value=BASE, size=44, type=1)}
-MACHINE = [SimpleNamespace(id='m', kind='synth', prefix='m')]
+MACHINE = [SimpleNamespace(id='m', kind='synth', prefix='m', definition={'resources': {}})]
 
 
 class AudioStack(unittest.TestCase):

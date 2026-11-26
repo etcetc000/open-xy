@@ -19,6 +19,10 @@ from tooling.formats import header, ldr
 from tooling.pipeline import ROOT, check_patch_boundaries, config, document
 from tooling.stock_tables import decode
 
+# Image capabilities this SDK has beside these two (such as boot_log_fix); each is off.
+IMAGE_CAPABILITIES = tuple(c for c in capabilities() if c not in extensions.build_capabilities())
+OTHER_IMAGE_CAPABILITIES = {c: None for c in IMAGE_CAPABILITIES if c not in ('long_samples', 'release_floor')}
+
 REGISTRY = document(ROOT / 'profiles/extensions.json')['capabilities']
 
 
@@ -71,7 +75,11 @@ class Profile(unittest.TestCase):
                 floor.floor(value)
 
     def test_registry_setting(self):
-        self.assertEqual(capability_settings(), {'release_floor': floor.SPEC})
+        # The capabilities with a setting: this one and fast_helpers, whose setting chooses SDK units' sources and
+        # has no edit (test_cpu_capabilities).
+        self.assertEqual(capability_settings(), {'release_floor': floor.SPEC,
+                                                 'fast_helpers': dict(label='Fast helpers', unit='0 off, 1 on',
+                                                                      minimum=0, maximum=1, default=0)})
         self.assertEqual(setting_edits(config(), {'release_floor': -40}),
                          {'0x8d50e226': floor_edits(config())[0]['choices']['-40']})
         self.assertEqual(setting_edits(config(), {}), {'0x8d50e226': floor_edits(config())[0]['after']})
@@ -79,7 +87,8 @@ class Profile(unittest.TestCase):
     def test_a_capability_needs_a_fixed_edit_that_marks_it_on(self):
         # A setting's bytes may equal stock's (-66 dB), so on/off is read from the fixed
         # stage edit; a capability with only setting edits could not be read.
-        self.assertEqual(capabilities(), ('long_samples', 'release_floor'))
+        # The image capabilities; this SDK's CPU build capabilities follow (test_cpu_capabilities).
+        self.assertEqual(capabilities()[:2], ('long_samples', 'release_floor'))
         real = extensions.document
 
         def without_stage(path):
@@ -169,7 +178,7 @@ class Image(unittest.TestCase):
 
     def image(self):
         profile = config()
-        edits = [p for p in profile['patches'] if p.get('service') in ('long_samples', 'release_floor')]
+        edits = [p for p in profile['patches'] if p.get('service') in IMAGE_CAPABILITIES]
         records = [header(0x5004, 0, 0, 0)]
         for patch in edits:
             records.append(header(1, int(patch['address'], 16), patch['length'], 0) + bytes.fromhex(patch['before']))
@@ -187,11 +196,11 @@ class Image(unittest.TestCase):
 
     def test_apply_and_show(self):
         data, profile = self.image()
-        self.assertEqual(image_settings.state(data, profile), {'long_samples': None, 'release_floor': None})
+        self.assertEqual(image_settings.state(data, profile), {**OTHER_IMAGE_CAPABILITIES, 'long_samples': None, 'release_floor': None})
         extension = extension_at(folder(self, settings={'release_floor': -40}))
         result, values = image_settings.apply(data, [extension], {}, profile)
         self.assertEqual(values, {'release_floor': -40})
-        self.assertEqual(image_settings.state(result, profile), {'long_samples': None, 'release_floor': -40})
+        self.assertEqual(image_settings.state(result, profile), {**OTHER_IMAGE_CAPABILITIES, 'long_samples': None, 'release_floor': -40})
         self.assertEqual(sum(a != b for a, b in zip(data, result)), 5)
         again, values = image_settings.apply(result, [extension], {'release_floor': -66}, profile)
         self.assertEqual(image_settings.state(again, profile)['release_floor'], -66)
@@ -232,7 +241,10 @@ class Image(unittest.TestCase):
 
         def run(*argv):
             out, err = io.StringIO(), io.StringIO()
+            # This image holds only the image capabilities' sites; `show` also reads the CPU
+            # build capabilities' (settings.built, tested in test_cpu_capabilities).
             with mock.patch.object(image_settings, 'config', lambda: profile), \
+                    mock.patch.object(image_settings, 'built', lambda image, profile=None: {}), \
                     contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 try:
                     code = image_settings.main([str(a) for a in argv])
@@ -240,7 +252,7 @@ class Image(unittest.TestCase):
                     code = exit.code
             return code, out.getvalue(), err.getvalue()
         code, text, _ = run('show', '--image', work / 'os.ldr')
-        self.assertEqual((code, json.loads(text)), (0, {'long_samples': None, 'release_floor': None}))
+        self.assertEqual((code, json.loads(text)), (0, {**OTHER_IMAGE_CAPABILITIES, 'long_samples': None, 'release_floor': None}))
         code, _, _ = run('apply', '--image', work / 'os.ldr', '--extension', extension,
                          '--set', 'release_floor=-30', '--out', work / 'out')
         report = json.loads((work / 'out/settings.json').read_text(encoding='utf-8'))
@@ -265,7 +277,7 @@ class Image(unittest.TestCase):
     @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Private stock input not supplied')
     def test_stock_holds_the_audited_preimages(self):
         stock = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
-        self.assertEqual(image_settings.state(stock), {'long_samples': None, 'release_floor': None})
+        self.assertEqual(image_settings.state(stock), {**OTHER_IMAGE_CAPABILITIES, 'long_samples': None, 'release_floor': None})
 
 
 if __name__ == '__main__':

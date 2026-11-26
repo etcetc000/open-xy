@@ -39,7 +39,9 @@ opxy::benchmark::Stats @PREFIX@_benchmark(opxy::u32 run) {
     // pad's level (word 7, Q27). The kit's own run plays its keys as they start,
     // neutral at 0 dB; every other run its heaviest pad settings on keys the kit
     // has set up: each pad control at its top and, with padMix, a cut, which
-    // the adapter applies.
+    // the adapter applies; with padVolume, a boost of 6 dB, which it applies
+    // saturating. Its keys keep no random (the pad word's top half is 0) and,
+    // with ampEnvelope, no amp values of their own: they play the kit's.
     i32 pad_word = static_cast<i32>(platform::kDrumPadReady);
     for (u32 f = 0; f < kPadCount && f < platform::kDrumKitPadFields; ++f)
         pad_word = platform::drum_field_set(pad_word, platform::drum_pad_low(f, pad_bits), pad_bits[f],
@@ -52,7 +54,8 @@ opxy::benchmark::Stats @PREFIX@_benchmark(opxy::u32 run) {
         else for (u32 i = 0; i < 8; ++i) stored[i] = kBenchmarkLevels[level];
         payloads[k][0] = benchmark_marked();
         payloads[k][platform::kDrumPadPayload] = run == 0 ? 0 : pad_word;
-        payloads[k][platform::kDrumGainWord] = run == 0 || !kPadMix ? platform::kDrumUnityGain : platform::kDrumUnityGain / 2;
+        payloads[k][platform::kDrumGainWord] = run == 0 ? platform::kDrumUnityGain : kPadMix ? platform::kDrumUnityGain / 2
+            : (kKitControls & platform::kKitVolume) ? 2 * platform::kDrumUnityGain : platform::kDrumUnityGain;
         platform::drum_pack(chosen, stored, payloads[k] + 1, storage());
     }
     u32 pitch[block_frames];

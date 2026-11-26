@@ -92,13 +92,14 @@ def source_selection_services(profile, result, machines_by_id, extension_sources
 
 
 def selection_settings(kit, result):
-    """Each capability setting of a selection: the first chosen extension's value, as the builder does."""
+    """Each capability setting of a selection: the value it chose (the check's `settings`), else the
+    first chosen extension's, as the builder does."""
     values = {}
     for e in kit.get('extensions', []):
         if e['id'] in result['extensions']:
             for capability, setting in e.get('settings', {}).items():
                 values.setdefault(capability, setting['value'])
-    return values
+    return {**values, **result.get('settings', {})}
 
 
 def assembled(stock, module, symbols, reviewed, services, profiling, values=None):
@@ -209,7 +210,7 @@ def verify_generated(directory, stock_file, content):
     selections = json.loads((directory / 'reference/selections.json').read_text())
     linked = kit.get('linked', [m['id'] for m in kit['machines']])
     full = [r for r in selections if set(r['selected']) == set(linked) and r['layout'] is not None and
-            r['extensions'] == [e['id'] for e in kit.get('extensions', [])]]
+            r['extensions'] == [e['id'] for e in kit.get('extensions', [])] and 'settings' not in r]
     require(len(full) == 1, 'The checked selections must include the linked machines with every extension, '
                             "numbered with the native package's layout")
     require(full[0]['layout'] == json.loads((directory / 'source/layout.json').read_bytes())['machines'],

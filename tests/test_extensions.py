@@ -187,4 +187,4 @@ class ExtensionCatalog(unittest.TestCase):
     def test_official_extensions_are_listed_by_id(self):
         self.assertTrue(catalog.official(self.entry()))
         self.assertFalse(catalog.official(self.entry(id='echo')))
-        self.assertEqual([e['id'] for e in catalog.load_extensions() if catalog.official(e)], ['capture'])
+        self.assertEqual([e['id'] for e in catalog.load_extensions() if catalog.official(e)], ['capture', 'long_samples'])

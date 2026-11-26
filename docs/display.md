@@ -17,7 +17,8 @@ patterns are the machine's own code filling nodes; see
 
 ## Declaration
 
-Each synth, or sample engine with its own screen, declares its frame's budget in `resources.display` of
+Each synth, sample engine with its own screen, or [note player drawing its own page](api.md#a-players-own-drawn-page-sdk-126)
+(SDK 1.26) declares its frame's budget in `resources.display` of
 `definition.json` and names the same shape as its C++ frame type. The SDK sizes
 the native renderer, the browser renderer and the artwork bindings from that
 declaration; a mismatch fails to compile.
@@ -41,6 +42,8 @@ void display(DisplayState& state, const opxy::draw::Input& input, Frame& output)
 | `texts` | 0..32 text slots; more than 4 need `"sdk": "1.3"`, more than 16 `"sdk": "1.7"` |
 | `palette` | 1..16 paint entries |
 | `stateBytes`, `stateAlignment` | `DisplayState` size (whole words) and alignment, checked against the compiled type |
+
+A synth or effect screen can go beyond these with [extended drawing](#extended-drawing).
 
 [draw.hpp](../sdk/include/opxy/draw.hpp) is the format definition.
 `DisplayState` is trivial, standard-layout data. Put it, with the frame type,
@@ -70,9 +73,15 @@ or an [alternate](api.md#alternate-controls)), `slots`, the Q31 value of
 every declared parameter by index (0 beyond the declared ones), note activity
 and the track's amp envelope. A serial is a
 snapshot, not a queue: several note starts between frames can coalesce.
-Initializing or changing track must not fabricate a note. It counts per track,
-not per key: where keys play different sounds, as a drum kit's do, an
+Initializing or changing track must not fabricate a note. The serial of a
+synth, a sample engine or a drum kit declaring SDK 1.21 or later counts per
+track, not per key: where keys play different sounds, as a drum kit's do, an
 animation started by the serial alone also plays for keys that weren't hit.
+On a drum kit declaring SDK 1.21 or later, read which pad played from the
+[played-pad snapshot](#shift-and-a-drum-kits-machine-sdk-18). A drum kit
+declaring an SDK before 1.21 keeps the serial it was written against: it
+counts only the starts of pitches that map to the selected pad, and a start no
+held or released pitch accounts for (a sequenced note, say) counts as before.
 
 ### Note activity (SDK 1.1)
 
@@ -164,10 +173,9 @@ optional tenth argument to `PreviewDisplay.tick`, after the drum model, Shift
 and its choices; omission reports the envelope as unknown, as the builder's
 preview and the SDK workbench do.
 
-Machines reading `amp` declare `"sdk": "1.10"`. New previews use drawing ABI 5,
-a 104-byte input with `amp` after a drum kit's `model`; the browser host also
-accepts the earlier ABIs, which keep their inputs and do not receive the
-envelope.
+Machines reading `amp` declare SDK 1.10 or newer. Drawing ABI 5 added
+`amp` after a drum kit's `model`; older ABIs keep their inputs and do not
+receive the envelope.
 
 ### Effect pages (SDK 1.7)
 
@@ -183,19 +191,30 @@ control's choice (0 beyond the declared ones). A synth's page reads 0 in both.
 | Field | Meaning |
 | --- | --- |
 | `shift` | 1 while Shift is held on a page with Shift controls (a drum kit's), else 0. |
-| `choices` | Each Shift control's choice, 0 beyond the declared ones. A drum kit with model groups gives its selected key's group, the model's place in the group and its choke group (0 none, 1..3); one without groups gives the model and the choke group. A [`padMix`](api.md#synthesis-drum-kits) kit gives the same, by whether it has groups, though its first Shift row is the model, the choke group, pan and level: read `model`, `pan` and `level` for those. They hold whether or not Shift is held, so a screen can show them in its header either way. |
+| `choices` | Each Shift control's choice, 0 beyond the declared ones. A drum kit with model groups gives its selected key's group, the model's place in the group and its choke group (0 none, 1..3); one without groups gives the model and the choke group. A [`padMix`](api.md#synthesis-drum-kits) kit gives the same, by whether it has groups, though its first Shift row is the model, the choke group, pan and level: read `model`, `pan` and `level` for those. A [`padVolume`](api.md#the-drum-kit-controls) kit's third choice is its selected key's volume as dB + 30 (0..50, 30 is 0 dB; with groups in the choke group's place) and a `padRandom` kit's fourth its key's random in percent, 0..100 (SDK 1.23). They hold whether or not Shift is held, so a screen can show them in its header either way. |
 | `model` | A drum kit's selected key's model. |
 | `pan`, `level` | A `padMix` kit's selected key's pan, -100..100 with 0 centred, and its level in whole dB as it plays, -30..0 (SDK 1.10; 0 dB on a key the kit has not set up); while a step is held, as that step plays them with its locks; 0 for other machines. |
 | `line` | The row the encoders edit, 0 the first and 1 the second; on a `padMix` kit, also the Shift row (SDK 1.10). |
+| `selected_key` | On a drum kit declaring SDK 1.23 or later, its selected key, 0..23 for pad 53 + n, the key `model`, `choices` and the stock header show; 0 for an older kit and other machines. It takes the input's byte at offset 107, which was a reserved 0, so the input's size and the drawing ABI stay as they were. |
 | `pad` | A `padMix` kit's selected key's [pad fields](api.md#synthesis-drum-kits): its two pad controls, a signed one negative below 0, then FX I and FX II (0 following the track's send; for a kit declaring SDK 1.15 or later its percent + 1, 1..101; for an older kit its step, 1..7 for 0, 17, 33, 50, 67, 83, 100, an amount as its nearest); while a step is held, as that step plays them with its locks (its sends' overrides included); 0 when neutral, on a key the kit has not set up and for other machines (SDK 1.10). |
+| `trigger_key`, `trigger_model`, `trigger_controls[8]` | On a drum kit declaring SDK 1.21 or later, the latest played drum pad on this track: canonical key 53..76, its model, and its eight controls with current GUI track offsets. `trigger_key` is 0 when unavailable, and all of it is 0 from the display's activation (its page selected, its track changed) until `note_serial` next moves; both come from one read of the track's counter, so the snapshot is never set in a frame whose `note_serial` has not moved since activation. After that it names the pad stock last recorded as played on the track, resolved on the current kit. What it shows after a project load is unknown until a device run ([ABI notes](abi-1.2.1.md#screens)). Use the snapshot when `note_serial` changes; it is independent of selection. Several hits between frames can coalesce to the last one, and this is not an audio-side step-lock history. 0 for an older kit and other machines (SDK 1.21). |
+
+Machines reading the played-pad snapshot declare SDK 1.21 or newer. Browser
+hosts pass `{key, model, controls}` as the optional fifteenth argument to
+`PreviewDisplay.tick`, after `amp`, `mix`, `line`, `shiftRow` and `encoders`; omission clears the snapshot.
+They pass a 1.23 kit's selected key, 0..23, as the optional sixteenth (the
+builder's kit preview gives the key last pressed); omission gives 0.
 
 A screen that draws its own header (the two-page header) shows the Shift
 controls while `shift` is 1. With two Shift rows, show both, stacked as the
 pages are: the first on top and the second under it, the one the encoders edit
 (`line`) bright, as a [synth's Shift row](#a-synths-shift-row) shows. The stock
 header shows only the edited row. The
-previews use drawing ABI 6, a 112-byte input: ABI 5 (104 bytes) ends after the
+previews use drawing ABI 7, a 152-byte input with the played-pad snapshot after ABI 6's pad fields (112 bytes). ABI 5 (104 bytes) ends after the
 amp envelope, ABI 4 (88 bytes) after `model`, ABI 3 (84 bytes) after `choices`.
+A preview of an [extended](#extended-drawing) display also exports
+`opxy_display_extension()`: 0, or 4 when its input appends the encoder record
+after the ABI's input (152 bytes in ABI 7). A renderer that does not know a bit refuses the preview.
 
 While a pad is held on a drum kit (without Shift), the SDK draws stock's own
 held-pad strip over the kit's screen, as stock Drumline does: after 0.3 s it
@@ -295,7 +314,8 @@ SDK 1.4 supplies `<opxy/page_header.hpp>` for synths using `"press": "page"`.
 starter keeps the stock header. This helper uses the existing drawing ABI and
 the [UX layout](ux.md#more-than-four-controls). A paged
 [note player](api.md#note-players) gets the same header from the SDK and
-calls nothing.
+calls nothing, unless it [draws its own page](api.md#a-players-own-drawn-page-sdk-126)
+(SDK 1.26): then it draws this header itself, as a synth does.
 
 Store `opxy::draw::PageHeader` in `DisplayState` and call its `reset()` from
 `display_reset`. It occupies 20 bytes with four-byte alignment. Reserve eight
@@ -490,6 +510,53 @@ automatic conversion does not preserve the intended distinctions.
 The selection happens while packaging, without a firmware drawing ABI change or
 a new saved sound parameter. Preview artifacts authenticate the variant's hash
 and source alongside the original; rebuilding is required after editing either.
+
+## Extended drawing
+
+A synth or effect screen can declare more paths and points than the table in
+[Declaration](#declaration) allows, and the optional keys below. Any of them
+makes the display *extended*: it needs `"sdk": "1.20"`, uses
+`draw::ExtendedFrame` (or one of its aliases) instead of `draw::Frame`, and is
+drawn by a separate renderer. A display that uses none of them keeps
+`draw::Frame`, its renderer and its generated code exactly as before.
+
+| Key | Meaning |
+| --- | --- |
+| `paths`, `points` | Up to 32 paths and 256 points per path, 256 coordinate pairs in all |
+| `affine: 1` | Full affine node transforms (`draw::AffineNode`, `draw::affine`); `palette` may be 0; path coordinates reach ±8192 pixels |
+| `fullCanvas: 1` | The machine owns the whole 480×220 screen: the SDK header is left out. Control values still arrive in the input |
+| `rgba: 1` | Per-node 32-bit colors (`draw::RgbaFrame`, `draw::rgba`); needs `affine` and `palette: 0` |
+| `cubic: 1` | Every path is one cubic Bézier: four points, start, two controls, end; authored as `M … C …` without `Z` |
+| `openPaths`, `segmentPaths` | Bit masks: open polylines (`M`, then `L`s, no `Z`), or separate segments between adjacent points. They never share a path or go with `cubic` |
+| `quadratic: 1`, `commands` | Paths whose line and quadratic commands change each frame (`draw::AffineQuadraticFrame`): `points: 0`, 2..128 `commands`, `affine`; authored as `M` and `commands - 1` `Q` commands |
+| `countedPaths: 1` | Paths with an active point count of 2..`points` (`draw::AffineCountedFrame`); needs `affine`; `paths * (8 + 8 * points)` at most 2816 bytes |
+| `encoderActivity: 1` | Which encoders were touched this frame ([below](#encoder-activity)) |
+
+[draw.hpp](../sdk/include/opxy/draw.hpp) defines the frames and checks every
+combination at compile time; `python sdk.py test` checks the declaration.
+The renderer keeps each path's authored allocation and changes only its
+coordinates and active length, without allocating or parsing SVG while it
+animates. Browser and device rasterization can differ at the edges.
+
+### Encoder activity
+
+With `encoderActivity: 1` the input is `draw::EncoderInput` from
+[`opxy/encoder_activity.hpp`](../sdk/include/opxy/encoder_activity.hpp).
+`encoders.available` is 1 when the host reports activity; bits 0..3 of
+`encoders.mask` are the physical encoders pressed or turned since the last
+frame, before any page or Shift mapping. On the device the SDK reads stock's
+own per-frame flags; in the browser only real gestures count, never preset
+loads or automation.
+
+### The last control touched
+
+A synth's screen can include
+[`opxy/control_interaction.hpp`](../sdk/include/opxy/control_interaction.hpp)
+and call `control_interaction::latest(track)` for the last control pressed or
+turned on that track: its physical encoder, parameter and value. Only a build
+whose machines include the header captures it. Encoder activity says which
+encoders moved this frame, for motion; this says which parameter was last
+edited and its value, and stays until the next edit.
 
 ## Migrating from before SDK 1.0
 
