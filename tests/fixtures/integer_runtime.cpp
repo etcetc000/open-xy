@@ -1,10 +1,6 @@
 #include <cstdlib>
 #include <cstdint>
-#define memset opxy_test_memset
-#define memcpy opxy_test_memcpy
-#include "../../sdk/platform/blackfin/memory.cpp"
-#undef memset
-#undef memcpy
+#include "../../sdk/platform/blackfin/collection_gui_helpers.cpp"
 
 static void require(bool value) { if (!value) std::abort(); }
 int main() {
