@@ -376,7 +376,7 @@ def plan(machines, profile=None):
         units += [(f'sdk/{step}.o',None,step) for step in (
             'collection_inspector','collection_kernel','collection_mtp','collection_rpc_stock','collection_rpc_entry',
             'collection_gate','collection_activation','collection_resources','collection_io','collection_cache',
-            'collection_cache_core','collection_handoff','collection_resource_stock','collection_resident',
+            'collection_cache_core','collection_handoff','collection_resource_stock','collection_gui_helpers','collection_resident',
             'collection_entries','collection_descriptors')]
     names = [name for name, _m, _step in units]
     require(len(names) == len(set(names)), 'Duplicate object name')
@@ -826,6 +826,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                 return cxx(str(collection_kernel.generate(folder,interface,platform,collection_activation.fingerprint(interface))),obj)
             if loader and step in ('collection_activation','collection_resources','collection_handoff'):
                 return cxx('sdk/platform/'+step+'.cpp',obj)
+            if loader and step == 'collection_gui_helpers':
+                return cxx('sdk/platform/blackfin/collection_gui_helpers.cpp', obj)
             if loader and step=='collection_cache_core':
                 return cxx('sdk/platform/collection_cache.cpp',obj)
             if loader and step in ('collection_resident','collection_entries'):

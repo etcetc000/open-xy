@@ -91,7 +91,7 @@ RESIDENT_OBJECTS = ('sdk/divide.o', 'sdk/memory.o', 'sdk/hook.o', 'sdk/voice_clo
                     'sdk/collection_activation.o', 'sdk/collection_resources.o')
 KERNEL_OBJECTS=tuple(p for p in RESIDENT_OBJECTS if p not in ('sdk/collection_probe.o','sdk/collection_rpc.o'))+(
     'sdk/collection_kernel.o','sdk/collection_mtp.o','sdk/collection_io.o','sdk/collection_cache.o',
-    'sdk/collection_cache_core.o','sdk/collection_handoff.o','sdk/collection_resource_stock.o')
+    'sdk/collection_cache_core.o','sdk/collection_handoff.o','sdk/collection_resource_stock.o', 'sdk/collection_gui_helpers.o')
 
 
 def linker(original, profile, resident_bytes=0x8000, *, kernel=False):
