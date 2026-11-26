@@ -142,9 +142,9 @@ host does fast and the Blackfin does not:
   positive), and pairs, two 1.15 values in one word such as a stereo frame:
   `q15::pack`, `low`, `high`, `multiply_pair` (both halves by one value) and
   `add_pair` (saturating per half). Call these instead of writing inline
-  assembly: each compiles exactly as its instruction written out with the
-  arithmetic flags declared changed. The two
-  namespaces share names, so call these qualified (`q15::saturate`,
+  assembly: each compiles as its instruction written out with the arithmetic
+  flags (ASTAT and CC) declared changed; `q31::add` declares only ASTAT. The
+  two namespaces share names, so call these qualified (`q15::saturate`,
   `q31::saturate`).
 - **64-bit arithmetic** and floating point may need software helpers. The
   build links only the required authenticated [arithmetic runtime](toolchain.md)

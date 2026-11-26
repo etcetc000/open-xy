@@ -30,7 +30,8 @@ from test_sample_services import HOST_CXX
 HIDDEN = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
 R = r'R[0-7]'
 # Each helper's probe and the instructions its body must be, in order, as the pinned
-# objdump spells them (a function's closing RTS aside).
+# objdump spells them (a function's closing RTS aside). Where operand order matters the
+# registers are named: the probe's a arrives in R0, b in R1, and the result leaves in R0.
 PROBES = {
     'q15::saturate': ('opxy::i16 probe(opxy::i32 x) { return opxy::q15::saturate(x); }',
                       [rf'{R} = {R} << 0x10 \(S\);', rf'{R} >>>= 0x10;']),
@@ -58,20 +59,23 @@ PROBES = {
     # SDK 1.28.
     'q15::half': ('opxy::i16 probe(opxy::i16 a) { return opxy::q15::half(a); }', [rf'{R}\.L = {R}\.L >>> 0x1;']),
     'q15::subtract_wrapped': ('opxy::i16 probe(opxy::i16 a, opxy::i16 b) { return opxy::q15::subtract_wrapped(a, b); }',
-                              [rf'{R}\.L = {R}\.L - {R}\.L \(NS\);']),
+                              [r'R0\.L = R0\.L - R1\.L \(NS\);']),
     'q15::pack': ('opxy::u32 probe(opxy::i16 a, opxy::i16 b) { return opxy::q15::pack(a, b); }',
-                  [rf'{R} = PACK \({R}\.L, {R}\.L\);']),
+                  [r'R0 = PACK \(R1\.L, R0\.L\);']),
     'q15::multiply_pair': ('opxy::u32 probe(opxy::u32 a, opxy::i16 b) { return opxy::q15::multiply_pair(a, b); }',
-                           [rf'{R}\.H = {R}\.H \* {R}\.L, {R}\.L = {R}\.L \* {R}\.L \(T\);']),
+                           [r'R0\.H = R0\.H \* R1\.L, R0\.L = R0\.L \* R1\.L \(T\);']),
     'q15::add_pair': ('opxy::u32 probe(opxy::u32 a, opxy::u32 b) { return opxy::q15::add_pair(a, b); }',
                       [rf'{R} = {R} \+\|\+ {R} \(S\);']),
-    'q15::high': ('opxy::i16 probe(opxy::u32 a) { return opxy::q15::high(a); }', [rf'{R} >>= 0x10;']),
+    'q15::high': ('opxy::i16 probe(opxy::u32 a) { return opxy::q15::high(a); }', [r'R0 >>= 0x10;']),
     'q31::shift': ('opxy::i32 probe(opxy::i32 a, opxy::i32 n) { return opxy::q31::shift(a, n); }',
-                   [rf'{R} = ASHIFT {R} BY {R}\.L;']),
+                   [r'R0 = ASHIFT R0 BY R1\.L;']),
+    'q15::low': ('opxy::i16 probe(opxy::u32 a) { return opxy::q15::low(a); }', []),
 }
 # Each one-statement helper beside its instruction written out as inline assembly that
 # declares the arithmetic flags changed: its result and operand types, then the assembly
-# with its operands (a and b in, r out, t a scratch register). q31::add alone declares
+# with its operands (a and b in, r out, t a scratch register). The strings copy the
+# headers' constraints, so the comparison detects a change of constraints, flags or
+# scheduling, not a wrong instruction: PROBES and the host references cover that. q31::add alone declares
 # only ASTAT, as it has since SDK 1.7: the add never writes CC, and declaring CC now would
 # move compares in machines already built with it.
 WRITTEN_OUT = {
@@ -215,9 +219,28 @@ class Device(unittest.TestCase):
                     self.assertTrue(instructions(helper), helper)
                     self.assertEqual(instructions(helper), instructions(written), helper + written)
 
+    def test_each_statement_declares_the_flags(self):
+        # Read from the headers: every assembly statement declares ASTAT and CC changed,
+        # except q31::add (ASTAT only, since SDK 1.7) and q15::product (an integer
+        # multiply, none since it was added).
+        found = {}
+        for header in ('q15', 'q31'):
+            text = (ROOT / f'sdk/include/opxy/{header}.hpp').read_text()
+            for match in re.finditer(r'__asm__\("((?:[^"\\]|\\.)*)"\s*((?:"[^"]*"|[^;])*?)\);', text):
+                if not match[2].strip():
+                    continue  # a register variable's name, not a statement
+                parts = match[2].split(':')
+                found[(header, match[1])] = parts[3].strip() if len(parts) > 3 else ''
+        self.assertEqual(len(found), 20, found)
+        exceptions = {('q31', '%0 = %1 + %2 (S);'): '"ASTAT"', ('q15', '%0 = %1.L * %2.L (IS);'): ''}
+        for key, clobbers in found.items():
+            with self.subTest(statement=key):
+                self.assertEqual(clobbers, exceptions.get(key, '"ASTAT", "CC"'))
+
     def test_the_comparison_sees_the_flags_declared(self):
         # The control: the same add written out declaring CC as well moves a compare in
-        # this code, so the comparison above would see a helper's missing or extra flag.
+        # this code. It shows the comparison can see a flag; for most helpers this code
+        # does not depend on the flags, which the test above checks directly.
         prelude = HEADERS + 'using namespace opxy;\n'
         result, first, second, assembly, _ = WRITTEN_OUT['q31::add']
         loop = lambda op: CONTEXT.format(result=result, first=first, second=second, op=op, arguments='a, b',

@@ -112,8 +112,9 @@ inline i16 multiply_nearest(i16 a, i16 b) {
 // SDK 1.28: more of the processor's own 16-bit operations, one instruction each
 // on the device and the same results on the host, so code that wants exactly
 // that instruction calls a helper rather than writing assembly. Like the
-// helpers above, each declares the arithmetic flags changed and never reads,
-// writes or saves ASTAT.
+// helpers above, each one that is an instruction declares the arithmetic flags
+// changed and never reads, writes or saves ASTAT. They are always_inline so that
+// even an unoptimized build never turns one into a call.
 
 // Half of a 1.15 value rounded toward minus infinity, as an arithmetic shift
 // right by one does: the 1.15 counterpart of q31::half.
@@ -141,8 +142,9 @@ __attribute__((always_inline)) inline i16 subtract_wrapped(i16 a, i16 b) {
 }
 
 // A pair: two 1.15 values in one word, low in bits 0..15 and high in bits
-// 16..31, such as a stereo frame. The pair helpers work on both halves at once
-// in one instruction, each half exactly as the scalar helper of the same name.
+// 16..31, such as a stereo frame. low and high read the halves; pack makes a
+// pair; multiply_pair and add_pair work on both halves in one instruction, each
+// half exactly as multiply or add.
 __attribute__((always_inline)) inline i16 low(u32 pair) {
     return static_cast<i16>(static_cast<u16>(pair));
 }

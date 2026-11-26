@@ -81,7 +81,8 @@ static void binary16(int a, int b) {
     expect(word == wanted, "q15::multiply_pair", (long long)ac, b, word, wanted);
     word = opxy::q15::add_pair(ac, bd); wanted = pair(clamp16(a + b), clamp16(c + d));
     expect(word == wanted, "q15::add_pair", (long long)ac, (long long)bd, word, wanted);
-    expect(low_half(word) == clamp16(a + b) && high_half(word) == clamp16(c + d), "pair halves", a, c, word, wanted);
+    expect(opxy::q15::low(u32(word)) == low_half(wanted) && opxy::q15::high(u32(word)) == high_half(wanted),
+           "q15::low/high of a sum", a, c, word, wanted);
 }
 
 static u32 state = 12345;
