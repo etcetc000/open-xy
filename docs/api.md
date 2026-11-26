@@ -436,7 +436,7 @@ A synth declares:
 | `releaseCallback` | Optional integer 0/1 (SDK 1.12): receive the [voice release event](synth-release.md) |
 | `display` | The screen's frame budget; see the [display API](display.md) |
 | `trackControl` | Optional: the [track control](#track-control) state's `stateBytes` and `stateAlignment`, and optionally `unique`, `savedBytes`, `aux` and `sharedLfo` |
-| `trackStage` | Optional (SDK 1.24): the [track stage](#track-stage)'s `stateBytes`, `stateAlignment` and `tailFrames` |
+| `trackStage` | Optional (SDK 1.24): the [track stage](#track-stage)'s `stateBytes`, `stateAlignment` and `tailFrames`, and from SDK 1.27 `audio` |
 
 The SDK never runs constructors or destructors for `Voice`, `Shared` or
 `DisplayState`: their storage starts zeroed and the callbacks set it up.
@@ -639,7 +639,10 @@ writes, so eight voices at half scale sum to about half scale. Keep the stage's
 nominal gain at unity, saturate (the [Q31 helpers](../sdk/include/opxy/q31.hpp)),
 and do not rely on the absolute level. A synth's [audio
 snapshots](display.md#audio-snapshots) come from its voices' `render`, before the
-stage.
+stage, unless the stage declares `audio: 1` (SDK 1.27, with the display's
+`audioTransport`): then `track_process` takes a final `const opxy::AudioContext&`
+for its track, on the words its voices publish to, after them in the block, and can
+publish the track's own sound to the synth's screen.
 
 `track_process` runs once per block on each instrument track that holds the
 synth, in the same block as its voices: the SDK adds no latency. `track_reset`
@@ -660,6 +663,7 @@ the track's voices stop:
 | --- | --- |
 | `stateBytes`, `stateAlignment` | `TrackState` size (whole words) and alignment (4 or 8), checked against the compiled type |
 | `tailFrames` | Frames the stage can sound after its input stops, at most 2^24 (6.3 minutes), or `"unbounded"` |
+| `audio` | Optional, 0 or 1 (SDK 1.27, needs the display's `audioTransport`): `track_process` takes the synth's `const opxy::AudioContext&` after `voices` ([audio snapshots](display.md#audio-snapshots)) |
 
 While the stage sounds after the track's last voice, stock keeps mixing the
 track as if a voice still played. Once the track has had no voice, and the

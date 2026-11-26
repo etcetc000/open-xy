@@ -1,7 +1,7 @@
 """The extended-drawing fixtures (tests/fixtures/machines/probecanvas, probecurves, probelarge,
-probescope, probemeter): counted, open, segment, quadratic and cubic paths, RGBA and palette nodes,
-encoder activity on a synth and an effect, the last control touched, a glyph atlas, a synth's and an
-effect's own audio and stock's output levels. Release verification builds them for the device, so
+probescope, probemeter, probestagemeter): counted, open, segment, quadratic and cubic paths, RGBA and
+palette nodes, encoder activity on a synth and an effect, the last control touched, a glyph atlas, a
+synth's, an effect's and a track stage's own audio and stock's output levels. Release verification builds them for the device, so
 the extended renderer, the control capture and the audio transport keep compiling and linking there."""
 import os
 from pathlib import Path
@@ -17,7 +17,7 @@ from machine_fixtures import FOLDER, fixture
 from test_divide import blackfin_compiler
 from test_sample_services import HOST_CXX
 
-EXTENDED = ('probecanvas', 'probecurves', 'probelarge', 'probescope', 'probemeter')
+EXTENDED = ('probecanvas', 'probecurves', 'probelarge', 'probescope', 'probemeter', 'probestagemeter')
 HIDDEN = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
 
 
@@ -37,7 +37,7 @@ class ExtendedFixtures(unittest.TestCase):
                 screen = adapters.generate_screen(Path(temp), m).read_text(encoding='utf-8')
                 self.assertIn('extended_drawing', screen)
         self.assertEqual(kinds, dict(probecanvas='synth', probecurves='effect', probelarge='synth', probescope='synth',
-                                     probemeter='effect'))
+                                     probemeter='effect', probestagemeter='synth'))
         # Between them: every path kind the renderer retains, both node kinds, and both inputs.
         displays = {name: fixture(name).definition['resources']['display'] for name in EXTENDED}
         self.assertTrue(displays['probecanvas']['countedPaths'] and displays['probecanvas']['openPaths']
@@ -46,10 +46,11 @@ class ExtendedFixtures(unittest.TestCase):
         self.assertTrue(displays['probelarge']['cubic'] and not displays['probelarge'].get('affine'))
         self.assertTrue(native.includes_header([fixture('probecanvas')], 'control_interaction'))
         # The SDK 1.27 keys: a glyph atlas, a synth's wide snapshot with its reset, an effect's
-        # snapshot, and both reading stock's levels.
+        # snapshot, both reading stock's levels, and a track stage publishing its synth's words.
         self.assertTrue(displays['probescope']['glyphs'] and displays['probescope']['audioReset'] and
                         displays['probescope']['outputLevels'] and displays['probemeter']['audioTransport'] and
-                        displays['probemeter']['outputLevels'])
+                        displays['probemeter']['outputLevels'] and displays['probestagemeter']['audioReset'] and
+                        fixture('probestagemeter').definition['resources']['trackStage']['audio'])
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
     def test_each_display_compiles_against_its_generated_input(self):
@@ -66,7 +67,7 @@ class ExtendedFixtures(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('clang++'), 'WASM compiler required')
     def test_the_synth_fixtures_preview(self):
-        for name in ('probecanvas', 'probelarge', 'probescope'):
+        for name in ('probecanvas', 'probelarge', 'probescope', 'probestagemeter'):
             m = fixture(name)
             with self.subTest(name=name), tempfile.TemporaryDirectory() as temp:
                 preview.compile_preview('clang++', m.definition, Path(temp), m.root, m.sources)
@@ -87,14 +88,15 @@ class ExtendedFixtures(unittest.TestCase):
             for name in EXTENDED:
                 self.assertIn(f'"{name}"', result.stdout)
                 self.assertTrue((Path(temp) / 'package/analysis' / name / 'screen.o').is_file(), name)
-            # The two declaring fixtures link the audio transport's units.
+            # The three declaring fixtures link the audio transport's units, and the track
+            # stage's runtime and table for the one with a stage.
             report = (Path(temp) / 'package/analysis/compile-report.json').read_text()
-            for unit in ('telemetry_protocol', 'telemetry_native', 'telemetry_hooks', 'telemetry_registry'):
+            for unit in ('telemetry_protocol', 'telemetry_native', 'telemetry_hooks', 'telemetry_registry', 'track_stage'):
                 self.assertIn(unit, report)
             # The registry still tests each owner's number for 0 (a machine a builder selection
             # leaves out): the compiler may not assume a symbol's address is never null.
             registry = (Path(temp) / 'package/analysis/sdk/telemetry_registry.s').read_text()
-            self.assertGreaterEqual(registry.count('==0;'), 2, 'owner numbers are not tested for 0')
+            self.assertGreaterEqual(registry.count('==0;'), 3, 'owner numbers are not tested for 0')
 
 
 if __name__ == '__main__':

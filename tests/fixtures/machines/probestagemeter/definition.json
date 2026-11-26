@@ -1,0 +1,85 @@
+{
+  "schema": 1,
+  "id": "probestagemeter",
+  "name": "Probe Stage Meter",
+  "parameters": [
+    {
+      "id": "level",
+      "label": "Level",
+      "default": 0.65,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent"
+    },
+    {
+      "id": "width",
+      "label": "Width",
+      "default": 0.6,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent"
+    },
+    {
+      "id": "cross",
+      "label": "Cross",
+      "default": 0.5,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 0.5
+      },
+      "display": "percent"
+    },
+    {
+      "id": "output",
+      "label": "Output",
+      "default": 1,
+      "mapping": {
+        "kind": "linear",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "display": "percent"
+    }
+  ],
+  "presets": {
+    "Plain": {
+      "level": 0.65,
+      "width": 0.6,
+      "cross": 0.5,
+      "output": 1
+    }
+  },
+  "resources": {
+    "voiceBytes": 4,
+    "voiceAlignment": 4,
+    "voiceCapacity": 8,
+    "sharedBytes": 0,
+    "outputPeakQ31": 1073741824,
+    "trackStage": {
+      "stateBytes": 4,
+      "stateAlignment": 4,
+      "tailFrames": 0,
+      "audio": 1
+    },
+    "display": {
+      "stateBytes": 4,
+      "stateAlignment": 4,
+      "paths": 2,
+      "points": 64,
+      "nodes": 2,
+      "texts": 0,
+      "palette": 16,
+      "audioTransport": 1,
+      "audioWords": 3,
+      "audioMode": 0,
+      "audioReset": 1
+    }
+  }
+}

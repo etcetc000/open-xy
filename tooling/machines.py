@@ -608,6 +608,8 @@ def machine_at(root, identity=None):
         require_sdk(version, IDLE_SDK, "An effect's declared tail (tailFrames)")
     if 'trackStage' in definition['resources']:
         require_sdk(version, track_stage.TRACK_STAGE_SDK, "A synth's track stage (trackStage)")
+        if definition['resources']['trackStage'].get('audio'):
+            require_sdk(version, AUDIO_SDK, "A track stage's audio snapshots (trackStage audio)")
     if any(p['display'] == 'division' for p in definition['parameters']):
         require_sdk(version, (1, 2), 'A division control')
     if kind == 'sample' and definition['resources']['voiceCapacity'] < STOCK_VOICES:

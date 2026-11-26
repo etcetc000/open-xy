@@ -58,11 +58,32 @@ def adapter_values(m, shift_row=False):
                              (shift_words(m.definition) or [0] * 8)))
     for key, value in (('PREFIX', m.prefix), ('NAMESPACE', m.definition['id']), ('STATE_BYTES', stage['stateBytes']),
                        ('STATE_ALIGNMENT', stage['stateAlignment']), ('STAGE_WORDS', words), ('STAGE_PARAMETERS', given),
-                       ('STAGE_DEFAULTS', defaults)):
+                       ('STAGE_DEFAULTS', defaults), *audio_values(m).items()):
         require(('@%s@' % key) in source, 'Track stage template placeholder missing')
         source = source.replace('@%s@' % key, str(value))
     # After the template's last line, which keeps its own line end.
     return dict(TRACK_STAGE='\n' + source.rstrip('\n'))
+
+
+def audio_values(m):
+    """A stage declaring audio (SDK 1.27): track_process takes the synth's AudioContext for
+    its track, on the bank its voices publish to (adapters.audio_voice_values), as one more
+    update after the voice loop; the diagnostic's run publishes into scratch words no screen
+    reads, so its publishing is timed. Empty for a stage without it, which keeps its text."""
+    if not track_stage(m).get('audio'):
+        return dict(STAGE_AUDIO_BEGIN='', STAGE_AUDIO_ARGUMENT='', STAGE_AUDIO_END='', STAGE_BENCHMARK_AUDIO='')
+    display = m.definition['resources']['display']
+    count = display['audioWords']
+    handshake = ('audio_handshake, audio_handshake + 1, audio_handshake + 2' if display.get('audioReset')
+                 else 'nullptr, nullptr, nullptr')
+    return dict(
+        STAGE_AUDIO_BEGIN=('    auto* audio_bank = sdk_audio.resolve(track);\n'
+                           '    const opxy::AudioContext audio_context = sdk_audio.context(track, audio_bank);\n'
+                           '    sdk_audio.begin(audio_bank);\n'),
+        STAGE_AUDIO_ARGUMENT=', audio_context',
+        STAGE_AUDIO_END='\n    sdk_audio.end(audio_bank);',
+        STAGE_BENCHMARK_AUDIO=(f'    static volatile u32 audio_words[{count}], audio_handshake[3];\n'
+                               f'    const AudioContext audio_context(0, audio_words, {count}, {handshake}, 0, true);\n'))
 
 
 def stage_symbols(m):

@@ -126,6 +126,9 @@ EFFECT_BUS_SHIFT = 12
 # A synth's track stage (SDK 1.24, tooling/track_stage.py): its TrackState's size and
 # alignment, checked against the compiled type, and its tail, as an effect's tailFrames.
 TRACK_STAGE_KEYS = ('stateBytes', 'stateAlignment', 'tailFrames')
+# Optional (SDK 1.27): audio 1 gives track_process the synth's AudioContext, so the stage
+# publishes to its screen's audio snapshots (display audioTransport).
+TRACK_STAGE_OPTIONS = ('audio',)
 # A drum kit's models in named groups (SDK 1.8), which Shift and the first encoder choose
 # (with padMix, which takes Shift's first row, they only title the models);
 # chokeSameKey 1 for a note to cut the voices still sounding its track's same key;
@@ -241,6 +244,8 @@ def validate_definition(value, kind):
             require(resources.get(flag, 0) in (0, 1), flag + ' must be 0 or 1')
         if 'trackStage' in resources:
             validate_track_stage(resources['trackStage'])
+            require(not resources['trackStage'].get('audio') or resources.get('display', {}).get('audioTransport'),
+                    'trackStage audio needs the display to declare audioTransport')
     if 'voiceCapacity' in resources:
         require(1 <= resources['voiceCapacity'] <= 256, 'Voice capacity must be 1..256')
     # A sample engine's voice is bound to its sample when created, so it needs a
@@ -550,9 +555,11 @@ def validate_synth_resources(resources, kind='synth'):
 
 
 def validate_track_stage(stage):
-    """A synth's trackStage: TrackState in whole words aligned to 4 or 8, and its tail in
-    frames (at most 2^24) or "unbounded"."""
-    keys(stage, TRACK_STAGE_KEYS, 'trackStage')
+    """A synth's trackStage: TrackState in whole words aligned to 4 or 8, its tail in
+    frames (at most 2^24) or "unbounded", and optionally audio, 0 or 1."""
+    require(isinstance(stage, dict) and set(TRACK_STAGE_KEYS) <= set(stage) <= set(TRACK_STAGE_KEYS + TRACK_STAGE_OPTIONS),
+            'Unexpected trackStage fields')
+    require(type(stage.get('audio', 0)) is int and stage.get('audio', 0) in (0, 1), 'trackStage audio is 0 or 1')
     size, alignment, tail = stage['stateBytes'], stage['stateAlignment'], stage['tailFrames']
     require(type(size) is int and type(alignment) is int and 4 <= size and alignment in (4, 8) and
             size % alignment == 0, 'Track stage state must occupy whole words, aligned to 4 or 8 bytes')

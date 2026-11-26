@@ -603,6 +603,15 @@ on any other word keeps summing until it saturates. A track's words are not clea
 engine changes or a project loads: until the synth plays there again, its screen
 shows the words the track last held.
 
+A synth's [track stage](api.md#track-stage) declaring `audio: 1` in
+`trackStage` (SDK 1.27) takes the same context as a final argument of
+`track_process`, on the same track's words, after that block's voices: it can
+publish what the whole track plays, or apply a reset request while the track's
+voices are silent and the stage still runs. Its `publish_word` replaces a voice's
+word of the same block, and its `add_packed16` adds to theirs. A sleeping stage
+publishes nothing. The browser preview does not run stages, so a stage's words
+reach the screen on the device only.
+
 An effect's words are its send's: the effect on each send has its own, cleared
 when stock places or resets it there, and its page reads the send it shows.
 `AudioContext::track` is the stock track the words belong to (14 or 15 for a
