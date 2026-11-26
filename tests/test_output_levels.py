@@ -87,9 +87,9 @@ class OutputLevels(unittest.TestCase):
             del plain['resources']['display']['outputLevels']
             adapters.generate_display(folder, definition=plain)
             self.assertNotIn('output_levels', (folder / 'display_binding.hpp').read_text().split('#include <opxy/output_levels.hpp>')[1])
-            # An SDK before 1.26 does not have the key.
+            # An SDK before 1.27 does not have the key.
             record = json.loads((machine.root / 'machine.json').read_text())
-            record['sdk'] = '1.25'
+            record['sdk'] = '1.26'
             (machine.root / 'machine.json').write_text(json.dumps(record))
             with self.assertRaises(ValueError):
                 machine_at(machine.root)

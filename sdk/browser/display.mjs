@@ -384,7 +384,11 @@ export class SvgDisplay {
         if (!elements.has(child.localName)) continue;
         const node = document.createElementNS(SVG, child.localName);
         for (const attribute of child.attributes) {
-          if (attributes.has(attribute.name)) node.setAttribute(attribute.name, attribute.value);
+          // Attribute values are decoded by the XML parser. Never let uploaded
+          // artwork load an external paint server, including entity-encoded URLs
+          // and CSS escapes (a backslash), which presentation attributes decode.
+          if (attributes.has(attribute.name) && !/url\s*\(|\\/i.test(attribute.value))
+            node.setAttribute(attribute.name, attribute.value);
         }
         if (child.localName === 'text') node.textContent = child.textContent;
         else copy(child, node);

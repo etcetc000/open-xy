@@ -76,6 +76,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   const roomHint = (message, then, ...selection) => (/[.!?]$/.test(message) ? message : message + '.') +
     (!checkingOs && fitsLarger(...selection) ? ` Turn on “Use ${expandedSize()} for machines” (experimental) ${then}.` : '');
   let kit, stock, catalog, selected = [], selectedExtensions = [], extensionSettings = {}, inspected, inspectedExtension, linked, downloadUrl, built, layout, revision = 0;
+  // The site's own collection, opened and as exported, which an imported machine pack extends.
+  let baseKit, baseSource, packTicket = 0;
   // The settings chosen for the selected extensions' capabilities: the link (a unit capability
   // chooses objects) and the OS edits both take them.
   const capabilitySettings = extensions => Object.fromEntries(Object.entries(extensionSettings).filter(([c]) =>
@@ -171,6 +173,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       : !linked ? 'This selection cannot be built. ' + (selectionError || 'Review the memory usage and choose fewer machines.') : '';
     $('build').disabled = !!reason || building;
     $('expert-mode').disabled = builderPreview || !acknowledged || !kit;
+    // Imported code is accepted only after the risk notice, never in audition preview.
+    $('machine-pack').disabled = builderPreview || !acknowledged || !baseKit;
     $('expert-build').disabled = !!reason || building;
     $('expert-run').disabled = !!reason || building || !wizard.supportsQuickInstall();
     $('expert-save').disabled = !kit || builderPreview;
@@ -251,6 +255,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       $('builder-workspace').hidden = false;
       $('builder-workspace').inert = false;
       navigate(expertMode ? 5 : 1);
+      if (kit) ready();
       resolve();
     };
   });
@@ -280,6 +285,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       Extensions: (kit.extensions ?? []).filter(e => selectedExtensions.includes(e.id)).map(e => e.name).join(', ') || 'None',
       ...(expandedKit ? {Memory: expandedMemory() ? expandedSize() + ' (experimental)' : 'Standard'} : {}),
       'Machine graphics': (grayscale ? 'Grayscale' : 'Original designs') + (count ? ' · ' + count + ' customized' : ''),
+      // Every build links an imported pack's startup and tables, whichever machines are selected.
+      ...(baseKit && kit !== baseKit ? {'Machine pack': (n => n + (n === 1 ? ' imported machine' : ' imported machines'))(kit.machines.length - baseKit.machines.length)} : {}),
     });
   }
   function graphicsChanged(machine) {
@@ -398,12 +405,14 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       field('detail-source').replaceChildren(...sourceLinks(m.source));
     } else if (m.origin === 'official') {
       field('detail-source').replaceChildren('Open-XY machine', ...sourceLinks(m.source).slice(2));
-    } else field('detail-source').textContent = 'Your machine, from this kit';
+    } else field('detail-source').textContent = baseKit && !baseKit.machines.some(x => x.id === m.id)
+      ? 'Your machine, imported from a machine pack' : 'Your machine, from this kit';
   }
   function sizeMachineSummary() {
     // Overlapping, inert copies let CSS reserve the tallest summary in this kit,
     // including wrapped attribution and the notice, at any window or font size.
     const summary = $('machine-summary');
+    summary.parentElement.querySelectorAll('.summary-sizing').forEach(el => el.remove());
     for (const m of kit.machines) {
       const sizing = summary.cloneNode(true);
       sizing.removeAttribute('id');
@@ -914,6 +923,46 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   };
   $('choose-extensions').onclick = () => { navigate(3); recalculate(); };
   $('build').onclick = () => build();
+  // An imported machine pack extends the site's collection (core.importMachinePack), and
+  // removing it restores that collection. The OS, memory choice and machine numbers stay.
+  function useMachineCollection(value) {
+    stopPreview(); ++previewRevision;
+    // An OS still being checked used the previous collection: it is loaded again.
+    if (checkingOs) {
+      ticket++; endOsCheck();
+      wizard.setFirmwareState('empty'); $('firmware-result').textContent = 'OS not loaded';
+      $('firmware').value = '';
+    }
+    kit = value;
+    expandedKit = core.offersExpandedMemory(kit.profile) ? core.memoryKit(kit, true) : null;
+    selected = selected.filter(id => kit.machines.some(m => m.id === id));
+    invalidate();
+    $('notices').textContent = kit.notices;
+    sizeMachineSummary(); renderBrowsing(); renderMachines(); renderPresets(); renderExtensions(); recalculate();
+    inspect(kit.machines.some(m => m.id === inspected) ? inspected : kit.machines[0].id);
+    $('remove-machine-pack').hidden = kit === baseKit;
+  }
+  $('machine-pack').onchange = async e => {
+    const file = e.target.files[0]; e.target.value = '';
+    if (!file || !baseKit || builderPreview || !acknowledged) return;
+    const current = ++packTicket, base = baseKit;
+    $('machine-pack-result').textContent = 'Checking ' + file.name + '…';
+    try {
+      const pack = core.readMachinePack(await readBounded(file, core.MACHINE_PACK_LIMIT));
+      const candidate = await core.importMachinePack(baseSource, pack);
+      if (current !== packTicket || base !== baseKit || builderPreview || !acknowledged) return;
+      useMachineCollection(candidate);
+      const count = candidate.machines.length - baseKit.machines.length;
+      $('machine-pack-result').textContent = `${count} custom ${count === 1 ? 'machine' : 'machines'} added. Select them in the catalog. Keep this ZIP to import again after reloading.` + (stock ? ' Choose your OS file again if it was built with other machines, so its selection is recognized.' : '');
+    } catch (error) {
+      if (current === packTicket) $('machine-pack-result').textContent = error.message || String(error);
+    }
+  };
+  $('remove-machine-pack').onclick = () => {
+    ++packTicket;
+    useMachineCollection(baseKit);
+    $('machine-pack-result').textContent = 'Imported machines removed. Saved machine numbers are kept.' + (stock ? ' Choose your OS file again if it was built with other machines, so its selection is recognized.' : '');
+  };
   $('expert-mode').onclick = () => {
     if (!acknowledged || builderPreview || !kit) return;
     expertMode = true;
@@ -1111,7 +1160,11 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   async function loadCollectionData(data) {
     const next = await core.openKit(data);
     const hadOs = stock != null || checkingOs;
-    invalidate(); stock = null; kit = next;
+    invalidate(); stock = null; kit = baseKit = next; baseSource = data;
+    // A new collection drops an imported pack, which extended the previous one.
+    ++packTicket;
+    $('remove-machine-pack').hidden = true;
+    $('machine-pack-result').textContent = '';
     selectionRemembered = false; selectedExtensions = []; extensionSettings = {}; editedExtensionSettings.clear();
     $('selection-memory').textContent = '';
     // A loaded or still-checking OS was for the previous collection: it is loaded again.

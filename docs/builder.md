@@ -357,6 +357,10 @@ Domains & Routes → Add → Custom Domain**; see the
 
 ## Export a kit
 
+To distribute custom machines for import into the site's catalog, see
+[machine packs](catalog.md#import-custom-machines). They are exported with
+`--personal --machine-pack` and pass the same native and browser checks as a personal kit.
+
 With the [pinned native tools](build.md) and Clang++ for wasm32:
 
 ```powershell

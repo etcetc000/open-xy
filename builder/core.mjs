@@ -1490,14 +1490,270 @@ export async function buildAssets(kit, selection, catalog, numbers, options = {}
   return files;
 }
 
+export const MACHINE_PACK_LIMIT = 64 * 1024 ** 2;
+const packFile = 'machines.json';
+// The SDK objects generated from the machines of a collection (tooling.native.build_unit);
+// every other SDK object is the same whichever machines a collection holds.
+const collectionObjects = new Set(['sdk/startup.o', 'sdk/benchmark.o', 'sdk/sample_callbacks.o',
+  'sdk/synth_control_table.o', 'sdk/project_companion_table.o', 'sdk/drum_callbacks.o', 'sdk/player_table.o',
+  'sdk/track_control_table.o', 'sdk/track_stage_table.o']);
+const canonical = value => JSON.stringify(value, (_key, v) => v && typeof v === 'object' && !Array.isArray(v)
+  ? Object.fromEntries(Object.keys(v).sort().map(key => [key, v[key]])) : v);
+const sameValue = (a, b) => canonical(a) === canonical(b);
+// Preview compilers can differ between hosts. Existing previews and provenance
+// always come from the site; only its native machine contract must match.
+function machineContract(m) {
+  const contract = Object.fromEntries(Object.entries(m ?? {})
+    .filter(([key]) => !['preview', 'origin', 'source', 'cpu', 'keywords'].includes(key)));
+  // An aux machine has no menu entry ('').
+  if (typeof contract.catalog === 'string' && contract.catalog !== '') {
+    contract.catalog = JSON.parse(contract.catalog.trim().replace(/^,/, ''));
+    // This is the author's collection-assigned number, not the machine's
+    // requested identity. The receiver uses its own saved per-selection layout.
+    if (contract.kind === 'effect') delete contract.catalog.id;
+  }
+  return contract;
+}
+const objectRecord = o => Object.fromEntries(['name', 'owner', 'bytes', 'sha256', 'service', 'extension', 'runtime']
+  .filter(key => o[key] !== undefined).map(key => [key, o[key]]));
+const CRC_TABLE = Uint32Array.from({length:256}, (_, n) => {
+  for (let i = 0; i < 8; i++) n = n >>> 1 ^ (n & 1 ? 0xedb88320 : 0);
+  return n;
+});
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (const b of bytes) c = CRC_TABLE[(c ^ b) & 0xff] ^ c >>> 8;
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+// SDK packs contain exactly one stored JSON entry. Reject compressed, encrypted,
+// multi-disk, ZIP64, duplicate/traversal entries and trailing data before parsing.
+export function readMachinePack(bytes) {
+  check(bytes instanceof Uint8Array && bytes.length >= 124 && bytes.length <= MACHINE_PACK_LIMIT,
+    'Choose an SDK machine ZIP: this file is empty, too small or larger than 64 MiB.');
+  const d = view(bytes), u16 = at => d.getUint16(at, true), u32 = at => d.getUint32(at, true);
+  const end = bytes.length - 22;
+  check(u32(end) === 0x06054b50 && u16(end + 4) === 0 && u16(end + 6) === 0 &&
+    u16(end + 8) === 1 && u16(end + 10) === 1 && u16(end + 20) === 0,
+    'Expected an SDK machine pack with one manifest. Source and firmware ZIPs cannot be imported.');
+  const central = u32(end + 16), directoryBytes = 46 + packFile.length;
+  check(central >= 30 + packFile.length && central + directoryBytes === end && u32(end + 12) === directoryBytes,
+    'Invalid machine ZIP directory');
+  check(u32(central) === 0x02014b50 && u16(central + 8) === 0 && u16(central + 10) === 0 &&
+    u16(central + 28) === packFile.length && u16(central + 30) === 0 && u16(central + 32) === 0 &&
+    u16(central + 34) === 0 && u32(central + 42) === 0 &&
+    decoder.decode(bytes.subarray(central + 46, end)) === packFile, 'Invalid machine ZIP entry');
+  const start = 30 + packFile.length, size = u32(central + 24), crc = u32(central + 16);
+  check(u32(0) === 0x04034b50 && u16(6) === 0 && u16(8) === 0 && u16(26) === packFile.length &&
+    u16(28) === 0 && u32(14) === crc && u32(18) === size && u32(22) === size &&
+    u32(central + 20) === size && start + size === central &&
+    decoder.decode(bytes.subarray(30, start)) === packFile, 'Invalid machine ZIP header');
+  const data = bytes.subarray(start, central);
+  check(crc32(data) === crc, 'Machine ZIP is damaged');
+  return JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(data), (key, value) => {
+    check(!['__proto__', 'prototype', 'constructor'].includes(key), 'Invalid machine manifest key');
+    return value;
+  });
+}
+
+// The keys tooling.browser_kit.machine_entry writes for a custom synth, effect or sample
+// engine; anything else (a catalog source, keywords, aux presets) is refused.
+// Names a machine may not take (tooling.definitions.STOCK_TYPES and RESERVED_PREFIXES).
+const STOCK_TYPES = ['sampler', 'drum', 'drumline', 'organ', 'epiano', 'prism', 'hardsync', 'dissolve', 'axis',
+  'wavetable', 'simple', 'midi', 'multisampler', 'delay', 'reverb', 'chorus', 'phaser', 'dist', 'lofi', 'arpeggio',
+  'hold', 'maestro'];
+const RESERVED_PREFIXES = ['extensions', 'sdk', 'kit', 'stock', 'local'];
+// Imported artwork as tooling.svg_safety accepts the SDK's authored SVG, read token by token:
+// comments, CDATA and text are inert; every tag is one of its drawing elements, with no event,
+// style or link attribute and no url() paint in a value (as the XML parser decodes it). A
+// processing instruction, declaration or anything unparsed ends the scan and is refused.
+const ARTWORK_ELEMENTS = new Set(['svg', 'g', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'path', 'text']);
+// A reference beyond Unicode is not XML: it is refused.
+const codePoint = n => n <= 0x10ffff ? String.fromCodePoint(n) : '\\';
+const xmlValue = value => value.replace(/&#x([0-9a-f]+);/gi, (_, n) => codePoint(parseInt(n, 16)))
+  .replace(/&#(\d+);/g, (_, n) => codePoint(Number(n)))
+  .replace(/&(lt|gt|quot|apos|amp);/g, (_, n) => ({lt:'<', gt:'>', quot:'"', apos:"'", amp:'&'})[n]);
+function safeArtwork(text) {
+  if (typeof text !== 'string' || text.length > 65536) return false;
+  const tokens = /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<(\/?)([A-Za-z][\w:.-]*)((?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*\/?>|[^<]+/y;
+  const attributes = /\s+([^\s=/>]+)\s*=\s*("[^"]*"|'[^']*')/g;
+  let at = 0, token;
+  while (at < text.length) {
+    tokens.lastIndex = at;
+    if (!(token = tokens.exec(text))) return false;
+    at = tokens.lastIndex;
+    if (token[2] === undefined) continue;
+    if (!ARTWORK_ELEMENTS.has(token[2])) return false;
+    for (const [, name, quoted] of token[3].matchAll(attributes)) {
+      const value = xmlValue(quoted.slice(1, -1));
+      if (/^on/i.test(name) || name.toLowerCase() === 'style' || /href/i.test(name) || /url\s*\(|\\/i.test(value))
+        return false;
+    }
+  }
+  return true;
+}
+const PACK_MACHINE_KEYS = new Set(['id', 'name', 'kind', 'prefix', 'description', 'identity', 'controls', 'positions',
+  'pages', 'catalog', 'origin', 'features', 'presetDefaults', 'presets', 'icon', 'absent', 'artwork', 'grayscaleArtwork',
+  'asset', 'fullCanvas', 'preview', 'shiftRow', 'heapVoices']);
+function checkPackMachine(m, fixed = {}) {
+  check(m && typeof m === 'object' && Object.keys(m).every(key => PACK_MACHINE_KEYS.has(key)),
+    'Invalid custom machine metadata');
+  // An ID as layouts and presets hold it (MACHINE_ID), which is also its symbol prefix
+  // (tooling.machines), and a description as machine.json holds it.
+  check(m && typeof m.id === 'string' && MACHINE_ID.test(m.id) && !Object.hasOwn(Object.prototype, m.id) &&
+    // Fixed numbers belong to Open-XY's own machines, even one this site does not carry.
+    !Object.hasOwn(fixed, m.id) &&
+    !STOCK_TYPES.includes(m.id) && !RESERVED_PREFIXES.some(p => m.id === p || m.id.startsWith(p + '_')) &&
+    m.prefix === m.id && ['synth', 'effect', 'sample'].includes(m.kind) &&
+    m.origin === 'personal' && m.source === undefined && m.cpu === undefined &&
+    typeof m.name === 'string' && m.name.length > 0 && m.name.length <= 80 &&
+    typeof m.description === 'string' && [...m.description].length <= 160,
+    'Invalid custom machine metadata');
+  check(Array.isArray(m.controls) && m.controls.length >= (m.kind === 'synth' ? 4 : 1) && m.controls.length <= 8 &&
+    m.controls.every(c => typeof c === 'string' && c.length <= 80) &&
+    Array.isArray(m.positions) && m.positions.length === m.controls.length &&
+    m.positions.every(p => m.kind === 'synth' && p === null || Number.isInteger(p) && p >= 0 && p <= 3) &&
+    typeof m.pages === 'boolean',
+    'Invalid custom machine controls');
+  check(m.absent && typeof m.absent === 'object' && !Array.isArray(m.absent) &&
+    Object.entries(m.absent).every(([symbol, fallback]) => symbol.startsWith(m.prefix + '_') &&
+      /^[a-z][a-z0-9_]*$/.test(symbol) && fallback === 'kit_absent'), 'Invalid machine callbacks');
+  check(m.icon === undefined || typeof m.icon === 'string' && m.icon.length <= 4096 &&
+    /^[MmZzLlHhVvCcSsQqTtAa0-9eE+.,\s-]*$/.test(m.icon), 'Invalid machine icon');
+  check(typeof m.catalog === 'string' && m.catalog.length < 4096 && m.catalog.trim().startsWith(','),
+    'Invalid machine menu');
+  let entry = null;
+  try { entry = JSON.parse(m.catalog.trim().slice(1)); } catch { /* refused below */ }
+  check(entry && typeof entry === 'object' && !Array.isArray(entry) &&
+    entry.type === m.id && Array.isArray(entry.default_params) && entry.default_params.length === 8 &&
+    entry.default_params.every(n => Number.isInteger(n) && n >= 0 && n <= 32767) &&
+    Object.keys(entry).every(key => ['type', 'id', 'default_params'].includes(key)) &&
+    // An effect's entry carries its number (catalogEntry); an instrument's has none.
+    (m.kind === 'effect' ? Number.isInteger(entry.id) : !Object.hasOwn(entry, 'id')), 'Invalid machine menu');
+  presetFiles(m);
+  check(m.artwork === undefined || safeArtwork(m.artwork) && m.asset === m.id + '.svg' &&
+    (m.grayscaleArtwork === undefined || safeArtwork(m.grayscaleArtwork)), 'Invalid machine artwork');
+  check(m.kind !== 'synth' || typeof m.artwork === 'string', 'Missing synth artwork');
+  // A synth's preview (tooling.browser_kit.machine_entry): no drum kit's, and a Shift row's
+  // eight words only with that row.
+  const word = n => Number.isInteger(n) && n >= 0 && n <= 0x7fffffff;
+  check(m.preview === undefined || m.preview && typeof m.preview === 'object' && m.kind === 'synth' &&
+    Object.keys(m.preview).every(key => ['wasm', 'sha256', 'graphics', 'defaults', 'shift'].includes(key)) &&
+    typeof m.preview.wasm === 'string' &&
+    m.preview.wasm.length <= 16 * 1024 ** 2 && /^[a-f0-9]{64}$/.test(m.preview.sha256) &&
+    Array.isArray(m.preview.defaults) && m.preview.defaults.length === m.controls.length && m.preview.defaults.every(word) &&
+    (m.preview.shift === undefined || m.shiftRow === true && Array.isArray(m.preview.shift) &&
+      m.preview.shift.length === 8 && m.preview.shift.every(word)), 'Invalid machine preview');
+  // The services it uses beyond its kind's (activeServices): only the features an imported
+  // kind can declare (tooling.native.service_users), never a capability or another kind's.
+  check(m.features === undefined || Array.isArray(m.features) && m.features.length <= 4 &&
+    m.features.every(f => ['trackControl', 'hidePages', 'trackStage'].includes(f) || f === 'synthShift' && m.kind === 'synth'),
+    'Invalid machine features');
+  // A Shift row is declared both ways (machine_entry): its feature and its presets' row.
+  check((m.shiftRow === undefined || m.shiftRow === true && m.kind === 'synth') &&
+    (m.features ?? []).includes('synthShift') === (m.shiftRow === true), 'Invalid machine Shift row');
+  check(m.fullCanvas === undefined || m.fullCanvas === 1, 'Invalid full canvas flag');
+  check(m.grayscaleArtwork === undefined || typeof m.artwork === 'string', 'Invalid machine artwork');
+  check(m.heapVoices === undefined || m.kind === 'synth' && Number.isInteger(m.heapVoices) && m.heapVoices > 0,
+    'Invalid machine heap voices');
+}
+
+// Import a complete compiled extension of the site's collection. Never replace
+// its firmware profile, stock content, fixed numbers, runtime or existing machines.
+// The collection-specific objects (collectionObjects) must accompany the added
+// machines: they carry their registration, controls, callbacks and project identities.
+// `base` is the site's kit as exported, before openKit: the candidate is opened from
+// it, keeping its unit sources and service fallbacks, which a pack cannot change.
+export async function importMachinePack(base, pack) {
+  const keys = ['format', 'version', 'profileSha256', 'definitions', 'fixed', 'machines', 'objects', 'extensions', 'notices'];
+  check(pack && typeof pack === 'object' && Object.keys(pack).sort().join() === keys.sort().join() &&
+    pack.format === 'opxy-machine-pack/1', 'Unsupported machine pack');
+  check(pack.version === base.version && pack.profileSha256 === await sha256(decode64(base.profileSource)) &&
+    sameValue(pack.definitions, base.definitions) && sameValue(pack.fixed, base.fixed) &&
+    // Whether an extension is the SDK's own depends on the exporting checkout, not its contents.
+    Array.isArray(pack.extensions) && sameValue(pack.extensions.map(e => ({...e, origin:undefined})),
+      (base.extensions ?? []).map(e => ({...e, origin:undefined}))),
+    'This pack targets a different Open-XY release or extension collection. Ask its author for a matching pack.');
+  check(Array.isArray(pack.machines) && pack.machines.length > base.machines.length &&
+    pack.machines.length <= base.profile.identities.engines &&
+    base.machines.every((m, i) => sameValue(machineContract(m), machineContract(pack.machines[i]))),
+    'This pack must extend the current catalog without replacing its machines. Ask its author for a matching pack.');
+  // The menu entry is rebuilt from its checked values in tooling.adapters.catalog_entry's
+  // layout, so the stock menu gets exactly those (an effect's number is the layout's).
+  const users = new Set(Object.values(base.profile.services ?? {}).flat());
+  const added = pack.machines.slice(base.machines.length).map(m => {
+    checkPackMachine(m, base.fixed);
+    check((m.features ?? []).every(f => users.has(f)), 'Invalid machine features');
+    const entry = JSON.parse(m.catalog.trim().slice(1)), indent = '\n            ';
+    // An effect's menu number is one stock offers (catalogEntry replaces it with the layout's).
+    check(m.kind !== 'effect' || base.profile.identities.effects.includes(entry.id), 'Invalid machine menu');
+    return {...m, catalog: ',\n        {' + indent + '"type": ' + JSON.stringify(entry.type) +
+      (m.kind === 'effect' ? ',' + indent + '"id": ' + entry.id : '') +
+      ',' + indent + '"default_params": [' + entry.default_params.join(', ') + ']\n        }' + (m.kind === 'effect' ? '' : '\n')};
+  });
+  check(new Set(pack.machines.map(m => m.id)).size === pack.machines.length &&
+    new Set(pack.machines.map(m => m.prefix)).size === pack.machines.length, 'Duplicate machine identity');
+  check(Array.isArray(pack.objects) && pack.objects.length <= 4096 &&
+    pack.objects.every(o => o && sameValue(o, objectRecord(o)) && typeof o.name === 'string' &&
+      typeof o.bytes === 'string' && /^[a-f0-9]{64}$/.test(o.sha256)) &&
+    new Set(pack.objects.map(o => o.name)).size === pack.objects.length, 'Invalid machine objects');
+  const existingIds = new Set(base.machines.map(m => m.id));
+  const existingObjects = base.objects.map(objectRecord);
+  const preserved = pack.objects.filter(o => o.owner === null || existingIds.has(o.owner));
+  const changed = [...Array(Math.max(preserved.length, existingObjects.length)).keys()].find(i => {
+    const o = preserved[i], old = existingObjects[i];
+    return !o || !old || !(o.owner === null && collectionObjects.has(o.name)
+      ? sameValue({...o, bytes:'', sha256:''}, {...old, bytes:'', sha256:''}) : sameValue(o, old));
+  });
+  // A custom machine that needs SDK objects the site's machines do not (another service,
+  // arithmetic runtime member or SDK header unit) cannot extend this collection.
+  check(changed === undefined, 'This pack changes the existing machines or SDK runtime (' +
+    (preserved[changed]?.name ?? existingObjects[changed]?.name) + '). Rebuild it with the matching SDK and catalog.');
+  const addedIds = new Set(added.map(m => m.id));
+  check(pack.objects.every(o => o.owner === null || existingIds.has(o.owner) || addedIds.has(o.owner) &&
+    o.name.startsWith(o.owner + '/') && /^[A-Za-z0-9_./-]+\.o$/.test(o.name) && !o.name.split('/').includes('..') &&
+    o.service === undefined && o.extension === undefined && o.runtime === undefined) &&
+    added.every(m => pack.objects.some(o => o.owner === m.id)), 'Missing or unowned machine objects');
+  check(typeof pack.notices === 'string' && pack.notices.length <= 1024 ** 2, 'Invalid machine notices');
+  const candidate = await openKit({...base, linked:undefined, machines:[...base.machines, ...added], objects:pack.objects,
+    notices:base.notices + '\n\nImported machine pack\n\n' + pack.notices});
+  for (const m of added) {
+    if (m.preview) check(await sha256(decode64(m.preview.wasm)) === m.preview.sha256, 'Machine preview hash mismatch');
+    // Catch missing imports, duplicate exports and machines that cannot fit even
+    // alone, in the larger memory a site offers. The user's combined selection is
+    // checked by the normal memory meter.
+    try { linkKit(candidate, [m.id]); }
+    catch (error) {
+      if (error.capacity !== true || !offersExpandedMemory(candidate.profile)) throw error;
+      linkKit(memoryKit(candidate, true), [m.id]);
+    }
+  }
+  for (const m of added) {
+    // A service it switches on with hooks must have its objects in this kit (carriedCapability):
+    // a pack never adds them, and a build would hook into nothing.
+    for (const service of activeServices(base.profile, [m]))
+      check(!base.profile.patches.some(edit => edit.service === service && edit.kind === 'hook') ||
+        candidate.objects.some(o => o.service === service), `${m.id} needs the ${service} service, which this site does not link`);
+    // Its absent fallbacks name its own callbacks, not another machine's or the SDK's.
+    for (const symbol of Object.keys(m.absent))
+      check(!candidate.objects.some(o => o.owner !== m.id && o.symbols.some(s => s.binding && s.section && s.name === symbol)),
+        `${m.id} lists another object's ${symbol} as its own callback`);
+  }
+  // The pack's shared objects name added machines' callbacks: each one they import must be
+  // in its machine's `absent` list, so every selection without that machine still links.
+  const imported = new Set(candidate.objects.filter(o => o.owner === null)
+    .flatMap(o => o.symbols.filter(s => s.binding && !s.section && s.name).map(s => s.name)));
+  for (const m of added)
+    for (const o of candidate.objects.filter(o => o.owner === m.id))
+      for (const s of o.symbols.filter(s => s.binding && s.section && imported.has(s.name)))
+        check(Object.hasOwn(m.absent, s.name), `${m.id} has no absent fallback for ${s.name}`);
+  linkKit(candidate, [base.machines[0].id]);
+  return candidate;
+}
+
 // Stored ZIP: no dependencies or compression worker, deterministic metadata.
 export function zipFiles(files) {
   const locals = [], central = []; let offset = 0;
-  const crc32 = bytes => {
-    let c = 0xffffffff;
-    for (const b of bytes) { c ^= b; for (let i = 0; i < 8; i++) c = c >>> 1 ^ (c & 1 ? 0xedb88320 : 0); }
-    return (c ^ 0xffffffff) >>> 0;
-  };
   for (const [name, bytes] of Object.entries(files)) {
     check(/^[a-zA-Z0-9_./-]+$/.test(name) && !name.includes('..') && !name.startsWith('/'), 'Invalid bundle path');
     const path = utf8.encode(name), crc = crc32(bytes), local = new Uint8Array(30 + path.length), d = view(local);

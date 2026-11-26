@@ -62,7 +62,8 @@ is the reference for each of them.
   any of the last four (below its count and named), and always on a `padMix`
   kit. A
   [note player](api.md#note-players) with five to eight parameters pages the
-  same way; the SDK draws its header.
+  same way; the SDK draws its header, unless the player
+  [draws its own page](api.md#a-players-own-drawn-page-sdk-126) (SDK 1.26).
 - **A Shift row for more.** A synth that needs more than eight controls
   declares a [Shift row](api.md#a-synths-shift-row) (SDK 1.13): up to four
   more under each page, which Shift and that page's encoders turn. Holding

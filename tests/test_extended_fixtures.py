@@ -45,7 +45,7 @@ class ExtendedFixtures(unittest.TestCase):
         self.assertTrue(displays['probecurves']['quadratic'] and displays['probecurves']['encoderActivity'])
         self.assertTrue(displays['probelarge']['cubic'] and not displays['probelarge'].get('affine'))
         self.assertTrue(native.includes_header([fixture('probecanvas')], 'control_interaction'))
-        # The SDK 1.26 keys: a glyph atlas, a synth's wide snapshot with its reset, an effect's
+        # The SDK 1.27 keys: a glyph atlas, a synth's wide snapshot with its reset, an effect's
         # snapshot, and both reading stock's levels.
         self.assertTrue(displays['probescope']['glyphs'] and displays['probescope']['audioReset'] and
                         displays['probescope']['outputLevels'] and displays['probemeter']['audioTransport'] and

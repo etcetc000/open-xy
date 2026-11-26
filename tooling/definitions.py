@@ -88,10 +88,10 @@ EXTENDED_KEYS = ('affine', 'fullCanvas', 'rgba', 'cubic', 'openPaths', 'segmentP
                  'audioWords', 'audioTransport', 'audioMode', 'audioReset', 'audioAccumulators', 'outputLevels')
 EXTENDED_RANGES = dict(openPaths=0xffffffff, segmentPaths=0xffffffff, commands=128, glyphs=64, glyphDefinitions=16,
                        glyphStart=255, audioWords=256, audioMode=2, audioAccumulators=24)
-# The keys SDK 1.26 adds to extended drawing: glyph atlases, a screen's own audio and
+# The keys SDK 1.27 adds to extended drawing: glyph atlases, a screen's own audio and
 # stock's levels. A renumber changes this line, SDK_VERSION and its history
-# (tooling/machines.py) and the "1.26" text in the docs and fixtures.
-AUDIO_SDK = (1, 26)
+# (tooling/machines.py) and the "1.27" text in the docs and fixtures.
+AUDIO_SDK = (1, 27)
 AUDIO_SDK_KEYS = ('glyphs', 'glyphDefinitions', 'glyphStart', 'audioWords', 'audioTransport', 'audioMode', 'audioReset',
                   'audioAccumulators', 'outputLevels')
 EXTENDED_LIMITS = dict(paths=32, points=256)
@@ -230,7 +230,7 @@ def validate_definition(value, kind):
     label(value['name'])
     resources = value['resources']
     options = {'sample': SAMPLE_OPTIONS, 'effect': EFFECT_OPTIONS, 'drum': DRUM_OPTIONS,
-               'synth': ('trackControl', 'stereoOutput', 'releaseCallback', 'trackStage')}.get(kind, ())
+               'synth': ('trackControl', 'stereoOutput', 'releaseCallback', 'trackStage'), 'player': ('display',)}.get(kind, ())
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
     require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'stockShift', 'padControls',
@@ -277,6 +277,9 @@ def validate_definition(value, kind):
                     'tailFrames is a whole number of frames, at most %d, or "unbounded"' % EFFECT_TAIL_LIMIT)
         if 'display' in resources:
             validate_display(resources['display'], kind)
+    # A note player's own drawn page (SDK 1.26, tooling.machines).
+    if kind == 'player' and 'display' in resources:
+        validate_display(resources['display'], kind)
     if kind in ('synth', 'drum'):
         validate_synth_resources(resources, kind)
     if kind == 'master':
