@@ -697,9 +697,10 @@ if (opxy::device_identity(identity, opxy::device_identity_bytes)) {
 and returns true, or returns false and writes nothing while the identity is not
 known yet. On the device that is the case for a moment after boot: the GUI
 processor reads the identity and then sends it to the audio processor, normally
-within a second. Display code runs on the GUI processor and reads its copy;
-`render` and `process` run on the audio processor and read that one's, so the
-screen can show the identity while the sound still gets false, briefly or, if
+within a second. Code on the GUI processor (display code, a track control's
+`control`, `control_save` and `control_load`) reads its copy; sound code on the
+audio processor (`init`, note starts, `render`, `process`) reads that one's, so
+the screen can show the identity while the sound still gets false, briefly or, if
 every message is lost, for good. Don't assume the two agree. From the first
 true it returns the same bytes until the device restarts. Any callback may call it, `render`, `process` and display code
 included; it does not block. It copies up to 18 bytes each time, so a machine that
@@ -728,14 +729,14 @@ bytes `0xa0, 0xa1, ..., 0xb1`. A host test can change it with
 identity unknown, as on the device just after boot; on the device that call
 does nothing and returns false.
 
-A machine that includes the header must declare `deviceIdentity`. Only a
+A machine that includes the header must declare `"deviceIdentity": 1`. Only a
 firmware with such a machine links the service that reads, sends and receives
 the identity; others are unchanged. The service adds a check to each pass of
 stock's main loop (on the audio processor it returns at once) and to each of
 stock's global parameter messages the audio processor receives, and sends the
 identity 32 times, at most once a second, from when it is read ([firmware
 ABI](abi-1.2.1.md#device-identity)). A machine pack cannot add a machine
-declaring `deviceIdentity` to a site yet: the builder's list of features a
+declaring `"deviceIdentity": 1` to a site yet: the builder's list of features a
 pack machine may use does not include it.
 
 ## Track control

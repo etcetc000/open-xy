@@ -54,7 +54,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Aux tracks | 13 | Lets a track control machine take over aux track 12 (CV): its chooser on Shift + M1 (the effect list on the sends), its presets on Shift + track key, its page on M1, its parameter names on the LFO's destinations, its own LFO whichever track is selected, and CV and gate kept silent; four MTP allowlist edits show the user's aux presets |
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
-| Device identity | 1, and the global parameter receiver call | Reads the [device identity](api.md#device-identity) on the GUI processor and sends it to the audio processor ([device identity](#device-identity)); linked only with a machine declaring `deviceIdentity` |
+| Device identity | 1, and the global parameter receiver call | Reads the [device identity](api.md#device-identity) on the GUI processor and sends it to the audio processor ([device identity](#device-identity)); linked only with a machine declaring `"deviceIdentity": 1` |
 | Extension events | 8 | Observes live input, stock transport and queued controls for extensions, lets a Record double-tap owner edit notes through stock editing and undo, and lets an extension add [USB host drivers](#usb-host-drivers) while the host stack starts; linked only when an extension is selected |
 | Module | 1 record | One loader block holding the linked module |
 
@@ -2534,7 +2534,7 @@ positive-scale hide transform for degenerate geometry. All this runs on the GUI 
 
 ## Device identity
 
-The `device_identity` service gives machines declaring `deviceIdentity` the
+The `device_identity` service gives machines declaring `"deviceIdentity": 1` the
 [device identity](api.md#device-identity) (`device_identity.cpp`,
 `device_identity_hooks.s`). Each processor keeps its own copy, which never
 changes once marked known; `opxy_device_identity` copies it out.

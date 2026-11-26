@@ -64,6 +64,16 @@ class Declaration(unittest.TestCase):
                 with self.subTest(kind=kind, value=bad), self.assertRaises(ValueError):
                     validate_definition(definition, kind)
 
+    def test_a_master_processor_may_not(self):
+        definition = dict(schema=1, id='probe', name='Probe', parameters=[dict(
+            id='sweep', label='filter', default=.5, mapping=dict(kind='linear', minimum=0, maximum=1), display='percent')],
+            presets={}, resources=dict(display=dict(stateBytes=4, stateAlignment=4, paths=0, points=0, nodes=1, texts=0,
+                                                    palette=1)))
+        validate_definition(copy.deepcopy(definition), 'master')
+        definition['resources']['deviceIdentity'] = 1
+        with self.assertRaises(ValueError):
+            validate_definition(definition, 'master')
+
     def copy_fixture(self, directory, name='probeident', sdk=None, declared=True):
         folder = Path(directory) / name
         shutil.copytree(FOLDER / name, folder)
@@ -317,7 +327,9 @@ kit.objects = objects.map(({bytes, service, ...o}) =>
   ({...readObject(Buffer.from(bytes, 'base64')), ...o, ...(service ? {service} : {})}));
 process.stdout.write(JSON.stringify(selections.map(selection => {
   const linked = linkKit(kit, selection);
-  return {objects: linked.objects.map(o => o.name), services: [...linked.services]};
+  return {objects: linked.objects.map(o => o.name), services: [...linked.services],
+          masterIsAbsent: linked.aliases.has('sdk_master_receive') &&
+            linked.aliases.get('sdk_master_receive') === linked.globals.get('kit_absent')};
 })));
 """ % json.dumps((ROOT / 'builder/core.mjs').as_uri())
             selections = [['probesynth'], ['probeident'], ['probesynth', 'probeident']]
@@ -332,6 +344,9 @@ process.stdout.write(JSON.stringify(selections.map(selection => {
                     self.assertEqual('sdk/device_identity_hooks.o' in linked['objects'], expected)
                     self.assertEqual({'device_identity', 'parameter_receive'} & set(linked['services']),
                                      {'device_identity', 'parameter_receive'} if expected else set())
+                    # No selection has the master processor: its receiver is exactly kit_absent,
+                    # which the identity's receiver compares against to call stock's setter instead.
+                    self.assertTrue(linked['masterIsAbsent'])
 
 
 if __name__ == '__main__':
