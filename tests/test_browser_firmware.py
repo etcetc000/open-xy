@@ -17,7 +17,7 @@ class BrowserFirmware(unittest.TestCase):
         self.assertEqual(release.selection_services(kit, result), set())
         result['extensions'] = ['drumline_page']
         self.assertEqual(release.selection_services(kit, result),
-                         {'extensions', 'samples', 'drums', 'octaves', 'drum_sends', 'drum_locks', 'drumline'})
+                         {'extensions', 'samples', 'drums', 'octaves', 'drum_sends', 'track_call', 'drum_locks', 'drumline'})
         self.assertEqual(release.selection_settings(kit, result), {})
 
     def test_expanded_firmware_uses_selected_extension_settings_in_both_modes(self):

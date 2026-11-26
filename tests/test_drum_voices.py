@@ -723,8 +723,116 @@ FILTER_STOCK = {
 }
 
 
+
+
+# An engine whose voices play a level the driver sets and that settle when the
+# driver says: the SDK's idle cut (idle_cut.hpp) through the drum adapter.
+SETTLE_ENGINE = ENGINE.replace('#include "core.h"', '#include "core.h"\nextern opxy::i32 level[257];\nextern bool calm[257];', 1).replace(
+    'inline const char* parameter_name', """inline bool settled(const Voice& v, const Shared&) { return calm[v.owner]; }
+inline const char* parameter_name""", 1).replace(
+    'output[i] = v.owner == id ? (negative_output ? -opxy::i32(id << 16) : opxy::i32(id << 16)) : -1;',
+    'output[i] = v.owner == id ? level[id] : -1;', 1)
+assert SETTLE_ENGINE.count('level[id]') == 1 and 'calm[v.owner]' in SETTLE_ENGINE
+SETTLE_DRIVER = DRIVER[:DRIVER.index('int main() {')].replace(
+    'unsigned destroyed[257]', 'opxy::i32 level[257];\nbool calm[257];\nopxy::i32 idle_floor;\nunsigned destroyed[257]') + r"""
+extern "C" opxy::i32 sdk_idle_floor() { return idle_floor; }
+const unsigned kFade = 64;
+const opxy::i32 kLoud = 1 << 28, kMinus30 = 67908514;  // -30 dB of 2^31
+// Renders a block of handle `id`; its first and last frames.
+void block(unsigned id, opxy::i32& first, opxy::i32& last) {
+    opxy::i32 output[opxy::block_frames];
+    reinterpret_cast<Render>(const_cast<void*>(table(id)[3]))(objects[id], output, nullptr, offsets);
+    first = output[0];
+    last = output[opxy::block_frames - 1];
+}
+int main() {
+    (void)kMarked;
+    for (unsigned i = 0; i < opxy::block_frames; ++i) fixture_amplitude[i] = 0x7fffffff;
+    for (unsigned i = 0; i < 8; ++i) offsets[i] = 0x40000000;
+    for (unsigned i = 0; i < 256; ++i) CHECK(objects[i] = probe_factory(i, i % 8));
+    opxy::i32 first, last;
+    // Without the threshold (the setting off) a settled, silent voice is never cut.
+    idle_floor = 0;
+    note(1, 53);
+    level[2] = kLoud;
+    calm[2] = true;
+    block(1, first, last);
+    level[2] = 1;
+    for (unsigned b = 0; b < 200; ++b) block(1, first, last);
+    CHECK(is_active(1));
+    end(1);
+    // With it: a quiet voice that has not settled stays (an LFO dip, a held drone).
+    idle_floor = kMinus30;
+    note(3, 55);
+    level[4] = kLoud;
+    calm[4] = false;
+    block(3, first, last);
+    level[4] = 1000;
+    for (unsigned b = 0; b < 200; ++b) block(3, first, last);
+    CHECK(is_active(3) && first == opxy::q31::multiply(1000, 0x7fffffff));
+    // Louder again: it was never cut, and plays on.
+    level[4] = kLoud;
+    block(3, first, last);
+    CHECK(is_active(3) && first == opxy::q31::multiply(kLoud, 0x7fffffff));
+    // Settled but above the threshold (-29 dB of its peak): stays.
+    calm[4] = true;
+    level[4] = opxy::q31::multiply(kLoud, kMinus30) + (kLoud >> 12);
+    for (unsigned b = 0; b < 50; ++b) block(3, first, last);
+    CHECK(is_active(3));
+    // Settled and below it: 7 blocks play whole, the 8th fades out over kFade frames.
+    level[4] = opxy::q31::multiply(kLoud, kMinus30) - 1;
+    for (unsigned b = 0; b < 7; ++b) {
+        block(3, first, last);
+        CHECK(is_active(3) && first == last && first > 0);
+    }
+    block(3, first, last);
+    CHECK(first > last && (kFade > opxy::block_frames ? last > 0 : last == 0));
+    if (kFade > opxy::block_frames) {
+        CHECK(is_active(3));
+        block(3, first, last);
+        CHECK(first > 0 && last == 0);
+    }
+    // Then it is freed: +24 reports it inactive and it renders silence.
+    CHECK(!is_active(3) && rendered(3) == 0);
+    end(3);
+    // A note again restarts the follower: its peak is the new hit's, and it needs
+    // eight blocks below it anew.
+    note(5, 57);
+    level[6] = kLoud;
+    calm[6] = true;
+    block(5, first, last);
+    level[6] = 1;
+    for (unsigned b = 0; b < 5; ++b) block(5, first, last);
+    note(5, 57);   // retriggered before the cut
+    level[6] = 1 << 20;
+    block(5, first, last);
+    for (unsigned b = 0; b < 7; ++b) block(5, first, last);
+    CHECK(is_active(5));   // 1 << 20 is its peak now: not below -30 dB of it
+    level[6] = 1;
+    for (unsigned b = 0; b < 7; ++b) block(5, first, last);
+    CHECK(is_active(5));
+    block(5, first, last);
+    if (kFade > opxy::block_frames) block(5, first, last);
+    CHECK(!is_active(5));
+    return 0;
+}
+"""
+
+
 class DrumVoices(unittest.TestCase):
-    def run_adapter(self, engine, driver, capacity, sdk=None, **resources):
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_parameter_editor_exports_the_declared_callback(self):
+        engine = ENGINE + '''namespace probe {
+inline opxy::u32 edit_parameter(opxy::u32 model, opxy::u32 slot, opxy::u32 value, opxy::i32 delta, opxy::u32 speed) {
+    return model + slot + value + delta + 100 * speed;
+}
+}'''
+        driver = DRIVER.replace('int main() {', '''int main() {
+    CHECK(probe_drum_edit_value(3, 2, 20, -1, 0) == 24);
+    CHECK(probe_drum_edit_value(3, 2, 20, -1, 2) == 224);''', 1)
+        self.run_adapter(engine, driver, 2, parameterEdit=1)
+
+    def run_adapter(self, engine, driver, capacity, sdk=None, idle=False, **resources):
         definition = copy.deepcopy(fixture('probesynth').definition)
         definition['id'] = 'probe'
         definition['resources'].update(voiceBytes=4, voiceAlignment=4, voiceCapacity=capacity,
@@ -734,12 +842,14 @@ class DrumVoices(unittest.TestCase):
             machine.sdk = sdk
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
-            source = generate_voice(folder, machine)
+            source = generate_voice(folder, machine, idle=idle)
             # The actual +12 ABI transports its payload directly; no global
             # payload-pointer substitution is needed to execute the adapter.
             generated = source.read_text(encoding='utf-8')
             self.assertNotIn('0x0803b9c4', generated)
             self.assertIn('const bool kChoke = %s;' % ('true' if resources.get('chokeSameKey') else 'false'), generated)
+            # The fade's condition: the plain kit's text without idle, a settled voice's fade with it.
+            self.assertIn('if (kChoke | kSettles && slot->fade) {' if idle else 'if (kChoke && slot->fade) {', generated)
             native_pitch = 'reinterpret_cast<const opxy::u32*>(opxy::platform::kPitchIncrements)'
             self.assertEqual(generated.count(native_pitch), 1)
             native_amplitude = 'reinterpret_cast<const opxy::i32*>(0x11903400)'
@@ -843,6 +953,13 @@ class DrumVoices(unittest.TestCase):
         drum = replace(base, kind='drum')
         self.assertEqual([drum_transport(replace(drum, sdk=v)) for v in ((1, 8), (1, 9), (1, 10))],
                          [False, False, True])
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+    def test_a_settled_voice_below_the_idle_threshold_fades_out_and_is_freed(self):
+        # A kit without choke and one with chokeSameKey: the 128-frame fade.
+        fade = SETTLE_DRIVER.replace('const unsigned kFade = 64;', 'const unsigned kFade = 128;')
+        self.run_adapter(SETTLE_ENGINE, fade, 4, idle=True)
+        self.run_adapter(SETTLE_ENGINE, fade, 4, idle=True, chokeSameKey=1)
 
 
 if __name__ == '__main__':

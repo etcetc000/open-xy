@@ -24,8 +24,12 @@ import { createOutputMute } from './audio-output.mjs';
 import { PreviewDisplay, SvgDisplay, NoteActivity } from '../sdk/browser/display.mjs';
 import { selectArtwork } from '../sdk/browser/graphics.mjs';
 import { createGraphicsSelector } from './graphics.mjs';
+import { EncoderActivity } from '../sdk/browser/encoder_activity.mjs';
 const noteActivity = new NoteActivity();
-const renderScreen = (...args) => renderBase(...args, controls, shown, scene?.header, shiftHeld);
+// An extended display's encoder activity and whole-screen canvas.
+const encoderActivity = new EncoderActivity();
+const fullCanvas = previewManifest.definition.resources?.display?.fullCanvas === 1;
+const renderScreen = (...args) => renderBase(...args, controls, shown, scene?.header, shiftHeld, fullCanvas);
 const $ = id => document.getElementById(id);
 // A synth's Shift row (SDK 1.13): its present entries, each under page i >> 2, position i & 3.
 const shiftControls = controls.shift.map((p, i) => ({ p, i })).filter(({ p }) => !p.absent);
@@ -79,25 +83,32 @@ function playbackStatus() {
     : 'Play a key or phrase to start audio';
 }
 
-function addControl(param, position, label, edited) {
+function addControl(param, position, label, edited, slot = null) {
   const id = controlId(param.id);
   const item = document.createElement('div');
   item.className = 'control';
   item.dataset.controlPosition = position + 1;
   item.innerHTML = `<label for="${id}">${label}</label><svg id="knob-${id}" class="dial" viewBox="0 0 60 60" role="slider" tabindex="0" aria-label="${label} knob" aria-valuemin="0" aria-valuemax="1" aria-orientation="vertical"><title>Drag up or down to adjust. Hold Shift for fine control.</title><circle class="dial-ring" cx="30" cy="30" r="27"/><circle class="dial-cap" cx="30" cy="30" r="18"/><line id="dial-${id}" x1="30" y1="16" x2="30" y2="23"/></svg><output id="value-${id}" for="${id}"></output><input id="${id}" type="range" min="0" max="1" step="0.001" aria-label="${label}">`;
   $('controls').append(item);
+  // A physical gesture on the control: the display's encoder activity and last control touched.
+  const gesture = event => {
+    if (slot !== null) display?.controlInteraction(0, position, slot, parameterWords()[slot], event);
+    return encoderActivity.record(position, event);
+  };
+  for (const type of ['pointerdown', 'keydown']) $(id).addEventListener(type, event => { if (gesture(event)) draw(); });
   $(id).addEventListener('input', event => {
     values[param.id] = Number(event.target.value);
     edited();
+    gesture(event);
     update();
   });
-  bindKnob($(`knob-${id}`), $(id));
+  bindKnob($(`knob-${id}`), $(id), event => { if (gesture(event)) draw(); });
 }
 for (const [i, param] of parameters.entries()) {
   addControl(param, positions[i], param.label, () => {
     shiftHeld = false;
     shown = editedShown(shown, positions, i, previewManifest.definition.press === 'page');
-  });
+  }, i);
 }
 // The Shift row's entries: an edit shows the row on its page, as Shift and that page's encoder do.
 for (const { p, i } of shiftControls) {
@@ -148,7 +159,9 @@ function draw(elapsed = 0) {
     const row = shiftControls.length ? { held: shiftHeld ? 1 : 0, line: shown.some(s => s >= 4) ? 1 : 0, values: words.slice(8) } : null;
     try {
       scene.apply(display.tick(input, elapsed, visualNotes, 0, reducedMotion.matches, noteActivity, model, 0, [0, 0, 0, 0],
-                               null, { pan: 0, level: 0 }, 0, row));
+                               null, { pan: 0, level: 0 }, 0, row, encoderActivity.snapshot()));
+      // A gesture's immediate redraw has no elapsed time; the next timed frame still sees it.
+      if (elapsed > 0) encoderActivity.clear();
     }
     catch (error) { display = scene = displayBackend = null; status(`Display stopped: ${error.message}`); }
   }

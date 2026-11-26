@@ -261,6 +261,7 @@ class KeywordOnlyChanges(unittest.TestCase):
                         mock.patch.object(catalog, 'base_entries',
                                           lambda base, listed, path: copy.deepcopy(self.before) if listed == 'machines' else []),
                         mock.patch.object(catalog, 'release_controls', lambda *args: []),
+                        mock.patch.object(catalog, 'stage_records', lambda *args: None),
                         mock.patch.object(catalog, 'fetch',
                                           lambda entry, cache: SimpleNamespace(id=entry['id'], root=self.cache / entry['id']))]
         for patcher in self.patches:

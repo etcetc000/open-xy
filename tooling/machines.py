@@ -15,10 +15,11 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import (ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
+from .definitions import (DRUM_KIT_CONTROLS, EXTENDED_SDK, KIT_CONTROLS_SDK, SDK_1_25, extended_display, ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
+from . import track_stage, voice_heap
 from .pipeline import config
 
 KINDS = ('synth', 'drum', 'sample', 'effect', 'player')
@@ -63,7 +64,31 @@ FIELDS = {'schema', 'sdk', 'kind', 'description', 'identity', 'base', 'sources',
 # (resources.voiceCapacity); and adds the sample kernel
 # (opxy/sample_kernel.hpp): a sample voice's interpolation, level and crossfade
 # as one SDK routine.
-SDK_VERSION = (1, 17)
+# 1.18 adds saturating 1.15 helpers to opxy/q15.hpp and saturate, subtract and
+# shift_right to opxy/q31.hpp.
+# 1.19 keeps a synth's voices in an arena reserved from the stock heap at boot
+# when its voice pool exceeds 128 KiB (voice_heap.py).
+# 1.20 adds extended drawing for synth and effect screens (docs/display.md#extended-drawing):
+# affine nodes, direct colour, a whole-screen canvas, curves, open, segmented and counted
+# paths and larger path budgets; the encoders' activity, and a synth's last control
+# touched (opxy/control_interaction.hpp).
+# 1.21 adds per-model drum value editing, played-pad display snapshots and sample-free kit presets.
+# 1.22 adds the idle capability's machine API: an effect's declared tail
+# (resources.tailFrames) for its send hold, and an engine's settled() for the idle cut
+# (asked only of machines declaring 1.22 or later). IDLE_SDK is the one place to
+# renumber it, with the "SDK 1.22" text of docs/api.md.
+IDLE_SDK = (1, 22)
+# 1.23 adds the drum-kit controls (resources.padVolume, padRandom, ampEnvelope) and gives a
+# kit's screen its selected key (draw::Input::selected_key; KIT_CONTROLS_SDK in definitions.py).
+# 1.24 adds a synth's track stage (resources.trackStage, track_stage.py): one state per
+# instrument track, processed in place on the track's voice sum once per block.
+# 1.25 gives a note player its track's kind of instrument (Controls.instrument) and lets a
+# drum kit's value editor move the key to another model (resources.modelEdit; SDK_1_25 in definitions.py).
+# 1.26 lets a note player draw its own page (resources.display): a draw::Frame from its
+# State and Controls each GUI frame, as a synth draws its screen. PLAYER_DRAWING_SDK is
+# the one place to renumber it, with the "SDK 1.26" text of docs/api.md and docs/display.md.
+PLAYER_DRAWING_SDK = (1, 26)
+SDK_VERSION = (1, 26)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -274,11 +299,26 @@ def check_region(region, identity, samples):
     return region
 
 
-def check_preset(value, identity, samples=None, shift=False):
+def drum_preset_regions(regions):
+    """Sample-free Drumline records carrying the public kit's packed pad words."""
+    return isinstance(regions, list) and len(regions) == 24 and all(
+        isinstance(region, dict) and {'model', 'params'} <= set(region) and
+        set(region) <= {'model', 'params', 'playmode', 'hikey'} and region['model'] == 'fm slap' and
+        isinstance(region['params'], list) and len(region['params']) == 4 and
+        all(type(n) is int and 0 <= n <= 32767 for n in region['params']) and
+        region.get('playmode', 'oneshot') in ('gate', 'oneshot', 'mute1', 'loop', 'mute2', 'mute3') and
+        ('hikey' not in region or type(region['hikey']) is int and region['hikey'] == 53 + index)
+        for index, region in enumerate(regions))
+
+
+def check_preset(value, identity, samples=None, shift=False, kind='synth', pad_mix=False):
     """A preset as the device saves it (version 4), for this machine, pointing at no samples
     or, for a sample engine shipping its own (SDK 1.10), at one of them. A synth with a
     Shift row (SDK 1.13) saves it as Drumline saves its keys, in sample-less regions
-    (docs/abi-1.2.1.md#a-synths-shift-row), which it may keep."""
+    (docs/abi-1.2.1.md#a-synths-shift-row), which it may keep. A drum kit without padMix
+    (SDK 1.21) may keep its 24 pad records; a padMix kit's records also carry each key's
+    level and pad word (`gain`, `random`), whose saved form the SDK does not check yet, so
+    its presets keep empty regions."""
     engine = value.get('engine') if isinstance(value, dict) else None
     params = engine.get('params') if isinstance(engine, dict) else None
     found = value.get('regions') if isinstance(value, dict) else None
@@ -286,7 +326,11 @@ def check_preset(value, identity, samples=None, shift=False):
             value.get('type') == identity and isinstance(found, list) and isinstance(params, list) and
             len(params) == 8 and all(type(n) is int and 0 <= n <= 32767 for n in params),
             f'A preset is a version 4 OP-XY preset of {identity}, with eight engine params')
-    if samples:
+    if kind == 'drum' and found:
+        require(not pad_mix, f"A preset of the padMix kit {identity} has no regions: its keys' level, "
+                'pad controls and sends are not checked in shipped presets')
+        require(drum_preset_regions(found), f'A drum preset of {identity} holds 24 sample-free packed pad records')
+    elif samples:
         require(len(found) <= 1, f'A preset of {identity} has at most 1 sample region')
         for region in found:
             check_region(region, identity, samples)
@@ -303,7 +347,7 @@ def reject_constant(name):
     raise ValueError(f'{name} is not JSON')
 
 
-def read_presets(root, folder, identity, samples=None, shift=False):
+def read_presets(root, folder, identity, samples=None, shift=False, kind='synth', pad_mix=False):
     """Each <name>.json in the machine's presets folder, by name."""
     path = root / _relative(root, folder)
     require(path.is_dir(), 'presets names a folder: ' + folder)
@@ -321,7 +365,7 @@ def read_presets(root, folder, identity, samples=None, shift=False):
             value = json.loads(data.decode('utf-8'), parse_constant=reject_constant)
         except ValueError as error:
             raise ValueError(f'{file.name}: invalid JSON: {error}') from error
-        presets[file.stem] = check_preset(value, identity, samples, shift)
+        presets[file.stem] = check_preset(value, identity, samples, shift, kind=kind, pad_mix=pad_mix)
     return presets
 
 
@@ -539,6 +583,12 @@ def machine_at(root, identity=None):
     if kind == 'drum' and any(definition['resources'].get(k) for k in ('padMix', 'padControls')):
         # One gate for a kit's per-key mixer: pan, level, pad controls and sends.
         require_sdk(version, (1, 10), "A drum kit's per-key mixer (padMix, padControls)")
+    if kind == 'drum' and any(definition['resources'].get(k) for k in DRUM_KIT_CONTROLS):
+        require_sdk(version, KIT_CONTROLS_SDK, 'The drum-kit controls (padVolume, padRandom, ampEnvelope)')
+    if definition['resources'].get('parameterEdit'):
+        require_sdk(version, (1, 21), 'Per-model drum value editing (parameterEdit)')
+    if definition['resources'].get('modelEdit'):
+        require_sdk(version, SDK_1_25, 'Drum value editing across models (modelEdit)')
     # Only a set flag needs 1.12: an explicit 0 is the mono, callback-free default.
     if kind == 'synth' and any(definition['resources'].get(k) for k in ('stereoOutput', 'releaseCallback')):
         require_sdk(version, (1, 12), 'Stereo synth output and voice release callbacks (stereoOutput, releaseCallback)')
@@ -550,6 +600,10 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 2), "An effect's tempo (transport)")
     if definition['resources'].get('busShift'):
         require_sdk(version, (1, 16), "An effect's bus shift (busShift)")
+    if 'tailFrames' in definition['resources']:
+        require_sdk(version, IDLE_SDK, "An effect's declared tail (tailFrames)")
+    if 'trackStage' in definition['resources']:
+        require_sdk(version, track_stage.TRACK_STAGE_SDK, "A synth's track stage (trackStage)")
     if any(p['display'] == 'division' for p in definition['parameters']):
         require_sdk(version, (1, 2), 'A division control')
     if kind == 'sample' and definition['resources']['voiceCapacity'] < STOCK_VOICES:
@@ -580,6 +634,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 3), 'More than %d display text slots' % SDK_1_2_TEXTS)
     if 'display' in definition['resources'] and definition['resources']['display']['texts'] > SDK_1_6_TEXTS:
         require_sdk(version, (1, 7), 'More than %d display text slots' % SDK_1_6_TEXTS)
+    if 'display' in definition['resources'] and extended_display(definition['resources']['display']):
+        require_sdk(version, EXTENDED_SDK, 'Extended drawing (docs/display.md#extended-drawing)')
     if definition['resources'].get('display', {}).get('nodes', 0) > SDK_1_7_NODES:
         require_sdk(version, (1, 8), 'More than %d display nodes' % SDK_1_7_NODES)
     require(definition['id'] == identity, 'Machine directory and definition identity disagree')
@@ -607,24 +663,34 @@ def machine_at(root, identity=None):
         require(kind == 'effect' and 'dryParameter' not in value and type(level) in (int, float) and 0 <= level <= 1,
                 'dryLevel is a number from 0 to 1 on an effect without dryParameter')
         dry_level = round(level * 0x7fffffff)
-    # A synth or drum kit draws its own screen, and so may an effect (SDK 1.7) or a sample
-    # engine (SDK 1.8); other sample engines and effects use a stock page.
-    display = 'player' if kind == 'player' else 'drawing' if kind in ('synth', 'drum') or 'display' in definition['resources'] else 'stock'
+    # A synth or drum kit draws its own screen, and so may an effect (SDK 1.7), a sample
+    # engine (SDK 1.8) or a note player (SDK 1.26); other sample engines and effects use
+    # a stock page, and other players the SDK's dot page.
+    drawn = kind in ('synth', 'drum') or 'display' in definition['resources']
+    display = 'drawing' if drawn else 'player' if kind == 'player' else 'stock'
     if kind == 'effect' and display == 'drawing':
         require_sdk(version, (1, 7), "An effect's own page (resources.display)")
+    if kind == 'player' and display == 'drawing':
+        require_sdk(version, PLAYER_DRAWING_SDK, "A note player's own drawn page (resources.display)")
+        require((root / 'display.cpp').is_file() and (root / 'display.h').is_file(),
+                'A player that draws its own page supplies display.h and display.cpp')
     if reads_sample_overview(root):
         require_sdk(version, (1, 8), 'A sample overview (opxy/sample_overview.hpp)')
         require(kind == 'sample' and display == 'drawing', "Only a sample engine's own screen reads a sample overview")
     if reads_sample_overview(root, 'synth_shift'):
         require_sdk(version, (1, 13), "A synth's Shift row on its display (opxy/synth_shift.hpp)")
         require(synth_shift(definition), 'Only a synth with a Shift row ("shift") reads opxy/synth_shift.hpp')
+    if reads_sample_overview(root, 'control_interaction'):
+        require_sdk(version, EXTENDED_SDK, 'The last control touched (opxy/control_interaction.hpp)')
+        require(kind == 'synth', "Only a synth's own screen reads opxy/control_interaction.hpp")
     if reads_sample_overview(root, 'sample_kernel'):
         require_sdk(version, (1, 17), 'The sample kernel (opxy/sample_kernel.hpp)')
     native = read_native(root, identity)
     # The native plan compiles extra translation units only into synths.
     if kind not in ('synth', 'drum'):
         require(not sources and not includes,
-                'Sample engines, effects and players compile one sample.cpp, fx.cpp or player.cpp (and an effect its display.cpp)')
+                'Sample engines, effects and players compile one sample.cpp, fx.cpp or player.cpp '
+                '(and an effect or a drawing player its display.cpp)')
     # Pad settings live in the stock drum page's pad records, whose fade the SDK then owns.
     if kind == 'sample' and definition['resources'].get('padSettings', 0):
         require(requested['page'] == SAMPLE_BASES['drumSampler'],
@@ -651,7 +717,10 @@ def machine_at(root, identity=None):
     if 'presets' in value:
         require_sdk(version, (1, 3), "A machine's own presets")
         require(kind in ('synth', 'drum', 'sample') and isinstance(value['presets'], str), 'presets names an instrument preset folder')
-        presets = read_presets(root, value['presets'], identity, samples, shift=bool(synth_shift(definition)))
+        presets = read_presets(root, value['presets'], identity, samples, shift=bool(synth_shift(definition)), kind=kind,
+                               pad_mix=kind == 'drum' and bool(definition['resources'].get('padMix', 0)))
+        if kind == 'drum' and any(preset['regions'] for preset in presets.values()):
+            require_sdk(version, (1, 21), 'Sample-free drum-kit preset records')
     if samples:
         # Every sample is there for a preset: one no preset loads only takes up the player's storage.
         loaded = {region['sample'] for preset in (presets or {}).values() for region in preset['regions']}
@@ -881,7 +950,7 @@ def read_collection(path=None, extra=(), extensions=()):
         for kind, key in (('machines', 'path'), ('extensions', 'extension')):
             for entry in value.get(kind, []):
                 require(isinstance(entry, dict) and set(entry) == {'path'} and isinstance(entry['path'], str),
-                        'Collection entries are {"path": ...}: the SDK holds no machines or extensions of its own')
+                        'Collection entries are {"path": ...}, the SDK\'s own extensions (extensions/cpu) included')
                 entries.append({key: str((path.parent / entry['path']).resolve())})
     return (entries + [{'path': str(Path(folder).resolve())} for folder in extra] +
             [{'extension': str(Path(folder).resolve())} for folder in extensions])
@@ -908,10 +977,11 @@ def collection(entries=None, layout=None):
 
 
 def check_analysis_budgets(machines):
-    """Every machine's analysis budget comes from one stock-heap allowance."""
+    """Every machine's analysis budget comes from one stock-heap allowance; heap voice arenas have their own."""
     total = sum(m.definition['resources'].get('sampleAnalysis', 0) for m in machines if m.kind == 'sample')
     require(total <= ANALYSIS_HEAP_LIMIT,
             'Sample analysis budgets exceed the collection limit of %d bytes' % ANALYSIS_HEAP_LIMIT)
+    voice_heap.check_budget(machines)
 
 
 def by_kind(machines, *kinds):

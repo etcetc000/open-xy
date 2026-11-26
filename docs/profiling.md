@@ -163,7 +163,21 @@ firmware-containing packages.
 | `midpoint_percent` | Synths: the midpoint run's median, stock's own workload |
 | `combined_percent` | Synths: the median of the run with every control at its heaviest position |
 | `worst_setting` | Synths: the heaviest swept setting: `control` (0-7), its `label`, and its Q31 `value` |
+| `stage_percent`, `stage_peak_percent` | Synths with a [track stage](api.md#track-stage), written by `profile report`: the stage run's mean (the median across captures) and its worst block, in the same budget units. Together or not at all; the worst at least the mean |
 | `report` | Optional: public HTTPS evidence URL containing the generated readout |
+
+A synth's track stage runs once per block on each track that holds the synth,
+however many voices that track plays, so its cost is counted once per track,
+never per voice: a track playing the synth costs its voices plus one stage. The
+record keeps the two apart (`block_percent` and `peak_percent` stay a voice's),
+and everything that judges the record adds them for one voice and its stage:
+the recommendation below checks `block_percent + stage_percent` and
+`peak_percent + stage_peak_percent`, and the builder's CPU-high label uses the
+second (or the first, without a peak). With `--base`, `catalog check` fetches
+each new or moved synth release, and the release of each new or changed sweep
+record, and requires the stage fields exactly when that release declares a
+stage: a record carried onto a release that adds a stage, an older one included,
+is refused. Records of synths without a stage, and earlier records, have none.
 
 Keep both `block_percent` (average) and `peak_percent` (worst observed block)
 at or below the **recommended 3.5% each**. A higher result is
@@ -235,6 +249,7 @@ the audio core during normal project playback. Every block is 64 samples.
 | Synth / `opxy-synth-c8-sweep-v1` | Stock whole-voice timer, including oscillator and filter, with the track's M3 off ([firmware](abi-1.2.1.md#what-a-build-changes)). Stock diagnostic plays note 60 at velocity 127 for 1,000 blocks and releases for 500, first with controls 0-3 at midpoint (stock's own run, `opxy-synth-c8-v1`), then once per swept setting: one control at a time through nine positions from 0 to full scale (each option of a list), the others at their defaults, as the SDK's host estimate sweeps them, then once with every control at the position that ran heaviest in that capture (the firmware picks them from stock's timing totals; the readout names them from the same capture's reports). The voice adapter renders with the swept controls while a sweep run is active. Other combinations of controls are not run. |
 | Effect / `opxy-effect-callback-v2` | One stereo `process` callback at declared defaults for 1,500 blocks. Deterministic triangle/impulse input, separate initialized state, zeroed private scratch buffer when declared, 120 BPM transport. Includes the wet algorithm, not the stock send/mix path, and not a declared `busShift`'s raise and lower ([bus shift](api.md#bus-shift)). |
 | Drum kit / `opxy-drum-callback-v3` | The kit's voices through the SDK's drum adapter (+20 start and +12 render), with a stored key's unpacking, offsets, amplitude and same-key choke, on 1,500 blocks each, a note's start timed with its block. One voice of every model with all its controls at 64, 0 and 127; the kit's own keys at `voiceCapacity` voices, saved at their defaults, as a project's are, struck every 100 blocks; two voices retriggering one key every 8 blocks with the heaviest of those; and `voiceCapacity` voices of the heaviest, each on a key of its own. Those runs have the track's M3 off. Then the last again with M3 on: stock's ladder on every voice, cutoff, resonance, envelope and key amounts at a resonant middle. Excludes stock's drum renderer, envelope and mixing, so it isn't a whole-voice figure as a synth's is. `opxy-drum-callback-v1` ran the ladder in every run; `opxy-drum-callback-v2` is this workload with interrupts enabled |
+| Synth track stage / `opxy-synth-stage-v1` | After a synth's runs, when it declares a [track stage](api.md#track-stage): its `track_process` alone, timed per block with interrupts masked, for 1,500 blocks on a state of its own (zeroed, then `track_reset`, as a track that takes the synth; never a track's). The track's words at the controls' defaults (a Shift row's at its defaults); the sum a deterministic stereo triangle/impulse, the 16-bit fixture scaled to an eighth of full scale (about one voice, as stock keeps it) with one voice for 1,000 blocks, then silent with none for 500, as a tail. `track_reset` and each `track_process` run with interrupts masked; they get the synth's live `Shared` as track 0, as its voice runs do. Excludes the voices, stock's mixing and the SDK's per-track check. The stage must sound, or the run is refused as failed |
 | Sample / `opxy-sample-callback-v2` | One `render_sample` callback at declared defaults for 1,500 blocks. A generated two-second, mono 44.1 kHz PCM triangle/impulse sample, full region, unity level, forward playback, C4 pitch, 120 BPM, no transpose; note restarts every 500 blocks. Declared sample analysis and assignment run before timing. Output uses the machine's mono/stereo contract. |
 
 Sample and effect tests allocate their own buffers during setup, outside audio

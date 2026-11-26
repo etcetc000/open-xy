@@ -196,12 +196,45 @@ int main() {
                 self.assertEqual(plain, zero)
                 self.assertNotIn('send_bus', plain)
 
+    def test_the_idle_send_hold_follows_the_effects_tail(self):
+        base = fixture('probefx').definition
+        hold = lambda **resources: adapters.send_hold(dict(base, resources=resources))
+        # Undeclared: never shorter than the fixed hold of 2112 blocks every send had before (476 bytes
+        # of state as a 16-bit line would give 4 + 64); a larger memory lengthens it.
+        self.assertEqual(hold(), 2048 + 64)
+        self.assertEqual(hold(bufferBytes=64), 2048 + 64)
+        self.assertEqual(hold(bufferBytes=2 * 64 * 4000), 4000 + 64)
+        # The largest buffer as a 16-bit mono line: 262144 frames.
+        self.assertEqual(hold(bufferBytes=524288), 4096 + 64)
+        self.assertEqual(hold(bufferBytes=64, tailFrames=44100), 690 + 64)
+        self.assertEqual(hold(tailFrames=0), 64)
+        self.assertEqual(hold(bufferBytes=524288, tailFrames='unbounded'), 0xffffffff)
+        for tail in (0, 1, 1 << 24, 'unbounded'):
+            definitions.validate_definition(dict(base, resources={'tailFrames': tail}), 'effect')
+        for tail in (-1, (1 << 24) + 1, 1.5, True, 'forever', None):
+            with self.subTest(tail=tail), self.assertRaises(ValueError):
+                definitions.validate_definition(dict(base, resources={'tailFrames': tail}), 'effect')
+        with tempfile.TemporaryDirectory() as directory:
+            effect = replace(fixture('probefx'), definition=dict(base, resources={'bufferBytes': 524288}))
+            text = adapters.generate_fx_object(Path(directory), effect, idle=True).read_text()
+        self.assertIn('#include "send_bus.hpp"', text)
+        self.assertIn('opxy::platform::send_bus::declare(slot, probefx_fx_vtable, 0x1040u);', text)
+        self.assertNotIn('send_bus::raise', text)
+
     def test_a_bus_shift_surrounds_process(self):
         enum = dict(id='s0', label='S 0', default=0, display='enum', mapping=dict(kind='enum', labels=['a', 'b']))
         definition = dict(fixture('probefx').definition, shift=[enum], resources={'busShift': 9})
         with tempfile.TemporaryDirectory() as directory:
             text = adapters.generate_fx_object(Path(directory), replace(fixture('probefx'), definition=definition)).read_text()
         self.assertIn('#include "send_bus.hpp"', text)
+        # The idle record is written only in builds with the idle capability.
+        self.assertNotIn('send_bus::declare', text)
+        with tempfile.TemporaryDirectory() as directory:
+            idle = adapters.generate_fx_object(Path(directory), replace(fixture('probefx'), definition=definition),
+                                               idle=True).read_text()
+        hold = adapters.send_hold(definition)
+        self.assertEqual(idle.replace(f'\n    opxy::platform::send_bus::declare(slot, probefx_fx_vtable, {hold:#x}u);', ''),
+                         text)
         body = text[text.index('static void process('):text.index('void* probefx_fx_factory(void* storage)')]
         # The audio is raised before process and lowered after it; the shift row's words are untouched.
         order = ['send_bus::raise<9>(left, right);', 'probefx::process(object->state', 'send_bus::lower<9>(left, right);']
@@ -224,12 +257,12 @@ int main() {
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
     def test_a_bus_shift_raises_the_block_and_lowers_the_result(self):
-        for n in (0, 1, 9, 12):
-            with self.subTest(busShift=n), tempfile.TemporaryDirectory() as directory:
+        for n, idle in ((0, False), (1, False), (9, False), (12, False), (0, True), (9, True), (12, True)):
+            with self.subTest(busShift=n, idle=idle), tempfile.TemporaryDirectory() as directory:
                 folder = Path(directory)
                 resources = {'busShift': n} if n else {}
                 m = replace(fixture('probefx'), definition=dict(fixture('probefx').definition, resources=resources))
-                generated = adapters.generate_fx_object(folder, m)
+                generated = adapters.generate_fx_object(folder, m, idle=idle)
                 generated.write_text(generated.read_text().replace('__builtin_offsetof(Object, state) == 4',
                                                                    '__builtin_offsetof(Object, state) == sizeof(void*)'))
                 (folder / 'fx.cpp').write_text('''#include <opxy/effect.hpp>
@@ -251,7 +284,8 @@ void process(State& state, opxy::Channel left, opxy::Channel right, opxy::Parame
                 (folder / 'test.cpp').write_text((ROOT / 'tests/fixtures/fx_bus_shift.cpp').read_text())
                 binary = folder / ('test.exe' if os.name == 'nt' else 'test')
                 hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
-                command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', f'-DSHIFT={n}',
+                command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', f'-DSHIFT={n}', f'-DIDLE={int(idle)}',
+                           f'-DHOLD={adapters.send_hold(m.definition)}u',
                            '-I' + str(ROOT / 'sdk/include'), '-I' + str(ROOT / 'sdk/platform/opxy-1.2.1'),
                            str(folder / 'test.cpp'), '-o', str(binary)]
                 result = subprocess.run(command, capture_output=True, text=True, timeout=120, **hidden)

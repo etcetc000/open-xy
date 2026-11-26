@@ -61,7 +61,9 @@ test('public UI build works without a collection; release build requires one', a
     assert.match(html,/assets\//);
     const headers = await readFile(join(directory,'_headers'),'utf8');
     assert.match(headers,/Permissions-Policy: midi=\(self\), usb=\(self\)/);
-    assert.match(headers,/\/kit\.json\.gz\n  Cache-Control: no-cache/);
+    const allow = '  Access-Control-Allow-Origin: https://xy-forever.trappar.com';
+    assert.ok(headers.includes(`\n/kit.json.gz\n  Cache-Control: no-cache\n${allow}\n/sdk/*\n${allow}\n/assets/*\n`));
+    assert.equal(headers.match(/Access-Control-Allow-Origin:/gi)?.length,2);
     await assert.rejects(readFile(join(directory,'kit.json')),/ENOENT/);
     await assert.rejects(readFile(join(directory,'kit.json.gz')),/ENOENT/);
     await assert.rejects(build({configFile,mode:'release',logLevel:'silent',build:{outDir:directory}}),/OPEN_XY_KIT/);
@@ -94,6 +96,10 @@ test('collection builds require fresh external output, including config override
     await assert.rejects(build({configFile,mode:'release',logLevel:'silent',build:{emptyOutDir:true}}),/must not empty/);
     await build({configFile,mode:'release',logLevel:'silent'});
     assert.deepEqual(await builtCollection(external),collection);
+    // The builder modules, unbundled and unchanged, at the kit's version.
+    for (const file of ['builder/core.mjs','sdk/browser/graphics.mjs','tooling/default_preset.json']) {
+      assert.deepEqual(await readFile(join(external,'sdk/0.0.2',file)),await readFile(new URL('../../' + file,import.meta.url)),file);
+    }
     await assert.rejects(readFile(join(external,'kit.json')),/ENOENT/);
     await assert.rejects(build({configFile,mode:'release',logLevel:'silent'}),/fresh, empty output/);
     assert.deepEqual(await builtCollection(external),collection);
