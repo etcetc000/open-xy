@@ -556,6 +556,16 @@ def reads_sample_overview(root, header='sample_overview'):
                if path.suffix in ('.cc', '.cpp', '.h', '.hpp') and path.relative_to(root).parts[0] not in ('tests', 'tools'))
 
 
+# The device identity's reader by name: code that declares it itself, without the header.
+DEVICE_IDENTITY_READER = re.compile(r'\bopxy_device_identity\b')
+
+
+def reads_device_identity(root):
+    """Whether a machine's own C++, its tests and tools aside, names the device identity's reader."""
+    return any(DEVICE_IDENTITY_READER.search(path.read_text(encoding='utf-8', errors='replace')) for path in tree(root)
+               if path.suffix in ('.cc', '.cpp', '.h', '.hpp') and path.relative_to(root).parts[0] not in ('tests', 'tools'))
+
+
 def machine_at(root, identity=None):
     """The machine in a folder; its definition names it."""
     root = Path(os.path.abspath(root))
@@ -691,7 +701,7 @@ def machine_at(root, identity=None):
     if reads_sample_overview(root, 'sample_kernel'):
         require_sdk(version, (1, 17), 'The sample kernel (opxy/sample_kernel.hpp)')
     # Only a firmware with a machine declaring it links the identity's device code.
-    if reads_sample_overview(root, 'device_identity'):
+    if reads_sample_overview(root, 'device_identity') or reads_device_identity(root):
         require(definition['resources'].get('deviceIdentity', 0) == 1,
                 'A machine that includes opxy/device_identity.hpp declares "deviceIdentity": 1 in its resources')
     native = read_native(root, identity)

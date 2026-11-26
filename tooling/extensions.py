@@ -32,7 +32,7 @@ RESERVED = {'runtime', 'collection', 'stock', *'''alignas alignof and and_eq asm
 TEXT_LIMITS = {'name': 32, 'description': 140, 'note': 100}
 MAX_EXTENSIONS = 16
 HEADER = 'sdk/include/opxy/extension.hpp'
-DEVICE_IDENTITY_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]opxy/device_identity\.hpp[>"]', re.M)
+DEVICE_IDENTITY_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]opxy/device_identity\.hpp[>"]|\bopxy_device_identity\b', re.M)
 RUNTIME = 'sdk/platform/extension_runtime.hpp'
 SOURCE_SUFFIXES = ('.cpp', '.cc', '.h', '.hpp', '.inc')
 

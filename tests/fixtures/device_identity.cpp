@@ -145,7 +145,10 @@ void gui(bool torn, bool giveup = false) {
             now_us += 100000;
             sdk_identity_gui_service();
         }
+        // One marker read a look (an invalid marker ends the look): the first look
+        // above, then 599 here, 600 in all.
         const u32 reads_after = marker_reads;
+        require(reads_after == 600, "600 looks");
         put_marker(0x84000);
         now_us += 100000;
         sdk_identity_gui_service();

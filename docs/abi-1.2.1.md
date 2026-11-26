@@ -2507,7 +2507,7 @@ project save/deserialize hooks are shared, not replaced or duplicated.
 MIX page is word `+0x88`, with EQ at index 1; M2 key 7 takes the shifted
 vtable method while Shift is held. Keys 10–13 are encoder clicks. Stock
 continuous stepping is `8d4d6cc8`; an actual edit uses dirty marker `8d585ee8`.
-B3 virtual IDs 128–137 (138–145: the [device identity](#device-identity)) are consumed before stock's unbounded parameter setter
+B3 virtual IDs 128–137, and in a build with the [device identity](#device-identity) 138–145, are consumed before stock's unbounded parameter setter
 `8d50eb8c`, including malformed values. ID 128 begins a parameter transaction:
 selection in bits 0–4 (0 is EQ, 1–16 are registered processors), count in bits
 5–8, explicit audio reset in bit 9, and a 21-bit sequence in bits 10–30.

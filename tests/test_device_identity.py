@@ -90,6 +90,14 @@ class Declaration(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'deviceIdentity'):
                 machine_at(self.copy_fixture(directory, declared=False))
         with tempfile.TemporaryDirectory() as directory:
+            # Nor may one declare the reader itself.
+            folder = self.copy_fixture(directory, 'probestage', sdk='1.30', declared=False)
+            engine = folder / 'engine.cpp'
+            engine.write_text('extern "C" bool opxy_device_identity(unsigned char*, unsigned);\n' +
+                              engine.read_text(encoding='utf-8'), encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, 'deviceIdentity'):
+                machine_at(folder)
+        with tempfile.TemporaryDirectory() as directory:
             # Declaring it without the header is allowed: the build links the service for nothing.
             m = machine_at(self.copy_fixture(directory, 'probestage', sdk='1.30'))
             self.assertIn('deviceIdentity', native.service_users([m]))
