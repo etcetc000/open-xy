@@ -607,7 +607,7 @@ def machine_at(root, identity=None):
         require_sdk(version, IDLE_SDK, "An effect's declared tail (tailFrames)")
     if 'trackStage' in definition['resources']:
         require_sdk(version, track_stage.TRACK_STAGE_SDK, "A synth's track stage (trackStage)")
-    if 'deviceIdentity' in definition['resources']:
+    if definition['resources'].get('deviceIdentity', 0) == 1:
         require_sdk(version, DEVICE_IDENTITY_SDK, 'The device identity (deviceIdentity)')
     if any(p['display'] == 'division' for p in definition['parameters']):
         require_sdk(version, (1, 2), 'A division control')

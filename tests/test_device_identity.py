@@ -158,6 +158,21 @@ class Profile(unittest.TestCase):
                                                      'sdk_identity_receive'])
 
 
+@unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Stock OS image not supplied (OPXY_TEST_STOCK_OS)')
+class StockImage(unittest.TestCase):
+    def test_both_sites_hold_the_reviewed_bytes(self):
+        from tooling.formats import ldr, mapped_offset, sha
+        data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
+        profile = config()
+        self.assertEqual(sha(data), profile['stock_sha256'])
+        for address in (LOOP_SITE, RECEIVE_SITE):
+            patch = record(profile, address)
+            offset = mapped_offset(ldr(data), int(address, 16), patch['length'])
+            with self.subTest(address=address):
+                self.assertEqual(data[offset:offset + patch['length']], bytes.fromhex(patch['before']))
+                self.assertEqual(offset, int(patch['file_offset'], 16))
+
+
 class Plan(unittest.TestCase):
     def test_only_a_build_with_a_declaring_machine_links_its_units(self):
         self.assertEqual({u: native.UNIT_SERVICES[u] for u in UNITS}, dict.fromkeys(UNITS, 'device_identity'))
@@ -214,7 +229,7 @@ class Host(unittest.TestCase):
                 result = subprocess.run([*command[:-2], '-DSTOCK_SETTER=%d' % setter, *command[-2:]],
                                         capture_output=True, text=True, timeout=120, **HIDDEN)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                for mode in ('gui', 'torn', 'audio'):
+                for mode in ('gui', 'torn', 'giveup', 'audio'):
                     result = subprocess.run([str(binary), mode], capture_output=True, text=True, timeout=120, **HIDDEN)
                     with self.subTest(setter=setter, mode=mode):
                         self.assertEqual((result.returncode, result.stdout.strip()), (0, 'ok'), result.stdout + result.stderr)

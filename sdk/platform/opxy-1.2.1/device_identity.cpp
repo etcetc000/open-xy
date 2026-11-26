@@ -41,17 +41,16 @@ const u32 kClock = 0x8d5be3a0;
 // Parameter numbers: stock sends 0..3, the master processor 128..137.
 // A message is begin(sequence), six words, commit(check).
 const u32 kBegin = 138, kFirstWord = 139, kCommit = 145;
-// The GUI looks for the identity every 100 ms until it has it, then sends it
-// once a second, 32 times.
-const u32 kProbeMicroseconds = 100000, kSendMicroseconds = 1000000, kSends = 32;
+// The GUI looks for the identity every 100 ms, for at most a minute (600 looks),
+// until it has it, then sends it once a second, 32 times.
+const u32 kProbeMicroseconds = 100000, kProbes = 600, kSendMicroseconds = 1000000, kSends = 32;
 
 // Each processor's own copy: identity is final once known is set.
 u8 identity[kBytes];
 volatile u32 known;
 
 // GUI processor.
-u32 next_probe, next_send, sends_left, sequence;
-bool probed;
+u32 next_probe, next_send, sends_left, sequence, probes;
 // Audio processor: the message being received.
 u32 staged[kWords], staged_mask, staged_sequence;
 bool staging;
@@ -119,11 +118,11 @@ void send() {
 
 // The GUI processor's main loop, every pass (device_identity_hooks.s).
 void sdk_identity_gui_service() {
-    if (!byte(kRole) || (known && !sends_left)) return;
+    if (!byte(kRole) || (known ? !sends_left : probes >= kProbes)) return;
     const u32 now = now_low();
     if (!known) {
-        if (probed && !due(now, next_probe)) return;
-        probed = true;
+        if (probes && !due(now, next_probe)) return;
+        ++probes;
         next_probe = now + kProbeMicroseconds;
         if (!read_boot(identity)) return;
         barrier();

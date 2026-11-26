@@ -3,7 +3,8 @@
 // stock-shaped boot information, clock, sender and setter. Stock addresses map
 // to host memory through host_stock_address: the test writes a host stock.hpp
 // beside a copy of the unit, device_identity_unit.cpp. One processor per run:
-// "gui", "torn" (the boot information changes while it is read) or "audio".
+// "gui", "torn" (the boot information changes while it is read), "giveup" (it
+// never is in place) or "audio".
 // Built with STOCK_SETTER, sdk_master_receive is kit_absent, as in a firmware
 // without the master processor, and other numbers go to stock's setter.
 // Prints "ok".
@@ -28,7 +29,7 @@ struct Call { u32 base, id; i32 value; };
 unsigned char role;
 unsigned char boot[0x30];  // 0x08010e40..0x08010e6f
 const u32 kBootBase = 0x08010e40;
-u32 marker_reads, torn_at;  // torn_at: the marker read that sees another value (0: none)
+u32 marker_reads, torn_at;  // every marker read; torn_at: the one that sees another value (0: none)
 unsigned long long now_us;
 std::vector<Call> sent, set, master;
 
@@ -57,7 +58,7 @@ Address opxy::platform::host_stock_address(Address address) {
     if (address == 0x8d5be3a0) return reinterpret_cast<Address>(&clock);
     if (address == 0x8d4dc84c) return reinterpret_cast<Address>(&stock_send);
     if (address == 0x8d50eb8c) return reinterpret_cast<Address>(&stock_set);
-    if (address == 0x08010e68 && torn_at && ++marker_reads == torn_at) return reinterpret_cast<Address>(&torn_marker);
+    if (address == 0x08010e68 && ++marker_reads == torn_at) return reinterpret_cast<Address>(&torn_marker);
     if (address >= kBootBase && address < kBootBase + sizeof boot) return reinterpret_cast<Address>(boot + (address - kBootBase));
     std::fprintf(stderr, "Unmapped stock address %08x\n", static_cast<unsigned>(address));
     std::abort();
@@ -110,7 +111,7 @@ void place(const u8* identity, u32 marker) {
     put_marker(marker);
 }
 
-void gui(bool torn) {
+void gui(bool torn, bool giveup = false) {
     role = 1;
     // Near the clock's 32-bit wrap: every interval spans it.
     now_us = 0xffff0000ull;
@@ -135,6 +136,20 @@ void gui(bool torn) {
         now_us += 100000;
         sdk_identity_gui_service();
         require(reads(kIdentity), "the next look reads it");
+        return;
+    }
+    if (giveup) {
+        // Never in place: 600 looks, a minute, then no more reads of it or the clock.
+        put_marker(0);
+        for (u32 i = 0; i < 700; ++i) {
+            now_us += 100000;
+            sdk_identity_gui_service();
+        }
+        const u32 reads_after = marker_reads;
+        put_marker(0x84000);
+        now_us += 100000;
+        sdk_identity_gui_service();
+        require(!opxy_device_identity(out, 18) && sent.empty() && marker_reads == reads_after, "gives up after a minute");
         return;
     }
     // An address outside the window: not in place.
@@ -239,13 +254,14 @@ void audio() {
 }
 
 int main(int argc, char** argv) {
-    require(argc == 2, "usage: device_identity gui|torn|audio");
+    require(argc == 2, "usage: device_identity gui|torn|giveup|audio");
     // The host header's own identity is the documented preview one.
     u8 preview[18];
     require(configure_preview_device_identity(nullptr) && !device_identity(preview, 18), "unknown on request");
     require(configure_preview_device_identity(opxy::preview_device_identity) && device_identity(preview, 18) &&
             preview[0] == 0xa0 && preview[17] == 0xb1, "the preview identity");
     if (!std::strcmp(argv[1], "gui")) gui(false);
+    else if (!std::strcmp(argv[1], "giveup")) gui(false, true);
     else if (!std::strcmp(argv[1], "torn")) gui(true);
     else if (!std::strcmp(argv[1], "audio")) audio();
     else require(false, "unknown run");
