@@ -423,8 +423,8 @@ index. Each voice costs the machine's voice size plus the adapter's own state, s
 stock is not known to pass; indirect calls were not traced) gets a shared silent
 object and adds one to `<prefix>_voice_refusals`, an exported per-engine word
 that nothing in the SDK reads: a debugger, a simulator or a build's own code may. It also declares the
-optional [sample services](#sample-engines) it uses. An effect declares no resources (`{}`). Any kind may also
-declare `deviceIdentity` (SDK 1.30) to read the [device identity](#device-identity).
+optional [sample services](#sample-engines) it uses. An effect needs no resources (`{}`). Any kind may
+also declare `deviceIdentity` (SDK 1.30) to read the [device identity](#device-identity).
 A synth declares:
 
 | Field | Required value or meaning |

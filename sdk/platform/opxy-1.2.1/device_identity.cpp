@@ -4,9 +4,9 @@
 // The GUI processor reads the identity from stock's boot information; the
 // audio processor cannot, so the GUI sends it there in stock's own global
 // parameter message (the B3 message stock sends for its master EQ), under
-// parameter numbers stock never uses. Each processor keeps its own copy, written
-// once: the GUI's from its read, the audio processor's from a complete,
-// checked message. docs/abi-1.2.1.md#device-identity.
+// parameter numbers stock never uses. Each processor keeps its own copy, final
+// once marked known: the GUI's from its read, the audio processor's from a
+// complete, checked message. docs/abi-1.2.1.md#device-identity.
 #include "barrier.hpp"
 #include "stock.hpp"
 #include <opxy/device_identity.hpp>
@@ -17,10 +17,11 @@ using namespace opxy::platform;
 extern "C" {
 void sdk_identity_gui_service() __asm__("sdk_identity_gui_service");
 void sdk_identity_receive(u32 base, u32 id, i32 value) __asm__("sdk_identity_receive");
-void sdk_identity_stock_receive(u32 base, u32 id, i32 value) __asm__("sdk_identity_stock_receive");
-// The master processor's receiver (master_filter_stock.cpp) in a build with one,
-// else sdk_identity_stock_receive (tooling.native.service_fallbacks).
+// The master processor's receiver (master_filter_stock.cpp) in a build that links
+// it; in any other, kit_absent (startup.cpp, linked in every build), as
+// tooling.native.service_fallbacks resolves it.
 void sdk_master_receive(u32 base, u32 id, i32 value) __asm__("sdk_master_receive");
+int kit_absent() __asm__("kit_absent");
 }
 
 namespace {
@@ -43,7 +44,7 @@ const u32 kBegin = 138, kFirstWord = 139, kCommit = 144;
 // once a second, 32 times.
 const u32 kProbeMicroseconds = 100000, kSendMicroseconds = 1000000, kSends = 32;
 
-// Each processor's own copy: identity is written once, before known.
+// Each processor's own copy: identity is final once known is set.
 u8 identity[kBytes];
 volatile u32 known;
 
@@ -93,6 +94,18 @@ u32 check(u32 sequence_value, const u32* values) {
     return hash;
 }
 
+// Every other number: to the master processor's receiver when the build links
+// it, else to stock's setter, as the call did without this service. The empty
+// asm keeps the compiler from assuming two functions' addresses differ.
+void forward(u32 base, u32 id, i32 value) {
+    typedef void Receiver(u32, u32, i32);
+    Receiver* master = &sdk_master_receive;
+    Address absent = reinterpret_cast<Address>(&kit_absent);
+    __asm__("" : "+r"(master), "+r"(absent));
+    if (reinterpret_cast<Address>(master) == absent) stock<Receiver>(kStockSet)(base, id, value);
+    else master(base, id, value);
+}
+
 void send() {
     u32 values[kWords];
     words(values);
@@ -129,7 +142,7 @@ void sdk_identity_gui_service() {
 // audio processor's copy, which later ones never change.
 void sdk_identity_receive(u32 base, u32 id, i32 value) {
     if (id < kBegin || id > kCommit) {
-        sdk_master_receive(base, id, value);
+        forward(base, id, value);
         return;
     }
     if (byte(kRole)) return;
@@ -153,11 +166,6 @@ void sdk_identity_receive(u32 base, u32 id, i32 value) {
     for (u32 i = 0; i < kBytes; ++i) identity[i] = static_cast<u8>(staged[i / 4] >> (8 * (i % 4)));
     barrier();
     known = 1;
-}
-
-// The receiver call's own target, for a build without the master processor.
-void sdk_identity_stock_receive(u32 base, u32 id, i32 value) {
-    stock<void(u32, u32, i32)>(kStockSet)(base, id, value);
 }
 
 bool opxy_device_identity(u8* output, u32 size) {

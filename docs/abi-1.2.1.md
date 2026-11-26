@@ -2534,8 +2534,8 @@ positive-scale hide transform for degenerate geometry. All this runs on the GUI 
 
 The `device_identity` service gives machines declaring `deviceIdentity` the
 [device identity](api.md#device-identity) (`device_identity.cpp`,
-`device_identity_hooks.s`). Each processor keeps its own copy, written once and
-then marked known; `opxy_device_identity` copies it out.
+`device_identity_hooks.s`). Each processor keeps its own copy, which never
+changes once marked known; `opxy_device_identity` copies it out.
 
 | Site | Purpose | Original bytes |
 | --- | --- | --- |
@@ -2557,7 +2557,9 @@ little-endian. Stock sends IDs 0–3 and the master processor 128–137.
 
 The audio processor's receiver consumes IDs 138–144 before stock's unbounded
 setter `8d50eb8c`, whatever their values, and passes every other ID on
-unchanged. A begin starts a message; the five words follow it; the commit sets
+unchanged: to the master processor's receiver, or, in a build without it, where
+that symbol resolves to `kit_absent`, to stock's setter as the call did. The
+sender (`8d4dc84c`) and receiver copy the 32-bit value as raw bytes. A begin starts a message; the five words follow it; the commit sets
 the identity only if all five arrived since the begin, the check matches and
 the padding is zero. The first such message sets it and later ones change
 nothing. The GUI processor ignores these IDs. Nothing else in the GUI's or the

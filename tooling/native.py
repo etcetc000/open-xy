@@ -580,10 +580,9 @@ def service_fallbacks(services):
     sdk_drumline_get), the drum-kit controls' entry points the shared drum units
     call in a build with such a kit (drum_kit_controls.hpp): each 0 is a kit without
     them, and, in a collection with a track stage, the per-key sends' reset the
-    shared track call handler makes (track_call.s). In a collection with the device
-    identity, its receiver's next step, the master processor's receiver, is stock's
-    own setter instead (sdk_identity_stock_receive) while the master processor is
-    not selected."""
+    shared track call handler makes (track_call.s); and, in a collection with the
+    device identity, the master processor's receiver, which the identity's receiver
+    then replaces with stock's own setter (device_identity.cpp)."""
     fallbacks = {}
     if 'control' in services:
         fallbacks['control'] = dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'), 'kit_absent')
@@ -599,8 +598,9 @@ def service_fallbacks(services):
         fallbacks['kit_controls'] = dict.fromkeys(KIT_CONTROLS_CALLS, 'kit_absent')
     if 'device_identity' in services:
         # The global parameter receiver's next step after the device identity's
-        # (device_identity.cpp): the master processor's, else stock's own setter.
-        fallbacks['master_filter'] = {'sdk_master_receive': 'sdk_identity_stock_receive'}
+        # (device_identity.cpp): the master processor's; kit_absent tells it to call
+        # stock's own setter instead.
+        fallbacks['master_filter'] = {'sdk_master_receive': 'kit_absent'}
     return fallbacks
 
 

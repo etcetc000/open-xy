@@ -16,6 +16,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -26,6 +27,7 @@ from tooling.machines import SDK_VERSION, machine_at
 from tooling.pipeline import ROOT, check_patch_boundaries, config
 from machine_fixtures import FOLDER, NAMES, fixture
 from test_sample_services import HOST_CXX
+from test_service_links import TOOLS, run, symbols
 
 PLATFORM = ROOT / 'sdk/platform/opxy-1.2.1'
 HEADER = ROOT / 'sdk/include/opxy/device_identity.hpp'
@@ -121,7 +123,7 @@ class Profile(unittest.TestCase):
         self.assertEqual(decode_branch(int(RECEIVE_SITE, 16), bytes.fromhex(patch['before'])), (0x8d50eb8c, True))
         unit = (PLATFORM / 'device_identity.cpp').read_text(encoding='utf-8')
         self.assertIn('kStockSet = 0x8d50eb8c', unit)
-        self.assertIn('stock<void(u32, u32, i32)>(kStockSet)(base, id, value);', unit)
+        self.assertIn('stock<Receiver>(kStockSet)(base, id, value);', unit)
         services = profile['services']
         self.assertEqual(services['device_identity'], ['deviceIdentity'])
         self.assertEqual(set(services['parameter_receive']), set(services['master_filter']) | set(services['device_identity']))
@@ -171,12 +173,14 @@ class Plan(unittest.TestCase):
 
     def test_without_the_master_processor_the_receiver_goes_on_to_stocks_setter(self):
         profile = config()
+        # kit_absent, linked in every build (so a selection without the identity's
+        # machine links too), tells the receiver to call stock's setter.
         self.assertEqual(native.service_fallbacks(active_services(profile, ['synth', 'deviceIdentity'])),
-                         {'master_filter': {'sdk_master_receive': 'sdk_identity_stock_receive'}})
+                         {'master_filter': {'sdk_master_receive': 'kit_absent'}})
         self.assertNotIn('master_filter', native.service_fallbacks(active_services(profile, ['synth', 'master_filter'])))
-        # The fallback's target is the unit's own, defined beside the receiver.
         unit = (PLATFORM / 'device_identity.cpp').read_text(encoding='utf-8')
-        self.assertIn('void sdk_identity_stock_receive(u32 base, u32 id, i32 value) {', unit)
+        self.assertIn('if (reinterpret_cast<Address>(master) == absent) stock<Receiver>(kStockSet)(base, id, value);', unit)
+        self.assertIn('int kit_absent() __asm__("kit_absent");', (PLATFORM / 'startup.cpp.in').read_text(encoding='utf-8'))
 
     def test_machines_and_the_header_never_touch_the_hardware_themselves(self):
         header = HEADER.read_text(encoding='utf-8')
@@ -202,12 +206,15 @@ class Host(unittest.TestCase):
             command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-D__builtin_bfin_ssync()=host_barrier()',
                        '-I' + folder, '-I' + str(ROOT / 'sdk/include'), '-I' + str(PLATFORM),
                        str(ROOT / 'tests/fixtures/device_identity.cpp'), '-o', str(binary)]
-            result = subprocess.run(command, capture_output=True, text=True, timeout=120, **HIDDEN)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            for run in ('gui', 'torn', 'audio'):
-                result = subprocess.run([str(binary), run], capture_output=True, text=True, timeout=120, **HIDDEN)
-                with self.subTest(run=run):
-                    self.assertEqual((result.returncode, result.stdout.strip()), (0, 'ok'), result.stdout + result.stderr)
+            # With the master processor's receiver, and with kit_absent in its place.
+            for setter in (0, 1):
+                result = subprocess.run([*command[:-2], '-DSTOCK_SETTER=%d' % setter, *command[-2:]],
+                                        capture_output=True, text=True, timeout=120, **HIDDEN)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                for mode in ('gui', 'torn', 'audio'):
+                    result = subprocess.run([str(binary), mode], capture_output=True, text=True, timeout=120, **HIDDEN)
+                    with self.subTest(setter=setter, mode=mode):
+                        self.assertEqual((result.returncode, result.stdout.strip()), (0, 'ok'), result.stdout + result.stderr)
 
     def test_a_machine_reads_the_preview_identity_on_the_host(self):
         """The header's host path, as a machine's host test or the browser preview compiles it."""
@@ -235,6 +242,60 @@ int main() {
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=120, **HIDDEN)
             self.assertEqual((result.returncode, result.stdout.strip()), (0, 'ok'), result.stdout + result.stderr)
+
+
+@unittest.skipUnless((TOOLS / ('bfin-elf-g++' + ('.exe' if os.name == 'nt' else ''))).is_file(),
+                     'No Blackfin toolchain in local/toolchain (python sdk.py toolchain fetch, or set OPXY_TEST_COMPILER)')
+class Links(unittest.TestCase):
+    def test_every_selection_links_and_only_one_with_the_machine_hooks_for_it(self):
+        """A real build of probesynth beside probeident, and the browser linker (builder/core.mjs
+        linkKit) over its objects: each selection links, and only one with probeident links the
+        service's units and turns on both of its hooks' services."""
+        import base64
+        from tooling import browser_kit
+        from tooling.machines import FIXED_NUMBERS, read_collection
+        folders = [FOLDER / 'probesynth', FOLDER / 'probeident']
+        with tempfile.TemporaryDirectory(prefix='links-identity-') as folder:
+            out = Path(folder) / 'module'
+            result = run([sys.executable, ROOT / 'sdk.py', 'compile', *(a for m in folders for a in ('--machine', m)),
+                          '--toolchain', TOOLS, '--compiler', TOOLS.parent, '--out', out])
+            self.assertEqual(result.returncode, 0, result.stdout[-4000:] + result.stderr[-4000:])
+            report = json.loads((out / 'compile-report.json').read_text(encoding='utf-8'))
+            self.assertTrue({'device_identity', 'parameter_receive'} <= set(report['services']))
+            self.assertIn('_opxy_device_identity', symbols(out / 'sdk/device_identity.o')[0])
+            profile, machines, definitions = native.configuration(read_collection(None, folders))
+            owners, services = native.object_owners(machines, profile), native.object_services(machines, profile)
+            objects = [dict(name=name, owner=owner, service=services.get(name),
+                            bytes=base64.b64encode((out / name).read_bytes()).decode('ascii'))
+                       for name, owner in owners.items()]
+            entries = [browser_kit.machine_entry(m, profile, {}, Path(folder), 'clang++') for m in machines]
+            fallbacks = native.service_fallbacks(active_services(profile, native.service_users(machines)))
+            kit = dict(version='0.0.0', profile=profile, fixed=FIXED_NUMBERS, machines=entries, serviceFallbacks=fallbacks,
+                       definitions={key: value for key, value in definitions.items() if key in native.DEFINITIONS})
+            script = """
+import {linkKit, readObject} from %s;
+let input = '';
+for await (const chunk of process.stdin) input += chunk;
+const {kit, objects, selections} = JSON.parse(input);
+kit.objects = objects.map(({bytes, service, ...o}) =>
+  ({...readObject(Buffer.from(bytes, 'base64')), ...o, ...(service ? {service} : {})}));
+process.stdout.write(JSON.stringify(selections.map(selection => {
+  const linked = linkKit(kit, selection);
+  return {objects: linked.objects.map(o => o.name), services: [...linked.services]};
+})));
+""" % json.dumps((ROOT / 'builder/core.mjs').as_uri())
+            selections = [['probesynth'], ['probeident'], ['probesynth', 'probeident']]
+            result = subprocess.run(['node', '--input-type=module', '-e', script], capture_output=True, text=True,
+                                    encoding='utf-8', cwd=ROOT, timeout=120,
+                                    input=json.dumps(dict(kit=kit, objects=objects, selections=selections)))
+            self.assertEqual(result.returncode, 0, result.stderr[-4000:])
+            for selection, linked in zip(selections, json.loads(result.stdout)):
+                with self.subTest(selection=selection):
+                    expected = 'probeident' in selection
+                    self.assertEqual('sdk/device_identity.o' in linked['objects'], expected)
+                    self.assertEqual('sdk/device_identity_hooks.o' in linked['objects'], expected)
+                    self.assertEqual({'device_identity', 'parameter_receive'} & set(linked['services']),
+                                     {'device_identity', 'parameter_receive'} if expected else set())
 
 
 if __name__ == '__main__':

@@ -4,6 +4,8 @@
 // to host memory through host_stock_address: the test writes a host stock.hpp
 // beside a copy of the unit, device_identity_unit.cpp. One processor per run:
 // "gui", "torn" (the boot information changes while it is read) or "audio".
+// Built with STOCK_SETTER, sdk_master_receive is kit_absent, as in a firmware
+// without the master processor, and other numbers go to stock's setter.
 // Prints "ok".
 #include <cstdio>
 #include <cstdlib>
@@ -41,7 +43,14 @@ u32 torn_marker;
 void put_marker(u32 value) { std::memcpy(boot + 0x28, &value, 4); }
 }
 
+int kit_absent() { return 0; }
+#if STOCK_SETTER
+__asm__(".globl sdk_master_receive\n.set sdk_master_receive, kit_absent");
+const bool kMaster = false;
+#else
 void sdk_master_receive(u32 base, u32 id, i32 value) { master.push_back(Call{base, id, value}); }
+const bool kMaster = true;
+#endif
 
 Address opxy::platform::host_stock_address(Address address) {
     if (address == 0x86c05ca4) return reinterpret_cast<Address>(&role);
@@ -175,11 +184,13 @@ void audio() {
     // Every other number goes on, unchanged, to the next receiver; none of these does.
     const u32 others[] = {0, 3, 127, 128, 137, 145, 255};
     for (u32 id : others) sdk_identity_receive(0x84c696fc, id, -5 - static_cast<i32>(id));
-    require(master.size() == 7, "other numbers pass on");
+    // To the master processor's receiver, or without it to stock's setter.
+    std::vector<Call>& passed = kMaster ? master : set;
+    require(passed.size() == 7 && (kMaster ? set : master).empty(), "other numbers pass on");
     for (u32 i = 0; i < 7; ++i)
-        require(master[i].base == 0x84c696fc && master[i].id == others[i] && master[i].value == -5 - static_cast<i32>(others[i]),
+        require(passed[i].base == 0x84c696fc && passed[i].id == others[i] && passed[i].value == -5 - static_cast<i32>(others[i]),
                 "unchanged");
-    master.clear();
+    passed.clear();
     // Incomplete, unchecked or padded messages, and words without a begin, set nothing.
     std::vector<Call> missing = message(3, kIdentity);
     missing.erase(missing.begin() + 3);
@@ -215,9 +226,6 @@ void audio() {
     deliver(message(9, other));
     require(reads(kIdentity), "the first one stays");
     require(master.empty() && set.empty(), "consumed");
-    // The receiver's own target without the master processor: stock's setter.
-    sdk_identity_stock_receive(0x84c696fc, 2, 77);
-    require(set.size() == 1 && set[0].base == 0x84c696fc && set[0].id == 2 && set[0].value == 77, "stock's setter");
 }
 }
 
