@@ -74,15 +74,15 @@ def audio_values(m):
         return dict(STAGE_AUDIO_BEGIN='', STAGE_AUDIO_ARGUMENT='', STAGE_AUDIO_END='', STAGE_BENCHMARK_AUDIO='')
     display = m.definition['resources']['display']
     count = display['audioWords']
-    handshake = ('audio_handshake, audio_handshake + 1, audio_handshake + 2' if display.get('audioReset')
-                 else 'nullptr, nullptr, nullptr')
+    reset = bool(display.get('audioReset'))
+    handshake = 'audio_handshake, audio_handshake + 1, audio_handshake + 2' if reset else 'nullptr, nullptr, nullptr'
     return dict(
         STAGE_AUDIO_BEGIN=('    auto* audio_bank = sdk_audio.resolve(track);\n'
                            '    const opxy::AudioContext audio_context = sdk_audio.context(track, audio_bank);\n'
                            '    sdk_audio.begin(audio_bank);\n'),
         STAGE_AUDIO_ARGUMENT=', audio_context',
         STAGE_AUDIO_END='\n    sdk_audio.end(audio_bank);',
-        STAGE_BENCHMARK_AUDIO=(f'    static volatile u32 audio_words[{count}], audio_handshake[3];\n'
+        STAGE_BENCHMARK_AUDIO=(f'    static volatile u32 audio_words[{count}]' + (', audio_handshake[3]' if reset else '') + ';\n'
                                f'    const AudioContext audio_context(0, audio_words, {count}, {handshake}, 0, true);\n'))
 
 

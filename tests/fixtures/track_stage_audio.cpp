@@ -50,6 +50,27 @@ int main() {
     // Another track's words are its own.
     Bank* other = probestagemeter_audio_bank(3);
     if (!other || other == bank || other->words[0] || other->words[2]) return 5;
+    // The voices' update of the same block comes first (as the adapter's render does, on the
+    // same track's bank): the stage's words replace theirs, and a reset the voices acknowledge
+    // is no longer pending for the stage.
+    {
+        auto* voices_bank = sdk_audio.resolve(2);
+        const opxy::AudioContext voices = sdk_audio.context(2, voices_bank);
+        sdk_audio.begin(voices_bank);
+        voices.publish_word(0, 77);
+        voices.publish_word(2, 1);
+        sdk_audio.end(voices_bank);
+        if (bank->words[0] != 77 || bank->words[2] != 1) return 10;
+        probestagemeter_track_process(2, sum, words, 1);
+        if (bank->words[0] != 2000 || bank->words[2] != 2999) return 11;
+        bank->requested_target = 1;
+        bank->requested_command = 3;
+        sdk_audio.begin(voices_bank);
+        voices.command_applied(voices.pending_command());
+        sdk_audio.end(voices_bank);
+        probestagemeter_track_process(2, sum, words, 1);
+        if (bank->applied_command != 3 || bank->words[2] != 2999) return 12;
+    }
     // A quieter block keeps the held peak until the screen's reset request, which the stage
     // applies and acknowledges in its next block.
     for (opxy::i32& s : sum) s = 0;

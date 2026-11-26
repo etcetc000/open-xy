@@ -2,6 +2,7 @@
 track_process takes the synth's AudioContext for its track, so the stage publishes to the
 synth's own screen as its voices do. A stage without it keeps its adapter's text."""
 import copy
+from dataclasses import replace
 import os
 from pathlib import Path
 import shutil
@@ -55,7 +56,7 @@ class TrackStageAudio(unittest.TestCase):
             machine_at(root)
             record = (root / 'machine.json').read_text(encoding='utf-8')
             (root / 'machine.json').write_text(record.replace('"1.27"', '"1.26"'), encoding='utf-8')
-            with self.assertRaisesRegex(ValueError, '1.27'):
+            with self.assertRaisesRegex(ValueError, r"a screen's own audio .*\"sdk\": \"1\.27\""):
                 machine_at(root)
 
     def test_a_stage_without_it_keeps_its_adapter_text(self):
@@ -93,6 +94,14 @@ class TrackStageAudio(unittest.TestCase):
                       '    const AudioContext audio_context(0, audio_words, 3, audio_handshake, audio_handshake + 1, '
                       'audio_handshake + 2, 0, true);\n    i32 sum[128];\n', stage)
         self.assertIn('probestagemeter::track_process(state, shared, 0, sum, parameters, voices, audio_context);', stage)
+        # Without the reset handshake the scratch context has none.
+        m = fixture('probestagemeter')
+        plain = copy.deepcopy(m.definition)
+        del plain['resources']['display']['audioReset']
+        values = track_stage.audio_values(replace(m, definition=plain))
+        self.assertEqual(values['STAGE_BENCHMARK_AUDIO'],
+                         '    static volatile u32 audio_words[3];\n'
+                         '    const AudioContext audio_context(0, audio_words, 3, nullptr, nullptr, nullptr, 0, true);\n')
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
     def test_the_generated_stage_publishes_its_tracks_words_on_the_host(self):

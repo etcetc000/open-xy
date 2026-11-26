@@ -607,9 +607,13 @@ A synth's [track stage](api.md#track-stage) declaring `audio: 1` in
 `trackStage` (SDK 1.27) takes the same context as a final argument of
 `track_process`, on the same track's words, after that block's voices: it can
 publish what the whole track plays, or apply a reset request while the track's
-voices are silent and the stage still runs. Its `publish_word` replaces a voice's
-word of the same block, and its `add_packed16` adds to theirs. A sleeping stage
-publishes nothing. The browser preview does not run stages, so a stage's words
+voices are silent and the stage still runs. Voices and stage update the words
+separately, so a snapshot can fall between them: a stage's `publish_word` replaces
+a voice's word of the same block only from the next snapshot on (on an accumulator
+word it also drops what was summed since the last snapshot), and its `add_packed16`
+adds to theirs. A reset request is the first acknowledger's: once a voice calls
+`command_applied`, the stage's `pending_command()` reads 0 in the same block, so let
+only one of them handle resets. A sleeping stage publishes nothing. The browser preview does not run stages, so a stage's words
 reach the screen on the device only.
 
 An effect's words are its send's: the effect on each send has its own, cleared
