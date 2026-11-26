@@ -7,7 +7,13 @@ The device forms' results were checked once against the host forms on the BF707
 instruction-set simulator: every 1.15 value for the unary helpers, the edge
 cross-products, the ties and a million random pairs for the binary ones, Q31
 edges at every count 0..31 for shift_right, and edges plus random words for the
-saturates and q31::subtract. These tests pin the shape that was checked."""
+saturates and q31::subtract; SDK 1.28's helpers the same way (every 1.15 value
+for q15::half, edge and random pairs for the rest, every count -31..31 for
+q31::shift). These tests pin the shape that was checked.
+
+Each helper also compiles exactly as its instruction written out as inline
+assembly that declares the arithmetic flags (ASTAT and CC) changed, so code that
+moves from such assembly to the helper keeps its object code."""
 import os
 from pathlib import Path
 import re
@@ -42,7 +48,82 @@ PROBES = {
                       [rf'{R} = {R} - {R} \(S\);']),
     'q31::shift_right': ('opxy::i32 probe(opxy::i32 a, opxy::u32 n) { return opxy::q31::shift_right(a, n); }',
                          [rf'{R} >>>= {R};']),
+    'q31::multiply': ('opxy::i32 probe(opxy::i32 a, opxy::i32 b) { return opxy::q31::multiply(a, b); }',
+                      [rf'{R} = {R} \* {R} \(T\);']),
+    'q31::add': ('opxy::i32 probe(opxy::i32 a, opxy::i32 b) { return opxy::q31::add(a, b); }',
+                 [rf'{R} = {R} \+ {R} \(S\);']),
+    'q31::shift_left': ('opxy::i32 probe(opxy::i32 a, opxy::u32 n) { return opxy::q31::shift_left(a, n); }',
+                        [rf'{R} = ASHIFT {R} BY {R}\.L \(S\);']),
+    'q31::half': ('opxy::i32 probe(opxy::i32 a) { return opxy::q31::half(a); }', [rf'{R} = {R} >>> 0x1;']),
+    # SDK 1.28.
+    'q15::half': ('opxy::i16 probe(opxy::i16 a) { return opxy::q15::half(a); }', [rf'{R}\.L = {R}\.L >>> 0x1;']),
+    'q15::subtract_wrapped': ('opxy::i16 probe(opxy::i16 a, opxy::i16 b) { return opxy::q15::subtract_wrapped(a, b); }',
+                              [rf'{R}\.L = {R}\.L - {R}\.L \(NS\);']),
+    'q15::pack': ('opxy::u32 probe(opxy::i16 a, opxy::i16 b) { return opxy::q15::pack(a, b); }',
+                  [rf'{R} = PACK \({R}\.L, {R}\.L\);']),
+    'q15::multiply_pair': ('opxy::u32 probe(opxy::u32 a, opxy::i16 b) { return opxy::q15::multiply_pair(a, b); }',
+                           [rf'{R}\.H = {R}\.H \* {R}\.L, {R}\.L = {R}\.L \* {R}\.L \(T\);']),
+    'q15::add_pair': ('opxy::u32 probe(opxy::u32 a, opxy::u32 b) { return opxy::q15::add_pair(a, b); }',
+                      [rf'{R} = {R} \+\|\+ {R} \(S\);']),
+    'q15::high': ('opxy::i16 probe(opxy::u32 a) { return opxy::q15::high(a); }', [rf'{R} >>= 0x10;']),
+    'q31::shift': ('opxy::i32 probe(opxy::i32 a, opxy::i32 n) { return opxy::q31::shift(a, n); }',
+                   [rf'{R} = ASHIFT {R} BY {R}\.L;']),
 }
+# Each one-statement helper beside its instruction written out as inline assembly that
+# declares the arithmetic flags changed: its result and operand types, then the assembly
+# with its operands (a and b in, r out, t a scratch register). q31::add alone declares
+# only ASTAT, as it has since SDK 1.7: the add never writes CC, and declaring CC now would
+# move compares in machines already built with it.
+WRITTEN_OUT = {
+    'q15::add': ('i16', 'i16', 'i16', '"%0.L = %1.L + %2.L (S);" : "=d"(r) : "d"(a), "d"(b)'),
+    'q15::subtract': ('i16', 'i16', 'i16', '"%0.L = %1.L - %2.L (S);" : "=d"(r) : "d"(a), "d"(b)'),
+    'q15::normalize': ('i16', 'i16', None,
+                       '"%1.L = SIGNBITS %2.L;\\n\\t%0.L = ASHIFT %2.L BY %1.L (S);" : "=d"(r), "=&d"(t) : "d"(a)'),
+    'q15::multiply': ('i16', 'i16', 'i16', '"%0.L = %1.L * %2.L (T);" : "=d"(r) : "d"(a), "d"(b)'),
+    'q15::multiply_nearest': ('i16', 'i16', 'i16', '"%0.L = %1.L * %2.L;" : "=d"(r) : "d"(a), "d"(b)'),
+    'q15::half': ('i16', 'i16', None, '"%0.L = %1.L >>> 1;" : "=d"(r) : "d"(a)'),
+    'q15::subtract_wrapped': ('i16', 'i16', 'i16', '"%0.L = %1.L - %2.L;" : "=d"(r) : "d"(a), "d"(b)'),
+    'q15::pack': ('u32', 'i16', 'i16', '"%0 = PACK (%1.L, %2.L);" : "=d"(r) : "d"(b), "d"(a)'),
+    'q15::multiply_pair': ('u32', 'u32', 'i16',
+                           '"%0.L = %1.L * %2.L, %0.H = %1.H * %2.L (T);" : "=d"(r) : "d"(a), "d"(b)'),
+    'q15::add_pair': ('u32', 'u32', 'u32', '"%0 = %1 +|+ %2 (S);" : "=d"(r) : "d"(a), "d"(b)'),
+    'q31::multiply': ('i32', 'i32', 'i32', '"%0 = %1 * %2 (T);" : "=d"(r) : "d"(a), "d"(b)'),
+    'q31::add': ('i32', 'i32', 'i32', '"%0 = %1 + %2 (S);" : "=d"(r) : "d"(a), "d"(b)', '"ASTAT"'),
+    'q31::subtract': ('i32', 'i32', 'i32', '"%0 = %1 - %2 (S);" : "=d"(r) : "d"(a), "d"(b)'),
+    'q31::shift_left': ('i32', 'i32', 'u32', '"%0 = ASHIFT %1 BY %2.L (S);" : "=d"(r) : "d"(a), "d"(b)'),
+    'q31::shift_right': ('i32', 'i32', 'u32', '"%0 >>>= %2;" : "=d"(r) : "0"(a), "d"(b)'),
+    'q31::half': ('i32', 'i32', None, '"%0 = %1 >>> 1;" : "=d"(r) : "d"(a)'),
+    'q31::shift': ('i32', 'i32', 'i32', '"%0 = ASHIFT %1 BY %2.L;" : "=d"(r) : "d"(a), "d"(b)'),
+}
+# One call beside a compare, and a loop of them, where the flags a statement declares
+# changed shape the schedule: a compare sets CC, so a statement that declares CC changed
+# keeps the compare from moving across it.
+CONTEXT = """
+{result} choose({first} a, {second} b, {result} c) {{
+    const {result} x = {op}({arguments});
+    return c > {result}(a) ? x : {result}(x + c);
+}}
+{result} probe({result}* out, const {first}* a, const {second}* b, {result} limit, unsigned n) {{
+    {result} kept = limit;
+    for (unsigned i = 0; i < n; ++i) {{
+        const {result} x = {op}({items});
+        out[i] = x;
+        kept = x > kept ? x : kept;
+        if (a[i] > {first}(kept)) out[i] = kept;
+    }}
+    return kept;
+}}
+"""
+
+
+def written_out(result, first, second, assembly, clobbers='"ASTAT", "CC"'):
+    """The instruction as an inline function of plain inline assembly, flags declared changed."""
+    operands = f'{first} a' + (f', {second} b' if second else '')
+    scratch = ', t' if '(t)' in assembly else ''
+    return (f'inline {result} written({operands}) {{\n    {result} r{scratch};\n'
+            f'    __asm__({assembly} : {clobbers});\n    return r;\n}}\n')
+
+
 # A loop using every helper, as a machine's block would.
 LOOP = '''
 void probe(opxy::i16* out, const opxy::i16* a, const opxy::i16* b, opxy::i32* wide, unsigned n) {
@@ -50,6 +131,9 @@ void probe(opxy::i16* out, const opxy::i16* a, const opxy::i16* b, opxy::i32* wi
         const opxy::i16 x = opxy::q15::add(opxy::q15::multiply_nearest(a[i], b[i]), opxy::q15::multiply(a[i], b[i]));
         out[i] = opxy::q15::normalize(opxy::q15::subtract(x, opxy::q15::saturate(wide[i])));
         wide[i] = opxy::q31::shift_right(opxy::q31::subtract(wide[i], opxy::q31::saturate(opxy::i64(wide[i]) + wide[n - 1 - i])), i & 31);
+        wide[i] = opxy::q31::shift(opxy::q31::add(wide[i], opxy::q31::half(wide[i])), opxy::i32(i & 31) - 16);
+        const opxy::u32 pair = opxy::q15::multiply_pair(opxy::q15::pack(a[i], b[i]), out[i]);
+        out[i] = opxy::q15::half(opxy::q15::subtract_wrapped(opxy::q15::low(opxy::q15::add_pair(pair, pair)), x));
     }
 }
 '''
@@ -114,6 +198,34 @@ class Device(unittest.TestCase):
                     self.assertEqual(len(body) - 1, len(expected), listing)
                     for text, pattern in zip(body, expected):
                         self.assertRegex(text, '^' + pattern + '$')
+
+    def test_each_helper_compiles_as_its_instruction_written_out(self):
+        # The same code around the helper and around its instruction written out must
+        # compile to the same instructions, in the same order and registers.
+        prelude = HEADERS + 'using namespace opxy;\n'
+        with tempfile.TemporaryDirectory(prefix='fixed-point-') as folder:
+            for name, (result, first, second, *assembly) in WRITTEN_OUT.items():
+                with self.subTest(helper=name):
+                    loop = lambda op: CONTEXT.format(result=result, first=first, second=second or 'i32', op=op,
+                                                     arguments='a, b' if second else 'a',
+                                                     items='a[i], b[i]' if second else 'a[i]')
+                    helper = device_listing(loop(name), Path(folder), prelude)
+                    written = device_listing(written_out(result, first, second, *assembly) + loop('written'),
+                                             Path(folder), prelude)
+                    self.assertTrue(instructions(helper), helper)
+                    self.assertEqual(instructions(helper), instructions(written), helper + written)
+
+    def test_the_comparison_sees_the_flags_declared(self):
+        # The control: the same add written out declaring CC as well moves a compare in
+        # this code, so the comparison above would see a helper's missing or extra flag.
+        prelude = HEADERS + 'using namespace opxy;\n'
+        result, first, second, assembly, _ = WRITTEN_OUT['q31::add']
+        loop = lambda op: CONTEXT.format(result=result, first=first, second=second, op=op, arguments='a, b',
+                                         items='a[i], b[i]')
+        with tempfile.TemporaryDirectory(prefix='fixed-point-') as folder:
+            helper = device_listing(loop('q31::add'), Path(folder), prelude)
+            both = device_listing(written_out(result, first, second, assembly) + loop('written'), Path(folder), prelude)
+        self.assertNotEqual(instructions(helper), instructions(both), helper)
 
     def test_the_wide_saturate_is_compiled_code_without_a_call(self):
         with tempfile.TemporaryDirectory(prefix='fixed-point-') as folder:

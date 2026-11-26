@@ -108,4 +108,78 @@ inline i16 multiply_nearest(i16 a, i16 b) {
     return saturate(quotient);
 #endif
 }
+
+// SDK 1.28: more of the processor's own 16-bit operations, one instruction each
+// on the device and the same results on the host, so code that wants exactly
+// that instruction calls a helper rather than writing assembly. Like the
+// helpers above, each declares the arithmetic flags changed and never reads,
+// writes or saves ASTAT.
+
+// Half of a 1.15 value rounded toward minus infinity, as an arithmetic shift
+// right by one does: the 1.15 counterpart of q31::half.
+__attribute__((always_inline)) inline i16 half(i16 value) {
+#if defined(__bfin__)
+    i16 result;
+    __asm__("%0.L = %1.L >>> 1;" : "=d"(result) : "d"(value) : "ASTAT", "CC");
+    return result;
+#else
+    return static_cast<i16>(value / 2 - (value < 0 && value % 2 != 0));
+#endif
+}
+
+// a - b wrapped to 16 bits rather than saturated: 32767 - -1 is -32768. The
+// processor's plain 16-bit subtract; subtract is the saturating one.
+__attribute__((always_inline)) inline i16 subtract_wrapped(i16 a, i16 b) {
+#if defined(__bfin__)
+    i16 result;
+    __asm__("%0.L = %1.L - %2.L;" : "=d"(result) : "d"(a), "d"(b) : "ASTAT", "CC");
+    return result;
+#else
+    const i32 bits = (static_cast<i32>(a) - b) & 0xffff;
+    return static_cast<i16>(bits > maximum ? bits - 0x10000 : bits);
+#endif
+}
+
+// A pair: two 1.15 values in one word, low in bits 0..15 and high in bits
+// 16..31, such as a stereo frame. The pair helpers work on both halves at once
+// in one instruction, each half exactly as the scalar helper of the same name.
+__attribute__((always_inline)) inline i16 low(u32 pair) {
+    return static_cast<i16>(static_cast<u16>(pair));
+}
+__attribute__((always_inline)) inline i16 high(u32 pair) {
+    return static_cast<i16>(static_cast<u16>(pair >> 16));
+}
+
+// The pair of two 1.15 values: first in the low half, second in the high half.
+__attribute__((always_inline)) inline u32 pack(i16 first, i16 second) {
+#if defined(__bfin__)
+    u32 result;
+    __asm__("%0 = PACK (%1.L, %2.L);" : "=d"(result) : "d"(second), "d"(first) : "ASTAT", "CC");
+    return result;
+#else
+    return static_cast<u16>(first) | static_cast<u32>(static_cast<u16>(second)) << 16;
+#endif
+}
+
+// Each half of a pair times b, as multiply: truncated, -1 * -1 saturating.
+__attribute__((always_inline)) inline u32 multiply_pair(u32 pair, i16 b) {
+#if defined(__bfin__)
+    u32 result;
+    __asm__("%0.L = %1.L * %2.L, %0.H = %1.H * %2.L (T);" : "=d"(result) : "d"(pair), "d"(b) : "ASTAT", "CC");
+    return result;
+#else
+    return pack(multiply(low(pair), b), multiply(high(pair), b));
+#endif
+}
+
+// The halves of two pairs added, each saturating as add does.
+__attribute__((always_inline)) inline u32 add_pair(u32 a, u32 b) {
+#if defined(__bfin__)
+    u32 result;
+    __asm__("%0 = %1 +|+ %2 (S);" : "=d"(result) : "d"(a), "d"(b) : "ASTAT", "CC");
+    return result;
+#else
+    return pack(add(low(a), low(b)), add(high(a), high(b)));
+#endif
+}
 }} // namespace opxy::q15

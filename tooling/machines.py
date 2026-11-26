@@ -84,7 +84,11 @@ IDLE_SDK = (1, 22)
 # instrument track, processed in place on the track's voice sum once per block.
 # 1.25 gives a note player its track's kind of instrument (Controls.instrument) and lets a
 # drum kit's value editor move the key to another model (resources.modelEdit; SDK_1_25 in definitions.py).
-SDK_VERSION = (1, 25)
+# 1.28 adds more one-instruction helpers to opxy/q15.hpp (half, subtract_wrapped and the pair
+# helpers pack, low, high, multiply_pair, add_pair) and an arithmetic shift by a signed count,
+# shift, to opxy/q31.hpp. A renumber changes this line, SDK_VERSION and the "SDK 1.28" text of
+# those headers and docs/api.md.
+SDK_VERSION = (1, 28)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
