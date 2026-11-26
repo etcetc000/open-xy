@@ -436,7 +436,7 @@ A synth declares:
 | `releaseCallback` | Optional integer 0/1 (SDK 1.12): receive the [voice release event](synth-release.md) |
 | `display` | The screen's frame budget; see the [display API](display.md) |
 | `trackControl` | Optional: the [track control](#track-control) state's `stateBytes` and `stateAlignment`, and optionally `unique`, `savedBytes`, `aux` and `sharedLfo` |
-| `trackStage` | Optional (SDK 1.24): the [track stage](#track-stage)'s `stateBytes`, `stateAlignment` and `tailFrames`, and from SDK 1.27 an optional `audio` (with the display's `audioTransport`) |
+| `trackStage` | Optional (SDK 1.24): the [track stage](#track-stage)'s `stateBytes`, `stateAlignment` and `tailFrames`, and from SDK 1.27 an optional `audio` |
 
 The SDK never runs constructors or destructors for `Voice`, `Shared` or
 `DisplayState`: their storage starts zeroed and the callbacks set it up.

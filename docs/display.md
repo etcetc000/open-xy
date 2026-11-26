@@ -611,9 +611,11 @@ voices are silent and the stage still runs. Voices and stage update the words
 separately, so a snapshot can fall between them: a stage's `publish_word` replaces
 a voice's word of the same block only from the next snapshot on (on an accumulator
 word it also drops what was summed since the last snapshot), and its `add_packed16`
-adds to theirs. A reset request is the first acknowledger's: once a voice calls
-`command_applied`, the stage's `pending_command()` reads 0 in the same block, so let
-only one of them handle resets. A sleeping stage publishes nothing. The browser preview does not run stages, so a stage's words
+adds to theirs. Whichever of voices or stage calls `command_applied` first takes a
+reset request: the other's `pending_command()` then reads 0, so let only one of them
+handle resets. As for a voice's `render`, the words count as being updated for the
+whole of `track_process`, and a snapshot that meets an update waits for a later
+one: a long stage makes snapshots rarer. A sleeping stage publishes nothing. The browser preview does not run stages, so a stage's words
 reach the screen on the device only.
 
 An effect's words are its send's: the effect on each send has its own, cleared

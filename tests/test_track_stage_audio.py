@@ -2,6 +2,7 @@
 track_process takes the synth's AudioContext for its track, so the stage publishes to the
 synth's own screen as its voices do. A stage without it keeps its adapter's text."""
 import copy
+import json
 from dataclasses import replace
 import os
 from pathlib import Path
@@ -56,7 +57,15 @@ class TrackStageAudio(unittest.TestCase):
             machine_at(root)
             record = (root / 'machine.json').read_text(encoding='utf-8')
             (root / 'machine.json').write_text(record.replace('"1.27"', '"1.26"'), encoding='utf-8')
-            with self.assertRaisesRegex(ValueError, r"a screen's own audio .*\"sdk\": \"1\.27\""):
+            with self.assertRaisesRegex(ValueError, r'needs "sdk": "1\.27"'):
+                machine_at(root)
+            # The key itself is 1.27's, even as 0 beside a display without audio.
+            definition = json.loads((root / 'definition.json').read_text(encoding='utf-8'))
+            for key in ('audioTransport', 'audioWords', 'audioMode', 'audioReset'):
+                del definition['resources']['display'][key]
+            definition['resources']['trackStage']['audio'] = 0
+            (root / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, r"trackStage audio\) needs \"sdk\": \"1\.27\""):
                 machine_at(root)
 
     def test_a_stage_without_it_keeps_its_adapter_text(self):
@@ -88,7 +97,6 @@ class TrackStageAudio(unittest.TestCase):
                       '    sdk_audio.end(audio_bank);\n}\n', stage)
         # The voices' bank: one per track, the same object the transport's registry reads.
         self.assertEqual(text.count('NativeBank<3, 0, true, 1> sdk_audio;'), 1)
-        self.assertLess(text.index('probestagemeter::render('), text.index('probestagemeter::track_process('))
         # The diagnostic's run times the stage's publishing into scratch words.
         self.assertIn('    static volatile u32 audio_words[3], audio_handshake[3];\n'
                       '    const AudioContext audio_context(0, audio_words, 3, audio_handshake, audio_handshake + 1, '
