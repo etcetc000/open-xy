@@ -17,7 +17,8 @@ patterns are the machine's own code filling nodes; see
 
 ## Declaration
 
-Each synth, or sample engine with its own screen, declares its frame's budget in `resources.display` of
+Each synth, sample engine with its own screen, or [note player drawing its own page](api.md#a-players-own-drawn-page-sdk-126)
+(SDK 1.26) declares its frame's budget in `resources.display` of
 `definition.json` and names the same shape as its C++ frame type. The SDK sizes
 the native renderer, the browser renderer and the artwork bindings from that
 declaration; a mismatch fails to compile.
@@ -313,7 +314,8 @@ SDK 1.4 supplies `<opxy/page_header.hpp>` for synths using `"press": "page"`.
 starter keeps the stock header. This helper uses the existing drawing ABI and
 the [UX layout](ux.md#more-than-four-controls). A paged
 [note player](api.md#note-players) gets the same header from the SDK and
-calls nothing.
+calls nothing, unless it [draws its own page](api.md#a-players-own-drawn-page-sdk-126)
+(SDK 1.26): then it draws this header itself, as a synth does.
 
 Store `opxy::draw::PageHeader` in `DisplayState` and call its `reset()` from
 `display_reset`. It occupies 20 bytes with four-byte alignment. Reserve eight
