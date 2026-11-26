@@ -41,3 +41,36 @@ def write(kit, output, notices=None):
         info = zipfile.ZipInfo('machines.json', date_time=(1980, 1, 1, 0, 0, 0))
         archive.writestr(info, data)
     return path
+
+
+def variant_build(site, carried, pack, machines):
+    """What a site's SDK objects must have been built with for pack machines, as the builder decides
+    it (builder/core.mjs variantBuild): a native build of the site's collection with those machines
+    compiles them so (native.shared_build). `site` and `pack` are their kits' build records,
+    `carried` what the site's variants can add (native.carried_variants) and `machines` each pack
+    machine's kind, services, defines and header-tied units. A machine may add only what the site
+    has or carries, and its own objects must have been compiled as the site then compiles its
+    kind's (native.own_unit_defines). {'target': the site's build with all they add (the site's
+    own when they add nothing)} or {'refused': [machine index, 'service' | 'define' | 'header' |
+    'own', what]}."""
+    from .native import DEFINE_ORDER, OWN_UNIT_DEFINES, SHARED_HEADERS
+    services, defines, headers = set(site['services']), set(site['defines']), set(site['headers'])
+    for index, m in enumerate(machines):
+        for what, needed, key in (('service', m['services'], 'services'), ('define', m['defines'], 'defines'),
+                                  ('header', m['headers'], 'headers')):
+            missing = [x for x in needed if x not in site[key] and x not in carried[key]]
+            if missing:
+                return dict(refused=[index, what, missing[0]])
+        services.update(m['services'])
+        defines.update(m['defines'])
+        headers.update(m['headers'])
+    target = site
+    if len(services) > len(site['services']) or len(defines) > len(site['defines']) or len(headers) > len(site['headers']):
+        target = dict(services=sorted(services), defines=[d for d in DEFINE_ORDER if d in defines],
+                      headers=[h for h in SHARED_HEADERS if h in headers],
+                      unitDefines={kind: [d for d in OWN_UNIT_DEFINES.get(kind, ()) if d in defines]
+                                   for kind in site['unitDefines']})
+    for index, m in enumerate(machines):
+        if pack['unitDefines'].get(m['kind'], []) != target['unitDefines'].get(m['kind'], []):
+            return dict(refused=[index, 'own', m['kind']])
+    return dict(target=target)

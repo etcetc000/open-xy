@@ -120,9 +120,24 @@ octaves services, an aux machine the control and aux services), the SDK defines
 a 1.25 player, a kit with the drum-kit controls or a `modelEdit` kit adds, and
 header-tied units such as
 `opxy/control_interaction.hpp`. A pack player must also have been compiled as
-the site compiles its players (with or without the 1.25 player define). A
+the site compiles its players with the pack's machines (with or without the
+1.25 player define). A
 site's collection decides these, so a pack machine extends only a site whose
-catalog already uses them; otherwise the importer names what is missing.
+catalog already uses them, or whose kit carries them built in (below);
+otherwise the importer names what is missing.
+
+A site's kit also carries its SDK objects as they are built for what a pack
+machine may add: the 1.25 player define, on a site linking the players service;
+the `modelEdit` define, the drum-kit controls with their amp envelope and a 1.21
+kit screen's played pad, on a site linking the drums service; and the last
+control touched (`opxy/control_interaction.hpp`), with any arithmetic runtime
+members those objects need. When an imported
+machine needs any of them, the builder swaps those objects in for every build
+while the pack is imported, as a native build of the site's collection with the
+pack's machines compiles them: with the player define, the site's own players
+take it too (a player that does not read the instrument plays the same notes
+with it). Builds without such a pack link the site's objects, unchanged. The
+carried objects add some kilobytes to the site's download.
 A machine published to the catalog after the site's release is exported as
 a catalog machine, not a custom one, and cannot be imported. A pack that imports
 replaces the previous one, so export the desired custom machines together; a
@@ -175,10 +190,10 @@ symbol the site's SDK objects use, damaged objects, more machines taking over
 the aux track than its chooser lists (31), aux presets beyond what the device
 lists (64 in 16 folders), heap voices beyond the stock heap a collection may
 hold (1 MiB) and machines that cannot link or fit individually. Sample
-engines' combined analysis budget is not checked at import. A custom machine that needs SDK objects the site does not link or
-build its way (a profile service its kind or features switch on, an SDK define,
+engines' combined analysis budget is not checked at import. A custom machine that needs SDK objects the site neither links nor
+carries built its way (a profile service its kind or features switch on, an SDK define,
 an arithmetic runtime member or an SDK header unit such as
-`opxy/sample_kernel.hpp` or `opxy/control_interaction.hpp`) cannot extend that
+`opxy/sample_kernel.hpp`) cannot extend that
 site: the importer names the service, define, unit or first missing symbol. The normal memory meter checks the
 combined selection. After a site release, its author needs to export a matching
 pack. Checks do not certify an author's native code, measure CPU or establish

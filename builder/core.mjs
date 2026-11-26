@@ -717,6 +717,8 @@ export async function openKit(kit) {
   }
   // What shaped its objects (tooling.native.shared_build), which a machine pack's must fit.
   check(kit.build === undefined || validBuild(kit.build), 'Invalid kit build');
+  // Its objects as pack machines may need them built (tooling.browser_kit.kit_variants).
+  await checkVariants(kit);
   check(kit.linked === undefined || (Array.isArray(kit.linked) && kit.linked.length > 0 &&
     new Set(kit.linked).size === kit.linked.length && kit.linked.every(id => kit.machines.some(m => m.id === id))),
     'Invalid linked machines');
@@ -1833,32 +1835,141 @@ function validBuild(build) {
     Boolean(build.unitDefines) && typeof build.unitDefines === 'object' && !Array.isArray(build.unitDefines) &&
     Object.entries(build.unitDefines).every(([kind, list]) => Object.hasOwn(PACK_CONTROLS, kind) && names(list));
 }
-// A pack machine extends a site only when it adds nothing to what shaped the site's SDK objects,
-// and its own objects were compiled as the site would compile them (tooling.native.shared_build):
-// a native build of the site's collection with the machine then links what the site links.
-// What it needs that the site lacks, in words, or null.
-function missingBuild(profile, site, pack, m) {
-  const service = [...activeServices(profile, [m])].find(s => !site.services.includes(s));
-  if (service !== undefined) return `the ${service} service, which this site does not link`;
-  const define = (m.build?.defines ?? []).find(d => !site.defines.includes(d));
-  if (define !== undefined) return `SDK objects built with ${define}, which this site's are not`;
-  const header = (m.build?.headers ?? []).find(h => !site.headers.includes(h));
-  if (header !== undefined) return `SDK objects built for opxy/${header}.hpp, which this site's are not`;
-  const own = kit => Object.hasOwn(kit.unitDefines, m.kind) ? kit.unitDefines[m.kind] : [];
-  if (!sameValue(own(pack), own(site)))
-    return `its objects compiled as this site compiles a ${m.kind}'s (with ${own(site).join(' ') || 'no defines'}): ` +
-      "its author's export used another collection. Ask for a pack exported with this site's collection";
-  return null;
+// The SDK unit defines in the order a build gives them (tooling.native.DEFINE_ORDER), and those a
+// kind's own units take with them (tooling.native.OWN_UNIT_DEFINES).
+const DEFINE_ORDER = ['-DOPXY_KIT_CONTROLS=1', '-DOPXY_PLAYER_INSTRUMENT=1', '-DOPXY_MODEL_EDIT=1'];
+const OWN_DEFINES = {player:['-DOPXY_PLAYER_INSTRUMENT=1']};
+const NO_VARIANTS = {services:[], defines:[], headers:[]};
+// What a site kit's variants may add besides those defines (tooling.native.VARIANT_SERVICES and
+// HEADER_SHAPES): services whose units they carry, and headers that reshape their units.
+const VARIANT_SERVICES = ['amp_envelope', 'kit_controls', 'played_pad'], VARIANT_HEADERS = ['control_interaction'];
+// What a site's SDK objects must have been built with for pack machines (tooling.machine_pack.variant_build):
+// a native build of the site's collection with them links exactly what the site then links.
+// `site` and `pack` are their kits' build records (tooling.native.shared_build), `carried` what the
+// site's variants can add (kit.variants.build, tooling.native.carried_variants) and `machines` each
+// pack machine's services, defines and header-tied units. A machine may add only what the site
+// has or carries, and its own objects must have been compiled as the site then compiles its kind's.
+// {target}: the site's build with everything the machines add (the site's own when they add nothing),
+// or {refused: [machine index, 'service' | 'define' | 'header' | 'own', what]}.
+export function variantBuild(site, carried, pack, machines) {
+  const services = new Set(site.services), defines = new Set(site.defines), headers = new Set(site.headers);
+  for (const [index, m] of machines.entries()) {
+    for (const [what, list, built, extra] of [['service', m.services, site.services, carried.services],
+      ['define', m.defines, site.defines, carried.defines], ['header', m.headers, site.headers, carried.headers]]) {
+      const missing = list.find(x => !built.includes(x) && !extra.includes(x));
+      if (missing !== undefined) return {refused:[index, what, missing]};
+    }
+    m.services.forEach(x => services.add(x)); m.defines.forEach(x => defines.add(x)); m.headers.forEach(x => headers.add(x));
+  }
+  const added = services.size > site.services.length || defines.size > site.defines.length || headers.size > site.headers.length;
+  const target = !added ? site : {services:[...services].sort(), defines:DEFINE_ORDER.filter(d => defines.has(d)),
+    headers:PACK_HEADERS.filter(h => headers.has(h)), unitDefines:Object.fromEntries(Object.keys(site.unitDefines)
+      .map(kind => [kind, (OWN_DEFINES[kind] ?? []).filter(d => defines.has(d))]))};
+  const own = (build, kind) => Object.hasOwn(build.unitDefines, kind) ? build.unitDefines[kind] : [];
+  const index = machines.findIndex(m => !sameValue(own(pack, m.kind), own(target, m.kind)));
+  return index >= 0 ? {refused:[index, 'own', machines[index].kind]} : {target};
+}
+// A site kit's variants (tooling.browser_kit.kit_variants): what they can add, none of it the site's
+// and each something a pack machine may add (checkPackMachine); the link order of every SDK object
+// a build may link, the site's own in their order; the units each header-tied unit reshapes; the
+// fallbacks of the services they add; and their objects, each a kit SDK object's, a player's own
+// one or a unit of a service they add, rebuilt for each build listed, or an arithmetic runtime member.
+function validVariants(kit) {
+  const v = kit.variants, site = kit.build;
+  const names = list => Array.isArray(list) && list.length <= 256 && new Set(list).size === list.length &&
+    list.every(x => typeof x === 'string');
+  const plain = x => Boolean(x) && typeof x === 'object' && !Array.isArray(x);
+  if (!(plain(v) && Object.keys(v).sort().join() === 'build,objects,order,serviceFallbacks,shapes' && site !== undefined &&
+    plain(v.build) && Object.keys(v.build).sort().join() === 'defines,headers,services' &&
+    ['services', 'defines', 'headers'].every(key => names(v.build[key]) && v.build[key].every(x => !site[key].includes(x))) &&
+    v.build.services.every(x => VARIANT_SERVICES.includes(x) && Object.hasOwn(kit.profile.services ?? {}, x)) &&
+    v.build.defines.every(x => DEFINE_ORDER.includes(x)) && v.build.headers.every(x => VARIANT_HEADERS.includes(x)) &&
+    // Each service they add comes with a unit of its own.
+    v.build.services.every(x => v.objects?.some?.(o => o?.service === x)) &&
+    names(v.order) && plain(v.shapes) && Object.entries(v.shapes).every(([h, units]) => VARIANT_HEADERS.includes(h) &&
+      names(units) && units.every(name => v.order.includes(name))) &&
+    plain(v.serviceFallbacks) && Object.entries(v.serviceFallbacks).every(([service, fallbacks]) =>
+      v.build.services.includes(service) && plain(fallbacks) &&
+      Object.entries(fallbacks).every(pair => pair.every(x => typeof x === 'string' && x.length > 0))) &&
+    Array.isArray(v.objects) && v.objects.length <= 4096)) return false;
+  const shared = kit.objects.filter(o => o.owner === null && !o.runtime).map(o => o.name);
+  if (!sameValue(v.order.filter(name => shared.includes(name)), shared)) return false;
+  const kinds = new Map(kit.machines.map(m => [m.id, m.kind])), keys = new Set();
+  const unitSources = new Set(Object.values(kit.unitSources ?? {}).flatMap(values => Object.values(values).flat().map(o => o.name)));
+  const within = (list, built, extra) => names(list) && built.every(x => list.includes(x)) &&
+    list.every(x => built.includes(x) || extra.includes(x));
+  return v.objects.every(o => {
+    if (!(plain(o) && typeof o.name === 'string' && typeof o.bytes === 'string' && /^[a-f0-9]{64}$/.test(o.sha256) &&
+      !unitSources.has(o.name))) return false;
+    const base = kit.objects.find(b => b.name === o.name);
+    if (o.runtime !== undefined)
+      return Object.keys(o).sort().join() === 'bytes,name,owner,runtime,sha256' && o.runtime === true && o.owner === null &&
+        /^sdk\/runtime\/_[A-Za-z0-9_]+\.o$/.test(o.name) && base === undefined;
+    if (!(Object.keys(o).every(key => ['name', 'owner', 'service', 'builds', 'bytes', 'sha256'].includes(key)) &&
+      Array.isArray(o.builds) && o.builds.length > 0 && o.builds.every(plain))) return false;
+    const own = o.owner === null ? null : OWN_DEFINES[kinds.get(o.owner)];
+    const fits = o.owner === null ?
+      v.order.includes(o.name) && (base ? base.owner === null && !base.runtime && base.extension === undefined &&
+        o.service === base.service : v.build.services.includes(o.service)) &&
+      o.builds.every(b => Object.keys(b).every(key => key === 'defines' || key === 'headers') &&
+        within(b.defines, site.defines, v.build.defines) &&
+        (b.headers === undefined || b.headers.length > 0 && within(b.headers, [], PACK_HEADERS) &&
+          b.headers.every(h => (v.shapes[h] ?? []).includes(o.name)))) :
+      own !== undefined && base?.owner === o.owner && o.service === undefined &&
+      o.builds.every(b => Object.keys(b).join() === 'defines' && within(b.defines, site.unitDefines[kinds.get(o.owner)] ?? [], own));
+    // No two objects of one name for one build.
+    return fits && o.builds.every(b => {
+      const key = canonical([o.name, b.defines.toSorted(), (b.headers ?? []).toSorted()]);
+      if (keys.has(key)) return false;
+      keys.add(key);
+      return true;
+    });
+  });
+}
+async function checkVariants(kit) {
+  check(kit.variants === undefined || validVariants(kit), 'Invalid kit variants');
+  for (const o of kit.variants?.objects ?? [])
+    check(await sha256(decode64(o.bytes)) === o.sha256, 'Curated object hash mismatch: ' + o.name);
+}
+// The site's kit as a native build of its collection with pack machines needing `target` (variantBuild)
+// would have exported it: the variants built for it in place of the objects they rebuild, the units
+// of the services it adds in link order, the arithmetic runtime members its variants need, those
+// services' fallbacks and `target` as its build. `base` is the site's kit as exported (validVariants).
+function variantKit(base, target) {
+  const v = base.variants, kinds = new Map(base.machines.map(m => [m.id, m.kind]));
+  const same = (a, b) => sameValue(a.toSorted(), b.toSorted());
+  const built = o => o.builds?.some(b => same(b.defines, o.owner === null ? target.defines :
+    target.unitDefines[kinds.get(o.owner)] ?? []) && (o.owner !== null ||
+    same(b.headers ?? [], target.headers.filter(h => (v.shapes[h] ?? []).includes(o.name)))));
+  const chosen = new Map(v.objects.filter(built).map(o => [o.name, o]));
+  const objects = base.objects.map(o => chosen.has(o.name) ? {...o, bytes:chosen.get(o.name).bytes, sha256:chosen.get(o.name).sha256} : o);
+  const names = new Set(base.objects.map(o => o.name));
+  const added = [...chosen.values()].filter(o => !names.has(o.name) && target.services.includes(o.service))
+    .map(o => ({name:o.name, owner:null, bytes:o.bytes, sha256:o.sha256, service:o.service}));
+  // Every service it adds links its units built for it (tooling.native.kit_variants builds each for every define set).
+  check(target.services.every(service => base.build.services.includes(service) || added.some(o => o.service === service)),
+    'Invalid kit variants');
+  const shared = [...objects.filter(o => o.owner === null && !o.runtime), ...added]
+    .sort((a, b) => v.order.indexOf(a.name) - v.order.indexOf(b.name));
+  const runtime = [...objects.filter(o => o.runtime),
+    ...v.objects.filter(o => o.runtime).map(o => ({name:o.name, owner:null, bytes:o.bytes, sha256:o.sha256, runtime:true}))];
+  const fallbacks = {...base.serviceFallbacks ?? {},
+    ...Object.fromEntries(Object.entries(v.serviceFallbacks).filter(([service]) => target.services.includes(service)))};
+  const {variants, ...kit} = base;
+  return {...kit, objects:[...objects.filter(o => o.owner !== null), ...shared, ...runtime], build:target,
+    ...(Object.keys(fallbacks).length ? {serviceFallbacks:fallbacks} : {})};
 }
 
 // Import custom machines into the site's collection, matched by ID: a pack carries only
 // its own machines and their objects, their records included, and no shared object
 // depends on which machines a selection holds (machine records), so it extends the site
 // whatever its catalog holds, as long as both come from one release and SDK revision and the
-// site's SDK objects were built with everything the pack's machines use (missingBuild).
-// Never replace the site's firmware profile, stock content, fixed numbers, runtime,
-// SDK objects or machines. `base` is the site's kit as exported, before openKit: the
-// candidate is opened from it, keeping its unit sources and service fallbacks.
+// site's SDK objects were built with everything the pack's machines use, or the site carries
+// them built so (variantBuild): then those variants replace them for every selection, as a
+// native build of the site's collection with the pack's machines compiles them (variantKit).
+// Never replace the site's firmware profile, stock content, fixed numbers or machines. `base`
+// is the site's kit as exported, before openKit: the candidate is opened from it, keeping its
+// unit sources and service fallbacks.
 export async function importMachinePack(base, pack) {
   const keys = ['format', 'version', 'sdk', 'profileSha256', 'definitions', 'fixed', 'build', 'machines', 'objects',
     'notices'];
@@ -1876,6 +1987,7 @@ export async function importMachinePack(base, pack) {
     'This pack targets a different Open-XY release or SDK revision. Ask its author for a matching pack.');
   check(validBuild(pack.build), 'Unsupported machine pack');
   check(validBuild(base.build), 'This site predates machine packs of every kind. Export its kit again.');
+  await checkVariants(base);
   check(Array.isArray(pack.machines) && pack.machines.length > 0 &&
     base.machines.length + pack.machines.length <= base.profile.identities.engines, 'Invalid custom machines');
   // The menu entry is rebuilt from its checked values in tooling.adapters.catalog_entry's
@@ -1888,9 +2000,6 @@ export async function importMachinePack(base, pack) {
     check(!existing.has(m.id), `${m.id} is already one of this site's machines. Ask its author for a pack ` +
       'that names it differently, or use the site\'s.');
     check((m.features ?? []).every(f => users.has(f)), 'Invalid machine features');
-    const missing = missingBuild(base.profile, base.build, pack.build, m);
-    check(missing === null, `${m.id} needs ${missing}.` + (missing?.startsWith('its objects') ? '' :
-      ' It can extend only a site whose collection already uses that.'));
     if (m.catalog === '') return m;
     const entry = JSON.parse(m.catalog.trim().slice(1)), indent = '\n            ';
     const numbered = ['effect', 'player'].includes(m.kind);
@@ -1902,6 +2011,23 @@ export async function importMachinePack(base, pack) {
       (numbered ? ',' + indent + '"id": ' + entry.id : '') +
       ',' + indent + '"default_params": [' + entry.default_params.join(', ') + ']\n        }' + (numbered ? '' : '\n')};
   });
+  // What the site's SDK objects must have been built with for these machines: its own, or variants it carries.
+  const chosen = variantBuild(base.build, base.variants?.build ?? NO_VARIANTS, pack.build, pack.machines.map(m =>
+    ({kind:m.kind, services:[...activeServices(base.profile, [m])], defines:m.build?.defines ?? [], headers:m.build?.headers ?? []})));
+  if (chosen.refused) {
+    const [index, what, name] = chosen.refused, id = pack.machines[index].id;
+    throw new Error(what === 'own' ? `${id} needs its objects compiled as this site compiles a ${name}'s with this ` +
+      "pack: its author's export used another collection. Ask for a pack exported with this site's collection." :
+      `${id} needs ` + {service:`the ${name} service, which this site does not link`,
+        define:`SDK objects built with ${name}, which this site's are not`,
+        header:`SDK objects built for opxy/${name}.hpp, which this site's are not`}[what] +
+      '. It can extend only a site whose collection already uses that' +
+      // A kit exported before kits carried variants: exported again, it may carry this.
+      (base.variants === undefined && (VARIANT_SERVICES.includes(name) || DEFINE_ORDER.includes(name) ||
+        VARIANT_HEADERS.includes(name)) ? ", or whose kit carries it built in: export the site's kit again." : '.'));
+  }
+  // The site's kit as a native build of its collection with these machines exports it.
+  const site = chosen.target === base.build ? base : variantKit(base, chosen.target);
   // A native build refuses a collection with more machines taking over an aux track than its
   // chooser lists (tooling.adapters.AUX_CHOICES, the stock role first).
   const auxMachines = [...base.machines, ...added].filter(m => (m.features ?? []).includes('auxTrack')).length;
@@ -1927,9 +2053,9 @@ export async function importMachinePack(base, pack) {
   check(typeof pack.notices === 'string' && pack.notices.length <= 1024 ** 2, 'Invalid machine notices');
   // Machine objects before the SDK's, as a native build of the site's collection with these
   // machines after its own links them (tooling/native.py plan).
-  const shared = base.objects.findIndex(o => o.owner === null);
-  const objects = [...base.objects.slice(0, shared), ...pack.objects, ...base.objects.slice(shared)];
-  const candidate = await openKit({...base, linked:undefined, machines:[...base.machines, ...added], objects,
+  const shared = site.objects.findIndex(o => o.owner === null);
+  const objects = [...site.objects.slice(0, shared), ...pack.objects, ...site.objects.slice(shared)];
+  const candidate = await openKit({...site, linked:undefined, variants:undefined, machines:[...base.machines, ...added], objects,
     notices:base.notices + '\n\nImported machine pack\n\n' + pack.notices});
   // What the SDK's objects name, and the entry points services fall back from: no machine
   // object may define one, so a selection links the same shared code with or without it.

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {KIT_KEYS, kitChoices, kitGroup, kitHeader, kitKey, kitMix, kitModel, kitSelectedKey, kitWord} from '../builder/core.mjs';
-import {RECORD_TABLE_BYTES, RECORDS_OBJECT, recordOrder, recordsObject, MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readSelection, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, imageSettings, unitSettings, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256, readMachinePack, importMachinePack, presetFiles} from '../builder/core.mjs';
+import {RECORD_TABLE_BYTES, RECORDS_OBJECT, recordOrder, recordsObject, MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readSelection, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, imageSettings, unitSettings, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256, readMachinePack, importMachinePack, presetFiles, variantBuild} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of firmware and toolchains: one global, `symbol`,
 // at the start of four code bytes.
@@ -473,6 +473,161 @@ test('a pack may not hold more players than stock numbers alongside the site mac
   await assert.rejects(importMachinePack(base, pack), /cannot all be numbered/);
   base.machines.pop();
   await importMachinePack(base, pack);
+});
+
+// A site kit's variants (tooling.browser_kit.kit_variants): its objects as a native build of its
+// collection with pack machines adding a define, a header-tied unit or a service compiles them.
+const KIT = '-DOPXY_KIT_CONTROLS=1', PI = '-DOPXY_PLAYER_INSTRUMENT=1', CI = 'control_interaction';
+async function variantOf(name, owner, symbol, builds, extra = {}) {
+  return {...await capsuleOf(name, owner, symbol), builds, ...extra};
+}
+// The kinds fixture's site with a player of its own, the fallback the kit controls' entry points
+// resolve to, and variants: its memory unit for each define set, its startup reshaped by the last
+// control touched, its player's own object with the player define, the kit controls' and the played
+// pad's units, an arithmetic runtime member and the kit controls' fallbacks.
+async function variantFixture() {
+  const {base, pack} = await kindsFixture();
+  base.machines.push({...machine('sitep', null, null), kind:'player', identity:{player:null, page:null},
+    catalog:', {"type":"sitep","id":10,"default_params":[0,0,0,0,0,0,0,0]}'});
+  base.objects.splice(1, 0, await capsuleOf('sitep/player_object.o', 'sitep', 'sitep_entry'));
+  base.objects.push(await capsuleOf('sdk/absent.o', null, 'kit_absent'));
+  base.build.services.sort();
+  base.variants = {
+    build:{services:['kit_controls', 'played_pad'], defines:[KIT, PI], headers:[CI]},
+    order:['sdk/memory.o', 'sdk/startup.o', 'sdk/samples.o', 'sdk/drums.o', 'sdk/kit_controls.o', 'sdk/played_pad.o',
+      'sdk/octaves.o', 'sdk/players.o', 'sdk/control.o', 'sdk/aux.o', 'sdk/absent.o'],
+    shapes:{[CI]:['sdk/startup.o']},
+    serviceFallbacks:{kit_controls:{sdk_drum_kit_unpack:'kit_absent'}},
+    objects:[
+      await variantOf('sdk/memory.o', null, 'share_pi', [{defines:[PI]}]),
+      await variantOf('sdk/memory.o', null, 'share_kit', [{defines:[KIT]}, {defines:[KIT, PI]}]),
+      await variantOf('sdk/startup.o', null, 'start_ci', [{defines:[], headers:[CI]}, {defines:[PI], headers:[CI]}]),
+      await variantOf('sitep/player_object.o', 'sitep', 'sitep_pi', [{defines:[PI]}]),
+      await variantOf('sdk/kit_controls.o', null, 'svc_kit_controls', [{defines:[KIT]}, {defines:[KIT, PI]}],
+        {service:'kit_controls'}),
+      await variantOf('sdk/played_pad.o', null, 'svc_played_pad', [{defines:[]}, {defines:[PI]}, {defines:[KIT]},
+        {defines:[KIT, PI]}], {service:'played_pad'}),
+      {...await capsuleOf('sdk/runtime/_divsi3.o', null, '___divsi3'), runtime:true},
+    ]};
+  return {base, pack};
+}
+const kitControls = m => {
+  Object.assign(m, {features:['kitControls'], build:{defines:[KIT], headers:[]}});
+  m.preview.kit.padVolume = true;
+};
+const symbolsOf = (kit, name) => kit.objects.find(o => o.name === name).symbols.filter(s => s.section && s.binding === 1)
+  .map(s => s.name);
+
+test('variantBuild and tooling.machine_pack.variant_build agree on the shared cases', () => {
+  const {cases} = JSON.parse(readFileSync(new URL('./fixtures/kit_variants.json', import.meta.url), 'utf8'));
+  assert.ok(cases.length >= 10);
+  for (const c of cases) assert.deepEqual(variantBuild(c.site, c.carried, c.pack, c.machines), c.expected, c.name);
+});
+
+test("a pack machine needing what the site's variants carry swaps them in for every selection", async () => {
+  const {base, pack} = await variantFixture(), before = structuredClone(base);
+  kitControls(pack.machines[0]);
+  const candidate = await importMachinePack(base, pack);
+  assert.deepEqual(base, before);
+  // The kit controls' define and service: their unit in link order, the memory unit built with the
+  // define, the startup and the site's player as they were, the runtime member and the fallbacks.
+  assert.deepEqual(candidate.build, {...base.build, services:[...base.build.services, 'kit_controls'].sort(), defines:[KIT]});
+  assert.deepEqual(candidate.objects.map(o => o.name), ['a/voice.o', 'sitep/player_object.o', 'custom/voice.o',
+    'another/voice.o', 'third/voice.o', 'sdk/memory.o', 'sdk/startup.o', 'sdk/samples.o', 'sdk/drums.o',
+    'sdk/kit_controls.o', 'sdk/octaves.o', 'sdk/players.o', 'sdk/control.o', 'sdk/aux.o', 'sdk/absent.o',
+    'sdk/runtime/_divsi3.o']);
+  assert.deepEqual(symbolsOf(candidate, 'sdk/memory.o'), ['share_kit']);
+  assert.deepEqual(symbolsOf(candidate, 'sdk/startup.o'), ['start']);
+  assert.deepEqual(symbolsOf(candidate, 'sitep/player_object.o'), ['sitep_entry']);
+  assert.deepEqual(candidate.serviceFallbacks, base.variants.serviceFallbacks);
+  assert.equal(candidate.variants, undefined);
+  // Every selection links them, the pack's kit or not; only a selection with that kit links its service.
+  assert.ok(linkKit(candidate, ['a', 'custom']).globals.has('svc_kit_controls'));
+  const alone = linkKit(candidate, ['a']);
+  assert.ok(alone.globals.has('share_kit') && !alone.globals.has('svc_kit_controls'));
+  assert.equal(alone.aliases.get('sdk_drum_kit_unpack'), alone.globals.get('kit_absent'));
+  // A kit missing a service's unit for the build it would need is refused rather than linked without it.
+  const {base:short, pack:again} = await variantFixture();
+  kitControls(again.machines[0]);
+  short.variants.objects[4].builds = [{defines:[KIT, PI]}];
+  await assert.rejects(importMachinePack(short, again), /Invalid kit variants/);
+});
+
+test("a pack player reading the instrument swaps in every player's variant, and a header its reshaped units", async () => {
+  const {base, pack} = await variantFixture();
+  pack.machines[1].build = {defines:[PI], headers:[]};
+  pack.build.unitDefines.player = [PI];
+  pack.machines[2].build = {defines:[], headers:[CI]};
+  const candidate = await importMachinePack(base, pack);
+  assert.deepEqual(candidate.build, {...base.build, defines:[PI], headers:[CI], unitDefines:{player:[PI]}});
+  assert.deepEqual(symbolsOf(candidate, 'sitep/player_object.o'), ['sitep_pi']);
+  assert.deepEqual(symbolsOf(candidate, 'sdk/memory.o'), ['share_pi']);
+  assert.deepEqual(symbolsOf(candidate, 'sdk/startup.o'), ['start_ci']);
+  // No service is added: neither a service unit nor a fallback.
+  assert.ok(!candidate.objects.some(o => o.name === 'sdk/played_pad.o' || o.name === 'sdk/kit_controls.o'));
+  assert.equal(candidate.serviceFallbacks, undefined);
+  // With the kit controls too: a build listed for none of the startup's variants keeps the site's.
+  kitControls(pack.machines[0]);
+  const both = await importMachinePack(base, pack);
+  assert.deepEqual(both.build.defines, [KIT, PI]);
+  assert.deepEqual(symbolsOf(both, 'sdk/memory.o'), ['share_kit']);
+  assert.deepEqual(symbolsOf(both, 'sdk/startup.o'), ['start']);
+  assert.deepEqual(symbolsOf(both, 'sitep/player_object.o'), ['sitep_pi']);
+});
+
+test('a pack the site has everything for, or not enough, links its kit as it is', async () => {
+  // Adding nothing: the site's objects, whatever variants it carries.
+  const {base, pack} = await variantFixture();
+  const candidate = await importMachinePack(base, pack);
+  assert.deepEqual(candidate.build, base.build);
+  assert.deepEqual(candidate.objects.map(o => [o.name, o.sha256]).filter(([name]) => !name.match(/^(custom|another|third)\//)),
+    base.objects.map(o => [o.name, o.sha256]));
+  // A site without a pack: its variants change none of its images.
+  const site = await openKit(base), plain = await openKit({...base, variants:undefined});
+  for (const selection of [['a'], ['sitep'], ['a', 'sitep']])
+    assert.deepEqual(linkKit(site, selection).module, linkKit(plain, selection).module);
+  // What the variants do not carry is refused as before.
+  for (const [change, error] of [
+    [p => { Object.assign(p.machines[0], {features:['kitControls', 'ampEnvelope'], build:{defines:[KIT], headers:[]}});
+      p.machines[0].preview.kit.padVolume = true; }, /custom needs the amp_envelope service, which this site does not link/],
+    [p => { p.machines[0].build = {defines:['-DOPXY_MODEL_EDIT=1'], headers:[]}; }, /custom needs SDK objects built with -DOPXY_MODEL_EDIT=1/],
+    [p => { p.machines[2].build = {defines:[], headers:['sample_kernel']}; }, /third needs SDK objects built for opxy\/sample_kernel.hpp/],
+    // A player compiled with the define by a collection whose pack adds none.
+    [p => { p.build.unitDefines.player = [PI]; }, /another needs its objects compiled as this site compiles a player's/],
+  ]) {
+    const {base, pack} = await variantFixture(); change(pack);
+    await assert.rejects(importMachinePack(base, pack), error, change.toString());
+  }
+});
+
+test('a kit with malformed variants is refused', async () => {
+  for (const change of [
+    v => { v.extra = 1; }, v => { delete v.shapes; }, v => { v.build.services.push('drums'); },
+    v => { v.build.services.push('unknown'); }, v => { v.build.defines.push('-DOTHER=1'); },
+    v => { v.build.headers.push('other'); }, v => { v.order.reverse(); }, v => { v.order.pop(); },
+    v => { v.shapes.other = ['sdk/startup.o']; }, v => { v.shapes[CI] = ['sdk/elsewhere.o']; },
+    v => { v.serviceFallbacks.drums = {x:'kit_absent'}; }, v => { v.serviceFallbacks.kit_controls.x = 1; },
+    v => { v.objects[0].sha256 = '0'.repeat(64); }, v => { v.objects[0].bytes = v.objects[1].bytes; },
+    v => { v.objects[0].builds = []; }, v => { v.objects[0].builds[0].defines = ['-DOTHER=1']; },
+    v => { v.objects[0].builds[0].extra = 1; }, v => { v.objects[0].owner = 'a'; },
+    v => { v.objects[0].service = 'samples'; }, v => { v.objects[1].builds.push({defines:[PI]}); },
+    v => { v.objects[2].builds[0].headers = ['sample_kernel']; }, v => { v.objects[0].builds[0].headers = [CI]; },
+    v => { v.objects[3].owner = 'a'; }, v => { v.objects[3].builds[0].defines = [KIT]; },
+    v => { v.objects[3].name = 'sitep/other.o'; }, v => { v.objects[4].service = 'drums'; },
+    v => { v.objects[4].name = 'sdk/unlisted.o'; }, v => { delete v.objects[5].service; },
+    v => { v.objects[6].name = 'sdk/runtime/_divsi3.o/../x.o'; }, v => { v.objects[6].builds = [{defines:[]}]; },
+    v => { v.objects[0].name = 'sdk/runtime/_x.o'; },
+    v => { v.build.services.push('control'); }, v => { v.build.headers.push('sample_kernel'); },
+    v => { v.objects.splice(5, 1); },
+  ]) {
+    const {base, pack} = await variantFixture(); change(base.variants);
+    await assert.rejects(openKit(base), /Invalid kit variants|hash mismatch/, change.toString());
+    await assert.rejects(importMachinePack(base, pack), /Invalid kit variants|hash mismatch/, change.toString());
+  }
+  // Variants need the site's build record.
+  const {base} = await variantFixture();
+  delete base.build;
+  await assert.rejects(openKit(base), /Invalid kit variants/);
 });
 
 test("a pack import never renumbers the site's machines, nor gives a pack engine an effect number", async () => {

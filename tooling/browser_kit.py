@@ -215,6 +215,28 @@ def unit_sources(output, tools, compiler, profile, machines, objects):
     return sources
 
 
+def kit_variants(output, tools, compiler, profile, machines, objects, version, definitions, sweep):
+    """kit.variants: what the kit's SDK objects and its players' own become in a build that pack
+    machines extend with a define, a header-tied unit or a service the site lacks
+    (native.kit_variants), which the builder swaps in when it imports such a machine
+    (builder/core.mjs importMachinePack); None for a kit that carries none. Each object is
+    written as the kit's are, and also under objects/variants/<n>/ for inspection."""
+    if not any(native.carried_variants(profile, machines).values()):
+        return None
+    require(compiler is not None, 'A site kit needs the compiler to build its variants')
+    with tempfile.TemporaryDirectory(prefix='opxy-kit-variants-') as work:
+        variants = native.kit_variants(Path(work), tools, compiler, profile, machines, objects, version, definitions,
+                                       sweep)
+    entries = []
+    for index, entry in enumerate(variants.pop('objects')):
+        data = entry.pop('data')
+        destination = child(output / 'objects/variants', f'{index}/{entry["name"]}')
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+        entries.append(dict(entry, bytes=base64.b64encode(data).decode('ascii'), sha256=sha(data)))
+    return dict(variants, objects=entries)
+
+
 def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False, compiler=None):
     profile, machines, definitions = native.configuration(native.package_collection(package))
     refuse_adapter_capabilities(native.extensions_of(machines))
@@ -263,10 +285,15 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
     fallbacks = native.service_fallbacks(native.active_services(profile, native.service_users(machines)))
     if fallbacks:
         kit['serviceFallbacks'] = fallbacks
-    chosen_units = unit_sources(output, tools, compiler, profile, machines,
-                                {o['name']: base64.b64decode(o['bytes']) for o in objects})
+    built = {o['name']: base64.b64decode(o['bytes']) for o in objects}
+    chosen_units = unit_sources(output, tools, compiler, profile, machines, built)
     if chosen_units:
         kit['unitSources'] = chosen_units
+    # Its SDK objects and its players' own as pack machines may need them built (native.kit_variants).
+    variants = kit_variants(output, tools, compiler, profile, machines, built, kit['version'], definitions,
+                            document(package / 'analysis/compile-report.json').get('benchmark_sweep', False))
+    if variants:
+        kit['variants'] = variants
     kit_path = output / 'kit.json'
     kit_path.write_text(json.dumps(kit, separators=(',', ':')), encoding='utf-8')
     # Reference validation exercises every subset against GNU ld. Failure leaves

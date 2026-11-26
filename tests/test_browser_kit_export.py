@@ -33,6 +33,30 @@ writeFileSync(out + '.ldr', await patchFirmware(kit, linked, new Uint8Array(read
   {settings: JSON.parse(settings), profiling: profiling === 'on'}));
 '''
 
+# Imports a machine pack into a site kit and links every selection of the result and of a kit exported
+# natively with the same machines: modules, numbers and firmware must be the same. Prints the count.
+IMPORT = '''
+import {readFileSync} from 'node:fs';
+import {openKit, linkKit, patchFirmware, readMachinePack, importMachinePack} from './builder/core.mjs';
+const [siteFile, packFile, nativeFile, stockFile] = process.argv.slice(1);
+const imported = await importMachinePack(JSON.parse(readFileSync(siteFile, 'utf8')), readMachinePack(readFileSync(packFile)));
+const native = await openKit(JSON.parse(readFileSync(nativeFile, 'utf8')));
+const stock = new Uint8Array(readFileSync(stockFile));
+const ids = native.machines.map(m => m.id), same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+if (imported.machines.map(m => m.id).join() !== ids.join()) throw new Error('machine order');
+let compared = 0;
+for (let mask = 1; mask < 2 ** ids.length; mask++) {
+  const selection = ids.filter((_, i) => mask & 2 ** i);
+  const a = linkKit(imported, selection), b = linkKit(native, selection);
+  if (!same(a.module, b.module) || JSON.stringify(a.numbers) !== JSON.stringify(b.numbers))
+    throw new Error('module differs: ' + selection.join('+'));
+  if (!same(await patchFirmware(imported, a, stock, {profiling:false}), await patchFirmware(native, b, stock, {profiling:false})))
+    throw new Error('firmware differs: ' + selection.join('+'));
+  compared++;
+}
+console.log(JSON.stringify({compared, build:imported.build}));
+'''
+
 
 @unittest.skipUnless(toolchain() and stock_os(), 'needs the pinned Blackfin tools (OPXY_TEST_COMPILER) and the '
                                                  'stock OS (OPXY_TEST_STOCK_OS)')
@@ -127,6 +151,44 @@ class BrowserKitExport(unittest.TestCase):
         module, firmware = self.link(kit_dir, fast, ['cpu'], {'fast_helpers': 1}, 'off')
         self.assertEqual(module, (fast / 'analysis/module.bin').read_bytes())
         self.assertEqual(firmware, (fast / 'candidate/os.ldr').read_bytes())
+
+    def test_a_site_kit_takes_a_pack_needing_its_variants_as_a_native_kit(self):
+        # A site with a synth, a player and a kit of earlier SDKs carries its objects as a pack of a 1.25
+        # player, kits with the drum-kit controls and modelEdit, and a synth reading the last control
+        # touched needs them. Imported, every selection links as a kit exported with all of them does;
+        # without the pack, the site's own build is unchanged.
+        from test_machine_pack import ci_synth_folder
+        from tooling import machine_pack, native
+        work = self.work()
+        player_folder(work / 'probeplayer')
+        ci_synth_folder(work / 'probeci')
+        site = (FIXTURES / 'probesynth', work / 'probeplayer', FIXTURES / 'probekit16')
+        pack = (FIXTURES / 'probepads', FIXTURES / 'probekit23', FIXTURES / 'probekit25', work / 'probeci')
+        site_dir = self.export(*site)
+        kit = json.loads((site_dir / 'kit.json').read_text(encoding='utf-8'))
+        self.assertEqual(kit['variants']['build'], dict(services=['amp_envelope', 'kit_controls', 'played_pad'],
+                                                        defines=list(native.DEFINE_ORDER), headers=['control_interaction']))
+        built = {o['name'] for o in kit['variants']['objects']}
+        self.assertTrue({'sdk/players.o', 'sdk/synth_controls.o', 'sdk/drum_kit_controls.o', 'sdk/drum_amp_envelope.o',
+                         'sdk/drum_trigger.o', 'probeplayer/player_object.o'} <= built, built)
+        # Without a pack, the site's build: its kit links the same image as sdk.py build of its machines.
+        plain = self.build(*site)
+        module, firmware = self.link(site_dir, plain, [], {})
+        self.assertEqual(module, (plain / 'analysis/module.bin').read_bytes())
+        self.assertEqual(firmware, (plain / 'candidate/os.ldr').read_bytes())
+        # The pack, as its author exports it from the site's collection with the pack's machines.
+        native_dir = self.export(*site, *pack)
+        whole = json.loads((native_dir / 'kit.json').read_text(encoding='utf-8'))
+        for m in whole['machines']:
+            if m['id'] in ('probesynth', 'probeplayer', 'probekit16'):
+                m['origin'] = 'catalog'
+        pack_file = machine_pack.write(whole, self.work(), 'Test pack')
+        result = subprocess.run(['node', '--input-type=module', '-e', IMPORT, str(site_dir / 'kit.json'), str(pack_file),
+                                 str(native_dir / 'kit.json'), str(stock_os())], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr[-3000:])
+        outcome = json.loads(result.stdout)
+        self.assertEqual(outcome['compared'], 2 ** 7 - 1)
+        self.assertEqual(outcome['build'], {key: whole['build'][key] for key in ('services', 'defines', 'headers', 'unitDefines')})
 
 
 if __name__ == '__main__':

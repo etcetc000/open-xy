@@ -143,3 +143,91 @@ class SharedBuildTests(unittest.TestCase):
         self.assertEqual(native.machine_build(profile, fixture('probesynth')), dict(defines=[], headers=[]))
         # A build without such machines compiles every unit as before.
         self.assertEqual(native.shared_build(profile, [fixture('probesynth')])['unitDefines'], {'player': []})
+
+
+def ci_synth_folder(folder):
+    """The probesynth fixture as a synth reading the last control touched (opxy/control_interaction.hpp)."""
+    import shutil
+    from machine_fixtures import FOLDER
+    shutil.copytree(FOLDER / 'probesynth', folder)
+    for f in folder.iterdir():
+        f.write_text(f.read_text(encoding='utf-8').replace('probesynth', 'probeci'), encoding='utf-8', newline='\n')
+    definition = json.loads((folder / 'definition.json').read_text(encoding='utf-8'))
+    definition.update(id='probeci', name='Probe CI')
+    (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+    machine = json.loads((folder / 'machine.json').read_text(encoding='utf-8'))
+    machine['sdk'] = '1.20'  # the last control touched
+    machine.pop('identity', None)
+    (folder / 'machine.json').write_text(json.dumps(machine), encoding='utf-8')
+    display = folder / 'display.cpp'
+    display.write_text('#include <opxy/control_interaction.hpp>\n' + display.read_text(encoding='utf-8'),
+                       encoding='utf-8', newline='\n')
+
+
+class KitVariants(unittest.TestCase):
+    """The rule the builder swaps a site kit's variants in by (builder/core.mjs variantBuild), as
+    tooling.machine_pack.variant_build states it: the same on the shared cases, and a native build of
+    the site's collection with the pack's machines (tooling.native.shared_build)."""
+
+    def test_shared_cases(self):
+        cases = json.loads((Path(__file__).parent / 'fixtures/kit_variants.json').read_text(encoding='utf-8'))['cases']
+        self.assertGreaterEqual(len(cases), 10)
+        for case in cases:
+            with self.subTest(case['name']):
+                self.assertEqual(machine_pack.variant_build(case['site'], case['carried'], case['pack'], case['machines']),
+                                 case['expected'])
+
+    def test_the_rule_gives_a_native_build_of_the_site_with_the_pack(self):
+        from itertools import combinations
+        from machine_fixtures import FOLDER, fixture
+        from off_path_code import player_folder
+        from tooling import native
+        from tooling.firmware import active_services
+        from tooling.machines import machine_at
+        from tooling.pipeline import config
+        profile = config()
+        # The folders stay while the build records read their sources (includes_header).
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        directory = Path(temp.name)
+        player_folder(directory / 'probeplayer')
+        ci_synth_folder(directory / 'probeci')
+        # A site with a synth, an older player and an older kit; pack machines adding each variant.
+        site = [fixture('probesynth'), machine_at(directory / 'probeplayer'), fixture('probekit16')]
+        pack = [fixture('probepads'), fixture('probekit23'), fixture('probekit21'), fixture('probekit25'),
+                machine_at(directory / 'probeci')]
+        self.assertEqual(native.machine_build(profile, pack[-1]), dict(defines=[], headers=['control_interaction']))
+        carried = native.carried_variants(profile, site)
+        self.assertEqual(carried, dict(services=['amp_envelope', 'kit_controls', 'played_pad'],
+                                       defines=list(native.DEFINE_ORDER), headers=['control_interaction']))
+        site_build = native.shared_build(profile, site)
+        checked = 0
+        for count in range(len(pack) + 1):
+            for chosen in combinations(pack, count):
+                union = site + list(chosen)
+                needs = [dict(kind=m.kind, services=sorted(active_services(profile, native.service_users([m]))),
+                              **native.machine_build(profile, m)) for m in chosen]
+                result = machine_pack.variant_build(site_build, carried, native.shared_build(profile, union), needs)
+                self.assertEqual(result, dict(target=native.shared_build(profile, union)), [m.id for m in chosen])
+                checked += 1
+        self.assertEqual(checked, 32)
+        # Without them a site carries nothing for them: no kit, no player, a header its machines include.
+        self.assertEqual(native.carried_variants(profile, [fixture('probesynth')]),
+                         dict(services=[], defines=[], headers=['control_interaction']))
+        self.assertEqual(native.carried_variants(profile, [pack[-1], fixture('probekit23')]),
+                         dict(services=[], defines=[native.MODEL_EDIT_DEFINE], headers=[]))
+        # A site whose kit has the drum-kit controls without an amp envelope carries the envelope alone.
+        import shutil
+        shutil.copytree(FOLDER / 'probekit23', directory / 'probekit23')
+        definition = json.loads((directory / 'probekit23/definition.json').read_text(encoding='utf-8'))
+        del definition['resources']['ampEnvelope']
+        (directory / 'probekit23/definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        controls = machine_at(directory / 'probekit23')
+        self.assertEqual(native.carried_variants(profile, [controls]),
+                         dict(services=['amp_envelope'], defines=[native.MODEL_EDIT_DEFINE], headers=['control_interaction']))
+        amp = dict(kind='drum', services=sorted(active_services(profile, native.service_users([fixture('probekit23')]))),
+                   **native.machine_build(profile, fixture('probekit23')))
+        site_build = native.shared_build(profile, [controls])
+        self.assertEqual(machine_pack.variant_build(site_build, native.carried_variants(profile, [controls]),
+                                                    native.shared_build(profile, [controls, fixture('probekit23')]), [amp]),
+                         dict(target=native.shared_build(profile, [controls, fixture('probekit23')])))

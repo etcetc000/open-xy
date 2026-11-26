@@ -637,6 +637,49 @@ namespace registry { struct StockString { char text[16]; u32 length,capacity; };
         self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
 
 
+def player_trace(m, folder, defines=()):
+    """Everything player `m` decides over tests/fixtures/player_parity.cpp's seeded sequence, its own
+    source compiled for the host with `defines`."""
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    wrapper = folder / 'trace.cpp'
+    wrapper.write_text(f'#include "{m.source("player.cpp")}"' + chr(10) + f'namespace subject = {m.definition["id"]};' + chr(10) +
+                       f'#include "{(ROOT / "tests/fixtures/player_parity.cpp").as_posix()}"' + chr(10), encoding='utf-8')
+    binary = folder / ('trace.exe' if os.name == 'nt' else 'trace')
+    flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
+    subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-I' + str(ROOT / 'sdk/include'), '-I' + m.source(),
+                    *('-I' + m.source(extra) for extra in m.includes), *defines, str(wrapper), '-o', str(binary)],
+                   check=True, capture_output=True, timeout=300, **flags)
+    return subprocess.run([str(binary)], check=True, capture_output=True, timeout=120, **flags).stdout
+
+
+class PlayerInstrumentParity(unittest.TestCase):
+    """A build whose players compile with OPXY_PLAYER_INSTRUMENT (a 1.25 player's, or a site kit's
+    variants once a pack brings one: builder/core.mjs importMachinePack): every player that does not
+    read Controls.instrument decides exactly what it decides without the define, whatever the
+    instrument."""
+
+    @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
+    def test_a_player_not_reading_the_instrument_plays_the_same_with_the_define(self):
+        from off_path_code import player_folder
+        from machine_fixtures import fixture
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            player_folder(root / 'probeplayer')
+            m = machine_at(root / 'probeplayer')
+            plain = player_trace(m, root / 'plain')
+            self.assertGreater(plain.count(b'press '), 10000)
+            self.assertIn(b'-> 1 2:', plain)  # it plays chords
+            for kind in (0, 1, 2):
+                self.assertEqual(player_trace(m, root / str(kind), (native.PLAYER_INSTRUMENT_DEFINE, f'-DINSTRUMENT={kind}')),
+                                 plain, kind)
+            # The sequence reaches the kind: the fixture that reads it plays otherwise on a drum track.
+            pads = fixture('probepads')
+            other = player_trace(pads, root / 'other', (native.PLAYER_INSTRUMENT_DEFINE, '-DINSTRUMENT=0'))
+            drum = player_trace(pads, root / 'drum', (native.PLAYER_INSTRUMENT_DEFINE, '-DINSTRUMENT=1'))
+            self.assertNotEqual(other, drum)
+
+
 @unittest.skipUnless(os.environ.get('OPXY_TEST_STOCK_OS'), 'Stock OS not supplied')
 class StockPlayer(unittest.TestCase):
     def test_instrument_kind_stands_on_stock_engine_getter_and_drum_predicate(self):
