@@ -628,7 +628,7 @@ nothing.
 `AudioContext::prepared_amplitude64` points at the 64 samples of envelope and
 LFO amplitude stock prepared for the voice being rendered, before velocity and
 output gain; it is null outside an ordinary synth render on the device, in
-browser previews, and always for an effect. Read it only during that `render` call and never keep the pointer.
+browser previews, in `track_process`, and always for an effect. Read it only during that `render` call and never keep the pointer.
 
 Browser previews run synths only, so an effect's snapshot reaches its page on
 the device alone. A host test calls `render` with a context from

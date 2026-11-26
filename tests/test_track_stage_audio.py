@@ -80,6 +80,21 @@ class TrackStageAudio(unittest.TestCase):
         self.assertIn('    static const i32 parameters[2 * parameter_slots] = {', stage)
         self.assertIn('};\n    i32 sum[128];\n', stage)
         self.assertIn('            probestage::track_process(state, shared, 0, sum, parameters, voices);\n', stage)
+        # audio 0 generates the same adapter as no key at all.
+        m = fixture('probestagemeter')
+        texts = []
+        for audio in (None, 0):
+            definition = copy.deepcopy(m.definition)
+            for key in ('audioTransport', 'audioWords', 'audioMode', 'audioReset'):
+                del definition['resources']['display'][key]
+            if audio is None:
+                del definition['resources']['trackStage']['audio']
+            else:
+                definition['resources']['trackStage']['audio'] = audio
+            with tempfile.TemporaryDirectory() as directory:
+                texts.append(generate_voice(Path(directory), replace(m, definition=definition)).read_text(encoding='utf-8'))
+        self.assertEqual(texts[0], texts[1])
+        self.assertNotIn('audio_', stage_text(texts[0]))
         self.assertEqual(track_stage.audio_values(fixture('probestage')),
                          dict(STAGE_AUDIO_BEGIN='', STAGE_AUDIO_ARGUMENT='', STAGE_AUDIO_END='', STAGE_BENCHMARK_AUDIO=''))
 
@@ -102,6 +117,12 @@ class TrackStageAudio(unittest.TestCase):
                       '    const AudioContext audio_context(0, audio_words, 3, audio_handshake, audio_handshake + 1, '
                       'audio_handshake + 2, 0, true);\n    i32 sum[128];\n', stage)
         self.assertIn('probestagemeter::track_process(state, shared, 0, sum, parameters, voices, audio_context);', stage)
+        # With a Shift row, the row's words come first, then the context, then the call.
+        shift = track_stage.adapter_values(fixture('probestagemeter'), shift_row=True)['TRACK_STAGE']
+        self.assertIn('    shift_words(parameters, controls + opxy::parameter_slots, shift_kept[track]);\n'
+                      '    auto* audio_bank = sdk_audio.resolve(track);\n', shift)
+        self.assertIn('track_process(track_states[track], shared, track, sum, controls, voices, audio_context);\n'
+                      '    sdk_audio.end(audio_bank);\n}', shift)
         # Without the reset handshake the scratch context has none.
         m = fixture('probestagemeter')
         plain = copy.deepcopy(m.definition)
