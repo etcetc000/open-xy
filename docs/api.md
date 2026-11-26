@@ -710,6 +710,10 @@ with it. Use the bytes on the device, for the machine's own behaviour: don't
 save them in a project, preset or file or send them anywhere, and say in the
 machine's description what it uses them for.
 
+The audio processor's copy arrives in a message stock's other code could in
+principle imitate, and the bytes themselves are not secret, so never use them
+to unlock or authorize anything.
+
 The browser preview and host tests give `opxy::preview_device_identity`: the
 bytes `0xa0, 0xa1, ..., 0xb1`. A host test can change it with
 `configure_preview_device_identity(bytes)`, or pass `nullptr` to make the
@@ -722,7 +726,9 @@ the identity; others are unchanged. The service adds a check to each pass of
 the GUI processor's main loop and to each of stock's global parameter messages
 the audio processor receives, and sends one identity message a second for the
 first 32 seconds after the identity is read ([firmware
-ABI](abi-1.2.1.md#device-identity)).
+ABI](abi-1.2.1.md#device-identity)). A machine pack cannot add a machine
+declaring `deviceIdentity` to a site yet: the builder refuses it as a machine
+with features a pack cannot carry.
 
 ## Track control
 

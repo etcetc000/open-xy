@@ -88,6 +88,7 @@ IDLE_SDK = (1, 22)
 # State and Controls each GUI frame, as a synth draws its screen. PLAYER_DRAWING_SDK is
 # the one place to renumber it, with the "SDK 1.26" text of docs/api.md and docs/display.md.
 PLAYER_DRAWING_SDK = (1, 26)
+# 1.27 to 1.29 are claimed by other open SDK changes, which take them when they merge.
 # 1.30 lets a machine of any kind read the device identity (resources.deviceIdentity,
 # opxy/device_identity.hpp; DEVICE_IDENTITY_SDK in definitions.py).
 SDK_VERSION = (1, 30)

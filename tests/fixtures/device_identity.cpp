@@ -67,19 +67,23 @@ namespace {
 const u8 kIdentity[18] = {0x00, 0x7f, 0x80, 0xff, 0x12, 0x34, 0x56, 0x78, 0x9a,
                           0xbc, 0xde, 0xf0, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab};
 
-// The message the ABI describes, built independently: begin, five little-endian
-// words (the last two bytes zero), and FNV-1a over the sequence and the words.
-std::vector<Call> message(u32 sequence, const u8* identity, u32 corrupt = 0) {
-    u32 words[5] = {};
-    for (u32 i = 0; i < 18; ++i) words[i / 4] |= static_cast<u32>(identity[i]) << (8 * (i % 4));
+// FNV-1a's low 24 bits over the sequence's three bytes and the identity's 18.
+u32 fnv24(u32 sequence, const u8* identity) {
+    unsigned char bytes[21] = {static_cast<unsigned char>(sequence), static_cast<unsigned char>(sequence >> 8),
+                               static_cast<unsigned char>(sequence >> 16)};
+    std::memcpy(bytes + 3, identity, 18);
     u32 hash = 2166136261u;
-    unsigned char bytes[24];
-    std::memcpy(bytes, &sequence, 4);
-    std::memcpy(bytes + 4, words, 20);
     for (unsigned char b : bytes) hash = (hash ^ b) * 16777619u;
+    return hash & 0xffffff;
+}
+
+// The message the ABI describes, built independently: begin, six words of three
+// little-endian bytes, and the check; every value below 2^24.
+std::vector<Call> message(u32 sequence, const u8* identity, u32 corrupt = 0) {
     std::vector<Call> calls{{0, 138, static_cast<i32>(sequence)}};
-    for (u32 w = 0; w < 5; ++w) calls.push_back(Call{0, 139 + w, static_cast<i32>(words[w])});
-    calls.push_back(Call{0, 144, static_cast<i32>(hash ^ corrupt)});
+    for (u32 w = 0; w < 6; ++w)
+        calls.push_back(Call{0, 139 + w, static_cast<i32>(identity[3 * w] | identity[3 * w + 1] << 8 | identity[3 * w + 2] << 16)});
+    calls.push_back(Call{0, 145, static_cast<i32>(fnv24(sequence, identity) ^ corrupt)});
     return calls;
 }
 
@@ -182,7 +186,7 @@ void audio() {
     u8 out[18];
     require(!opxy_device_identity(out, 18) && sent.empty(), "the audio processor does not read or send");
     // Every other number goes on, unchanged, to the next receiver; none of these does.
-    const u32 others[] = {0, 3, 127, 128, 137, 145, 255};
+    const u32 others[] = {0, 3, 127, 128, 137, 146, 255};
     for (u32 id : others) sdk_identity_receive(0x84c696fc, id, -5 - static_cast<i32>(id));
     // To the master processor's receiver, or without it to stock's setter.
     std::vector<Call>& passed = kMaster ? master : set;
@@ -199,19 +203,17 @@ void audio() {
     std::vector<Call> loose = message(5, kIdentity);
     loose.erase(loose.begin());
     deliver(loose);
-    std::vector<Call> padded = message(6, kIdentity);
-    padded[5].value |= 0x10000;  // a nonzero padding byte, with a check over it
-    {
-        u32 words[5];
-        for (u32 w = 0; w < 5; ++w) words[w] = static_cast<u32>(padded[1 + w].value);
-        u32 hash = 2166136261u, sequence = 6;
-        unsigned char bytes[24];
-        std::memcpy(bytes, &sequence, 4);
-        std::memcpy(bytes + 4, words, 20);
-        for (unsigned char b : bytes) hash = (hash ^ b) * 16777619u;
-        padded[6].value = static_cast<i32>(hash);
-    }
-    deliver(padded);
+    // A value of 2^24 or more ends the message, here a word whose low bytes still check.
+    std::vector<Call> wide = message(6, kIdentity);
+    wide[3].value |= 0x1000000;
+    deliver(wide);
+    std::vector<Call> negative = message(7, kIdentity);
+    negative[6].value |= static_cast<i32>(0x80000000u);
+    deliver(negative);
+    const u8 zeros[18] = {};
+    std::vector<Call> limit = message(10, zeros);
+    limit[1].value = 0x1000000;  // exactly 2^24, its low bytes those of a zero word
+    deliver(limit);
     // A begin restarts the message: words before it do not count.
     std::vector<Call> restarted = message(8, kIdentity);
     restarted.insert(restarted.begin() + 3, Call{0, 138, 8});

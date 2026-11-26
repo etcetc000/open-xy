@@ -2549,19 +2549,25 @@ GUI processor, until it has the identity, it looks every 100 ms (stock's
 microsecond clock `8d5be3a0`): the boot information's word at `08010e68` must
 hold an address in the 1000 bytes from `0x84000`, the 18 bytes at `08010e52`
 are the identity, and the word must be unchanged after they are read. It then
-sends the identity once a second, 32 times, as seven B3 global parameter
-messages (`8d4dc84c(id, value)`): ID 138 with a sequence number, IDs 139–143
-with the bytes as five little-endian words (the last two bytes zero), and ID
-144 with FNV-1a, 32-bit, over the sequence and the five words, each
-little-endian. Stock sends IDs 0–3 and the master processor 128–137.
+sends the identity once a second, 32 times, and after that does nothing more
+than check that it is done. Each time is eight B3 global parameter messages
+(`8d4dc84c(id, value)`, a five-byte payload: the ID byte and the value's four
+bytes): ID 138 with a 24-bit sequence number, IDs 139–144 with the bytes three
+to a word, little-endian (byte `i` is byte `i % 3` of word `i / 3`), and ID 145
+with the low 24 bits of FNV-1a, 32-bit, over the sequence's three bytes and the
+18 identity bytes, little-endian. Every value is below 2^24, so none is
+negative. Stock's own B3 messages carry its master EQ's parameters, IDs 0–3
+(the callers of `8d4dc84c` at `8c09361e`, `8c0936ba`, `8c093c50`, `8d58ea0e`
+and `8d598a6e`); the master processor's carry 128–137.
 
-The audio processor's receiver consumes IDs 138–144 before stock's unbounded
+The audio processor's receiver consumes IDs 138–145 before stock's unbounded
 setter `8d50eb8c`, whatever their values, and passes every other ID on
 unchanged: to the master processor's receiver, or, in a build without it, where
-that symbol resolves to `kit_absent`, to stock's setter as the call did. The
-sender (`8d4dc84c`) and receiver copy the 32-bit value as raw bytes. A begin starts a message; the five words follow it; the commit sets
-the identity only if all five arrived since the begin, the check matches and
-the padding is zero. The first such message sets it and later ones change
-nothing. The GUI processor ignores these IDs. Nothing else in the GUI's or the
-audio processor's traffic changes, and a build without the service sends none
-of them.
+that symbol resolves to `kit_absent`, to stock's setter as the call did. A begin
+starts a message and the six words follow it; a value of 2^24 or more ends it.
+The commit sets the identity only if all six words arrived since the begin and
+the check matches. The first such message sets it and later ones change
+nothing. The check guards against a lost or mixed-up message, not against a
+forged one. The GUI processor ignores these IDs. Nothing else in the GUI's or
+the audio processor's traffic changes, and a build without the service sends
+none of them.

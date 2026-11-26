@@ -25,10 +25,11 @@ int kit_absent() __asm__("kit_absent");
 }
 
 namespace {
-const u32 kBytes = device_identity_bytes, kWords = 5;
+// Six words of three bytes: every value the message carries is below 2^24, nonnegative.
+const u32 kBytes = device_identity_bytes, kWords = 6, kWordBytes = 3, kValueLimit = 1u << 24;
 // Byte, nonzero on the GUI processor.
 const u32 kRole = 0x86c05ca4;
-// Stock's boot information: the identity, and the word after it, which holds
+// Stock's boot information: the identity, and the word at 08010e68, which holds
 // an address in a 1000-byte window at 0x84000 once the information is in place.
 const u32 kBootIdentity = 0x08010e52, kBootMarker = 0x08010e68;
 // The global parameter message: the GUI's sender (u8 id, i32 value), and the
@@ -38,8 +39,8 @@ const u32 kSend = 0x8d4dc84c, kStockSet = 0x8d50eb8c;
 // The clock: the time in microseconds, written as 64 bits through its argument.
 const u32 kClock = 0x8d5be3a0;
 // Parameter numbers: stock sends 0..3, the master processor 128..137.
-// A message is begin(sequence), five words, commit(check).
-const u32 kBegin = 138, kFirstWord = 139, kCommit = 144;
+// A message is begin(sequence), six words, commit(check).
+const u32 kBegin = 138, kFirstWord = 139, kCommit = 145;
 // The GUI looks for the identity every 100 ms until it has it, then sends it
 // once a second, 32 times.
 const u32 kProbeMicroseconds = 100000, kSendMicroseconds = 1000000, kSends = 32;
@@ -73,25 +74,24 @@ bool read_boot(u8* output) {
     return word(kBootMarker) == before;
 }
 
+// Byte i of the identity is byte i % 3 of word i / 3, little-endian.
 void words(u32* output) {
     for (u32 w = 0; w < kWords; ++w) {
         u32 value = 0;
-        for (u32 b = 0; b < 4; ++b) {
-            const u32 i = w * 4 + b;
-            value |= static_cast<u32>(i < kBytes ? identity[i] : 0) << (8 * b);
-        }
+        for (u32 b = 0; b < kWordBytes; ++b) value |= static_cast<u32>(identity[w * kWordBytes + b]) << (8 * b);
         output[w] = value;
     }
 }
 
-// FNV-1a over the sequence and the words, little-endian.
+// FNV-1a, 32-bit, over the sequence's and each word's three bytes, little-endian,
+// keeping its low 24 bits.
 u32 check(u32 sequence_value, const u32* values) {
     u32 hash = 2166136261u;
     for (u32 w = 0; w <= kWords; ++w) {
         const u32 value = w ? values[w - 1] : sequence_value;
-        for (u32 b = 0; b < 4; ++b) hash = (hash ^ ((value >> (8 * b)) & 255u)) * 16777619u;
+        for (u32 b = 0; b < kWordBytes; ++b) hash = (hash ^ ((value >> (8 * b)) & 255u)) * 16777619u;
     }
-    return hash;
+    return hash & (kValueLimit - 1);
 }
 
 // Every other number: to the master processor's receiver when the build links
@@ -109,7 +109,8 @@ void forward(u32 base, u32 id, i32 value) {
 void send() {
     u32 values[kWords];
     words(values);
-    const u32 number = ++sequence;
+    sequence = (sequence + 1) & (kValueLimit - 1);
+    const u32 number = sequence;
     stock<void(u32, i32)>(kSend)(kBegin, static_cast<i32>(number));
     for (u32 w = 0; w < kWords; ++w) stock<void(u32, i32)>(kSend)(kFirstWord + w, static_cast<i32>(values[w]));
     stock<void(u32, i32)>(kSend)(kCommit, static_cast<i32>(check(number, values)));
@@ -118,7 +119,7 @@ void send() {
 
 // The GUI processor's main loop, every pass (device_identity_hooks.s).
 void sdk_identity_gui_service() {
-    if (!byte(kRole)) return;
+    if (!byte(kRole) || (known && !sends_left)) return;
     const u32 now = now_low();
     if (!known) {
         if (probed && !due(now, next_probe)) return;
@@ -147,6 +148,11 @@ void sdk_identity_receive(u32 base, u32 id, i32 value) {
     }
     if (byte(kRole)) return;
     const u32 bits = static_cast<u32>(value);
+    // Every value of a message is below 2^24; anything else ends it.
+    if (bits >= kValueLimit) {
+        staging = false;
+        return;
+    }
     if (id == kBegin) {
         staging = true;
         staged_sequence = bits;
@@ -160,10 +166,8 @@ void sdk_identity_receive(u32 base, u32 id, i32 value) {
         return;
     }
     staging = false;
-    if (known || staged_mask != (1u << kWords) - 1 || bits != check(staged_sequence, staged) ||
-        staged[kWords - 1] >> 16)
-        return;
-    for (u32 i = 0; i < kBytes; ++i) identity[i] = static_cast<u8>(staged[i / 4] >> (8 * (i % 4)));
+    if (known || staged_mask != (1u << kWords) - 1 || bits != check(staged_sequence, staged)) return;
+    for (u32 i = 0; i < kBytes; ++i) identity[i] = static_cast<u8>(staged[i / kWordBytes] >> (8 * (i % kWordBytes)));
     barrier();
     known = 1;
 }

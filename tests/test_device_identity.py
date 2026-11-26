@@ -119,7 +119,7 @@ class Profile(unittest.TestCase):
                          ('hook', 4, 'fae397eb', True, 'parameter_receive', 'sdk_master_receive'))
         self.assertEqual(list(patch['symbols'].items()), [('device_identity', 'sdk_identity_receive'),
                                                           ('master_filter', 'sdk_master_receive')])
-        # The call it replaces is stock's setter, sdk_identity_stock_receive's target.
+        # The call it replaces is stock's setter, which the receiver calls without the master processor.
         self.assertEqual(decode_branch(int(RECEIVE_SITE, 16), bytes.fromhex(patch['before'])), (0x8d50eb8c, True))
         unit = (PLATFORM / 'device_identity.cpp').read_text(encoding='utf-8')
         self.assertIn('kStockSet = 0x8d50eb8c', unit)
