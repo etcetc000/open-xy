@@ -348,6 +348,62 @@ process.stdout.write(JSON.stringify(selections.map(selection => {
                     # which the identity's receiver compares against to call stock's setter instead.
                     self.assertTrue(linked['masterIsAbsent'])
 
+    def test_the_native_link_points_the_master_receiver_at_the_stub_only_without_the_master_processor(self):
+        """The real link (sdk.py compile, ld) of probeident alone and beside a master-processor
+        extension: without it the master receiver is kit_absent, which the identity's receiver
+        compares against to call stock's setter; with it, it is the extension's real receiver."""
+        from test_extensions import Folder
+        objdump = TOOLS / ('bfin-elf-objdump' + ('.exe' if os.name == 'nt' else ''))
+
+        def addresses(elf):
+            table = run([objdump, '-t', elf])
+            self.assertEqual(table.returncode, 0, table.stdout + table.stderr)
+            found = {}
+            for line in table.stdout.splitlines():
+                columns = line.split()
+                if len(columns) >= 4 and columns[-1] in ('sdk_master_receive', 'kit_absent', 'sdk_identity_receive'):
+                    found[columns[-1]] = int(columns[0], 16)
+            return found
+
+        with Folder() as extension, tempfile.TemporaryDirectory(prefix='links-identity-master-') as folder:
+            # A minimal master processor (as test_master_filter builds them).
+            name = 'probe'
+            extension.declare(claims=[], actions=[], master_filter={'artwork': name + '.svg'})
+            manifest = json.loads((extension.root / 'extension.json').read_text(encoding='utf-8'))
+            manifest['master_processor'] = manifest.pop('master_filter')
+            (extension.root / 'extension.json').write_text(json.dumps(manifest), encoding='utf-8')
+            (extension.root / (name + '.svg')).write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 222">'
+                f'<path id="{name}_node_0" d="M 0 0 L 1 1" fill="none" stroke="#000000" stroke-width="1"/>'
+                f'<path id="{name}_palette_0" d="M 0 0 L 1 0 L 1 1 Z" fill="#000000" stroke="#000000" stroke-width="1"/></svg>',
+                encoding='utf-8')
+            namespace = 'namespace opxy { namespace extensions { namespace ' + name + ' {'
+            (extension.root / 'extension.cpp').write_text(
+                '#include <opxy/extension.hpp>\n#include <opxy/master_processor.hpp>\n' + namespace +
+                '\nconst Hooks hooks={};void reset(){} void prepare(Parameters){} void process(i32*,i32*){}\n'
+                'const master::Processor processor={"' + name + '",reset,prepare,process};\n}}}\n', encoding='utf-8')
+            (extension.root / 'display.h').write_text(
+                '#pragma once\n#include <opxy/draw.hpp>\n' + namespace +
+                '\nstruct DisplayState {u32 count;};using Frame=draw::Frame<0,0,1,0,1>;\n'
+                'void display_reset(DisplayState&);void display(DisplayState&,const draw::Input&,Frame&);}}}\n',
+                encoding='utf-8')
+            (extension.root / 'display.cpp').write_text(
+                '#include "display.h"\n' + namespace + '\nvoid display_reset(DisplayState& s){s.count=0;}\n'
+                'void display(DisplayState& s,const draw::Input&,Frame& f){++s.count;f={};} }}}\n', encoding='utf-8')
+            found = {}
+            for label, extra in (('alone', []), ('master', ['--extension', extension.root])):
+                out = Path(folder) / label
+                result = run([sys.executable, ROOT / 'sdk.py', 'compile', '--machine', FOLDER / 'probeident', *extra,
+                              '--toolchain', TOOLS, '--compiler', TOOLS.parent, '--out', out])
+                self.assertEqual(result.returncode, 0, result.stdout[-4000:] + result.stderr[-4000:])
+                found[label] = addresses(out / 'module.elf')
+            with self.subTest('alone'):
+                self.assertIn('sdk_identity_receive', found['alone'])
+                self.assertEqual(found['alone']['sdk_master_receive'], found['alone']['kit_absent'])
+            with self.subTest('with the master processor'):
+                self.assertIn('sdk_identity_receive', found['master'])
+                self.assertNotEqual(found['master']['sdk_master_receive'], found['master']['kit_absent'])
+
 
 if __name__ == '__main__':
     unittest.main()
