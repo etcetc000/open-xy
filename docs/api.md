@@ -699,8 +699,9 @@ known yet. On the device that is the case for a moment after boot: the GUI
 processor reads the identity and then sends it to the audio processor, normally
 within a second. From the first true it returns the same bytes until the
 device restarts. Any callback may call it, `render`, `process` and display code
-included; it does not block. Code that needs the identity in `init` or at a
-note's start must handle false: keep a default and switch once it is known,
+included; it does not block. It copies 18 bytes each time, so a machine that
+reads it often can keep its own copy after the first true. Code that needs the
+identity in `init` or at a note's start must handle false: keep a default and switch once it is known,
 or stay silent until then.
 
 The identity is not secret, but it identifies the unit, like a serial number.
@@ -710,13 +711,13 @@ with it. Use the bytes on the device, for the machine's own behaviour: don't
 save them in a project, preset or file or send them anywhere, and say in the
 machine's description what it uses them for.
 
-The audio processor's copy arrives in a message stock's other code could in
-principle imitate, and the bytes themselves are not secret, so never use them
-to unlock or authorize anything.
+The bytes are not secret, and the audio processor's copy arrives in a message
+that is checked against loss, not forgery: don't treat them as a secret or as
+proof of which unit the machine runs on.
 
 The browser preview and host tests give `opxy::preview_device_identity`: the
 bytes `0xa0, 0xa1, ..., 0xb1`. A host test can change it with
-`configure_preview_device_identity(bytes)`, or pass `nullptr` to make the
+`opxy::configure_preview_device_identity(bytes)`, or pass `nullptr` to make the
 identity unknown, as on the device just after boot; on the device that call
 does nothing and returns false.
 
@@ -727,8 +728,8 @@ the GUI processor's main loop and to each of stock's global parameter messages
 the audio processor receives, and sends one identity message a second for the
 first 32 seconds after the identity is read ([firmware
 ABI](abi-1.2.1.md#device-identity)). A machine pack cannot add a machine
-declaring `deviceIdentity` to a site yet: the builder refuses it as a machine
-with features a pack cannot carry.
+declaring `deviceIdentity` to a site yet: the builder's list of features a
+pack machine may use does not include it.
 
 ## Track control
 

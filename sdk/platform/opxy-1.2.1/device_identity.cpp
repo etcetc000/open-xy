@@ -139,7 +139,7 @@ void sdk_identity_gui_service() {
 
 // Stock's global parameter receiver call (8d5b145e): this service's numbers end
 // here, every other goes on as it would without it. A message counts only when
-// its five words follow its begin and its check matches; the first one sets the
+// its six words follow its begin and its check matches; the first one sets the
 // audio processor's copy, which later ones never change.
 void sdk_identity_receive(u32 base, u32 id, i32 value) {
     if (id < kBegin || id > kCommit) {
@@ -172,9 +172,11 @@ void sdk_identity_receive(u32 base, u32 id, i32 value) {
     known = 1;
 }
 
+// Its writer runs on the same processor as every reader, so a compiler fence
+// after known orders the reads; no SSYNC on this path.
 bool opxy_device_identity(u8* output, u32 size) {
     if (!known) return false;
-    barrier();
+    __atomic_signal_fence(__ATOMIC_SEQ_CST);
     for (u32 i = 0; i < size && i < kBytes; ++i) output[i] = identity[i];
     return true;
 }

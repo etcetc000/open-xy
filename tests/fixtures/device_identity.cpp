@@ -220,8 +220,15 @@ void audio() {
     deliver(restarted);
     require(!opxy_device_identity(out, 18), "only a complete, checked message sets it");
     require(master.empty() && set.empty(), "the identity's numbers never pass on");
-    // A good one sets it; any check value, sequence 0 included, is a value like any other.
-    deliver(message(0, kIdentity));
+    // A good one sets it, with the master processor's numbers between its words passed on
+    // as they come; any sequence, 0 included, is a value like any other.
+    std::vector<Call> good = message(0, kIdentity);
+    good.insert(good.begin() + 4, Call{0, 128, 1});
+    good.insert(good.begin() + 2, Call{0, 137, 2});
+    deliver(good);
+    std::vector<Call>& between = kMaster ? master : set;
+    require(between.size() == 2 && between[0].id == 137 && between[1].id == 128, "numbers between its words pass on");
+    between.clear();
     require(reads(kIdentity), "a complete message sets the audio processor's copy");
     // Later messages change nothing.
     const u8 other[18] = {9, 9, 9};
