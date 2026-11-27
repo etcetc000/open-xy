@@ -5,7 +5,8 @@
   },
   "actions": {
     "edit_notes": {"requires": "record_double_tap"},
-    "notify": {}
+    "notify": {},
+    "monitor_input": {"event": "motion", "exclusive": true}
   },
   "capabilities": {
     "long_samples": {},

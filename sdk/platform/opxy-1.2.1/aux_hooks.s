@@ -41,6 +41,7 @@ sdk_aux_key_hook:
     RTS;
 .size sdk_aux_key_hook, .-sdk_aux_key_hook
 
+.ifdef OPXY_STOCK_AUX_MENU
 /* 8c08fa14: aux encoder turn, after LINK 48, saved R7:4/P5:3 and 16 bytes
  * of argument space. R0/R1/R2 are controller/encoder/event. Replaces the
  * complete 8-byte P5 load; stock fallback preserves all three arguments. */
@@ -91,6 +92,8 @@ sdk_aux_shift_m1_hook:
     R0 = 1;
     RTS;
 .size sdk_aux_shift_m1_hook, .-sdk_aux_shift_m1_hook
+
+.endif
 
 /* 8c08f610: Shift + track key on an aux track reaches 8c08f60c(controller,
  * track), which opens the effect list for the sends and does nothing else.

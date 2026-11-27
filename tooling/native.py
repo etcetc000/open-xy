@@ -337,6 +337,7 @@ def plan(machines, profile=None):
     services = active_services(profile or config(), service_users(machines))
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
               if (UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services) and
+              not (step == 'input_monitor_absent' and 'input_monitor' in services) and
               (step not in UNIT_HEADERS or includes_header(machines, UNIT_HEADERS[step]))]
     units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in linked_extensions(machines)]
     names = [name for name, _m, _step in units]
@@ -352,7 +353,9 @@ SDK_UNITS = ('divide', 'sample_kernel', 'memory', 'registration', 'registration_
              'pad_assignment_stock', 'drum_page', 'drum_controls_stock', 'sample_slice_clock', 'drum_display_stock', 'screen_order',
              'screen_hooks', 'synth_controls', 'synth_control_table', 'note_activity', 'project_companion',
              'project_companion_table', 'profiling', 'lfo', 'lfo_stock', 'lfo_hooks', 'dsp_block', 'dsp_block_hooks', 'output_slack', 'output_slack_hooks', 'stock_browser',
-             'extension_runtime', 'extension_collection', 'extension_stock', 'usb_host', 'track_control',
+             'extension_runtime', 'extension_collection', 'extension_stock', 'usb_host', 'input_monitor_stock', 'input_monitor_absent',
+             'live_input_stock', 'live_input_menu', 'live_input_hooks',
+             'input_monitor_audio', 'input_monitor_hooks', 'input_monitor_ui', 'aux_menu', 'aux_menu_hooks', 'track_control',
              'track_control_table', 'track_control_hooks', 'track_control_project',
              'synth_pages', 'aux_tracks', 'aux_hooks', 'presets',
              'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel',
@@ -373,6 +376,13 @@ UNIT_HEADERS = {'sample_kernel': 'sample_kernel'}
 # Their host builds, which a machine's host tests link in place of the device unit.
 UNIT_HOST = {'sample_kernel': 'sdk/host/sample_kernel.cpp'}
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock', 'usb_host'), 'extensions'))
+UNIT_SERVICES['input_monitor_stock'] = 'input_monitor'
+UNIT_SERVICES['input_monitor_absent'] = 'motion_runtime'
+UNIT_SERVICES.update(dict.fromkeys(('live_input_stock', 'live_input_menu', 'live_input_hooks'), 'live_input'))
+UNIT_SERVICES['input_monitor_audio'] = 'input_monitor'
+UNIT_SERVICES['input_monitor_hooks'] = 'input_audio'
+UNIT_SERVICES['input_monitor_ui'] = 'input_overlay'
+UNIT_SERVICES.update(dict.fromkeys(('aux_menu', 'aux_menu_hooks'), 'input_overlay'))
 UNIT_SERVICES['drum_hooks'] = 'drums'
 UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
 # A 1.21 kit screen's played-pad snapshot: only a build with a kit declaring SDK 1.21
@@ -434,6 +444,9 @@ def service_users(machines):
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
             ['padMix' for m in machines if pad_mix(m)] +
+            (['motion'] if any(e.motion for e in extensions_of(machines)) else []) +
+            (['inputMonitor'] if any('monitor_input' in e.actions for e in extensions_of(machines)) else []) +
+            (['live_input'] if any(e.live_input for e in extensions_of(machines)) else []) +
             ['synthShift' for m in machines if m.kind == 'synth' and synth_shift(m.definition)] +
             ['playedPad' for m in machines if m.kind == 'drum' and played_pad(m)] +
             ['trackStage' for m in machines if track_stage.track_stage(m) is not None] +
@@ -485,6 +498,20 @@ def object_owners(machines, profile=None, runtime_members=()):
     """Object name -> owning machine ID (None for the SDK's shared objects), in link order."""
     return {**{name: (m.id if m else None) for name, m, _step in plan(machines, profile)},
             **{runtime.object_name(name): None for name in runtime_members}}
+
+
+def supports_plain_extension(extension):
+    return not extension.live_input and not extension.motion and 'monitor_input' not in extension.actions
+
+
+def plain_extension_variants(services):
+    variants = {}
+    if 'input_overlay' in services:
+        variants.update({f'sdk/{name}.o': 'input_overlay' for name in ('startup', 'screen_order')})
+    if 'motion_runtime' in services:
+        variants.update({f'sdk/{name}.o': 'motion_runtime' for name in
+                         ('extension_runtime', 'extension_collection', 'extension_stock')})
+    return variants
 
 
 def object_services(machines, profile=None):
@@ -580,7 +607,18 @@ def service_fallbacks(services):
     if 'control' in services:
         fallbacks['control'] = dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'), 'kit_absent')
     if 'aux' in services:
-        fallbacks['aux'] = {'sdk_aux_startup': 'kit_absent'}
+        fallbacks['aux'] = dict.fromkeys(('sdk_aux_startup', 'sdk_aux_machine_menu', 'sdk_aux_machine_turn'), 'kit_absent')
+    if 'extensions' in services:
+        fallbacks['input_monitor'] = {'sdk_input_monitor_startup': 'kit_absent'}
+    if 'extensions' in services or 'aux_menu' in services:
+        fallbacks['live_input'] = dict.fromkeys(('sdk_live_input_publish', 'sdk_live_input_option_bits',
+                                                'sdk_live_input_rendered', 'sdk_live_input_turn',
+                                                'sdk_live_input_page', 'sdk_live_input_toggle_page',
+                                                'sdk_live_input_caption', 'sdk_live_input_page_hint'), 'kit_absent')
+    if 'input_audio' in services:
+        fallbacks.setdefault('input_monitor', {})['sdk_input_monitor_audio'] = 'kit_absent'
+    if 'input_overlay' in services:
+        fallbacks['input_overlay'] = {'sdk_input_monitor_frame': 'kit_absent'}
     if 'drum_locks' in services:
         fallbacks['drum_locks'] = dict.fromkeys(('sdk_step_locks_' + call[1] for call in LOCK_CALLS), 'kit_absent')
     if 'drumline' in services:
@@ -729,10 +767,31 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             unit_defines = player_defines
         compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m), unit_defines)
 
-    def build_unit(obj, m, step):
+    services = active_services(profile, service_users(machines))
+    input_features = 'motion_runtime' in services
+    overlay = 'input_overlay' in services
+    plain_aux = 'aux' in services and not overlay
+    def extension_cxx(source, obj, extra_includes=(), *, input_features):
+        extension_defines = defines + (() if input_features else ('-DOPXY_PLAIN_EXTENSIONS',))
+        return compile_cxx(gcc['cxx'], tools['as'], source, obj, includes() + list(extra_includes),
+                           defines=extension_defines)
+
+    def build_plain_aux(step, obj):
+        obj.parent.mkdir(parents=True, exist_ok=True)
+        if step == 'aux_tracks':
+            compile_cxx(gcc['cxx'], tools['as'], TEMPLATES + 'aux_tracks.cpp', obj,
+                        includes(), defines=defines + ('-DOPXY_STOCK_AUX_MENU',))
+        else:
+            execute([tools['as'], '-mcpu=bf707', '-I', ROOT,
+                     '--defsym', 'OPXY_STOCK_AUX_MENU=1', '-o', obj, ROOT / TEMPLATES / 'aux_hooks.s'])
+
+
+    def build_unit(obj, m, step, *, input_features=input_features):
         folder = obj.parent
-        folder.mkdir(exist_ok=True)
+        folder.mkdir(parents=True, exist_ok=True)
         if m is None:
+            if plain_aux and step in ('aux_tracks', 'aux_hooks'):
+                return build_plain_aux(step, obj)
             if step == 'synth_controls' and includes_header(machines, 'control_interaction'):
                 return cxx(str(control_interaction_unit(folder)), obj)
             if step == 'drum_callbacks':
@@ -742,16 +801,23 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
             if step.startswith('extension:'):
                 chosen = step.removeprefix('extension:')
                 extension = next(e for e in extensions_of(machines) if e.id == chosen)
-                return compile_cxx(gcc['cxx'], tools['as'], str(extensions.generate_extension(folder, extension)),
-                                   obj, includes() + [str(extension.root)])
+                return extension_cxx(str(extensions.generate_extension(folder, extension)), obj,
+                                     (str(extension.root),), input_features=input_features)
             if step == 'master_filter_collection':
                 return cxx(str(extensions.generate_master_collection(folder, extensions_of(machines))), obj)
             if step == 'extension_runtime':
-                return cxx('sdk/platform/extension_runtime.cpp', obj)
+                return extension_cxx('sdk/platform/extension_runtime.cpp', obj, input_features=input_features)
+            if step == 'extension_stock':
+                return extension_cxx(TEMPLATES + 'extension_stock.cpp', obj, input_features=input_features)
             if step == 'extension_collection':
-                return cxx(str(extensions.generate_collection(folder, linked_extensions(machines))), obj)
+                members = linked_extensions(machines)
+                if not input_features:
+                    members = [e for e in members if supports_plain_extension(e)]
+                return extension_cxx(str(extensions.generate_collection(folder, members,
+                                                                       input_features=input_features)), obj,
+                                     input_features=input_features)
             if step == 'screen_order':
-                return cxx(str(generate_screen_order(folder)), obj)
+                return cxx(str(generate_screen_order(folder, input_overlay=input_features and overlay)), obj)
             if step == 'sample_callbacks':
                 return cxx(str(generate_sample_callbacks(folder, machines)), obj)
             if step == 'synth_control_table':
@@ -781,7 +847,8 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                                                 effect_screens=[x.prefix for x in effects if x.display != 'stock'],
                                                 player_pages=[x.prefix for x in by_kind(machines, 'player')],
                                                 control='control' in services, aux='aux' in services,
-                                                locks='drum_locks' in services,
+                                                locks='drum_locks' in services, extensions='extensions' in services,
+                                                monitor=input_features and 'input_monitor' in services, aux_menu=input_features and overlay,
                                                 drumline='drumline' in services)), obj)
             if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
                 return cxx(TEMPLATES + step + '.cpp', obj)
@@ -800,6 +867,26 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         # Disable string pooling so the browser linker places sections exactly as GNU ld does.
         obj.write_bytes(normalize_object(read(obj)))
         require('R_BFIN_RIMM16' not in execute([tools['objdump'], '-r', obj]), 'Truncated address relocation in ' + name)
+    # Browser kits can drop the overlay from a selection after compilation.
+    # Keep the two original aux objects available with the same link positions.
+    if {'aux', 'input_overlay'} <= services:
+        for step in ('aux_tracks', 'aux_hooks'):
+            obj = directory / 'sdk' / (step + '_plain.o')
+            build_plain_aux(step, obj)
+            obj.write_bytes(normalize_object(read(obj)))
+    if input_features:
+        variants = plain_extension_variants(services)
+        for name, _m, step in plan(machines, profile):
+            if name not in variants:
+                continue
+            obj = directory / 'sdk' / 'plain' / Path(name).name
+            build_unit(obj, None, step, input_features=False)
+            obj.write_bytes(normalize_object(read(obj)))
+            require('R_BFIN_RIMM16' not in execute([tools['objdump'], '-r', obj]), 'Truncated address relocation in ' + name)
+    if 'input_monitor' in services:
+        obj = directory / 'sdk/input_monitor_absent.o'
+        build_unit(obj, None, 'input_monitor_absent')
+        obj.write_bytes(normalize_object(read(obj)))
     # Before any link: one that leaves some machines out (linked_machines) can't see their clash.
     one_definition([(owner, read(directory / name)) for name, owner in object_owners(machines, profile).items()],
                    {m.id: m.name for m in machines})
@@ -1070,10 +1157,13 @@ def audio_stack_bounds(disassembly, module, base, symbols, machines, native=None
             require(handler is not None and all(entry in body for entry in stage),
                     'Track stage entry of ' + m.id + ' is not a function start')
             bounds[m.id] = max(bounds[m.id], depth(handler, False) + max(depth(entry) for entry in stage))
-    if 'sdk_master_process' in symbols:
-        entry = symbols['sdk_master_process']['value']
-        require(entry in body, 'Master audio entry is not a function start')
-        bounds['sdk:master_filter'] = depth(entry)
+    for name, label in (('sdk_master_process', 'master_filter'),
+                        ('sdk_input_monitor_audio_hook', 'input_monitor'),
+                        ('sdk_live_input_exit', 'live_input_exit')):
+        if name in symbols:
+            entry = symbols[name]['value']
+            require(entry in body, 'SDK audio entry is not a function start: ' + name)
+            bounds['sdk:' + label] = depth(entry)
     if 'sdk_drum_send_voice_hook' in symbols:
         # Entered from stock's mixer: the voice loop after a voice has rendered
         # (8d51c7b2), after the track gain's in-place loop (8d510ea8), and after

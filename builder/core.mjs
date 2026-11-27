@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '1bad5bdbf79ade17ef46bb0a668787cdb359254329809d888e953e1311b22bd1';
+export const PROFILE_SHA256 = 'e22c201754bf1f0bd9ba93d52f898cce434f4404af39e9704ba1f64687a6ecb7';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -646,12 +646,13 @@ export async function openKit(kit) {
   check(Array.isArray(extensions) && extensions.length <= 16, 'Invalid extension collection');
   check(!kit.objects.some(o => o.name === 'sdk/extension_collection.o') || Array.isArray(kit.extensions),
     'This kit predates extension selection. Export a new kit to choose extensions.');
+  check(extensions.filter(e => e?.live_input === true).length <= 1, 'Only one live input processor can be included');
   const extensionIds = new Set(), processorIds = new Set(), processorAssets = new Set();
   for (const e of extensions) {
     check(e && /^[a-z][a-z0-9_]{0,31}$/.test(e.id) && !extensionIds.has(e.id) &&
       Object.entries({name: 32, description: 140, note: 100}).every(([key, limit]) => key === 'note' && e[key] === undefined ||
         typeof e[key] === 'string' && e[key].length > 0 && e[key].length <= limit) &&
-      EXTENSION_ORIGINS.includes(e.origin) &&
+      EXTENSION_ORIGINS.includes(e.origin) && (e.motion === undefined || e.motion === true) && (e.live_input === undefined || e.live_input === true) &&
       e.claim_labels && typeof e.claim_labels === 'object' &&
       Object.keys(e.claim_labels).sort().join() === [...(e.claims ?? [])].sort().join() &&
       Object.values(e.claim_labels).every(l => typeof l === 'string' && l.length > 0 && l.length <= 40) &&
@@ -702,6 +703,21 @@ export async function openKit(kit) {
     check(!names.has(o.name) && (o.owner === null || ids.has(o.owner)), 'Duplicate or unowned object');
     check(o.service === undefined || (o.owner === null && Object.hasOwn(kit.profile.services ?? {}, o.service)),
       'Undeclared service: ' + o.service);
+    const inputVariant = o.requiresService ?? o.unlessService;
+    if (inputVariant !== undefined) {
+      const featureObject = o.extension ? 'extension_' + o.extension :
+        /^(startup|screen_order|extension_runtime|extension_collection|extension_stock)$/.test(o.name.split('/').at(-1).slice(0, -2))
+          ? o.name.split('/').at(-1).slice(0, -2) : null;
+      const validName = o.requiresService
+        ? /^sdk\/aux_(tracks|hooks)\.o$/.test(o.name) || (featureObject && o.name === 'sdk/' + featureObject + '.o')
+        : /^sdk\/aux_(tracks|hooks)_plain\.o$/.test(o.name) || (featureObject && o.name === 'sdk/plain/' + featureObject + '.o');
+      const absentMonitor = o.name === 'sdk/input_monitor_absent.o' &&
+        o.service === 'motion_runtime' && o.unlessService === 'input_monitor';
+      check(o.owner === null && (((inputVariant === 'input_overlay' ||
+        (inputVariant === 'motion_runtime' && ['extension_runtime','extension_collection','extension_stock'].includes(featureObject))) &&
+        validName) || absentMonitor) &&
+        !(o.requiresService !== undefined && o.unlessService !== undefined), 'Invalid input overlay variant');
+    }
     check(o.runtime === undefined || (o.runtime === true && o.owner === null && o.service === undefined &&
       /^sdk\/runtime\/_[A-Za-z0-9_]+\.o$/.test(o.name)), 'Invalid arithmetic runtime object');
     check(o.extension === undefined || (o.owner === null && o.service === undefined && extensionIds.has(o.extension)),
@@ -741,10 +757,24 @@ export async function openKit(kit) {
       check(owned.length === 0, 'A settings extension links no code: ' + id);
       continue;
     }
-    check(owned.length === 1 && owned[0].symbols.some(s => s.section && s.binding === 1 &&
-      s.name === 'sdk_extension_' + id + '_hooks'), 'Missing extension accessor: ' + id);
-    if(processorOf(extensions.find(e => e.id===id))) {
-      const has = suffix => owned[0].symbols.some(s => s.section && s.binding===1 && s.name==='sdk_extension_'+id+'_'+suffix);
+    const primary = owned.filter(o => o.unlessService === undefined);
+    const alternatives = owned.filter(o => o.unlessService !== undefined);
+    const hasAccessor = o => o.symbols.some(s => s.section && s.binding === 1 &&
+      s.name === 'sdk_extension_' + id + '_hooks');
+    check(primary.length === 1 && hasAccessor(primary[0]) && alternatives.length <= 1 &&
+      (primary[0].requiresService ? alternatives.length === 1 && hasAccessor(alternatives[0]) :
+        alternatives.length === 0), 'Missing extension accessor: ' + id);
+    const extension = extensions.find(e => e.id === id);
+    if (extension.motion) {
+      check(primary[0].symbols.some(s => s.section && s.binding === 1 &&
+        s.name === 'sdk_extension_' + id + '_motion'), 'Missing motion accessor: ' + id);
+    }
+    if (extension.live_input) {
+      check(['reset', 'process', 'controls', 'prepare'].every(callback => primary[0].symbols.some(s => s.section && s.binding === 1 &&
+        s.name === 'sdk_live_input_' + callback)), 'Missing live input accessors: ' + id);
+    }
+    if (processorOf(extension)) {
+      const has = suffix => primary[0].symbols.some(s => s.section && s.binding===1 && s.name==='sdk_extension_'+id+'_'+suffix);
       check((has('processor') && has('panel')) || has('filter'), 'Missing master processor accessors: '+id);
     }
   }
@@ -844,7 +874,10 @@ export function linkKit(kit, selection, layout = null, extensionIds = [], settin
   }
   const services = activeServices(kit.profile, [...kit.machines.filter(m => selected.has(m.id)),
     ...(kit.extensions?.some(e => extensions.has(e.id) && e.linked !== false) ? [{kind: 'extension'}] : []),
+    ...(kit.extensions?.some(e => extensions.has(e.id) && e.motion) ? [{kind: 'motion'}] : []),
+    ...(kit.extensions?.some(e => extensions.has(e.id) && e.actions.includes('monitor_input')) ? [{kind: 'inputMonitor'}] : []),
     ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : []),
+    ...(kit.extensions?.some(e => extensions.has(e.id) && e.live_input) ? [{kind: 'live_input'}] : []),
     ...(kit.extensions?.some(e => extensions.has(e.id) && e.drumline_page) ? [{kind: 'drumline_page'}] : []),
     ...(kit.extensions ?? []).filter(e => extensions.has(e.id)).flatMap(e => (e.capabilities ?? []).map(kind => ({kind})))]);
   // A unit capability's chosen value links its objects in place of the native build's, under the
@@ -852,6 +885,7 @@ export function linkKit(kit, selection, layout = null, extensionIds = [], settin
   const units = unitSettings(kit, [...extensions], settings);
   const replaced = new Map(Object.entries(units).flatMap(([c, value]) => kit.unitSources[c][String(value)].map(o => [o.name, o])));
   const objects = kit.objects.filter(o => !o.runtime && (o.extension === undefined || extensions.has(o.extension)) &&
+    (!o.requiresService || services.has(o.requiresService)) && (!o.unlessService || !services.has(o.unlessService)) &&
     (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner))).map(o => replaced.get(o.name) ?? o);
   objects.push(...selectRuntime(objects, kit.objects.filter(o => o.runtime), definitions));
   const globals = new Map(Object.entries(definitions)), placements = new Map(), segments = [];
@@ -895,7 +929,7 @@ export function linkKit(kit, selection, layout = null, extensionIds = [], settin
   // those resolve to the declared fallbacks. Machine objects never do.
   const aliases = new Map();
   for (const e of kit.extensions ?? []) if (!extensions.has(e.id) && e.linked !== false) {
-    for(const suffix of ['hooks', ...(processorOf(e) ? ['processor','panel','filter'].filter(suffix =>
+    for(const suffix of ['hooks', ...(e.motion ? ['motion'] : []), ...(processorOf(e) ? ['processor','panel','filter'].filter(suffix =>
       kit.objects.some(o => o.extension===e.id && o.symbols.some(s => s.section && s.binding===1 && s.name==='sdk_extension_'+e.id+'_'+suffix))) : [])]) {
       const symbol = 'sdk_extension_' + e.id + '_' + suffix;
       check(!globals.has(symbol) && globals.has('kit_absent'), 'Invalid absent-extension accessor');
