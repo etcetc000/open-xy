@@ -7,6 +7,7 @@ import subprocess
 import sys
 from xml.etree.ElementTree import ParseError
 
+from . import audio_telemetry
 from .formats import require, sha
 from .definitions import EXTENDED_KEYS, ROOT, extended_display, synth_shift
 from .machines import machine_at
@@ -20,14 +21,19 @@ VOICE_EXPORTS = ('opxy_preview_abi', 'opxy_state_bytes', 'opxy_state_alignment',
 DISPLAY_EXPORTS = tuple('opxy_display_' + name for name in ('abi', 'state_bytes', 'input_bytes', 'frame_bytes', 'state',
                                                             'input', 'frame', 'reset', 'render', 'valid', 'sample'))
 # An extended display's: what its input appends, and the browser's control gestures.
-EXTENDED_EXPORTS = ('opxy_display_extension', 'opxy_control_source', 'opxy_control_event')
+EXTENDED_EXPORTS = ('opxy_display_extension', 'opxy_display_audio_words', 'opxy_control_source', 'opxy_control_event')
+# A synth's audio snapshots (audioWords), and with the transport its handshake.
+AUDIO_EXPORTS = ('opxy_audio_words', 'opxy_audio_track', 'opxy_take_audio')
+TRANSPORT_EXPORTS = tuple('opxy_audio_' + name for name in ('capacity', 'sequence', 'requested', 'applied',
+                                                            'reset_supported', 'reset'))
 # A drum kit's keys and names (adapters.DRUM_KEYS), which the builder reads.
 DRUM_EXPORTS = ('opxy_drum_defaults', 'opxy_drum_model_name', 'opxy_drum_label', 'opxy_drum_count')
 MANIFEST_LIMIT = 65536
 # Shared inputs of every curated preview; the machine's own folder is added per build.
 SDK_SOURCES = ('tooling/preview.py', 'tooling/machines.py', 'tooling/adapters.py', 'tooling/definitions.py',
                'tooling/contributors.py', 'tooling/graphics.py', 'tools/check_preview_contract.mjs', 'sdk/host/voice_preview.cpp.in',
-               'sdk/host/display_preview.cpp', 'sdk/host/display_preview_extended.cpp', 'sdk/platform/blackfin/memory.cpp')
+               'sdk/host/display_preview.cpp', 'sdk/host/display_preview_extended.cpp', 'tooling/audio_telemetry.py',
+               'sdk/platform/blackfin/memory.cpp')
 SDK_FOLDERS = ('sdk/include', 'sdk/browser', 'sdk/platform/blackfin/freestanding')
 FLAGS = ['--target=wasm32', '-std=c++11', '-O2', '-ffreestanding', '-fno-exceptions', '-fno-rtti',
          '-fno-threadsafe-statics', '-fno-use-cxa-atexit', '-fno-c++-static-destructors', '-nostdlib',
@@ -54,6 +60,8 @@ def compile_preview(compiler, definition, out, root, sources=(), includes=(), *,
     exports = VOICE_EXPORTS + DISPLAY_EXPORTS + (('opxy_display_shift',) if kind == 'synth' and synth_shift(definition) else ())
     exports += DRUM_EXPORTS if kind == 'drum' else ()
     exports += EXTENDED_EXPORTS if extended else ()
+    if kind == 'synth' and audio_telemetry.words(definition):
+        exports += AUDIO_EXPORTS + TRANSPORT_EXPORTS
     command = [compiler, *FLAGS, *('-I' + str(path) for path in paths), *units, '-o', out / 'engine.wasm',
                '-Wl,--no-entry', '-Wl,-z,stack-size=16384', f'-Wl,--initial-memory={memory}',
                f'-Wl,--max-memory={memory}', *('-Wl,--export=' + name for name in exports)]
@@ -102,8 +110,13 @@ def drawing_bindings(ids, display):
     bindings = dict(nodes=ids[:display['nodes']], texts=ids[display['nodes']:count], palette=ids[count:],
                     paths=display['paths'], points=display['points'])
     if extended_display(display):
-        # An extended display's options (docs/display.md#extended-drawing).
-        bindings.update({key: display[key] for key in EXTENDED_KEYS if key in display and key != 'encoderActivity'})
+        # An extended display's options, and its glyph outlines' IDs (docs/display.md#extended-drawing).
+        from .native import glyph_ids
+        prefix = ids[0].rsplit('_node_', 1)[0]
+        bindings.update({key: display[key] for key in EXTENDED_KEYS if key in display and not key.startswith('audio')
+                         and key not in ('encoderActivity', 'outputLevels')})
+        if display.get('glyphs'):
+            bindings['glyphSources'] = glyph_ids(prefix, display)
     return bindings
 
 

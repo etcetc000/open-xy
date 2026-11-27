@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import (DRUM_KIT_CONTROLS, EXTENDED_SDK, KIT_CONTROLS_SDK, SDK_1_25, extended_display, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
+from .definitions import (AUDIO_SDK, AUDIO_SDK_KEYS, DRUM_KIT_CONTROLS, EXTENDED_SDK, KIT_CONTROLS_SDK, SDK_1_25, extended_display, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
@@ -88,7 +88,11 @@ IDLE_SDK = (1, 22)
 # State and Controls each GUI frame, as a synth draws its screen. PLAYER_DRAWING_SDK is
 # the one place to renumber it, with the "SDK 1.26" text of docs/api.md and docs/display.md.
 PLAYER_DRAWING_SDK = (1, 26)
-SDK_VERSION = (1, 26)
+# 1.27 adds a screen's own audio (audio snapshots, for synths and effects, and for a synth's
+# track stage), stock's output and input levels on a screen, and glyph atlases
+# (docs/display.md). A renumber changes AUDIO_SDK in definitions.py, this line and the
+# "SDK 1.27" text of the docs.
+SDK_VERSION = (1, 27)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -604,6 +608,8 @@ def machine_at(root, identity=None):
         require_sdk(version, IDLE_SDK, "An effect's declared tail (tailFrames)")
     if 'trackStage' in definition['resources']:
         require_sdk(version, track_stage.TRACK_STAGE_SDK, "A synth's track stage (trackStage)")
+        if 'audio' in definition['resources']['trackStage']:
+            require_sdk(version, AUDIO_SDK, "A track stage's audio snapshots (trackStage audio)")
     if any(p['display'] == 'division' for p in definition['parameters']):
         require_sdk(version, (1, 2), 'A division control')
     if kind == 'sample' and definition['resources']['voiceCapacity'] < STOCK_VOICES:
@@ -636,6 +642,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 7), 'More than %d display text slots' % SDK_1_6_TEXTS)
     if 'display' in definition['resources'] and extended_display(definition['resources']['display']):
         require_sdk(version, EXTENDED_SDK, 'Extended drawing (docs/display.md#extended-drawing)')
+    if any(k in definition['resources'].get('display', {}) for k in AUDIO_SDK_KEYS):
+        require_sdk(version, AUDIO_SDK, "Glyph atlases, a screen's own audio and output levels (docs/display.md)")
     if definition['resources'].get('display', {}).get('nodes', 0) > SDK_1_7_NODES:
         require_sdk(version, (1, 8), 'More than %d display nodes' % SDK_1_7_NODES)
     require(definition['id'] == identity, 'Machine directory and definition identity disagree')

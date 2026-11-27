@@ -19,7 +19,7 @@ void @PREFIX@_track_reset(opxy::u32 track) {
 }
 // parameters: the track's words, as stock passes them to its voices' render.
 void @PREFIX@_track_process(opxy::u32 track, opxy::i32* sum, const opxy::i32* parameters, opxy::u32 voices) {
-@STAGE_WORDS@    @NAMESPACE@::track_process(track_states[track], shared, track, sum, @STAGE_PARAMETERS@, voices);
+@STAGE_WORDS@@STAGE_AUDIO_BEGIN@    @NAMESPACE@::track_process(track_states[track], shared, track, sum, @STAGE_PARAMETERS@, voices@STAGE_AUDIO_ARGUMENT@);@STAGE_AUDIO_END@
 }
 // The diagnostic's stage run (tooling/benchmark.py STAGE, docs/profiling.md): the stage
 // on a state of its own, never a track's, set up as a track that takes the synth (zeroed,
@@ -45,7 +45,7 @@ opxy::benchmark::Stats @PREFIX@_stage_benchmark() {
     }
     // The track's words at the controls' defaults, a Shift row's at its defaults.
     static const i32 parameters[2 * parameter_slots] = {@STAGE_DEFAULTS@};
-    i32 sum[128];
+@STAGE_BENCHMARK_AUDIO@    i32 sum[128];
     for (u32 block = 0; block < opxy::benchmark::blocks; ++block) {
         const u32 voices = block < 1000 ? 1 : 0;
         for (u32 i = 0; i < 64; ++i) {
@@ -57,7 +57,7 @@ opxy::benchmark::Stats @PREFIX@_stage_benchmark() {
         {
             const opxy::benchmark::Masked masked;
             const u32 begin = opxy::benchmark::cycles();
-            @NAMESPACE@::track_process(state, shared, 0, sum, parameters, voices);
+            @NAMESPACE@::track_process(state, shared, 0, sum, parameters, voices@STAGE_AUDIO_ARGUMENT@);
             spent = opxy::benchmark::cycles() - begin;
         }
         stats.add(spent);

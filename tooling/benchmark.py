@@ -224,7 +224,17 @@ def append_callback(path, m):
         row = [0x7fffffff // len(p['mapping']['labels']) // 2 for p in shift_parameters(m.definition)]
         values['DEFAULTS'] += ', ' + ', '.join(map(str, row + [0] * (4 - len(row))))
         values.update(BUFFER_BYTES=str(size)+'u', BUFFER=f'Buffer{{static_cast<i32*>(memory.data), {size//4}u}}, ' if size else '',
-                      TRANSPORT='time, ' if resources.get('transport') else '')
+                      TRANSPORT='time, ' if resources.get('transport') else '',
+                      AUDIO_STORAGE='', AUDIO_ARGUMENT='')
+        # An effect with audio snapshots publishes into scratch words, as on send 0
+        # (track 14), that no screen reads, so its publishing is timed.
+        display = resources.get('display', {})
+        if display.get('audioWords'):
+            words, reset = display['audioWords'], display.get('audioReset')
+            values.update(AUDIO_STORAGE=f'    volatile u32 audio_words[{words}] = {{}}, audio_handshake[3] = {{}};\n',
+                          AUDIO_ARGUMENT=f', AudioContext(14, audio_words, {words}, ' +
+                                         ('audio_handshake, audio_handshake + 1, audio_handshake + 2' if reset else
+                                          'nullptr, nullptr, nullptr') + ', block, true)')
     else:
         values.update(CHANNELS=2 if resources.get('stereoOutput') else 1, PREPARE='', SETTINGS='')
         if resources.get('padSettings'):

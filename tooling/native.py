@@ -18,7 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, extensions, load_governor, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables, track_stage, voice_heap
+from . import audio_telemetry, benchmark, extensions, load_governor, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables, track_stage, voice_heap
 from .adapters import (kit_controls, model_edit, pad_mix, player_instrument, played_pad, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
@@ -45,6 +45,9 @@ DEFINITIONS = dict(stock_catalog_insert=0x8d5bd928, stock_gui_role=0x8d5c3eac, s
                    stock_sample_key_tail=0x8d589214, stock_drum_classify_tail=0x8d5b79f6, stock_player_factory_tail=0x8d57ee70,
                    stock_player_load_tail=0x8d588d98, stock_player_load_kept=0x8d588da2,
                    stock_player_name_tail=0x8d5bdddc, stock_player_id_tail=0x8d5bde64, stock_sample_slice_receive_tail=0x8d5b1264)
+# The stock calls the audio transport's hooks run first or forward to (profile service
+# 'telemetry'); defined only for a build that links them.
+TELEMETRY_DEFINITIONS = dict(stock_telemetry_tick=0x8d4d6a10, stock_telemetry_receive=0x8d4d669e)
 TEMPLATES = 'sdk/platform/opxy-1.2.1/'
 RUNTIME_ASM, RUNTIME_CXX = 'sdk/platform/blackfin/divide.s', 'sdk/platform/blackfin/memory.cpp'
 # The sample kernel (opxy/sample_kernel.hpp): linked only for a machine that includes it.
@@ -188,6 +191,8 @@ def configuration(entries=None, layout=None):
         [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]))
     extensions.check_coverage(profile, machines.extensions)
     definitions = dict(DEFINITIONS)
+    if audio_telemetry.users(machines):
+        definitions.update(TELEMETRY_DEFINITIONS)
     for m in machines:
         if m.kind == 'player':
             definitions[m.prefix + '_player_id'] = m.identity['player']
@@ -359,7 +364,8 @@ SDK_UNITS = ('divide', 'sample_kernel', 'memory', 'registration', 'registration_
              'players', 'player_hooks', 'player_table', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
              'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_trigger', 'drum_hooks',
              'drum_send', 'drum_send_hooks', 'track_call', 'track_stage', 'track_stage_table', 'drum_locks', 'lock_handles', 'drumline', 'drumline_hooks',
-             'synth_shift_hooks', 'drum_kit_controls', 'drum_amp_envelope')
+             'synth_shift_hooks', 'drum_kit_controls', 'drum_amp_envelope', 'telemetry_protocol', 'telemetry_native',
+             'telemetry_hooks', 'telemetry_registry')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -399,6 +405,11 @@ UNIT_SERVICES.update(dict.fromkeys(('drumline', 'drumline_hooks'), 'drumline'))
 # A synth's Shift row (SDK 1.13): Shift and an encoder press switch its pages, as a
 # press does without Shift (synth_controls.cpp sdk_synth_shift_press).
 UNIT_SERVICES['synth_shift_hooks'] = 'synth_shift'
+# A synth's or effect's audio snapshots on the device (audioTransport, audio_transport_native.hpp):
+# the wire protocol, both processors' endpoints, their two hooks and the registry of the
+# selected synths' and effects' banks.
+UNIT_SERVICES.update(dict.fromkeys(('telemetry_protocol', 'telemetry_native', 'telemetry_hooks',
+                                    'telemetry_registry'), 'telemetry'))
 # Track control and hidden pages run from the GUI tick hook; startup stands in for
 # the saved data's entry points in builds that don't link it.
 UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'track_control_hooks',
@@ -425,7 +436,8 @@ def service_users(machines):
     Shift row, whose presets and step locks use the drums and drum_locks services;
     'playedPad': a drum kit declaring SDK 1.21 or later, whose screen reads the played pad;
     'trackStage': a synth's track stage; 'kitControls': a drum kit declaring padVolume, padRandom
-    or ampEnvelope, and 'ampEnvelope' one declaring ampEnvelope),
+    or ampEnvelope, and 'ampEnvelope' one declaring ampEnvelope; 'audioTransport': a machine
+    whose screen shows its own audio),
     'extension' when it links extension code (native builds link all of the collection's;
     settings extensions link none), the capabilities they declare ('master_filter',
     'drumline_page') and the registry capabilities its extensions declare."""
@@ -439,6 +451,7 @@ def service_users(machines):
             ['trackStage' for m in machines if track_stage.track_stage(m) is not None] +
             ['kitControls' for m in machines if kit_controls(m)] +
             ['ampEnvelope' for m in machines if kit_controls(m) & 4] +
+            ['audioTransport' for m in audio_telemetry.users(machines)] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
             (['drumline_page'] if any(e.drumline_page is not None for e in extensions_of(machines)) else []) +
             [c for e in extensions_of(machines) for c in e.capabilities])
@@ -530,6 +543,8 @@ def absent_symbols(m):
         absent.update({symbol: 'kit_absent' for symbol in control_callbacks(m)})
         # So does the track stage table.
         absent.update(track_stage.absent_symbols(m))
+    # So does the audio snapshot registry; unselected, the machine's number is 0 and matches no key.
+    absent.update(audio_telemetry.absent_symbols(m))
     if m.kind in ('effect', 'sample', 'drum'):
         absent[m.prefix + '_benchmark'] = 'kit_absent'
     return absent
@@ -733,6 +748,10 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         folder = obj.parent
         folder.mkdir(exist_ok=True)
         if m is None:
+            if step == 'telemetry_registry':
+                return cxx(str(audio_telemetry.generate_registry(folder, machines)), obj)
+            if step == 'telemetry_protocol':
+                return cxx(TEMPLATES + 'telemetry/protocol.cpp', obj)
             if step == 'synth_controls' and includes_header(machines, 'control_interaction'):
                 return cxx(str(control_interaction_unit(folder)), obj)
             if step == 'drum_callbacks':
@@ -1197,6 +1216,57 @@ def panel_root(fragment, source):
         raise ValueError(f'{source} must be one SVG element, such as <g id="..._panel">...</g> ({error})') from None
 
 
+def glyph_commands(node):
+    """A glyph outline: absolute M, L, C and Z only, at most 16 commands, no transform."""
+    require(node is not None and node.tag == 'path' and not node.get('transform'),
+            'A glyph outline is an untransformed path')
+    data = node.get('d', '')
+    token = r'[MLCZ]|[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)'
+    require(re.fullmatch(r'[\s,]*', re.sub(token, '', data)) is not None,
+            'A glyph outline uses absolute M, L, C and Z only')
+    tokens, result, i, closed = re.findall(token, data), [], 0, True
+    while i < len(tokens):
+        verb = tokens[i]
+        i += 1
+        require(verb in 'MLCZ' and (not closed or verb == 'M'), 'A glyph contour starts with M')
+        n = {'M': 2, 'L': 2, 'C': 6, 'Z': 0}[verb]
+        values = tokens[i:i + n]
+        i += n
+        require(len(values) == n and all(re.fullmatch(NUMBER, v) for v in values), 'A glyph command lacks coordinates')
+        require(all(abs(float(v)) <= 8192 for v in values), 'Glyph coordinates are within 8192 pixels')
+        result.append((verb, values))
+        closed = verb == 'Z'
+        require(len(result) <= 16, 'A glyph outline has at most 16 commands')
+    require(result, 'A glyph outline is empty')
+    return result
+
+
+def glyph_ids(prefix, display):
+    """Each glyph definition's two outlines: <prefix>_glyph_<definition>_<0|1>."""
+    return [f'{prefix}_glyph_{d}_{p}' for d in range(display.get('glyphDefinitions', 0)) for p in range(2)]
+
+
+def check_glyphs(by_id, prefix, display):
+    """Glyph outlines, and each instance's two stroke-only nodes reserving 16 distinct points."""
+    if not display.get('glyphs'):
+        return
+    for index, name in enumerate(glyph_ids(prefix, display)):
+        commands = glyph_commands(by_id.get(name))
+        # The stock parser merges repeated points: the first outline needs two distinct ones.
+        points = {(int(float(values[-2]) * 1024), int(float(values[-1]) * 1024)) for _, values in commands if values}
+        require(index % 2 or (len(commands) >= 2 and len(points) >= 2), "A glyph's first outline draws something: " + name)
+    for index in range(display['glyphStart'], display['glyphStart'] + 2 * display['glyphs']):
+        name = f'{prefix}_node_{index}'
+        node = by_id.get(name)
+        require(node is not None and node.tag == 'path' and node.get('fill') == 'none',
+                'A glyph instance node is a path with fill="none": ' + name)
+        # The stock parser merges repeated points, so the 16 reserved points are distinct in Q10.
+        commands = glyph_commands(ET.Element('path', {'d': node.get('d', '')}))
+        require(len(commands) == 16 and [v for v, _ in commands] == ['M'] + ['L'] * 15 and
+                len({tuple(int(float(x) * 1024) for x in values) for _, values in commands}) == 16,
+                'A glyph instance node reserves M and 15 L to 16 distinct points: ' + name)
+
+
 def check_extended_outlines(by_id, prefix, display):
     """An extended display's paths: each as its topology reserves them (cubic, quadratic,
     open, segmented or closed), checked before the device only moves their coordinates."""
@@ -1281,6 +1351,7 @@ def check_bindings(by_id, prefix, display):
     count = display['nodes'] + display['texts']
     bound, texts, palette = ids[:display['nodes']], ids[display['nodes']:count], ids[count:]
     check_outlines(by_id, prefix, display)
+    check_glyphs(by_id, prefix, display)
     if display.get('rgba'):
         check_rgba(by_id, prefix, display)
     for name in bound + texts:

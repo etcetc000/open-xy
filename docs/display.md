@@ -203,7 +203,9 @@ Machines reading the played-pad snapshot declare SDK 1.21 or newer. Browser
 hosts pass `{key, model, controls}` as the optional fifteenth argument to
 `PreviewDisplay.tick`, after `amp`, `mix`, `line`, `shiftRow` and `encoders`; omission clears the snapshot.
 They pass a 1.23 kit's selected key, 0..23, as the optional sixteenth (the
-builder's kit preview gives the key last pressed); omission gives 0.
+builder's kit preview gives the key last pressed); omission gives 0. An
+extended display's [audio snapshot](#audio-snapshots) and
+[levels](#output-levels) follow as the seventeenth and eighteenth.
 
 A screen that draws its own header (the two-page header) shows the Shift
 controls while `shift` is 1. With two Shift rows, show both, stacked as the
@@ -213,8 +215,11 @@ header shows only the edited row. The
 previews use drawing ABI 7, a 152-byte input with the played-pad snapshot after ABI 6's pad fields (112 bytes). ABI 5 (104 bytes) ends after the
 amp envelope, ABI 4 (88 bytes) after `model`, ABI 3 (84 bytes) after `choices`.
 A preview of an [extended](#extended-drawing) display also exports
-`opxy_display_extension()`: 0, or 4 when its input appends the encoder record
-after the ABI's input (152 bytes in ABI 7). A renderer that does not know a bit refuses the preview.
+`opxy_display_extension()`, what its input appends after the ABI's input (152
+bytes in ABI 7): 1 a 16-word audio snapshot, 2 a 256-word snapshot and its
+reset handshake (never with 1), 4 the encoder record, after any snapshot, 8
+the output levels, after everything else. A renderer that does not know a bit
+refuses the preview.
 
 While a pad is held on a drum kit (without Shift), the SDK draws stock's own
 held-pad strip over the kit's screen, as stock Drumline does: after 0.3 s it
@@ -514,11 +519,12 @@ and source alongside the original; rebuilding is required after editing either.
 ## Extended drawing
 
 A synth or effect screen can declare more paths and points than the table in
-[Declaration](#declaration) allows, and the optional keys below. Any of them
+[Declaration](#declaration) allows, and the optional keys below. Any of them, declared even as 0,
 makes the display *extended*: it needs `"sdk": "1.20"`, uses
 `draw::ExtendedFrame` (or one of its aliases) instead of `draw::Frame`, and is
 drawn by a separate renderer. A display that uses none of them keeps
-`draw::Frame`, its renderer and its generated code exactly as before.
+`draw::Frame`, its renderer and its generated code exactly as before. The glyph,
+audio and level keys need `"sdk": "1.27"`.
 
 | Key | Meaning |
 | --- | --- |
@@ -530,7 +536,10 @@ drawn by a separate renderer. A display that uses none of them keeps
 | `openPaths`, `segmentPaths` | Bit masks: open polylines (`M`, then `L`s, no `Z`), or separate segments between adjacent points. They never share a path or go with `cubic` |
 | `quadratic: 1`, `commands` | Paths whose line and quadratic commands change each frame (`draw::AffineQuadraticFrame`): `points: 0`, 2..128 `commands`, `affine`; authored as `M` and `commands - 1` `Q` commands |
 | `countedPaths: 1` | Paths with an active point count of 2..`points` (`draw::AffineCountedFrame`); needs `affine`; `paths * (8 + 8 * points)` at most 2816 bytes |
+| `glyphs`, `glyphDefinitions`, `glyphStart` | Outlines chosen per frame from the machine's own artwork ([glyph atlas](glyph-atlas.md)) |
 | `encoderActivity: 1` | Which encoders were touched this frame ([below](#encoder-activity)) |
+| `audioTransport: 1`, `audioWords`, `audioMode`, `audioReset`, `audioAccumulators` | The machine's own audio on its screen ([below](#audio-snapshots)) |
+| `outputLevels: 1` | Stock's output and input levels on the screen ([below](#output-levels)) |
 
 [draw.hpp](../sdk/include/opxy/draw.hpp) defines the frames and checks every
 combination at compile time; `python sdk.py test` checks the declaration.
@@ -540,7 +549,8 @@ animates. Browser and device rasterization can differ at the edges.
 
 ### Encoder activity
 
-With `encoderActivity: 1` the input is `draw::EncoderInput` from
+With `encoderActivity: 1` the input is `draw::EncoderInput` (or the audio
+input types below with an `encoders` record) from
 [`opxy/encoder_activity.hpp`](../sdk/include/opxy/encoder_activity.hpp).
 `encoders.available` is 1 when the host reports activity; bits 0..3 of
 `encoders.mask` are the physical encoders pressed or turned since the last
@@ -557,6 +567,95 @@ turned on that track: its physical encoder, parameter and value. Only a build
 whose machines include the header captures it. Encoder activity says which
 encoders moved this frame, for motion; this says which parameter was last
 edited and its value, and stays until the next edit.
+
+### Audio snapshots
+
+A synth or effect declaring `audioTransport: 1` and `audioWords: 1..256` takes a
+final `const opxy::AudioContext&` argument in `render` (a synth) or `process` (an
+effect) and publishes words with
+`publish_word`, `publish_packed16` or `add_packed16` from
+[`opxy/telemetry.hpp`](../sdk/include/opxy/telemetry.hpp). The SDK carries
+them between the audio and screen processors, outside `render`, and its display
+reads them from [`opxy/audio_transport.hpp`](../sdk/include/opxy/audio_transport.hpp):
+`audio_words` and `audio_count`, where a count of 0 means no snapshot. On the
+device a frame with no new delivery since the last reads count 0 in `audioMode` 1;
+the browser preview takes a snapshot every frame, so there it reads count 1 and
+a word of 0 when nothing was added. Treat count 0 as no new data, not as silence.
+`audioTransport` needs `audioWords` and `audioMode`, and the other audio keys
+need `audioTransport`; a definition missing one is refused.
+
+`audioMode` 0 keeps the words, 1 sums one packed accumulator, and 2 sums
+`audioAccumulators` words (1 if absent) followed by kept ones. At most 16 words without
+`audioReset` give `draw::AudioInput`; more, or `audioReset: 1` (a reset request
+the producer applies in its own callback, modes 0 and 2, so a synth's waits until it
+plays), give
+`draw::TelemetryInput`.
+
+A synth's words are its track's: each track it plays on has its own, and its
+screen reads the selected track's. A track's voices share its words: a later
+voice's `publish_word` replaces an earlier one's, and a snapshot can fall between
+two voices of a block, so combine voices with `add_packed16` into an accumulator
+word (`audioMode` 1, or the first `audioAccumulators` words in mode 2). Only
+those words restart from zero for each snapshot, and only when one is taken: while
+no screen reads them they keep summing, so the first snapshot after the screen
+opens can carry everything since the last one, up to saturation. `add_packed16`
+on any other word keeps summing until it saturates. A track's words are not cleared when its
+engine changes or a project loads: until the synth plays there again, its screen
+shows the words the track last held.
+
+A synth's [track stage](api.md#track-stage) declaring `audio: 1` in
+`trackStage` (SDK 1.27) takes the same context as a final argument of
+`track_process`, on the same track's words, after that block's voices: it can
+publish what the whole track plays, or apply a reset request while the track's
+voices are silent and the stage still runs. Voices and stage update the words
+separately, so a snapshot can fall between them: a stage's `publish_word`
+overwrites a voice's word from that block, and the screen may see the voice's value
+first (on an accumulator word it also drops what was summed since the last
+snapshot); its `add_packed16` adds to theirs. Whichever of voices or stage calls `command_applied` first takes a
+reset request: the other's `pending_command()` then reads 0, so let only one of them
+handle resets. As for a voice's `render`, the words count as being updated for the
+whole of `track_process`, and a snapshot that meets an update waits for a later
+one: a long stage makes snapshots rarer. A sleeping stage publishes nothing. The
+browser preview does not run stages, so a stage's words reach the screen on the
+device only.
+
+An effect's words are its send's: the effect on each send has its own, cleared
+when stock places or resets it there, and its page reads the send it shows.
+`AudioContext::track` is the stock track the words belong to (14 or 15 for a
+send), and 8 when there is none: an effect called outside a send publishes
+nothing.
+
+`AudioContext::prepared_amplitude64` points at the 64 samples of envelope and
+LFO amplitude stock prepared for the voice being rendered, before velocity and
+output gain; it is null outside an ordinary synth render on the device, in
+browser previews, in `track_process`, and always for an effect. Read it only during that `render` call and never keep the pointer.
+
+Browser previews run synths only, so an effect's snapshot reaches its page on
+the device alone. A host test calls `render` with a context from
+`opxy::HostTelemetryBank` in
+[`opxy/audio_transport.hpp`](../sdk/include/opxy/audio_transport.hpp), whose
+tracks are 0..7; it tests an effect's `process` with an `opxy::AudioContext` it
+builds over its own words, with track 14 or 15.
+
+The browser builder links these machines like any other; the transport links
+only when a selected machine declares `audioTransport`.
+
+### Output levels
+
+With `outputLevels: 1` the input is `draw::WithOutputLevels<T>` from
+[`opxy/output_levels.hpp`](../sdk/include/opxy/output_levels.hpp), where `T` is
+the input the display takes otherwise (`draw::LevelsInput` for plain
+`draw::Input`). `levels.available` is 1 when the host reports them;
+`levels.output_left`, `levels.output_right` and `levels.input` are stock's own
+level words for the device's output and the selected input, raw signed Q31 as
+stock's meters receive them. They are not in dB or meter positions: any curve
+that turns them into a meter belongs to the machine's display. On the device
+the SDK reads them each frame from stock's level table, read only, so the
+display costs nothing on the audio side. Each word is the latest stock received,
+not one atomic frame. A synth's browser preview passes its own output's peak
+since the last frame, as Q31, and 0 for the input; an effect's page has none
+there (`available` 0). The preview's scale is not stock's, so set a meter's
+curve against the device.
 
 ## Migrating from before SDK 1.0
 
