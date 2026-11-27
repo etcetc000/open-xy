@@ -78,6 +78,18 @@ test('machine ZIP adds several selectable machines without changing the base kit
   assert.ok(!linkKit(candidate, ['a']).globals.has('other'));
 });
 
+test('a machine title names it in the builder: imported, searched and sorted by it', async () => {
+  const {base, pack} = await packFixture();
+  pack.machines[1].title = 'Custom Title';
+  const candidate = await importMachinePack(base, pack);
+  assert.equal(candidate.machines.find(m => m.id === 'custom').title, 'Custom Title');
+  const machines = [{id:'zed', name:'zed', kind:'player', description:'', title:'Alpha Player'},
+    {id:'bee', name:'bee', kind:'player', description:''}];
+  assert.deepEqual(browseMachines(machines, {query:'alpha player'}).map(({m}) => m.id), ['zed']);
+  assert.deepEqual(browseMachines(machines, {query:'zed'}).map(({m}) => m.id), ['zed']);
+  assert.deepEqual(browseMachines(machines, {sort:'name'}).map(({m}) => m.id), ['zed', 'bee']);
+});
+
 test('machine packs reject catalog replacement, runtime changes and malformed imported machines atomically', async () => {
   const {base, pack} = await packFixture(), before = structuredClone(base);
   const changes = [
@@ -92,6 +104,7 @@ test('machine packs reject catalog replacement, runtime changes and malformed im
     p => { p.machines[1].icon = '\"/><image href="https://evil.test"/>'; },
     p => { p.machines[1].catalog = ', {"type":"a","default_params":[]}'; },
     p => { p.machines[1].absent = {sdk_startup_synth:'kit_absent'}; },
+    p => { p.machines[1].title = ''; }, p => { p.machines[1].title = 'x'.repeat(41); }, p => { p.machines[1].title = 7; },
     p => { p.objects[0].bytes = p.objects[1].bytes; },
     p => { p.objects[3].sha256 = '0'.repeat(64); }, p => { p.objects[4].owner = 'custom'; },
     p => { p.objects[1].sha256 = '0'.repeat(64); },

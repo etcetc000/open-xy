@@ -181,7 +181,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     $('expert-reason').textContent = reason || (!wizard.supportsQuickInstall() ? 'USB copying needs a desktop browser with WebUSB. You can still build a ZIP.' : 'Ready to build and copy.');
     if (kit) facts($('expert-summary'), {
       OS: stock ? 'Verified OS 1.2.1 loaded' : 'Choose os.ldr',
-      Machines: selectedMachines().map(m => m.name).join(' + ') || 'None',
+      Machines: selectedMachines().map(m => m.title ?? m.name).join(' + ') || 'None',
       Memory: linked ? kib(linked.sizes.allocated) + ' / ' + kib(core.moduleBytes(chosenKit().profile))
         : selectionError ? 'Selection cannot be built; limit ' + kib(core.moduleBytes(chosenKit().profile)) : 'Choose machines',
       Extensions: (kit.extensions ?? []).filter(e => selectedExtensions.includes(e.id)).map(e => e.name).join(', ') || 'None',
@@ -281,7 +281,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     const enabled = selectedExtensions.length + Number(grayscale);
     $('extension-count').textContent = enabled ? enabled + ' selected' : 'None selected';
     facts($('build-selection'), {
-      Machines: selectedMachines().map(m => m.name).join(', ') || 'None',
+      Machines: selectedMachines().map(m => m.title ?? m.name).join(', ') || 'None',
       Extensions: (kit.extensions ?? []).filter(e => selectedExtensions.includes(e.id)).map(e => e.name).join(', ') || 'None',
       ...(expandedKit ? {Memory: expandedMemory() ? expandedSize() + ' (experimental)' : 'Standard'} : {}),
       'Machine graphics': (grayscale ? 'Grayscale' : 'Original designs') + (count ? ' · ' + count + ' customized' : ''),
@@ -381,8 +381,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
   }
   function describeMachine(target, m) {
     const field = name => target.querySelector('.' + name);
-    field('detail-kind').textContent = {synth: 'Synthesizer', effect: 'Send effect', drum: 'Synthesis drum kit', sample: 'Sample engine', player: 'Note player'}[m.kind];
-    field('detail-name').textContent = m.name; field('detail-description').textContent = m.description;
+    // A builder title (SDK 1.31) names the machine here; the OP–XY shows its name.
+    field('detail-kind').textContent = {synth: 'Synthesizer', effect: 'Send effect', drum: 'Synthesis drum kit', sample: 'Sample engine', player: 'Note player'}[m.kind] +
+      (m.title ? ' · “' + m.name + '” on the OP–XY' : '');
+    field('detail-name').textContent = m.title ?? m.name; field('detail-description').textContent = m.description;
     // Each catalog keyword lists every machine that shares it.
     field('detail-keywords').hidden = !m.keywords?.length;
     field('detail-keywords').replaceChildren(...(m.keywords ?? []).map(keyword => {
@@ -748,9 +750,9 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
       row.dataset.origin = m.origin;
       row.style.setProperty('--machine', colors[index % colors.length]);
       const label = node('label'), input = node('input'); input.type = 'checkbox'; input.checked = selected.includes(m.id);
-      input.setAttribute('aria-label', 'Include ' + m.name); label.append(input);
+      input.setAttribute('aria-label', 'Include ' + (m.title ?? m.name)); label.append(input);
       const button = node('button'); button.dataset.id = m.id; button.setAttribute('aria-pressed', String(inspected === m.id));
-      const name = node('span', m.name, 'machine-name');
+      const name = node('span', m.title ?? m.name, 'machine-name');
       // Its catalog maintainer, beside the name; a personal kit's own machines have none.
       if (core.machineAuthor(m)) name.append(' ', node('span', '(' + core.machineAuthor(m) + ')', 'machine-author'));
       button.append(name, node('span', m.description, 'machine-desc'));

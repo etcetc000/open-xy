@@ -112,6 +112,9 @@ def machine_entry(m, profile, sources, output, preview_cxx):
     entry = dict(id=m.id, name=m.name, kind=m.kind, prefix=m.prefix, description=m.description,
                  identity=requested, controls=[p['label'] for p in m.definition['parameters']],
                  positions=control_positions(m.definition), pages=paged(m.definition))
+    # The builder's name for it where machine.json gives one (SDK 1.31); `name` is the OP-XY's.
+    if m.title and m.title != m.name:
+        entry['title'] = m.title
     entry['catalog'] = catalog_entry(m)
     # Where the machine comes from, for the builder to show (core.mjs validOrigin): a
     # catalog machine is Open-XY's own only when maintainers list it (catalog.OFFICIAL).

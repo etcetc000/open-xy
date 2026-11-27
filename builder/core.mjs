@@ -458,7 +458,8 @@ export function keywordsByUse(machines) {
     .sort((a, b) => b.count - a.count || a.keyword.localeCompare(b.keyword));
 }
 const KIND_ORDER = ['synth', 'drum', 'sample', 'effect', 'player'];
-const byName = (a, b) => a.name.localeCompare(b.name, undefined, {sensitivity: 'base', numeric: true});
+// By the name the builder shows: a machine's title (SDK 1.31) or else its name.
+const byName = (a, b) => (a.title ?? a.name).localeCompare(b.title ?? b.name, undefined, {sensitivity: 'base', numeric: true});
 const SORTS = {
   // Open-XY's own machines first, then the rest, each group by name.
   featured: (a, b) => (b.m.origin === 'official') - (a.m.origin === 'official') || byName(a.m, b.m) || a.index - b.index,
@@ -483,7 +484,7 @@ export function browseMachines(machines, {query = '', kind = 'all', keywords = [
     .filter(({m}) => keywords.every(keyword => m.keywords?.includes(keyword)))
     .filter(({m}) => {
       if (!words.length) return true;
-      const text = [m.name, m.id, m.description, machineAuthor(m), m.source ? sourceName(m.source) : '',
+      const text = [m.title ?? '', m.name, m.id, m.description, machineAuthor(m), m.source ? sourceName(m.source) : '',
         KIND_WORDS[m.kind] ?? m.kind, ...(m.keywords ?? [])].join('\n').toLocaleLowerCase();
       return words.every(word => text.includes(word));
     })
@@ -864,7 +865,7 @@ export function linkKit(kit, selection, layout = null, extensionIds = [], settin
   // further their headroom is unknown, so the pair is refused (tooling/voice_heap.py).
   const heapSynths = kit.machines.filter(m => selected.has(m.id) && m.heapVoices);
   if (kit.experimental === true && heapSynths.length) {
-    const error = new Error(`${heapSynths.map(m => m.name).join(', ')} keep their voices in the stock heap, which ` +
+    const error = new Error(`${heapSynths.map(m => m.title ?? m.name).join(', ')} keep their voices in the stock heap, which ` +
       'the experimental memory makes smaller: build with standard memory.');
     error.heapVoices = true;
     throw error;
@@ -1635,7 +1636,7 @@ function safeArtwork(text) {
 }
 const PACK_MACHINE_KEYS = new Set(['id', 'name', 'kind', 'prefix', 'description', 'identity', 'controls', 'positions',
   'pages', 'catalog', 'origin', 'features', 'presetDefaults', 'presets', 'icon', 'absent', 'artwork', 'grayscaleArtwork',
-  'asset', 'fullCanvas', 'preview', 'shiftRow', 'heapVoices']);
+  'asset', 'fullCanvas', 'preview', 'shiftRow', 'heapVoices', 'title']);
 function checkPackMachine(m, fixed = {}) {
   check(m && typeof m === 'object' && Object.keys(m).every(key => PACK_MACHINE_KEYS.has(key)),
     'Invalid custom machine metadata');
@@ -1648,6 +1649,7 @@ function checkPackMachine(m, fixed = {}) {
     m.prefix === m.id && ['synth', 'effect', 'sample'].includes(m.kind) &&
     m.origin === 'personal' && m.source === undefined && m.cpu === undefined &&
     typeof m.name === 'string' && m.name.length > 0 && m.name.length <= 80 &&
+    (m.title === undefined || typeof m.title === 'string' && m.title.length > 0 && [...m.title].length <= 40) &&
     typeof m.description === 'string' && [...m.description].length <= 160,
     'Invalid custom machine metadata');
   check(Array.isArray(m.controls) && m.controls.length >= (m.kind === 'synth' ? 4 : 1) && m.controls.length <= 8 &&
