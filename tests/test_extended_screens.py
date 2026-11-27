@@ -42,13 +42,22 @@ class Declaration(unittest.TestCase):
             self.assertEqual(m.display, 'drawing')
             with self.subTest(name=name), tempfile.TemporaryDirectory() as temp:
                 root = copy_fixture(name, temp)
-                # The released version below it (1.27 is reserved, tooling/machines.RESERVED_SDK).
-                set_sdk(root, '%d.%d' % (EXTENDED_SCREENS_SDK[0], EXTENDED_SCREENS_SDK[1] - 2))
+                set_sdk(root, '%d.%d' % (EXTENDED_SCREENS_SDK[0], EXTENDED_SCREENS_SDK[1] - 1))
                 with self.assertRaisesRegex(ValueError, r"drum kit's screen or a note player's page needs \"sdk\": \"1\.28\""):
                     machine_at(root)
-                set_sdk(root, '1.27')
-                with self.assertRaisesRegex(ValueError, r'SDK 1\.27 is not released'):
-                    machine_at(root)
+
+    def test_glyphs_audio_and_levels_stay_a_synths_or_an_effects(self):
+        # The transport carries only a synth's or an effect's audio, and only their screens
+        # name glyph outlines.
+        for name in ('probekitcanvas', 'probeplayer'):
+            for key, value in (('glyphs', 1), ('audioTransport', 1), ('outputLevels', 1)):
+                with self.subTest(name=name, key=key), tempfile.TemporaryDirectory() as temp:
+                    root = copy_fixture(name, temp)
+                    record = json.loads((root / 'definition.json').read_text(encoding='utf-8'))
+                    record['resources']['display'][key] = value
+                    (root / 'definition.json').write_text(json.dumps(record), encoding='utf-8', newline='\n')
+                    with self.assertRaisesRegex(ValueError, 'are for synth and effect screens'):
+                        machine_at(root)
 
     def test_the_last_control_touched_stays_a_synths(self):
         with tempfile.TemporaryDirectory() as temp:

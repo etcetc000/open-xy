@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import (DRUM_KIT_CONTROLS, EXTENDED_SCREENS_SDK, EXTENDED_SDK, KIT_CONTROLS_SDK, SDK_1_25, extended_display, ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
+from .definitions import (AUDIO_SDK, AUDIO_SDK_KEYS, DRUM_KIT_CONTROLS, EXTENDED_SCREENS_SDK, EXTENDED_SDK, KIT_CONTROLS_SDK, SDK_1_25, extended_display, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
@@ -88,12 +88,13 @@ IDLE_SDK = (1, 22)
 # State and Controls each GUI frame, as a synth draws its screen. PLAYER_DRAWING_SDK is
 # the one place to renumber it, with the "SDK 1.26" text of docs/api.md and docs/display.md.
 PLAYER_DRAWING_SDK = (1, 26)
+# 1.27 adds a screen's own audio (audio snapshots, for synths and effects, and for a synth's
+# track stage), stock's output and input levels on a screen, and glyph atlases
+# (docs/display.md). A renumber changes AUDIO_SDK in definitions.py, this line and the
+# "SDK 1.27" text of the docs.
 # 1.28 extends extended drawing to a drum kit's screen, with a whole-screen kit whose
 # header shows only while Shift is held, and to a note player's own page
 # (EXTENDED_SCREENS_SDK in definitions.py).
-# 1.27 is held for another SDK change in review: refused until it ships, so a machine
-# declaring it cannot change meaning later. Its change removes it from RESERVED_SDK.
-RESERVED_SDK = {(1, 27)}
 SDK_VERSION = (1, 28)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
@@ -473,9 +474,7 @@ def sdk_version(text):
     major, minor = map(int, text.split('.'))
     current = '%d.%d' % SDK_VERSION
     require(major == SDK_VERSION[0] and minor <= SDK_VERSION[1],
-            f'The machine targets SDK {text}; this SDK is {current} and builds {SDK_VERSION[0]}.0 to {current}'
-            + ''.join(f' (not {major}.{minor}, which is reserved)' for major, minor in sorted(RESERVED_SDK)))
-    require((major, minor) not in RESERVED_SDK, f'SDK {text} is not released; declare an earlier or later version')
+            f'The machine targets SDK {text}; this SDK is {current} and builds {SDK_VERSION[0]}.0 to {current}')
     return major, minor
 
 
@@ -612,6 +611,8 @@ def machine_at(root, identity=None):
         require_sdk(version, IDLE_SDK, "An effect's declared tail (tailFrames)")
     if 'trackStage' in definition['resources']:
         require_sdk(version, track_stage.TRACK_STAGE_SDK, "A synth's track stage (trackStage)")
+        if 'audio' in definition['resources']['trackStage']:
+            require_sdk(version, AUDIO_SDK, "A track stage's audio snapshots (trackStage audio)")
     if any(p['display'] == 'division' for p in definition['parameters']):
         require_sdk(version, (1, 2), 'A division control')
     if kind == 'sample' and definition['resources']['voiceCapacity'] < STOCK_VOICES:
@@ -646,6 +647,8 @@ def machine_at(root, identity=None):
         require_sdk(version, EXTENDED_SDK, 'Extended drawing (docs/display.md#extended-drawing)')
         if kind in ('drum', 'player'):
             require_sdk(version, EXTENDED_SCREENS_SDK, "Extended drawing on a drum kit's screen or a note player's page")
+    if any(k in definition['resources'].get('display', {}) for k in AUDIO_SDK_KEYS):
+        require_sdk(version, AUDIO_SDK, "Glyph atlases, a screen's own audio and output levels (docs/display.md)")
     if definition['resources'].get('display', {}).get('nodes', 0) > SDK_1_7_NODES:
         require_sdk(version, (1, 8), 'More than %d display nodes' % SDK_1_7_NODES)
     require(definition['id'] == identity, 'Machine directory and definition identity disagree')
@@ -982,16 +985,10 @@ def collection(entries=None, layout=None):
     pages = [m.identity['page'] for m in machines if m.display != 'stock']
     require(len(set(engines)) == len(engines) and len(set(effects)) == len(effects) and len(set(pages)) == len(pages),
             'Conflicting engine, effect or page ID')
-    check_analysis_budgets(machines)
-    return machines
-
-
-def check_analysis_budgets(machines):
-    """Every machine's analysis budget comes from one stock-heap allowance; heap voice arenas have their own."""
-    total = sum(m.definition['resources'].get('sampleAnalysis', 0) for m in machines if m.kind == 'sample')
-    require(total <= ANALYSIS_HEAP_LIMIT,
-            'Sample analysis budgets exceed the collection limit of %d bytes' % ANALYSIS_HEAP_LIMIT)
+    # Heap voices are reserved at boot, so their budget is checked here. Sample analyses
+    # come and go: the device shares one allowance among them (sample_cache.cpp).
     voice_heap.check_budget(machines)
+    return machines
 
 
 def by_kind(machines, *kinds):

@@ -12,6 +12,9 @@ export class PreviewProcessor extends AudioWorkletProcessor {
         if (data.type === 'on') this.engine.noteOn(data.note, data.velocity);
         if (data.type === 'off') this.engine.noteOff(data.note);
         if (data.type === 'panic') this.engine.panic();
+        if (data.type === 'audioSnapshot') this.port.postMessage({audioSnapshot: data.id,
+          snapshot: this.engine.takeAudio(data.track ?? 0, data.reset ?? false, data.resetTarget ?? 1),
+          levels: this.engine.takeLevels()});
       } catch (error) { this.port.postMessage({ error: error.message }); }
     };
     this.port.postMessage({ ready: true, backend: 'cpp-wasm', sampleRate,

@@ -556,7 +556,20 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         $('audition-controls').classList.toggle('kit', Boolean(kit));
         $('audition-controls').append(keyboard, ...(kit ? [model] : []), ...(player ? [] : [volume]));
         const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+        // An audio or levels display's frame waits for the worklet; elapsed time accumulates meanwhile.
+        let framePending = false, pendingElapsed = 0;
         function frame(dt = 34) {
+          pendingElapsed = Math.min(8192, pendingElapsed + dt);
+          if (framePending || cancelled) return;
+          if (!display.audioWords && !display.outputLevels) return draw(null);
+          framePending = true;
+          audio.takeAudio(display.audioResetRequested(), display.audioResetTarget() || 1).then(draw).catch(error => { if (!cancelled) $('art-caption').textContent = error.message; })
+            .finally(() => { framePending = false; });
+        }
+        function draw(taken) {
+          if (cancelled) return;
+          const dt = pendingElapsed;
+          pendingElapsed = 0;
           // A player's steps since the last frame, at 480 a second as sdk.py test runs them; the
           // fraction carries to the next frame. With reduced motion only key presses draw.
           if (player) {
@@ -572,7 +585,10 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           // A kit's selected key: its model, Shift's choices for it, and its pan, level and pad fields.
           const drum = kit ? [selected.model, 0, core.kitChoices(kit, selected.model, selected.choke), null, core.kitMix(kit),
             shown.some(slot => slot >= 4) ? 1 : 0, null, null, null, core.kitSelectedKey(kit, selected.key)] : [];
-          renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity, ...row, ...drum));
+          // An audio display's snapshot and levels follow every other argument (docs/display.md#audio-snapshots).
+          const rest = display.audioWords || display.outputLevels ? [...(kit ? drum : [...(row.length ? row : [0, 0, [0, 0, 0, 0],
+            null, {pan:0, level:0}, 0, null]), null, null, 0]), taken?.snapshot ?? null, taken?.levels ?? null] : [...row, ...drum];
+          renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity, ...rest));
           // A whole-screen canvas has no header, nor a paged player's page, which draws its own.
           if (renderer.fullCanvas || player && m.pages) { header.innerHTML = ''; return; }
           // The machine's header text, or the stock header: a synth's percentage of the shown

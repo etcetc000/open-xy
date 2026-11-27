@@ -130,7 +130,12 @@ addresses and lifecycle/render exports, and `opxy_preview_model`, the model a
 kit's renders play (other modules ignore it). A kit's module also exports `opxy_drum_defaults(key)`
 (the address of nine bytes: the key's model, then its eight controls),
 `opxy_drum_model_name(model)`, `opxy_drum_label(model, slot)` and
-`opxy_drum_count(model)`; the contract check reads every key and model through them. The runner rejects imports, invalid
+`opxy_drum_count(model)`; the contract check reads every key and model through them.
+An [extended display](display.md#extended-drawing)'s module exports `opxy_display_audio_words`, the audio
+words its input carries (0 without audio snapshots). A synth with [audio snapshots](display.md#audio-snapshots)
+exports `opxy_audio_words`, `opxy_audio_track`, `opxy_take_audio`,
+`opxy_audio_capacity`, `opxy_audio_sequence` and the reset handshake's `opxy_audio_requested`,
+`opxy_audio_applied`, `opxy_audio_reset_supported` and `opxy_audio_reset`; the preview reads its screen's snapshot through them. The runner rejects imports, invalid
 layout and a sample-rate mismatch. The manifest binds the WASM, artwork and
 source hashes and carries the definition and `machine.json` description that
 the workbench page shows. These are host interfaces, not a device upload protocol.

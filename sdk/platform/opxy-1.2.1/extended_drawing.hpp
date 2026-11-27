@@ -1,6 +1,6 @@
 // Extended drawing renderer (docs/display.md#extended-drawing): applies
-// an extended frame (draw.hpp ExtendedFrame, RgbaFrame) to a synth's, an
-// effect's or a drum kit's artwork. Only an extended display's generated
+// an extended frame (draw.hpp ExtendedFrame, RgbaFrame, GlyphFrame) to a synth's,
+// an effect's or a drum kit's artwork. Only an extended display's generated
 // screen.cpp includes this, after its display_binding.hpp; plain displays keep
 // screen_drawing.hpp.
 #pragma once
@@ -93,8 +93,9 @@ template <> struct CanvasKitHeader<true> {
 };
 
 // Machine: ids[] names the artwork's nodes (the first are the mutable paths),
-// then its text slots, then its palette entries; kit whether it is a drum kit's
-// screen, with played_pad, selected_key and kit_controls as screen_drawing.hpp's.
+// then its text slots, then its palette entries; glyph_ids[] each glyph
+// definition's two outlines; kit whether it is a drum kit's screen, with
+// played_pad, selected_key and kit_controls as screen_drawing.hpp's.
 template <class Machine> struct ExtendedDrawing {
     typedef binding::Frame Frame;
     typedef ExtendedRetained<Frame> Renderer;
@@ -111,6 +112,7 @@ template <class Machine> struct ExtendedDrawing {
         extended_activation = 0;
         if (Machine::played_pad) played.valid = 0;
         KitHeader::clear();
+        binding::audio_screen_reset();
         binding::display_reset(&extended_state, &extended_frame);
         if (!o->base.svg) return;
         if (!canvas) bind_controls(&o->base);
@@ -122,6 +124,7 @@ template <class Machine> struct ExtendedDrawing {
         if (!controls.valid) return;
         const u32 activation = sdk_screen_activation(o->base.page, controls.track);
         if (activation && activation != extended_activation) {
+            binding::audio_screen_reset();
             binding::display_reset(&extended_state, &extended_frame);
             // A reset may reuse earlier nonzero geometry keys with new points.
             for (u32 p = 0; p < Frame::path_count; ++p) o->keys[p] = 0;
@@ -155,8 +158,11 @@ template <class Machine> struct ExtendedDrawing {
         sdk_display_note_activity(controls.track, &input);
         platform::amp_envelope(controls.track, input.amp);
         input.reduced_motion = 0;
+        binding::snapshot_audio(extended_input);
         binding::snapshot_encoders(extended_input);
+        binding::snapshot_levels(extended_input);
         binding::display_render(&extended_state, &extended_input, &extended_frame);
+        binding::finish_audio(extended_input);
         if (!binding::display_valid(&extended_frame)) return;
         Renderer::apply(o, extended_frame);
         if (!binding::full_canvas && !controls.choosing) apply_header(&o->base, extended_frame);

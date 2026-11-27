@@ -22,6 +22,11 @@ inline void display_render(DisplayState* state, const DisplayInput* input, Frame
 }
 inline bool display_valid(const Frame*) { return true; }
 inline void snapshot_encoders(DisplayInput& input) { ++encoder_reads; input.encoders.available = 1; }
+// A display without audio snapshots or output levels: the generated binding's no-ops.
+inline void audio_screen_reset() {}
+inline void snapshot_audio(DisplayInput&) {}
+inline void finish_audio(DisplayInput&) {}
+inline void snapshot_levels(DisplayInput&) {}
 }
 namespace platform {
 inline u32 drum_send_shown(u32 index, bool) { return index; }
