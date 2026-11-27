@@ -8,6 +8,7 @@ const display = new PreviewDisplay(module), e = display.api;
 assert.equal(e.opxy_display_abi(),7);
 assert.equal(e.opxy_display_extension(),Number(process.argv[3]));
 assert.equal(e.opxy_display_input_bytes(),Number(process.argv[4]));
+assert.equal(display.audioWords,Number(process.argv[5]));
 const state = new Uint32Array(e.memory.buffer,e.opxy_display_state(),1);
 const input = shownControls(Array(8).fill(0),[0,1,2,3]);
 const tick = snapshot => display.tick(input,17,0,0,false,null,0,0,[0,0,0,0],null,{pan:0,level:0},0,null,snapshot);

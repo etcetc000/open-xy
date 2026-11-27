@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "id": "probeplayer",
+  "name": "Probe Player",
+  "presets": {},
+  "resources": {
+    "display": {
+      "stateBytes": 8,
+      "stateAlignment": 4,
+      "paths": 1,
+      "points": 4,
+      "nodes": 2,
+      "texts": 1,
+      "palette": 0,
+      "affine": 1,
+      "rgba": 1,
+      "cubic": 1,
+      "encoderActivity": 1
+    }
+  },
+  "parameters": [
+    {
+      "id": "rate",
+      "label": "Rate",
+      "default": 0,
+      "mapping": {
+        "kind": "enum",
+        "labels": [
+          "8th",
+          "16th"
+        ]
+      },
+      "display": "enum"
+    },
+    {
+      "id": "spread",
+      "label": "Spread",
+      "default": 0,
+      "mapping": {
+        "kind": "enum",
+        "labels": [
+          "1",
+          "2",
+          "3"
+        ]
+      },
+      "display": "enum"
+    },
+    {
+      "id": "curve",
+      "label": "Curve",
+      "default": 0,
+      "mapping": {
+        "kind": "enum",
+        "labels": [
+          "low",
+          "high"
+        ]
+      },
+      "display": "enum"
+    },
+    {
+      "id": "glow",
+      "label": "Glow",
+      "default": 0,
+      "mapping": {
+        "kind": "enum",
+        "labels": [
+          "off",
+          "on"
+        ]
+      },
+      "display": "enum"
+    }
+  ]
+}

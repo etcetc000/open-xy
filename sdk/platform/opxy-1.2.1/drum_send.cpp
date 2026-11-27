@@ -1,5 +1,5 @@
-// Per-key sends (drum_send.hpp): the C++ side of the stock mixer hooks in
-// drum_send_hooks.s. Audio role only; nothing here allocates or waits.
+// Per-key sends (drum_send.hpp): the C++ side of the stock mixer's sites, reached through
+// mixer.cpp (mixer_hooks.s) and drum_send_hooks.s. Audio role only; nothing here allocates or waits.
 #include "drum_send.hpp"
 #include "drumline.hpp"
 
@@ -95,7 +95,9 @@ u32 pair_of(const unsigned char* voice) {
 }
 
 // 8d510bea: a track's voice loop is about to run.
-void sdk_drum_send_begin() { drum_send_begin(sdk_drum_send_state); }
+void sdk_drum_send_begin() {
+    drum_send_begin(sdk_drum_send_state);
+}
 
 // 8d51c7b2: before stock adds `voice` (its rendered block at 0x11b01548) into
 // the sum of `track`.

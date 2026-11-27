@@ -18,7 +18,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 
-from . import benchmark, extensions, load_governor, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables, track_stage, voice_heap
+from . import audio_telemetry, benchmark, extensions, load_governor, release_floor, runtime, screen, startup_label, stock_content, stock_limits, stock_tables, track_stage, voice_heap
 from .adapters import (kit_controls, model_edit, pad_mix, player_instrument, played_pad, sends_per_key, aux_preset_files, catalog_entry, check_aux_presets, generate_control, generate_display, generate_fx_object,
                        generate_player_object, generate_player_table, generate_registration,
                        generate_registration_stock, generate_sample_voice,
@@ -27,7 +27,7 @@ from .adapters import (kit_controls, model_edit, pad_mix, player_instrument, pla
                        generate_voice, generate_drum_callbacks, preset_files, sample_callbacks, track_control,
                        control_callbacks)
 from .contributors import validate_source_boundary
-from .definitions import extended_display, paged, synth_shift
+from .definitions import device_identity as declares_device_identity, extended_display, paged, synth_shift
 from .firmware import active_services, assemble, hook_instruction, hook_symbol, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
 from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, sample_path, tree
@@ -45,6 +45,9 @@ DEFINITIONS = dict(stock_catalog_insert=0x8d5bd928, stock_gui_role=0x8d5c3eac, s
                    stock_sample_key_tail=0x8d589214, stock_drum_classify_tail=0x8d5b79f6, stock_player_factory_tail=0x8d57ee70,
                    stock_player_load_tail=0x8d588d98, stock_player_load_kept=0x8d588da2,
                    stock_player_name_tail=0x8d5bdddc, stock_player_id_tail=0x8d5bde64, stock_sample_slice_receive_tail=0x8d5b1264)
+# The stock calls the audio transport's hooks run first or forward to (profile service
+# 'telemetry'); defined only for a build that links them.
+TELEMETRY_DEFINITIONS = dict(stock_telemetry_tick=0x8d4d6a10, stock_telemetry_receive=0x8d4d669e)
 TEMPLATES = 'sdk/platform/opxy-1.2.1/'
 RUNTIME_ASM, RUNTIME_CXX = 'sdk/platform/blackfin/divide.s', 'sdk/platform/blackfin/memory.cpp'
 # The sample kernel (opxy/sample_kernel.hpp): linked only for a machine that includes it.
@@ -121,7 +124,14 @@ PLAIN_SOURCES = {'divide': RUNTIME_ASM, 'memory': RUNTIME_CXX}
 def sdk_unit_defines(profile, machines):
     """The defines every SDK unit of a build compiles with (machines' own units take none of them)."""
     defines = (KIT_CONTROLS_DEFINE,) if 'kit_controls' in active_services(profile, service_users(machines)) else ()
-    return defines + sdk_defines(machines)
+    return defines + sdk_defines(machines) + ((MASTER_SHARED_DEFINE,) if master_shared(machines) else ())
+
+
+def master_shared(machines):
+    """Whether a collection has both Sample Studio and a master processor, whose master bus
+    entries the shared handler then runs (master_bus.cpp)."""
+    found = extensions_of(machines)
+    return any(e.sample_studio for e in found) and any(e.master_processor is not None for e in found)
 
 
 def compile_unit_source(gcc, tools, source, obj, defines):
@@ -188,6 +198,8 @@ def configuration(entries=None, layout=None):
         [extensions.extension_at(e['extension']) for e in entries or () if 'extension' in e]))
     extensions.check_coverage(profile, machines.extensions)
     definitions = dict(DEFINITIONS)
+    if audio_telemetry.users(machines):
+        definitions.update(TELEMETRY_DEFINITIONS)
     for m in machines:
         if m.kind == 'player':
             definitions[m.prefix + '_player_id'] = m.identity['player']
@@ -252,6 +264,10 @@ def check_sources(machines):
 # (SDK 1.23): the shared drum units' calls into them (drum_kit_controls.hpp). Every
 # other build compiles those units as before.
 KIT_CONTROLS_DEFINE = '-DOPXY_KIT_CONTROLS=1'
+# Defined for every SDK unit of a collection with both Sample Studio and a master processor:
+# the two name their master bus entries apart and master_bus.cpp runs both. Every other
+# build compiles those units as before.
+MASTER_SHARED_DEFINE = '-DOPXY_MASTER_SHARED=1'
 # Defined for every SDK unit, and every player's unit, of a build with a player declaring
 # SDK 1.25 or later: Controls.instrument (opxy/player.hpp) and its publication
 # (players.cpp). Every other build compiles both as before.
@@ -337,7 +353,8 @@ def plan(machines, profile=None):
     services = active_services(profile or config(), service_users(machines))
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
               if (UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services) and
-              (step not in UNIT_HEADERS or includes_header(machines, UNIT_HEADERS[step]))]
+              (step not in UNIT_HEADERS or includes_header(machines, UNIT_HEADERS[step])) and
+              (step != 'master_bus' or master_shared(machines))]
     units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in linked_extensions(machines)]
     names = [name for name, _m, _step in units]
     require(len(names) == len(set(names)), 'Duplicate object name')
@@ -358,8 +375,10 @@ SDK_UNITS = ('divide', 'sample_kernel', 'memory', 'registration', 'registration_
              'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel',
              'players', 'player_hooks', 'player_table', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
              'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_trigger', 'drum_hooks',
-             'drum_send', 'drum_send_hooks', 'track_call', 'track_stage', 'track_stage_table', 'drum_locks', 'lock_handles', 'drumline', 'drumline_hooks',
-             'synth_shift_hooks', 'drum_kit_controls', 'drum_amp_envelope')
+             'mixer', 'mixer_hooks', 'drum_send', 'drum_send_hooks', 'track_call', 'track_stage', 'track_stage_table', 'drum_locks',
+             'lock_handles', 'drumline', 'drumline_hooks', 'synth_shift_hooks', 'drum_kit_controls', 'drum_amp_envelope',
+             'telemetry_protocol', 'telemetry_native', 'telemetry_hooks', 'telemetry_registry', 'device_identity',
+             'device_identity_hooks', 'sample_studio_host', 'sample_studio_hooks', 'sample_studio_audio', 'master_bus')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -382,8 +401,12 @@ UNIT_SERVICES['drum_trigger'] = 'played_pad'
 # and the note-off hook an ampEnvelope kit's adapter reads only with such a kit.
 UNIT_SERVICES['drum_kit_controls'] = 'kit_controls'
 UNIT_SERVICES['drum_amp_envelope'] = 'amp_envelope'
-# Per-key sends hook stock's mixer, so only a build with a padMix kit or a drumline_page
-# extension links them.
+# Stock's mixer: three sites the per-key sends and Sample Studio's player share (mixer.cpp),
+# and the track call's own handler when no track stage takes it (mixer_hooks.s), linked for a
+# padMix kit, a drumline_page extension or a sample_studio extension.
+UNIT_SERVICES.update(dict.fromkeys(('mixer', 'mixer_hooks'), 'mixer'))
+# Per-key sends: the send buses' sources and the sends themselves, only for a padMix kit or
+# a drumline_page extension.
 UNIT_SERVICES.update(dict.fromkeys(('drum_send', 'drum_send_hooks'), 'drum_sends'))
 # A synth's track stage (SDK 1.24, track_stage.py): the shared handler of stock's
 # track call (track_call.s), its runtime and the declaring synths' table, linked only
@@ -399,6 +422,11 @@ UNIT_SERVICES.update(dict.fromkeys(('drumline', 'drumline_hooks'), 'drumline'))
 # A synth's Shift row (SDK 1.13): Shift and an encoder press switch its pages, as a
 # press does without Shift (synth_controls.cpp sdk_synth_shift_press).
 UNIT_SERVICES['synth_shift_hooks'] = 'synth_shift'
+# A synth's or effect's audio snapshots on the device (audioTransport, audio_transport_native.hpp):
+# the wire protocol, both processors' endpoints, their two hooks and the registry of the
+# selected synths' and effects' banks.
+UNIT_SERVICES.update(dict.fromkeys(('telemetry_protocol', 'telemetry_native', 'telemetry_hooks',
+                                    'telemetry_registry'), 'telemetry'))
 # Track control and hidden pages run from the GUI tick hook; startup stands in for
 # the saved data's entry points in builds that don't link it.
 UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'track_control_hooks',
@@ -408,6 +436,15 @@ UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'tra
 UNIT_SERVICES.update(dict.fromkeys(('aux_tracks', 'aux_hooks'), 'aux'))
 
 UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks','master_filter_panel'), 'master_filter'))
+# Sample Studio (docs/sample-studio.md): an extension's editor in stock's sample library and its
+# player on the audio board, by the library controller's entry branches and the browser screen's
+# frame (service sample_studio), the master bus (master_bus) and the mixer (mixer).
+SAMPLE_STUDIO_UNITS = ('sample_studio_host', 'sample_studio_hooks', 'sample_studio_audio')
+UNIT_SERVICES.update(dict.fromkeys(SAMPLE_STUDIO_UNITS, 'sample_studio'))
+# The master bus's shared handler, compiled only for a collection with both the studio and a
+# master processor (master_shared) and linked whenever a selection uses either.
+UNIT_SERVICES['master_bus'] = 'master_bus'
+SAMPLE_STUDIO_ASSET = 'content/display/sample_studio.svg'
 # CPU capabilities (docs/cpu-capabilities.md). The idle cut's render hook and its
 # registry, and the send hook with the record its effects' inits write (send_bus.hpp:
 # their adapters write it only in builds with idle).
@@ -417,6 +454,9 @@ UNIT_SERVICES['idle_cut'] = 'idle'
 UNIT_SERVICES.update(dict.fromkeys(('track_hooks', 'floor_hooks'), 'block_trims'))
 # The DSP board's per-block hook and the output slack it arms.
 UNIT_SERVICES.update(dict.fromkeys(('dsp_block', 'dsp_block_hooks', 'output_slack', 'output_slack_hooks'), 'output_slack'))
+# The device identity (SDK 1.30, device_identity.cpp): the GUI's read and send, the audio
+# processor's receive, and opxy_device_identity, linked only with a machine declaring it.
+UNIT_SERVICES.update(dict.fromkeys(('device_identity', 'device_identity_hooks'), 'device_identity'))
 
 
 def service_users(machines):
@@ -425,11 +465,19 @@ def service_users(machines):
     Shift row, whose presets and step locks use the drums and drum_locks services;
     'playedPad': a drum kit declaring SDK 1.21 or later, whose screen reads the played pad;
     'trackStage': a synth's track stage; 'kitControls': a drum kit declaring padVolume, padRandom
-    or ampEnvelope, and 'ampEnvelope' one declaring ampEnvelope),
+    or ampEnvelope, and 'ampEnvelope' one declaring ampEnvelope; 'audioTransport': a machine
+    whose screen shows its own audio; 'deviceIdentity': a machine of any kind declaring
+    deviceIdentity),
     'extension' when it links extension code (native builds link all of the collection's;
     settings extensions link none), the capabilities they declare ('master_filter',
-    'drumline_page') and the registry capabilities its extensions declare."""
+    'drumline_page', 'sampleStudio': a sample_studio extension, which needs a sample-family
+    machine or a drumline_page extension for the samples service) and the registry
+    capabilities its extensions declare."""
     users = [m.kind for m in machines] + (['extension'] if linked_extensions(machines) else [])
+    studio = any(e.sample_studio for e in extensions_of(machines))
+    require(not studio or 'sample' in users or 'drum' in users or
+            any(e.drumline_page is not None for e in extensions_of(machines)),
+            'Sample Studio needs a sample-family machine in the build (the samples service)')
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
@@ -439,8 +487,11 @@ def service_users(machines):
             ['trackStage' for m in machines if track_stage.track_stage(m) is not None] +
             ['kitControls' for m in machines if kit_controls(m)] +
             ['ampEnvelope' for m in machines if kit_controls(m) & 4] +
+            ['audioTransport' for m in audio_telemetry.users(machines)] +
+            ['deviceIdentity' for m in machines if declares_device_identity(m.definition)] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
             (['drumline_page'] if any(e.drumline_page is not None for e in extensions_of(machines)) else []) +
+            (['sampleStudio'] if studio else []) +
             [c for e in extensions_of(machines) for c in e.capabilities])
 
 
@@ -530,6 +581,8 @@ def absent_symbols(m):
         absent.update({symbol: 'kit_absent' for symbol in control_callbacks(m)})
         # So does the track stage table.
         absent.update(track_stage.absent_symbols(m))
+    # So does the audio snapshot registry; unselected, the machine's number is 0 and matches no key.
+    absent.update(audio_telemetry.absent_symbols(m))
     if m.kind in ('effect', 'sample', 'drum'):
         absent[m.prefix + '_benchmark'] = 'kit_absent'
     return absent
@@ -567,15 +620,21 @@ KIT_CONTROLS_CALLS = ('sdk_drum_kit_unpack', 'sdk_drum_kit_keeps', 'sdk_drum_kit
                       'sdk_drum_amp_tick')
 
 
-def service_fallbacks(services):
+def service_fallbacks(services, shared=False):
     """What a selection that does not use a service gets for the service's entry points
     that shared objects (startup's included) import: kit_absent, which answers 0. Track
     control's saved data, the aux service's start, every call into the step-lock
     handles (startup.LOCK_CALLS), stock Drumline's second page (startup's
     sdk_drumline_get), the drum-kit controls' entry points the shared drum units
     call in a build with such a kit (drum_kit_controls.hpp): each 0 is a kit without
-    them, and, in a collection with a track stage, the per-key sends' reset the
-    shared track call handler makes (track_call.s)."""
+    them, the mixer's two users (mixer.cpp), the per-key sends and Sample Studio's
+    player, either of which a build that links the mixer may lack; in a collection
+    with a track stage, the mixer's begin the shared track call handler makes
+    (track_call.s) when the build links no mixer; and, in a collection with the
+    device identity, the master processor's receiver, which the identity's receiver
+    then replaces with stock's own setter (device_identity.cpp). In a collection with both
+    Sample Studio and a master processor (`shared`, master_shared), the master bus's shared
+    handler's calls into each (master_bus.cpp), which then runs stock's own code in its place."""
     fallbacks = {}
     if 'control' in services:
         fallbacks['control'] = dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'), 'kit_absent')
@@ -585,11 +644,32 @@ def service_fallbacks(services):
         fallbacks['drum_locks'] = dict.fromkeys(('sdk_step_locks_' + call[1] for call in LOCK_CALLS), 'kit_absent')
     if 'drumline' in services:
         fallbacks['drumline'] = {'sdk_drumline_service': 'kit_absent'}
+    if 'mixer' in services:
+        fallbacks['drum_sends'] = dict.fromkeys(MIXER_SENDS, 'kit_absent')
+        fallbacks['sample_studio'] = dict.fromkeys(MIXER_STUDIO, 'kit_absent')
     if 'track_stage' in services:
-        fallbacks['drum_sends'] = {'sdk_drum_send_begin': 'kit_absent'}
+        fallbacks['mixer'] = {'sdk_mixer_begin': 'kit_absent'}
     if 'kit_controls' in services:
         fallbacks['kit_controls'] = dict.fromkeys(KIT_CONTROLS_CALLS, 'kit_absent')
+    if 'device_identity' in services:
+        # The global parameter receiver's next step after the device identity's
+        # (device_identity.cpp): the master bus's (a master processor's or Sample
+        # Studio's); kit_absent tells it to call stock's own setter instead.
+        fallbacks.setdefault('master_bus', {})['sdk_master_receive'] = 'kit_absent'
+    if shared:
+        fallbacks.setdefault('master_filter', {}).update(dict.fromkeys(MASTER_PROCESSOR_BUS, 'kit_absent'))
+        fallbacks.setdefault('sample_studio', {}).update(dict.fromkeys(MASTER_STUDIO_BUS, 'kit_absent'))
     return fallbacks
+
+
+# What mixer.cpp calls at each of the mixer's sites: the per-key sends' entry points and
+# Sample Studio's player's.
+MIXER_SENDS = ('sdk_drum_send_begin', 'sdk_drum_send_voice', 'sdk_drum_send_gain', 'sdk_drum_send_own_mix')
+MIXER_STUDIO = ('sdk_studio_mixer_begin', 'sdk_studio_voice', 'sdk_studio_gain', 'sdk_studio_level')
+# What the master bus's shared handler calls (master_bus.cpp): the master processor's entries
+# and Sample Studio's player's.
+MASTER_PROCESSOR_BUS = ('sdk_processor_process', 'sdk_processor_receive')
+MASTER_STUDIO_BUS = ('sdk_studio_master', 'sdk_studio_receive')
 
 
 def absent_extension_symbols(e):
@@ -620,7 +700,8 @@ def link(directory, tools, profile, definitions, machines, selected, name='modul
     # Entry points of services the whole collection's shared objects (startup's
     # included) call into but this selection doesn't link, as the builder resolves them.
     used = active_services(profile, service_users(chosen))
-    for service, fallbacks in service_fallbacks(active_services(profile, service_users(machines))).items():
+    for service, fallbacks in service_fallbacks(active_services(profile, service_users(machines)),
+                                                master_shared(machines)).items():
         if service not in used:
             aliases.update(fallbacks)
     definitions = {**definitions, **absent_numbers(absent)}
@@ -733,6 +814,10 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         folder = obj.parent
         folder.mkdir(exist_ok=True)
         if m is None:
+            if step == 'telemetry_registry':
+                return cxx(str(audio_telemetry.generate_registry(folder, machines)), obj)
+            if step == 'telemetry_protocol':
+                return cxx(TEMPLATES + 'telemetry/protocol.cpp', obj)
             if step == 'synth_controls' and includes_header(machines, 'control_interaction'):
                 return cxx(str(control_interaction_unit(folder)), obj)
             if step == 'drum_callbacks':
@@ -1197,6 +1282,57 @@ def panel_root(fragment, source):
         raise ValueError(f'{source} must be one SVG element, such as <g id="..._panel">...</g> ({error})') from None
 
 
+def glyph_commands(node):
+    """A glyph outline: absolute M, L, C and Z only, at most 16 commands, no transform."""
+    require(node is not None and node.tag == 'path' and not node.get('transform'),
+            'A glyph outline is an untransformed path')
+    data = node.get('d', '')
+    token = r'[MLCZ]|[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)'
+    require(re.fullmatch(r'[\s,]*', re.sub(token, '', data)) is not None,
+            'A glyph outline uses absolute M, L, C and Z only')
+    tokens, result, i, closed = re.findall(token, data), [], 0, True
+    while i < len(tokens):
+        verb = tokens[i]
+        i += 1
+        require(verb in 'MLCZ' and (not closed or verb == 'M'), 'A glyph contour starts with M')
+        n = {'M': 2, 'L': 2, 'C': 6, 'Z': 0}[verb]
+        values = tokens[i:i + n]
+        i += n
+        require(len(values) == n and all(re.fullmatch(NUMBER, v) for v in values), 'A glyph command lacks coordinates')
+        require(all(abs(float(v)) <= 8192 for v in values), 'Glyph coordinates are within 8192 pixels')
+        result.append((verb, values))
+        closed = verb == 'Z'
+        require(len(result) <= 16, 'A glyph outline has at most 16 commands')
+    require(result, 'A glyph outline is empty')
+    return result
+
+
+def glyph_ids(prefix, display):
+    """Each glyph definition's two outlines: <prefix>_glyph_<definition>_<0|1>."""
+    return [f'{prefix}_glyph_{d}_{p}' for d in range(display.get('glyphDefinitions', 0)) for p in range(2)]
+
+
+def check_glyphs(by_id, prefix, display):
+    """Glyph outlines, and each instance's two stroke-only nodes reserving 16 distinct points."""
+    if not display.get('glyphs'):
+        return
+    for index, name in enumerate(glyph_ids(prefix, display)):
+        commands = glyph_commands(by_id.get(name))
+        # The stock parser merges repeated points: the first outline needs two distinct ones.
+        points = {(int(float(values[-2]) * 1024), int(float(values[-1]) * 1024)) for _, values in commands if values}
+        require(index % 2 or (len(commands) >= 2 and len(points) >= 2), "A glyph's first outline draws something: " + name)
+    for index in range(display['glyphStart'], display['glyphStart'] + 2 * display['glyphs']):
+        name = f'{prefix}_node_{index}'
+        node = by_id.get(name)
+        require(node is not None and node.tag == 'path' and node.get('fill') == 'none',
+                'A glyph instance node is a path with fill="none": ' + name)
+        # The stock parser merges repeated points, so the 16 reserved points are distinct in Q10.
+        commands = glyph_commands(ET.Element('path', {'d': node.get('d', '')}))
+        require(len(commands) == 16 and [v for v, _ in commands] == ['M'] + ['L'] * 15 and
+                len({tuple(int(float(x) * 1024) for x in values) for _, values in commands}) == 16,
+                'A glyph instance node reserves M and 15 L to 16 distinct points: ' + name)
+
+
 def check_extended_outlines(by_id, prefix, display):
     """An extended display's paths: each as its topology reserves them (cubic, quadratic,
     open, segmented or closed), checked before the device only moves their coordinates."""
@@ -1281,6 +1417,7 @@ def check_bindings(by_id, prefix, display):
     count = display['nodes'] + display['texts']
     bound, texts, palette = ids[:display['nodes']], ids[display['nodes']:count], ids[count:]
     check_outlines(by_id, prefix, display)
+    check_glyphs(by_id, prefix, display)
     if display.get('rgba'):
         check_rgba(by_id, prefix, display)
     for name in bound + texts:
@@ -1388,7 +1525,8 @@ def prepare_assets(catalog, profile, machines):
     for m in machines:
         if m.display != 'stock':
             outputs[f'content/display/{m.native_name}.svg'] = screen.compose(
-                page_artwork(m), full_canvas=bool(m.definition['resources'].get('display', {}).get('fullCanvas')))
+                page_artwork(m), full_canvas=bool(m.definition['resources'].get('display', {}).get('fullCanvas')),
+                kit=m.kind == 'drum')
         for path, preset in preset_files(m).items():
             outputs[path] = (json.dumps(preset, indent=2) + '\n').encode('utf-8')
         # A sample engine's own samples (SDK 1.10), installed as they are.
@@ -1406,6 +1544,10 @@ def prepare_assets(catalog, profile, machines):
             require(name not in outputs, 'Display asset collision: ' + name)
             outputs[name] = extensions.validate_master_artwork(path)
             owners[name] = 'Extension ' + e.id
+        if e.sample_studio:
+            require(SAMPLE_STUDIO_ASSET not in outputs, 'Display asset collision: ' + SAMPLE_STUDIO_ASSET)
+            outputs[SAMPLE_STUDIO_ASSET] = read(e.root / extensions.SAMPLE_STUDIO_ARTWORK)
+            owners[SAMPLE_STUDIO_ASSET] = 'Extension ' + e.id
     # Stock's own content is never replaced (tooling.stock_content). The menu file is the
     # one stock file a build writes: stock's, extended.
     for path, owner in owners.items():

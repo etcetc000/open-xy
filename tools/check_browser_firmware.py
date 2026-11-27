@@ -285,7 +285,8 @@ def verify_generated(directory, stock_file, content):
                     expected_files[name] = data
             if machine.get('artwork'):
                 name = 'content/display/' + machine['asset']
-                art = screen.compose(machine['artwork'].encode())
+                art = screen.compose(machine['artwork'].encode(), full_canvas=machine.get('fullCanvas') == 1,
+                                     kit=machine['kind'] == 'drum')
                 require((prefix / name).read_bytes() == art, 'Browser artwork differs')
                 expected_files[name] = art
         for identity in result['extensions']:

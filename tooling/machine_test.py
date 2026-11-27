@@ -85,11 +85,11 @@ def drawn_player(m, host_cxx, scratch):
     """A note player's own drawn page (SDK 1.26): its artwork against its declared display,
     then its display on the host with player.cpp, as the device unit compiles them, over a
     held key's frames: every frame valid. Returns the frames drawn."""
-    from .adapters import catalog_defaults, drawing_layout, player_instrument
+    from .adapters import catalog_defaults, display_input_type, player_frame, player_instrument
     from .native import PLAYER_INSTRUMENT_DEFINE, validate_panel
     validate_panel(m)
     display = m.definition['resources']['display']
-    layout = drawing_layout(display)
+    input_type = display_input_type(m.definition)
     words = ', '.join(str(word << 16) for word in catalog_defaults(m.definition))
     paged = 'true' if m.definition.get('press') == 'page' else 'false'
     probe = scratch / (m.id + '-drawn-page.cpp')
@@ -98,7 +98,7 @@ def drawn_player(m, host_cxx, scratch):
 #include "display.cpp"
 #include <cstdio>
 namespace {{
-typedef opxy::draw::Frame<{layout['PATHS']}, {layout['POINTS']}, {layout['NODES']}, {layout['TEXTS']}, {layout['PALETTE']}> Frame;
+typedef {player_frame(display)} Frame;
 template<class S> auto next_update(S& s, const opxy::player::Controls& c, opxy::player::Update& u, int)
     -> decltype(update(s, c, u)) {{ return update(s, c, u); }}
 template<class S> bool next_update(S&, const opxy::player::Controls&, opxy::player::Update&, long) {{ return false; }}
@@ -119,7 +119,7 @@ int main() {{
     controls.lowest_key = 53;
     controls.bpm_x10 = 1200;
     display_reset(display_state);
-    opxy::draw::Input input = {{}};
+    opxy::draw::{input_type} input = {{}};
     input.elapsed = 17;
     input.held_notes = opxy::draw::notes_unavailable;
     input.amp.attack = input.amp.decay = input.amp.sustain = input.amp.release = opxy::draw::envelope_unavailable;
@@ -139,7 +139,7 @@ int main() {{
             input.parameters[i] = controls.value[row + i];
         }}
         display(display_state, static_cast<const State&>(state), static_cast<const opxy::player::Controls&>(controls),
-                static_cast<const opxy::draw::Input&>(input), frame);
+                static_cast<const opxy::draw::{input_type}&>(input), frame);
         invalid += !opxy::draw::valid(frame);
     }}
     std::printf("%d\\n", invalid);
@@ -153,7 +153,7 @@ int main() {{
                '-I' + str(ROOT / 'sdk/include'), '-I' + str(m.root), str(probe), '-o', str(binary)]
     result = subprocess.run(command, capture_output=True, text=True, timeout=300, creationflags=NO_WINDOW)
     require(result.returncode == 0, f'{m.id}: its own page does not compile with player.cpp, as the device unit '
-            f'compiles it (display(DisplayState&, const State&, const player::Controls&, const draw::Input&, Frame&)):\n'
+            f'compiles it (display(DisplayState&, const State&, const player::Controls&, const draw::{input_type}&, Frame&)):\n'
             f'{result.stdout}{result.stderr}')
     result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, creationflags=NO_WINDOW)
     require(result.returncode == 0, f'{m.id}: its own page stopped on the host:\n{result.stdout}{result.stderr}')
@@ -167,8 +167,8 @@ def check_machine(root, cxx, host_cxx, no_cpu, scratch):
     m = machine_at(root)
     scratch.mkdir(parents=True)
     done = [f'{m.kind} {m.id} ({m.root})']
-    if m.kind in ('synth', 'drum'):
-        from .preview import build
+    from .preview import build, previewed
+    if previewed(m):
         build(cxx, m, scratch / ('preview-' + m.id))
         done.append('preview built')
     if m.kind == 'player' and m.display == 'drawing':
@@ -211,7 +211,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog='sdk.py test', description=__doc__)
     parser.add_argument('--machine', type=Path, action='append', default=[], help='machine folder; repeatable')
     parser.add_argument('--extension', type=Path, action='append', default=[], help='extension folder; repeatable')
-    parser.add_argument('--cxx', default='clang++', help='Clang++ with wasm32/wasm-ld, for synth and drum previews')
+    parser.add_argument('--cxx', default='clang++', help='Clang++ with wasm32/wasm-ld, for synth, drum and drawing-player previews')
     parser.add_argument('--host-cxx', default='c++', help='host C++11 compiler for tests/*.cpp')
     parser.add_argument('--no-cpu', action='store_true', help='skip the CPU estimate')
     parser.add_argument('--jobs', type=int, default=1,

@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '1bad5bdbf79ade17ef46bb0a668787cdb359254329809d888e953e1311b22bd1';
+export const PROFILE_SHA256 = '496b3c2b9564f7e89b190e5b53cca08167bda9b056defb46bad84c49343f4172';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -157,6 +157,20 @@ const fits = (requested, numbers) => Object.keys(requested).length === Object.ke
 // as tooling/device.py assumes the device's FAT storage does.
 // tooling.screen.CANVAS: a whole-screen canvas's display file before its artwork.
 const CANVAS_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220"></svg>';
+// tooling.screen.kit_header: the template's header over a whole-screen drum kit's drawing,
+// which its screen shows only while Shift is held: the bar's eight blocks as paths bar_0..bar_7,
+// then the template's values and titles groups as they are.
+export function canvasKitHeader(template) {
+  const bar = /<g id="bar">([\s\S]*?)<\/g>/.exec(template);
+  const blocks = bar ? [...bar[1].matchAll(/<rect\b([^>]*)\/>/g)].map((block, i) => {
+    const attribute = name => new RegExp(String.raw`\s` + name + '="([^"]*)"').exec(block[1])?.[1];
+    const x = Number(attribute('x') ?? 0), width = Number(attribute('width')), height = Number(attribute('height'));
+    return `<path id="bar_${i}" d="M${x} 0L${x + width} 0L${x + width} ${height}L${x} ${height}Z" fill="${attribute('fill')}"/>`;
+  }) : [];
+  const start = template.indexOf('<g id="values">'), end = template.lastIndexOf('</svg>');
+  check(blocks.length === 8 && start > 0 && end > start, 'Unexpected screen template header');
+  return '<g id="bar">' + blocks.join('') + '</g>\n  ' + template.slice(start, end);
+}
 export const machineContentPaths = id => [`content/display/${id}.svg`, `content/presets/${id}`,
   `content/samples/${id}`, `content/aux_presets/${id}`];
 export function stockContentFile(profile, path) {
@@ -444,7 +458,7 @@ export function keywordsByUse(machines) {
     .sort((a, b) => b.count - a.count || a.keyword.localeCompare(b.keyword));
 }
 const KIND_ORDER = ['synth', 'drum', 'sample', 'effect', 'player'];
-// By the name the builder shows: a machine's title (SDK 1.27) or else its name.
+// By the name the builder shows: a machine's title (SDK 1.31) or else its name.
 const byName = (a, b) => (a.title ?? a.name).localeCompare(b.title ?? b.name, undefined, {sensitivity: 'base', numeric: true});
 const SORTS = {
   // Open-XY's own machines first, then the rest, each group by name.
@@ -538,9 +552,11 @@ export function extensionSelection(kit, selection = (kit.extensions ?? []).map(e
 // it supplies it, and each capability setting it chooses (both would write one site;
 // tooling.extensions.check_collection allows one of each).
 const exclusiveUses = e => [...(e.claims ?? []), ...(e.drumline_page ? ['drumline_page'] : []),
-  ...Object.keys(e.settings ?? {}).map(c => 'setting:' + c)];
+  ...(e.sample_studio ? ['sample_studio'] : []), ...Object.keys(e.settings ?? {}).map(c => 'setting:' + c)];
 
 // A claim (an exclusive control such as Record double-tap) two extensions share, if any.
+// Sample Studio and a master processor share the master bus's calls through one handler
+// (master_bus.cpp), so they are no claim of each other's.
 export function sharedClaim(extensions) {
   const seen = new Set();
   for (const e of extensions) for (const claim of exclusiveUses(e)) {
@@ -553,7 +569,8 @@ export function sharedClaim(extensions) {
 // The registry's label for a claim, as the kit carries it with each extension.
 export const claimLabel = (extensions, claim) =>
   extensions.map(e => claim.startsWith('setting:') ? e.settings?.[claim.slice(8)]?.label : e.claim_labels?.[claim])
-    .find(Boolean) ?? (claim === 'drumline_page' ? 'Drumline page 2' : claim.replace(/^setting:/, '').replaceAll('_', ' '));
+    .find(Boolean) ?? ({drumline_page: 'Drumline page 2', sample_studio: 'Sample Studio'}[claim] ??
+      claim.replace(/^setting:/, '').replaceAll('_', ' '));
 
 // Every extension choice a build can make, in collection order: each subset
 // in which no two extensions share a claim. Recovery and release checks try each.
@@ -688,6 +705,16 @@ export async function openKit(kit) {
         /^[a-z][a-z0-9_]*\.svg$/.test(f.asset) && typeof f.artwork === 'string', 'Invalid master filter asset');
       const data=decode64(f.artwork);
       check(data.length>0 && data.length<=65536 && await sha256(data)===f.sha256, 'Master filter artwork differs');
+    }
+    // Sample Studio (tooling.extensions): linked code and its page artwork; an extension is not
+    // both it and a master processor.
+    if (e.sample_studio !== undefined) {
+      const st = e.sample_studio;
+      check(st && typeof st === 'object' && Object.keys(st).sort().join() === 'artwork,asset,sha256' &&
+        st.asset === 'sample_studio.svg' && typeof st.artwork === 'string' && e.linked !== false && !processorOf(e),
+        'Invalid Sample Studio extension');
+      const data = decode64(st.artwork);
+      check(data.length > 0 && data.length <= 1024 ** 2 && await sha256(data) === st.sha256, 'Sample Studio artwork differs');
     }
     extensionIds.add(e.id);
   }
@@ -847,7 +874,11 @@ export function linkKit(kit, selection, layout = null, extensionIds = [], settin
     ...(kit.extensions?.some(e => extensions.has(e.id) && e.linked !== false) ? [{kind: 'extension'}] : []),
     ...(kit.extensions?.some(e => extensions.has(e.id) && processorOf(e)) ? [{kind: 'master_filter'}] : []),
     ...(kit.extensions?.some(e => extensions.has(e.id) && e.drumline_page) ? [{kind: 'drumline_page'}] : []),
+    ...(kit.extensions?.some(e => extensions.has(e.id) && e.sample_studio) ? [{kind: 'sampleStudio'}] : []),
     ...(kit.extensions ?? []).filter(e => extensions.has(e.id)).flatMap(e => (e.capabilities ?? []).map(kind => ({kind})))]);
+  // Sample Studio reads keys through the samples service (tooling.native.service_users).
+  check(!services.has('sample_studio') || services.has('samples'),
+    'Sample Studio needs a sample engine or Drumline page 2 in the build.');
   // A unit capability's chosen value links its objects in place of the native build's, under the
   // same names and in the same place (tooling.native UNIT_SOURCES).
   const units = unitSettings(kit, [...extensions], settings);
@@ -1449,6 +1480,14 @@ export async function buildAssets(kit, selection, catalog, numbers, options = {}
   const files = {'content/op1_factory.json': extended};
   const owners = {};  // every file a machine or extension adds, by who adds it
   for(const id of extensionSelection(kit,extensionIds)) {
+    const studio=kit.extensions.find(e => e.id===id).sample_studio;
+    if(studio) {
+      const path='content/display/'+studio.asset, data=decode64(studio.artwork);
+      check(await sha256(data)===studio.sha256, 'Sample Studio artwork differs');
+      check(files[path]===undefined, 'Display asset collision: '+studio.asset);
+      files[path]=data;
+      owners[path]='Extension '+id;
+    }
     const filter=processorOf(kit.extensions.find(e => e.id===id));
     if(!filter)continue;
     const data=decode64(filter.artwork);
@@ -1476,9 +1515,11 @@ export async function buildAssets(kit, selection, catalog, numbers, options = {}
       check(files['content/display/' + m.asset] === undefined, 'Display asset collision: ' + m.asset);
       try {
         const fragment = selectArtwork(m, graphicsForMachine(m, {graphics, graphicsOverrides}));
-        // A whole-screen canvas (fullCanvas) leaves the stock header out (tooling.screen.compose).
+        // A whole-screen canvas (fullCanvas) leaves the stock header out, and a drum kit's
+        // carries it over its drawing for its Shift page (tooling.screen.compose).
         check(m.fullCanvas === undefined || m.fullCanvas === 0 || m.fullCanvas === 1, 'Invalid full canvas flag');
-        const artwork = (m.fullCanvas === 1 ? CANVAS_SVG : baseSvg).replace('</svg>', fragment + '</svg>');
+        const header = m.fullCanvas === 1 && m.kind === 'drum' ? canvasKitHeader(baseSvg) : '';
+        const artwork = (m.fullCanvas === 1 ? CANVAS_SVG : baseSvg).replace('</svg>', fragment + header + '</svg>');
         files['content/display/' + m.asset] = utf8.encode(artwork);
       } catch (error) {
         throw new Error('Could not prepare ' + m.id + ' graphics: ' + error.message + '. Keep this machine’s original design or use corrected artwork.');

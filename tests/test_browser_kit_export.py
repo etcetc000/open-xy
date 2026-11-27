@@ -128,6 +128,23 @@ class BrowserKitExport(unittest.TestCase):
         self.assertEqual(module, (fast / 'analysis/module.bin').read_bytes())
         self.assertEqual(firmware, (fast / 'candidate/os.ldr').read_bytes())
 
+    def test_audio_snapshot_machines_export_and_link_in_any_selection(self):
+        # A synth and an effect showing their own audio, beside a machine without: the export's
+        # GNU ld parity check links the whole selection and each machine alone, so each owner is also linked left out.
+        kit_dir = self.export(FIXTURES / 'probescope', FIXTURES / 'probemeter', FIXTURES / 'probesynth')
+        kit = json.loads((kit_dir / 'kit.json').read_text(encoding='utf-8'))
+        machines = {m['id']: m for m in kit['machines']}
+        for owner in ('probescope', 'probemeter'):
+            self.assertIn('audioTransport', machines[owner]['features'])
+            self.assertEqual(machines[owner]['absent'][owner + '_audio_bank'], 'kit_absent')
+        self.assertNotIn('probesynth_audio_bank', machines['probesynth']['absent'])
+        # The transport's objects link only with its service; its hooks continue to stock.
+        services = {o['name']: o.get('service') for o in kit['objects']}
+        self.assertEqual({name for name, service in services.items() if service == 'telemetry'},
+                         {'sdk/telemetry_protocol.o', 'sdk/telemetry_native.o', 'sdk/telemetry_hooks.o',
+                          'sdk/telemetry_registry.o'})
+        self.assertTrue({'stock_telemetry_tick', 'stock_telemetry_receive'} <= set(kit['definitions']))
+
 
 if __name__ == '__main__':
     unittest.main()

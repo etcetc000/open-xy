@@ -1,4 +1,4 @@
-"""A machine's builder title (SDK 1.27): machine.json `title`, the name the builder shows
+"""A machine's builder title (SDK 1.31): machine.json `title`, the name the builder shows
 where the OP-XY shows definition.json's `name`."""
 import json
 from pathlib import Path
@@ -32,28 +32,28 @@ class MachineTitle(unittest.TestCase):
         m = machines.machine_at(self.folder)   # the fixture as it is
         self.assertEqual(m.title, m.name)
 
-    def test_a_title_needs_sdk_1_27(self):
-        with self.assertRaisesRegex(ValueError, r'title.*1\.27'):
-            self.machine(sdk='1.26', title='Probe Effect')
-        m = self.machine(sdk='1.27', title='Probe Effect')
+    def test_a_title_needs_sdk_1_31(self):
+        with self.assertRaisesRegex(ValueError, r'title.*1\.31'):
+            self.machine(sdk='1.30', title='Probe Effect')
+        m = self.machine(sdk='1.31', title='Probe Effect')
         self.assertEqual(m.title, 'Probe Effect')
         self.assertNotEqual(m.name, m.title)   # the OP-XY's name is unchanged
 
     def test_a_title_is_short_printable_text(self):
         for title in ('', ' Padded', 'Padded ', 'x' * 41, 'Tab\there', 7):
             with self.assertRaisesRegex(ValueError, 'title'):
-                self.machine(sdk='1.27', title=title)
-        self.assertEqual(self.machine(sdk='1.27', title='x' * 40).title, 'x' * 40)
+                self.machine(sdk='1.31', title=title)
+        self.assertEqual(self.machine(sdk='1.31', title='x' * 40).title, 'x' * 40)
 
     def test_the_kit_lists_a_title_only_where_it_differs(self):
         profile = json.loads((ROOT / 'profiles/opxy-1.2.1.json').read_text(encoding='utf-8'))
         output = Path(self.temporary.name) / 'out'
         output.mkdir()
-        plain = browser_kit.machine_entry(self.machine(sdk='1.27'), profile, {}, output, 'clang++')
+        plain = browser_kit.machine_entry(self.machine(sdk='1.31'), profile, {}, output, 'clang++')
         self.assertNotIn('title', plain)
-        titled = browser_kit.machine_entry(self.machine(sdk='1.27', title='Probe Effect'), profile, {}, output, 'clang++')
+        titled = browser_kit.machine_entry(self.machine(sdk='1.31', title='Probe Effect'), profile, {}, output, 'clang++')
         self.assertEqual((titled['name'], titled['title']), (plain['name'], 'Probe Effect'))
-        same = browser_kit.machine_entry(self.machine(sdk='1.27', title=plain['name']), profile, {}, output, 'clang++')
+        same = browser_kit.machine_entry(self.machine(sdk='1.31', title=plain['name']), profile, {}, output, 'clang++')
         self.assertNotIn('title', same)
 
 
