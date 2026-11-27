@@ -1936,6 +1936,9 @@ function variantKit(base, target) {
   const built = o => o.builds?.some(b => same(b.defines, target.defines) &&
     same(b.headers ?? [], target.headers.filter(h => (v.shapes[h] ?? []).includes(o.name))));
   const chosen = new Map(v.objects.filter(built).map(o => [o.name, o]));
+  // Every unit a header it adds reshapes is built for it: a unit missing one is never the site's.
+  check(target.headers.every(h => (base.build.headers ?? []).includes(h) ||
+    (v.shapes[h] ?? []).every(name => chosen.has(name))), 'Invalid kit variants');
   const objects = base.objects.map(o => chosen.has(o.name) ? {...o, bytes:chosen.get(o.name).bytes, sha256:chosen.get(o.name).sha256} : o);
   const names = new Set(base.objects.map(o => o.name));
   const added = [...chosen.values()].filter(o => !names.has(o.name) && target.services.includes(o.service))

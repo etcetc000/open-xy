@@ -561,6 +561,13 @@ test("a pack player declaring its track instrument links the carried unit alone,
   pack.machines[2].build = {defines:[], headers:[CI]};
   const candidate = await importMachinePack(base, pack);
   assert.deepEqual(candidate.build, {...base.build, services:[...base.build.services, 'track_instrument'].sort(), headers:[CI]});
+  // A kit missing a reshaped unit for the build it would need is refused rather than linked with the site's.
+  {
+    const {base:short, pack:again} = await variantFixture();
+    again.machines[2].build = {defines:[], headers:[CI]};
+    short.variants.objects[2].builds = [{defines:[ME], headers:[CI]}];
+    await assert.rejects(importMachinePack(short, again), /Invalid kit variants/);
+  }
   // The site's own player and SDK objects stay as they are; the track instrument's unit is added in link order.
   assert.deepEqual(symbolsOf(candidate, 'sitep/player_object.o'), ['sitep_entry']);
   assert.deepEqual(symbolsOf(candidate, 'sdk/memory.o'), ['share']);
@@ -575,12 +582,15 @@ test("a pack player declaring its track instrument links the carried unit alone,
   assert.ok(!linkKit(candidate, ['a', 'sitep']).globals.has('svc_track_instrument'));
   const site = await openKit(base);
   assert.deepEqual(linkKit(candidate, ['a', 'sitep']).module, linkKit(site, ['a', 'sitep']).module);
-  // With the kit controls too: a build listed for none of the startup's variants keeps the site's.
+  // With the kit controls too: the header's reshaped startup has no variant for that build, so the
+  // kit is refused rather than linked with the site's startup; with one, it is swapped in.
   kitControls(pack.machines[0]);
+  await assert.rejects(importMachinePack(base, pack), /Invalid kit variants/);
+  base.variants.objects[2].builds.push({defines:[KIT], headers:[CI]});
   const both = await importMachinePack(base, pack);
   assert.deepEqual(both.build.defines, [KIT]);
   assert.deepEqual(symbolsOf(both, 'sdk/memory.o'), ['share_kit']);
-  assert.deepEqual(symbolsOf(both, 'sdk/startup.o'), ['start']);
+  assert.deepEqual(symbolsOf(both, 'sdk/startup.o'), ['start_ci']);
   assert.deepEqual(symbolsOf(both, 'sitep/player_object.o'), ['sitep_entry']);
   assert.ok(linkKit(both, ['custom', 'another']).globals.has('svc_track_instrument'));
 });

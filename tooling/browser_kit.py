@@ -219,7 +219,8 @@ def kit_variants(output, tools, compiler, profile, machines, objects, version, d
     """kit.variants: what the kit's SDK objects become in a build that pack
     machines extend with a define, a header-tied unit or a service the site lacks
     (native.kit_variants), which the builder swaps in when it imports such a machine
-    (builder/core.mjs importMachinePack); None for a kit that carries none. Each object is
+    (builder/core.mjs importMachinePack); None for a kit that carries none, which is only a
+    site whose machines already use every carried header, define and service. Each object is
     written as the kit's are, and also under objects/variants/<n>/ for inspection."""
     if not any(native.carried_variants(profile, machines).values()):
         return None
