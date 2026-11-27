@@ -325,7 +325,8 @@ def shared_build(profile, machines):
     extensions' contributions; a machine's own units depend on itself alone
     (own_unit_defines). A machine pack
     records its own (tooling/machine_pack.py), and a site imports a pack machine only when
-    the machine adds nothing to the site's (builder/core.mjs importMachinePack): its
+    the machine adds nothing to the site's but what its kit carries (builder/core.mjs
+    importMachinePack, carried_variants): its
     objects then link as a native build of the site's collection with that machine does."""
     defines = sdk_unit_defines(profile, machines)
     return dict(services=sorted(active_services(profile, service_users(machines))), defines=list(defines),

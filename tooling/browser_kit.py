@@ -128,7 +128,7 @@ def machine_entry(m, profile, sources, output, preview_cxx):
     if uses:
         entry['features'] = uses
     # The defines and header-tied units it adds to its build's SDK objects (native.machine_build):
-    # a machine pack's must be its site's already (core.mjs importMachinePack).
+    # a machine pack's must be its site's already or carried by its kit (core.mjs importMachinePack).
     build = native.machine_build(profile, m)
     if any(build.values()):
         entry['build'] = build
@@ -216,7 +216,7 @@ def unit_sources(output, tools, compiler, profile, machines, objects):
 
 
 def kit_variants(output, tools, compiler, profile, machines, objects, version, definitions, sweep):
-    """kit.variants: what the kit's SDK objects and its players' own become in a build that pack
+    """kit.variants: what the kit's SDK objects become in a build that pack
     machines extend with a define, a header-tied unit or a service the site lacks
     (native.kit_variants), which the builder swaps in when it imports such a machine
     (builder/core.mjs importMachinePack); None for a kit that carries none. Each object is
@@ -289,7 +289,7 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
     chosen_units = unit_sources(output, tools, compiler, profile, machines, built)
     if chosen_units:
         kit['unitSources'] = chosen_units
-    # Its SDK objects and its players' own as pack machines may need them built (native.kit_variants).
+    # Its SDK objects as pack machines may need them built (native.kit_variants).
     variants = kit_variants(output, tools, compiler, profile, machines, built, kit['version'], definitions,
                             document(package / 'analysis/compile-report.json').get('benchmark_sweep', False))
     if variants:

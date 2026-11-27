@@ -152,7 +152,9 @@ def check_edits(patches):
 def check_compositor(hooks):
     """The compositor's stock-count bound is covered by its traversal hook."""
     advance = [p for p in hooks if int(p['address'], 16) == COMPOSITOR_ADVANCE]
-    require(len(advance) == 1 and advance[0]['symbol'] == 'sdk_screen_advance' and advance[0]['length'] == 8,
+    # Its only replacing handler, the track instrument's, keeps sdk_screen_advance's bound.
+    require(len(advance) == 1 and advance[0]['symbol'] == 'sdk_screen_advance' and advance[0]['length'] == 8 and
+            set(advance[0].get('symbols', {}).values()) <= {'sdk_instrument_advance'},
             'The compositor loop advance must be hooked')
     at = COMPOSITOR_BOUND - COMPOSITOR_ADVANCE
     bound = bytes.fromhex(advance[0]['before'])[at:at + SIZES['imm16']]

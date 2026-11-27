@@ -768,8 +768,9 @@ def player_trace(m, folder, defines=()):
 
 class PlayerInstrumentParity(unittest.TestCase):
     """Controls.instrument changes nothing for a player that does not read it: compiled with
-    OPXY_PLAYER_INSTRUMENT or without it, as it is in every build (native.own_unit_defines), it
-    decides exactly the same, whatever the instrument."""
+    OPXY_PLAYER_INSTRUMENT, which no build gives it (native.own_unit_defines), it decides exactly
+    what it decides without, whatever the instrument; the fixture that reads it decides otherwise.
+    So the member alone, and not its declaration, shapes a player's behaviour."""
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
     def test_a_player_not_reading_the_instrument_plays_the_same_with_the_define(self):

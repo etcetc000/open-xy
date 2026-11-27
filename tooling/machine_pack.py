@@ -18,8 +18,8 @@ def write(kit, output, notices=None):
     their own objects, records included: no shared object depends on which machines a
     build holds (tooling/records.py), so the pack extends any site kit of the same release
     and SDK revision whatever its catalog holds, as long as the site's SDK objects were
-    built with every service, define and header-tied unit the pack's machines use
-    (builder/core.mjs importMachinePack).
+    built with every service, define and header-tied unit the pack's machines use, or its
+    kit carries them built so (builder/core.mjs importMachinePack, variant_build).
     `notices` are the custom machines' own (the site's kit already holds the rest);
     by default the kit's.
     """

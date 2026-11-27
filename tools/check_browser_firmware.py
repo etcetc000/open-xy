@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT))
 from tooling.formats import elf32, ldr, mapped_offset, require, sha
 from tooling import extensions, screen, startup_label, stock_tables
 from tooling.adapters import catalog_defaults
-from tooling.firmware import active_services, assemble, hook_instruction, patch_active
+from tooling.firmware import active_services, assemble, hook_instruction, hook_symbol, patch_active
 from tooling.machines import number_layout
 from tooling.native import configuration, number_suffixes, package_collection
 
@@ -108,7 +108,8 @@ def assembled(stock, module, symbols, reviewed, services, profiling, values=None
         elif 'setting' in patch and patch['setting'] in values:
             patch['after'] = patch['choices'][str(values[patch['setting']])]
         elif patch['kind'] == 'hook':
-            patch['after'] = hook_instruction(patch, symbols[patch['symbol']]['value']).hex()
+            # The handler the selection's services enter (firmware.hook_symbol).
+            patch['after'] = hook_instruction(patch, symbols[hook_symbol(patch, services)]['value']).hex()
         elif patch['kind'] == 'startup':
             patch['after'] = startup_label.jump(symbols[patch['symbol']]['value']).hex()
     return assemble(stock, module, profile, reviewed, len(profile['patches']), services, profiling)
