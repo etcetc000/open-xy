@@ -101,7 +101,8 @@ class Services(unittest.TestCase):
                                    if m is None and not step.startswith('extension:')]
         # The fixtures declare no track control, hidden pages, aux tracks, players, per-key
         # sends, a padMix kit's step locks, a synth's Shift row, track stage or audio transport,
-        # no extension a Drumline page or Sample Studio, no settings extension a CPU capability, and their kit declares
+        # no extension a Drumline page, Sample Studio or a master processor (nor the master bus's
+        # shared handler, only for a collection with both), no settings extension a CPU capability, and their kit declares
         # an SDK before 1.21 (no played-pad snapshot) and none of the drum-kit controls:
         # those services stay off. None includes the sample kernel's header, so no unit
         # tied to a header is linked either.
@@ -112,7 +113,7 @@ class Services(unittest.TestCase):
                                           ('control', 'aux', 'players', 'master_filter', 'mixer', 'drum_sends', 'track_stage', 'drum_locks',
                                            'drumline', 'synth_shift', 'played_pad', 'idle', 'block_trims',
                                            'output_slack', 'kit_controls', 'amp_envelope', 'device_identity',
-                                           'telemetry', 'sample_studio')])
+                                           'telemetry', 'sample_studio', 'master_bus')])
         self.assertEqual(active_services(profile, ['drum', 'kitControls']), {'samples', 'octaves', 'drums', 'kit_controls'})
         self.assertEqual(active_services(profile, ['drum', 'kitControls', 'ampEnvelope']),
                          {'samples', 'octaves', 'drums', 'kit_controls', 'amp_envelope'})
@@ -134,7 +135,7 @@ class Services(unittest.TestCase):
         self.assertEqual(steps(paged), [u for u in units if native.UNIT_SERVICES.get(u) not in
                                         ('control', 'aux', 'players', 'master_filter', 'track_stage', 'synth_shift', 'played_pad',
                                          'idle', 'block_trims', 'output_slack', 'kit_controls', 'amp_envelope',
-                                         'device_identity', 'telemetry', 'sample_studio')])
+                                         'device_identity', 'telemetry', 'sample_studio', 'master_bus')])
         self.assertEqual(native.subset(paged, paged[:1]).extensions, (page,))
         without = [m for m in machines if m.kind not in ('sample', 'drum')]  # nor any extension
         self.assertEqual(steps(without), [u for u in units if u not in native.UNIT_SERVICES])

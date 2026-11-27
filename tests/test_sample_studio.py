@@ -157,6 +157,61 @@ class Sites(unittest.TestCase):
         master = re.search(r'void sdk_master_process\(void\* object, i32\* left, i32\* right\) \{(.*?)\n\}', audio, re.S).group(1)
         self.assertLess(master.index('0x11a02c10'), master.index('p->master(left, right)'))   # stock's EQ first
 
+    def test_beside_a_master_processor_one_handler_runs_both(self):
+        # A stock site has one hook: the master EQ call and the receiver enter master_bus.cpp, which
+        # runs the master processor's stage then the player, and the player's numbers then the
+        # master processor's receiver. Each side names its entries apart only under the define.
+        shared = code(PLATFORM / 'master_bus.cpp')
+        process = re.search(r'\nvoid sdk_master_process\(void\* object, i32\* left, i32\* right\) \{(.*?)\n\}', shared, re.S).group(1)
+        self.assertLess(process.index('sdk_processor_process(object, left, right)'), process.index('sdk_studio_master(left, right)'))
+        self.assertLess(process.index('kStockEq'), process.index('sdk_studio_master'))   # no processor: stock's EQ
+        receive = re.search(r'\nvoid sdk_master_receive\(u32 base, u32 id, i32 value\) \{(.*?)\n\}', shared, re.S).group(1)
+        self.assertLess(receive.index('if (sdk_studio_receive(id, value)) return;'), receive.index('sdk_processor_receive(base, id, value)'))
+        self.assertIn('kStockSet', receive)
+        self.assertIn('0x11a02c10', shared)
+        self.assertIn('0x8d50eb8c', shared)
+        audio, processor = AUDIO.read_text(), (PLATFORM / 'master_filter_stock.cpp').read_text()
+        for text, names in ((audio, ('sdk_studio_master', 'sdk_studio_receive')),
+                            (processor, ('sdk_processor_receive', 'sdk_processor_process'))):
+            shared_part, alone = re.search(r'#ifdef OPXY_MASTER_SHARED\n(.*?)#else\n(.*?)#endif', text, re.S).groups()
+            for name in names:
+                self.assertIn('__asm__("%s")' % name, shared_part, name)
+            self.assertIn('__asm__("sdk_master_process")', alone)
+            self.assertIn('__asm__("sdk_master_receive")', alone)
+        # the player's shared receiver answers 1 only for its own numbers; kit_absent answers 0
+        studio = re.search(r'u32 sdk_studio_receive\(u32 id, i32 value\) \{(.*?)\n\}', audio, re.S).group(1)
+        self.assertIn('id < kFirstId || id >= kFirstId + kChannels) return 0;', studio)
+        self.assertIn('p->receive(id - kFirstId, value);\n    return 1;', studio)
+        studio_master = re.search(r'void sdk_studio_master\(i32\* left, i32\* right\) \{(.*?)\n\}', audio, re.S).group(1)
+        self.assertNotIn('0x11a02c10', studio_master)   # the shared handler ran the EQ (or the processor) already
+
+    def test_the_shared_handler_only_for_a_collection_with_both(self):
+        from tooling import native
+
+        class Machine:
+            kind, definition = 'sample', {'resources': {}}
+            id, prefix, sources, native, display = 'm', 'm', (), (), 'stock'
+
+        class Processor(Studio):
+            sample_studio, master_processor, id = False, {'artwork': 'p.svg'}, 'processor'
+        profile = json.loads((ROOT / 'profiles/opxy-1.2.1.json').read_text())
+        collections = {'studio': [Studio()], 'processor': [Processor()], 'both': [Studio(), Processor()], 'none': []}
+        for name, extensions in collections.items():
+            built = Built([Machine()], extensions)
+            both = name == 'both'
+            self.assertEqual(native.master_shared(built), both, name)
+            self.assertEqual(native.MASTER_SHARED_DEFINE in native.sdk_unit_defines(profile, built), both, name)
+            self.assertEqual('sdk/master_bus.o' in [o for o, _m, _s in native.plan(built, profile)], both, name)
+            fallbacks = native.service_fallbacks(native.active_services(profile, native.service_users(built)),
+                                                 native.master_shared(built))
+            for service, symbols in (('master_filter', native.MASTER_PROCESSOR_BUS), ('sample_studio', native.MASTER_STUDIO_BUS)):
+                found = {s for s in fallbacks.get(service, {}) if s in symbols}
+                self.assertEqual(found, set(symbols) if both else set(), (name, service))
+        self.assertEqual(native.UNIT_SERVICES['master_bus'], 'master_bus')
+        self.assertEqual(native.MASTER_SHARED_DEFINE, '-DOPXY_MASTER_SHARED=1')
+        for name in native.MASTER_PROCESSOR_BUS + native.MASTER_STUDIO_BUS:
+            self.assertIn('__asm__("%s")' % name, (PLATFORM / 'master_bus.cpp').read_text(), name)
+
     def test_no_two_services_share_a_b3_parameter(self):
         # Stock's audio board receives every B3 parameter through one call (8d5b145e), shared by the
         # services that own some: each range read from its own source, none overlapping, each within
@@ -262,7 +317,7 @@ class Tooling(unittest.TestCase):
             extensions.extension_at(self.extension(folder, dict(data, sample_studio={'x': 1})))   # no options yet
         text = (ROOT / 'tooling/extensions.py').read_text()
         self.assertIn("require(len(studios) <= 1, 'Sample Studio has multiple owners: '", text)
-        self.assertIn("require(not (studios and processors), 'Sample Studio and a master processor share hook sites", text)
+        self.assertNotIn('build them apart', text)   # a master processor shares the build (master_bus.cpp)
         self.assertIn('sdk_sample_studio_', text)   # the editor and player accessors the SDK's sites call
 
     def test_service_user_from_the_extension(self):
