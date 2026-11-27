@@ -76,12 +76,15 @@ def check_patch_boundaries(profile, count):
         # A site several services need has one hook (firmware.hook_symbol): `symbols` maps
         # each service to the handler a build with it enters, the first active one winning.
         # Whenever the record's service is active one of them is, so `symbol` is one of them.
+        # A hook every build applies (no service) may also map services to handlers that
+        # replace its own in a build with one of them; `symbol` is then none of those.
         if 'symbols' in patch:
             shared, services = patch['symbols'], profile.get('services', {})
-            require(kind == 'hook' and 'service' in patch and isinstance(shared, dict) and shared and
+            require(kind == 'hook' and isinstance(shared, dict) and shared and
                     all(s in services and isinstance(v, str) and v for s, v in shared.items()) and
-                    patch['symbol'] in shared.values() and
-                    set(services[patch['service']]) == {u for s in shared for u in services[s]},
+                    (patch['symbol'] in shared.values() and 'service' in patch and
+                     set(services[patch['service']]) == {u for s in shared for u in services[s]} or
+                     patch['symbol'] not in shared.values() and 'service' not in patch and 'profiling' not in patch),
                     'A shared hook maps the services that use its site to module symbols')
         # Protected code is only ever redirected into the module by a hook whose
         # destination the build verifies, or by the separately reviewed startup label.

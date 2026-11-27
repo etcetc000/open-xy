@@ -95,8 +95,8 @@ class Generation(unittest.TestCase):
         new, old = fixture('probekit25'), fixture('probekit21')
         self.assertEqual(native.sdk_defines([old, fixture('probesynth')]), ())
         self.assertEqual(native.sdk_defines([old, new]), (native.MODEL_EDIT_DEFINE,))
-        self.assertEqual(native.sdk_defines([new, fixture('probepads')]),
-                         (native.PLAYER_INSTRUMENT_DEFINE, native.MODEL_EDIT_DEFINE))
+        # A player reading its track instrument adds no SDK unit define (native.own_unit_defines).
+        self.assertEqual(native.sdk_defines([new, fixture('probepads')]), (native.MODEL_EDIT_DEFINE,))
         source = (PLATFORM / 'drum_synthesis_stock.cpp').read_text(encoding='utf-8')
         # One include and one arm of the editor's chain, both under the define.
         self.assertEqual(source.count('#if OPXY_MODEL_EDIT'), 2)
@@ -116,11 +116,11 @@ def without(source, define):
 class ZeroCost(unittest.TestCase):
     @unittest.skipUnless(blackfin_compiler(), 'No Blackfin compiler in local/toolchain (set OPXY_TEST_COMPILER)')
     def test_without_the_defines_the_shared_units_compile_as_without_the_additions(self):
-        # A build without a 1.25 player or a modelEdit kit compiles players.cpp and
-        # drum_synthesis_stock.cpp to the same object as their text with the blocks removed.
+        # A build without a modelEdit kit compiles drum_synthesis_stock.cpp to the same object
+        # as its text with the blocks removed.
         compiler = blackfin_compiler()
         assembler = compiler.with_name('bfin-elf-as' + compiler.suffix)
-        for unit, define in (('players.cpp', 'OPXY_PLAYER_INSTRUMENT'), ('drum_synthesis_stock.cpp', 'OPXY_MODEL_EDIT')):
+        for unit, define in (('drum_synthesis_stock.cpp', 'OPXY_MODEL_EDIT'),):
             text = (PLATFORM / unit).read_text(encoding='utf-8')
             self.assertIn('#if ' + define, text)
             objects = []

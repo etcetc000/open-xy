@@ -528,52 +528,119 @@ TRACK_ENGINE = 'inline u32 track_engine(u32 track) { return stock<u32(u32)>(0x8d
 
 
 class PlayerInstrument(unittest.TestCase):
-    """Controls.instrument (SDK 1.25): the kind of instrument a player's track holds, for a build
-    with a player declaring 1.25; every other build keeps Controls and players.cpp as they were."""
+    """Controls.instrument (resources.trackInstrument, SDK 1.25): the kind of instrument a player's
+    track holds, for a player declaring it. Its own units compile with the define and its build links
+    the track_instrument service; every other unit, and every build without such a player, stays as
+    it was."""
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
 
-    def player(self, sdk):
+    def player(self, sdk='1.25', declared=1, name='probepads', source=None):
+        """The probepads fixture, declaring SDK `sdk` and trackInstrument `declared` (None: no
+        such key), its player.cpp replaced by `source` when given."""
         from machine_fixtures import FOLDER
-        folder = self.root / 'probepads'
+        folder = self.root / name
         shutil.copytree(FOLDER / 'probepads', folder)
         record = json.loads((folder / 'machine.json').read_text(encoding='utf-8'))
         record['sdk'] = sdk
         (folder / 'machine.json').write_text(json.dumps(record), encoding='utf-8')
+        definition = json.loads((folder / 'definition.json').read_text(encoding='utf-8'))
+        definition['id'] = name
+        definition['resources'].pop('trackInstrument', None)
+        if declared is not None:
+            definition['resources']['trackInstrument'] = declared
+        (folder / 'definition.json').write_text(json.dumps(definition), encoding='utf-8')
+        text = (folder / 'player.cpp').read_text(encoding='utf-8') if source is None else source
+        (folder / 'player.cpp').write_text(text.replace('namespace probepads', 'namespace ' + name), encoding='utf-8')
         return machine_at(folder)
 
-    def test_only_a_build_with_a_1_25_player_defines_it(self):
+    @staticmethod
+    def unread():
+        """The fixture player's source, reading nothing of its track's instrument."""
+        return ((ROOT / 'tests/fixtures/machines/probepads/player.cpp').read_text(encoding='utf-8')
+                .replace('.instrument', '.lowest_key').replace('opxy::player::DrumInstrument', '1'))
+
+    def test_only_a_player_declaring_it_reads_the_instrument(self):
         from tooling.adapters import player_instrument
         from tooling.definitions import SDK_1_25
         from tooling.machines import SDK_VERSION
         from machine_fixtures import fixture
         self.assertEqual(SDK_1_25, (1, 25))
         self.assertGreaterEqual(SDK_VERSION, SDK_1_25)
-        new, older = fixture('probepads'), self.player('1.24')
-        self.assertEqual((new.sdk, player_instrument(new), player_instrument(older)), ((1, 25), True, False))
-        self.assertEqual(native.sdk_defines([new]), (native.PLAYER_INSTRUMENT_DEFINE,))
-        self.assertEqual(native.sdk_defines([older]), ())
-        # Not a player: kits, synths and effects never ask for it, whatever they declare.
-        self.assertEqual(native.sdk_defines([fixture('probesynth'), fixture('probefx'), fixture('probekit23')]), ())
-        # The SDK units and the players of such a build see it; no other machine's units do.
+        pads = fixture('probepads')
+        self.assertEqual(pads.definition['resources'], {'trackInstrument': 1})
+        self.assertTrue(player_instrument(pads))
+        # A 1.25 player that does not declare it, one declaring 0, and every other kind do not.
+        from off_path_code import player_folder
+        player_folder(self.root / 'probeplayer')
+        plain = machine_at(self.root / 'probeplayer')
+        self.assertFalse(player_instrument(plain))
+        self.assertFalse(player_instrument(self.player(declared=0, name='padszero', source=self.unread())))
+        for m in (fixture('probesynth'), fixture('probefx'), fixture('probekit23'), fixture('probekit25')):
+            self.assertFalse(player_instrument(m))
+        # No SDK unit compiles with the define: only the declaring player's own units do.
+        every = [pads, plain, fixture('probesynth'), fixture('probekit23'), fixture('probekit25')]
+        self.assertNotIn(native.PLAYER_INSTRUMENT_DEFINE, native.sdk_unit_defines(config(), every))
+        self.assertEqual(native.own_unit_defines(pads), (native.PLAYER_INSTRUMENT_DEFINE,))
+        for m in every[1:]:
+            self.assertEqual(native.own_unit_defines(m), ())
         source = (ROOT / 'tooling/native.py').read_text(encoding='utf-8')
-        self.assertIn("unit_defines = defines if m is None else own_unit_defines(defines, m.kind)\n", source)
-        every = (native.KIT_CONTROLS_DEFINE, native.PLAYER_INSTRUMENT_DEFINE, native.MODEL_EDIT_DEFINE)
-        self.assertEqual(native.own_unit_defines(every, 'player'), (native.PLAYER_INSTRUMENT_DEFINE,))
-        for kind in ('synth', 'drum', 'sample', 'effect'):
-            self.assertEqual(native.own_unit_defines(every, kind), ())
-        # Only the header member and the bridge's publication depend on it.
+        self.assertIn("unit_defines = defines if m is None else own_unit_defines(m)\n", source)
+        # The build links the track instrument's units only with a declaring player.
+        services = native.active_services(config(), native.service_users([pads, plain]))
+        self.assertIn('track_instrument', services)
+        self.assertNotIn('track_instrument', native.active_services(config(), native.service_users([plain])))
+        names = [name for name, _m, _step in native.plan([pads, plain], config())]
+        self.assertIn('sdk/track_instrument.o', names)
+        self.assertIn('sdk/track_instrument_hooks.o', names)
+        self.assertEqual([n for n in native.plan([plain], config()) if 'track_instrument' in n[0]], [])
+        # Only the header member and the declaring player's controls depend on the define.
         self.assertEqual((ROOT / 'sdk/include/opxy/player.hpp').read_text(encoding='utf-8').count(
             '#if OPXY_PLAYER_INSTRUMENT'), 1)
-        self.assertEqual((PLATFORM / 'players.cpp').read_text(encoding='utf-8').count('#if OPXY_PLAYER_INSTRUMENT'), 3)
-        # A 1.25 player's generated adapter is the one an older player gets: only the define differs.
+        self.assertEqual((PLATFORM / 'players.hpp').read_text(encoding='utf-8').count('#if OPXY_PLAYER_INSTRUMENT'), 1)
+        self.assertNotIn('OPXY_PLAYER_INSTRUMENT', (PLATFORM / 'players.cpp').read_text(encoding='utf-8'))
+        # A declaring player's generated adapter is the one any other player gets: only the define differs.
+        undeclared = self.player(declared=None, name='padsplain', source=self.unread())
         with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
-            new_source = adapters.generate_player_object(a, new).read_text(encoding='utf-8')
-            old_source = adapters.generate_player_object(b, older).read_text(encoding='utf-8')
-        self.assertEqual(new_source, old_source)
+            new_source = adapters.generate_player_object(a, pads).read_text(encoding='utf-8')
+            old_source = adapters.generate_player_object(b, undeclared).read_text(encoding='utf-8')
+        self.assertEqual(new_source, old_source.replace('padsplain', 'probepads'))
+
+    def test_the_declaration_is_refused_where_it_does_not_apply(self):
+        from tooling.definitions import validate_definition
+        from machine_fixtures import fixture
+        # 0 or 1, a player's alone, from SDK 1.25.
+        for value in (2, -1, True, '1'):
+            with self.assertRaisesRegex(Exception, 'trackInstrument must be 0 or 1|Numeric resource'):
+                self.player(declared=value, name='padsbad')
+            shutil.rmtree(self.root / 'padsbad')
+        with self.assertRaisesRegex(Exception, r"track instrument \(trackInstrument\)"):
+            self.player(sdk='1.24', name='padsold')
+        for m in (fixture('probesynth'), fixture('probekit25')):
+            definition = json.loads(json.dumps(m.definition))
+            definition['resources']['trackInstrument'] = 1
+            with self.assertRaisesRegex(Exception, 'resources'):
+                validate_definition(definition, m.kind)
+        # Reading Controls.instrument, or naming its kinds, without declaring it is refused.
+        source = ((ROOT / 'tests/fixtures/machines/probepads') / 'player.cpp').read_text(encoding='utf-8')
+        for declared in (None, 0):
+            with self.assertRaisesRegex(Exception, 'declares resources.trackInstrument'):
+                self.player(declared=declared, name='padsundeclared')
+            shutil.rmtree(self.root / 'padsundeclared')
+        for text in ('u32 k(const Controls& c) { return c.instrument; }', 'u32 k(const Controls* c) { return c->instrument; }',
+                     'const u32 k = opxy::player::DrumInstrument;', 'const u32 k = OtherInstrument;'):
+            with self.assertRaisesRegex(Exception, 'declares resources.trackInstrument'):
+                self.player(declared=None, name='padsread', source=source.replace('namespace probepads {',
+                                                                                  'namespace probepads {\n' + text, 1))
+            shutil.rmtree(self.root / 'padsread')
+        # Its own tests and tools may name it.
+        m = self.player(declared=None, name='padstests', source=self.unread())
+        (Path(m.root) / 'tests').mkdir()
+        (Path(m.root) / 'tests/check.cpp').write_text('int k(int instrument) { return DrumInstrument; }\n', encoding='utf-8')
+        machine_at(m.root)
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
     def test_controls_keeps_its_size_without_the_define_and_a_player_needs_it_to_read_the_kind(self):
@@ -585,22 +652,44 @@ class PlayerInstrument(unittest.TestCase):
             result = subprocess.run([HOST_CXX, '-std=c++11', '-fsyntax-only', '-I' + str(ROOT / 'sdk/include'),
                                      *defines, '-DSIZE=%d' % size, str(check)], capture_output=True, timeout=60, **flags)
             self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
-        # The fixture player reads Controls.instrument: it compiles only where the build defines it.
-        from machine_fixtures import FOLDER
-        source = FOLDER / 'probepads/player.cpp'
+        # The fixture player reads Controls.instrument: it compiles only with the define.
+        source = (ROOT / 'tests/fixtures/machines/probepads') / 'player.cpp'
         for defines, ok in (((), False), (('-DOPXY_PLAYER_INSTRUMENT=1',), True)):
             result = subprocess.run([HOST_CXX, '-std=c++11', '-fsyntax-only', '-I' + str(ROOT / 'sdk/include'),
                                      *defines, str(source)], capture_output=True, timeout=60, **flags)
             self.assertEqual(result.returncode == 0, ok, result.stderr.decode(errors='replace'))
 
+    def test_the_compositor_enters_the_track_instrument_only_with_its_service(self):
+        # The loop advance's hook enters sdk_instrument_advance in a build with the service,
+        # sdk_screen_advance in any other; the two handlers differ in the C++ they call alone.
+        from tooling.firmware import hook_symbol
+        patch = next(p for p in config()['patches'] if p.get('symbol') == 'sdk_screen_advance')
+        self.assertEqual(patch.get('symbols'), {'track_instrument': 'sdk_instrument_advance'})
+        self.assertNotIn('service', patch)
+        self.assertEqual(hook_symbol(patch, {'players', 'octaves'}), 'sdk_screen_advance')
+        self.assertEqual(hook_symbol(patch, {'players', 'octaves', 'track_instrument'}), 'sdk_instrument_advance')
+        self.assertEqual(config()['services']['track_instrument'], ['trackInstrument'])
+
+        def body(text, name):
+            start = text.index(name + ':\n')
+            return text[start:text.index('.size ' + name, start)].replace(name, 'HANDLER').splitlines()
+        screen = body((PLATFORM / 'screen_hooks.s').read_text(encoding='utf-8'), 'sdk_screen_advance')
+        instrument = body((PLATFORM / 'track_instrument_hooks.s').read_text(encoding='utf-8'), 'sdk_instrument_advance')
+        self.assertEqual([line for line in screen if 'CALL sdk_screen_next' not in line],
+                         [line for line in instrument if 'CALL sdk_instrument_next' not in line])
+        self.assertEqual(sum('CALL sdk_screen_next' in line for line in screen), 1)
+        self.assertEqual(sum('CALL sdk_instrument_next' in line for line in instrument), 1)
+
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
     def test_instrument_kind_is_published_per_track(self):
-        # The GUI publishes each instrument track's kind with Shift, from stock's engine getter
-        # and its drum predicate; note callbacks read the published byte
-        # (tests/fixtures/player_instrument.cpp).
+        # The GUI publishes each instrument track's kind at a frame's first slot, from stock's
+        # engine getter and its drum predicate; a declaring player's callbacks read the
+        # published byte (tests/fixtures/player_instrument.cpp), beside players.cpp compiled
+        # as every build compiles it.
         stock = (PLATFORM / 'stock.hpp').read_text(encoding='utf-8')
         self.assertEqual(stock.count(TRACK_ENGINE), 1)
         (self.root / 'players_under_test.cpp').write_bytes((PLATFORM / 'players.cpp').read_bytes())
+        (self.root / 'track_instrument_under_test.cpp').write_bytes((PLATFORM / 'track_instrument.cpp').read_bytes())
         (self.root / 'keyboard_octaves.hpp').write_text('''#pragma once
 #include <opxy/types.hpp>
 extern opxy::u32 fake_track;
@@ -627,12 +716,30 @@ inline bool shift_held() { return fake_shift; }
 namespace registry { struct StockString { char text[16]; u32 length,capacity; }; }
 }}
 ''', encoding='utf-8')
-        binary = self.root / ('instrument.exe' if os.name == 'nt' else 'instrument')
+        # The track instrument's unit sees this stock.hpp, which its copy here finds first.
+        (self.root / 'stock.hpp').write_text('''#pragma once
+#include <opxy/types.hpp>
+const void* stock_address(opxy::u32);
+namespace opxy { namespace platform {
+const u32 kTracks=8;
+template<class F> F* stock(u32 a) { return reinterpret_cast<F*>(const_cast<void*>(stock_address(a))); }
+''' + TRACK_ENGINE + '''
+}}
+''', encoding='utf-8')
         flags = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
-        subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-DOPXY_PLAYER_INSTRUMENT=1',
-                        '-I'+str(self.root), '-I'+str(ROOT/'sdk/include'), '-I'+str(PLATFORM),
-                        str(ROOT/'tests/fixtures/player_instrument.cpp'), '-o', str(binary)],
-                       check=True, capture_output=True, timeout=120, **flags)
+        common = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I' + str(self.root), '-I' + str(ROOT / 'sdk/include'),
+                  '-I' + str(PLATFORM)]
+        objects = []
+        for source, defines in ((self.root / 'players_under_test.cpp', ()),
+                                (self.root / 'track_instrument_under_test.cpp', ()),
+                                (ROOT / 'tests/fixtures/player_instrument.cpp', (native.PLAYER_INSTRUMENT_DEFINE,))):
+            obj = self.root / (source.stem + '.o')
+            built = subprocess.run([*common, *defines, '-c', str(source), '-o', str(obj)], capture_output=True,
+                                   timeout=120, **flags)
+            self.assertEqual(built.returncode, 0, built.stderr.decode(errors='replace'))
+            objects.append(str(obj))
+        binary = self.root / ('instrument.exe' if os.name == 'nt' else 'instrument')
+        subprocess.run([HOST_CXX, *objects, '-o', str(binary)], check=True, capture_output=True, timeout=120, **flags)
         result = subprocess.run([str(binary)], capture_output=True, timeout=30, **flags)
         self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
 
@@ -654,10 +761,9 @@ def player_trace(m, folder, defines=()):
 
 
 class PlayerInstrumentParity(unittest.TestCase):
-    """A build whose players compile with OPXY_PLAYER_INSTRUMENT (a 1.25 player's, or a site kit's
-    variants once a pack brings one: builder/core.mjs importMachinePack): every player that does not
-    read Controls.instrument decides exactly what it decides without the define, whatever the
-    instrument."""
+    """Controls.instrument changes nothing for a player that does not read it: compiled with
+    OPXY_PLAYER_INSTRUMENT or without it, as it is in every build (native.own_unit_defines), it
+    decides exactly the same, whatever the instrument."""
 
     @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler')
     def test_a_player_not_reading_the_instrument_plays_the_same_with_the_define(self):
@@ -688,7 +794,7 @@ class StockPlayer(unittest.TestCase):
         from tooling.formats import sha
         data = Path(os.environ['OPXY_TEST_STOCK_OS']).read_bytes()
         self.assertEqual(sha(data), config()['stock_sha256'])
-        source = (PLATFORM / 'players.cpp').read_text(encoding='utf-8')
+        source = (PLATFORM / 'track_instrument.cpp').read_text(encoding='utf-8')
         self.assertIn('stock<u32(u32)>(kDrumPredicate)(track_engine(track))', source)
         self.assertIn('const u32 kDrumPredicate = 0x8d5b79f0;', source)
         image = ldr(data)

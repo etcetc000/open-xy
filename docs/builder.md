@@ -375,9 +375,7 @@ python sdk.py kit --preview-cxx clang++ --stock-os "$env:LOCALAPPDATA/OPXY-SDK/p
 
 `--stock-content` defaults to the repository's copy of `op1_factory.json`. The export runs the
 full native build and its checks, then packages the native objects in link
-order with each machine's `machine.json` and definition, and the SDK objects
-built as an imported [machine pack](catalog.md#import-custom-machines) may need
-them, which only a build with such a pack links. The HTML carries the
+order with each machine's `machine.json` and definition. The HTML carries the
 authenticated stock menu and the SDK screen template; firmware stays
 user-supplied. It is named only after every check passes.
 

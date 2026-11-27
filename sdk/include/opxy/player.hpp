@@ -104,10 +104,11 @@ struct Update {
 // a track outside the eight instrument tracks. Like shift it is published by
 // the GUI once per frame and a callback reads the latest, so after the
 // track's instrument changes, press, update and display see the new kind
-// within a frame. The member exists in a build with a player declaring SDK
-// 1.25 or later (the SDK then defines OPXY_PLAYER_INSTRUMENT for its units
-// and its players'); a build without one keeps the 112-byte Controls, and
-// every older player's code, as they were.
+// within a frame. The member exists only for a player declaring
+// resources.trackInstrument (SDK 1.25 or later): the SDK compiles that
+// player's own units with OPXY_PLAYER_INSTRUMENT and links the track
+// instrument's unit. Every other player keeps the 112-byte Controls, and its
+// code, as it was, whichever players share its build.
 enum Instrument : u32 { OtherInstrument = 0, DrumInstrument = 1 };
 struct Controls {
     i32 value[8];

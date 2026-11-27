@@ -2,7 +2,9 @@
   "schema": 1,
   "id": "probepads",
   "name": "Probe Pads",
-  "resources": {},
+  "resources": {
+    "trackInstrument": 1
+  },
   "presets": {},
   "parameters": [
     {

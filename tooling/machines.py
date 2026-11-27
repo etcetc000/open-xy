@@ -82,8 +82,9 @@ IDLE_SDK = (1, 22)
 # kit's screen its selected key (draw::Input::selected_key; KIT_CONTROLS_SDK in definitions.py).
 # 1.24 adds a synth's track stage (resources.trackStage, track_stage.py): one state per
 # instrument track, processed in place on the track's voice sum once per block.
-# 1.25 gives a note player its track's kind of instrument (Controls.instrument) and lets a
-# drum kit's value editor move the key to another model (resources.modelEdit; SDK_1_25 in definitions.py).
+# 1.25 gives a note player declaring resources.trackInstrument its track's kind of instrument
+# (Controls.instrument) and lets a drum kit's value editor move the key to another model
+# (resources.modelEdit; SDK_1_25 in definitions.py).
 SDK_VERSION = (1, 25)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
@@ -551,6 +552,17 @@ def reads_sample_overview(root, header='sample_overview'):
                if path.suffix in ('.cc', '.cpp', '.h', '.hpp') and path.relative_to(root).parts[0] not in ('tests', 'tools'))
 
 
+# A note player's own C++ naming its track's instrument: Controls.instrument or its kinds.
+TRACK_INSTRUMENT = re.compile(r'(?:\.|->)\s*instrument\b|\b(?:Other|Drum)Instrument\b')
+
+
+def reads_track_instrument(root):
+    """Whether a machine's own C++, its tests and tools aside, reads Controls.instrument
+    (opxy/player.hpp), which only a player declaring resources.trackInstrument has."""
+    return any(TRACK_INSTRUMENT.search(path.read_text(encoding='utf-8', errors='replace')) for path in tree(root)
+               if path.suffix in ('.cc', '.cpp', '.h', '.hpp') and path.relative_to(root).parts[0] not in ('tests', 'tools'))
+
+
 def machine_at(root, identity=None):
     """The machine in a folder; its definition names it."""
     root = Path(os.path.abspath(root))
@@ -587,6 +599,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 21), 'Per-model drum value editing (parameterEdit)')
     if definition['resources'].get('modelEdit'):
         require_sdk(version, SDK_1_25, 'Drum value editing across models (modelEdit)')
+    if definition['resources'].get('trackInstrument'):
+        require_sdk(version, SDK_1_25, "A note player's track instrument (trackInstrument)")
     # Only a set flag needs 1.12: an explicit 0 is the mono, callback-free default.
     if kind == 'synth' and any(definition['resources'].get(k) for k in ('stereoOutput', 'releaseCallback')):
         require_sdk(version, (1, 12), 'Stereo synth output and voice release callbacks (stereoOutput, releaseCallback)')
@@ -675,6 +689,9 @@ def machine_at(root, identity=None):
     if reads_sample_overview(root, 'control_interaction'):
         require_sdk(version, EXTENDED_SDK, 'The last control touched (opxy/control_interaction.hpp)')
         require(kind == 'synth', "Only a synth's own screen reads opxy/control_interaction.hpp")
+    # Controls.instrument exists only for a player declaring it (opxy/player.hpp).
+    require(kind != 'player' or definition['resources'].get('trackInstrument', 0) == 1 or not reads_track_instrument(root),
+            "A note player reading its track's instrument (Controls.instrument) declares resources.trackInstrument")
     if reads_sample_overview(root, 'sample_kernel'):
         require_sdk(version, (1, 17), 'The sample kernel (opxy/sample_kernel.hpp)')
     native = read_native(root, identity)

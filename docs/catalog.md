@@ -117,29 +117,26 @@ machines that take over an aux track. Each must use only what the site's own
 SDK objects were built with: the profile services its kind and features switch
 on (drum kits the samples, drums and octaves services, players the players and
 octaves services, an aux machine the control and aux services), the SDK defines
-a 1.25 player, a kit with the drum-kit controls or a `modelEdit` kit adds, and
-header-tied units such as
-`opxy/control_interaction.hpp`. A pack player must also have been compiled as
-the site compiles its players with the pack's machines (with or without the
-1.25 player define). A
-site's collection decides these, so a pack machine extends only a site whose
-catalog already uses them, or whose kit carries them built in (below);
-otherwise the importer names what is missing.
+a kit with the drum-kit controls or a `modelEdit` kit adds, and header-tied
+units such as `opxy/control_interaction.hpp`. A machine's own objects depend
+on that machine alone, so a pack machine's link as its author's export built
+them. A site's collection decides the rest, so a pack machine extends only a
+site whose catalog already uses them, or whose kit carries them built in
+(below); otherwise the importer names what is missing.
 
-A site's kit also carries its SDK objects as they are built for what a pack
-machine may add: the 1.25 player define, on a site linking the players service;
-the `modelEdit` define, the drum-kit controls with their amp envelope and a 1.21
-kit screen's played pad, on a site linking the drums service; and the last
-control touched (`opxy/control_interaction.hpp`), with any arithmetic runtime
-members those objects need. When an imported
-machine needs any of them, the builder swaps those objects in for every build
-while the pack is imported, as a native build of the site's collection with the
-pack's machines compiles them: with the player define, the site's own players
-take it too (a player that does not read the instrument plays the same notes
-with it). Builds without such a pack link the site's objects, unchanged. The
-carried objects add to the site's download: about 250 KB (110 KB compressed)
-for a catalog of a hundred machines with four players, most of it the players'
-own objects.
+A site's kit also carries what a pack machine may add: the track instrument's
+units (for a player declaring `trackInstrument`), on a site linking the players
+service; its SDK objects as built with the `modelEdit` define, and with the
+drum-kit controls and their units, the amp envelope's and a 1.21 kit screen's
+played pad, on a site linking the drums service; and its synth controls as
+built for the last control touched (`opxy/control_interaction.hpp`), with any
+arithmetic runtime members those objects need. When an imported machine needs
+any of them, the builder links them for every build while the pack is imported,
+as a native build of the site's collection with the pack's machines would: a
+service's units are added, and objects built with a define or a header replace
+the site's. Builds without such a pack link the site's objects, unchanged. The
+carried objects add to the site's download: about SIZE_RAW (SIZE_GZ compressed)
+for a catalog of a hundred machines.
 A machine published to the catalog after the site's release is exported as
 a catalog machine, not a custom one, and cannot be imported. A pack that imports
 replaces the previous one, so export the desired custom machines together; a

@@ -352,9 +352,11 @@ def kit_amp_defaults(m):
 
 
 def player_instrument(m):
-    """Whether a note player reads Controls.instrument: one declaring SDK 1.25 or later. A build
-    with one compiles its SDK units and its players with OPXY_PLAYER_INSTRUMENT (native.py)."""
-    return getattr(m, 'kind', 'synth') == 'player' and getattr(m, 'sdk', (1, 0)) >= SDK_1_25
+    """Whether a note player reads Controls.instrument: one declaring resources.trackInstrument
+    (SDK 1.25). Its own units compile with OPXY_PLAYER_INSTRUMENT and its build links the
+    track_instrument service (native.py); no other unit of its build changes."""
+    return (getattr(m, 'kind', 'synth') == 'player' and getattr(m, 'sdk', (1, 0)) >= SDK_1_25 and
+            bool(m.definition['resources'].get('trackInstrument', 0)))
 
 
 def model_edit(m):

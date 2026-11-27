@@ -160,6 +160,9 @@
     "players": [
       "player"
     ],
+    "track_instrument": [
+      "trackInstrument"
+    ],
     "octaves": [
       "sample",
       "player",
@@ -596,7 +599,10 @@
       "length": 8,
       "before": "0f6420e151008708",
       "symbol": "sdk_screen_advance",
-      "call": true
+      "call": true,
+      "symbols": {
+        "track_instrument": "sdk_instrument_advance"
+      }
     },
     {
       "kind": "hook",

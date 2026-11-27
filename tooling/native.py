@@ -261,9 +261,9 @@ def check_sources(machines):
 # (SDK 1.23): the shared drum units' calls into them (drum_kit_controls.hpp). Every
 # other build compiles those units as before.
 KIT_CONTROLS_DEFINE = '-DOPXY_KIT_CONTROLS=1'
-# Defined for every SDK unit, and every player's unit, of a build with a player declaring
-# SDK 1.25 or later: Controls.instrument (opxy/player.hpp) and its publication
-# (players.cpp). Every other build compiles both as before.
+# Defined for the own units of a note player declaring resources.trackInstrument (SDK 1.25)
+# alone: its Controls.instrument (opxy/player.hpp), which the track_instrument service's
+# unit gives it (track_instrument.cpp). No SDK unit, and no other machine's, compiles with it.
 PLAYER_INSTRUMENT_DEFINE = '-DOPXY_PLAYER_INSTRUMENT=1'
 # Defined for every SDK unit of a build with a kit declaring modelEdit (SDK 1.25): the
 # shared editor's call into its editor (drum_model_edit.hpp). Every other build compiles
@@ -271,22 +271,15 @@ PLAYER_INSTRUMENT_DEFINE = '-DOPXY_PLAYER_INSTRUMENT=1'
 MODEL_EDIT_DEFINE = '-DOPXY_MODEL_EDIT=1'
 
 
-# The defines a kind's own units take when its build's SDK units compile with them: a
-# player's, Controls.instrument (opxy/player.hpp), which its build's players and SDK units
-# share. Other kinds' units take none.
-OWN_UNIT_DEFINES = {'player': (PLAYER_INSTRUMENT_DEFINE,)}
-
-
-def own_unit_defines(defines, kind):
-    """The defines a `kind` machine's own units compile with, in a build whose SDK units compile with `defines`."""
-    return tuple(d for d in defines if d in OWN_UNIT_DEFINES.get(kind, ()))
+def own_unit_defines(m):
+    """The defines machine `m`'s own units compile with, whatever else its build holds: a
+    player declaring resources.trackInstrument, Controls.instrument; none otherwise."""
+    return (PLAYER_INSTRUMENT_DEFINE,) if player_instrument(m) else ()
 
 
 def sdk_defines(machines):
-    """The SDK 1.25 defines a build's machines ask for, in a fixed order: none for a build
-    without a 1.25 player or a modelEdit kit."""
-    return (((PLAYER_INSTRUMENT_DEFINE,) if any(player_instrument(m) for m in machines) else ()) +
-            ((MODEL_EDIT_DEFINE,) if any(model_edit(m) for m in machines) else ()))
+    """The SDK 1.25 define a build's machines ask for: none for a build without a modelEdit kit."""
+    return (MODEL_EDIT_DEFINE,) if any(model_edit(m) for m in machines) else ()
 
 
 def compile_cxx(cxx, assembler, source, obj, includes=(), defines=()):
@@ -327,16 +320,16 @@ def includes_header(machines, header):
 def shared_build(profile, machines):
     """What, beyond the SDK revision's sources, shapes a build's SDK objects and its machines'
     own: the profile services it links (their units, startup's calls into them and the
-    fallbacks), the defines every SDK unit compiles with, the header-tied units its
-    machines include and the defines each kind's own units compile with. Each is the union
-    of its machines' (machine_build) and its extensions' contributions. A machine pack
+    fallbacks), the defines every SDK unit compiles with and the header-tied units its
+    machines include. Each is the union of its machines' (machine_build) and its
+    extensions' contributions; a machine's own units depend on itself alone
+    (own_unit_defines). A machine pack
     records its own (tooling/machine_pack.py), and a site imports a pack machine only when
     the machine adds nothing to the site's (builder/core.mjs importMachinePack): its
     objects then link as a native build of the site's collection with that machine does."""
     defines = sdk_unit_defines(profile, machines)
     return dict(services=sorted(active_services(profile, service_users(machines))), defines=list(defines),
-                headers=[h for h in SHARED_HEADERS if includes_header(machines, h)],
-                unitDefines={kind: list(own_unit_defines(defines, kind)) for kind in sorted(OWN_UNIT_DEFINES)})
+                headers=[h for h in SHARED_HEADERS if includes_header(machines, h)])
 
 
 def machine_build(profile, m):
@@ -346,14 +339,14 @@ def machine_build(profile, m):
                 headers=[h for h in SHARED_HEADERS if includes_header([m], h)])
 
 
-# A site kit's variants (kit_variants): what its SDK objects, and its players' own, can also be
-# built for, so that the builder imports a pack machine needing it by swapping those objects in
+# A site kit's variants (kit_variants): what its SDK objects can also be built for, so that
+# the builder imports a pack machine needing it by swapping those objects in
 # (builder/core.mjs importMachinePack), as a native build of the site's collection with that
 # machine compiles them. Each define and service a pack machine may add, with the service any
 # machine needing it also uses: a site without that one refuses such a machine anyway, so its
 # kit carries nothing for it.
-VARIANT_DEFINES = {KIT_CONTROLS_DEFINE: 'drums', PLAYER_INSTRUMENT_DEFINE: 'players', MODEL_EDIT_DEFINE: 'drums'}
-VARIANT_SERVICES = {'played_pad': 'drums', 'kit_controls': 'drums', 'amp_envelope': 'drums'}
+VARIANT_DEFINES = {KIT_CONTROLS_DEFINE: 'drums', MODEL_EDIT_DEFINE: 'drums'}
+VARIANT_SERVICES = {'played_pad': 'drums', 'kit_controls': 'drums', 'amp_envelope': 'drums', 'track_instrument': 'players'}
 # The define a build linking a service compiles its SDK units with (sdk_unit_defines: an
 # ampEnvelope kit is a kitControls one).
 SERVICE_DEFINES = {'kit_controls': KIT_CONTROLS_DEFINE, 'amp_envelope': KIT_CONTROLS_DEFINE}
@@ -361,7 +354,7 @@ SERVICE_DEFINES = {'kit_controls': KIT_CONTROLS_DEFINE, 'amp_envelope': KIT_CONT
 # carries their variants; it carries none for a header that links a unit (UNIT_HEADERS).
 HEADER_SHAPES = {'control_interaction': ('synth_controls',)}
 # The SDK unit defines in the order sdk_unit_defines gives them.
-DEFINE_ORDER = (KIT_CONTROLS_DEFINE, PLAYER_INSTRUMENT_DEFINE, MODEL_EDIT_DEFINE)
+DEFINE_ORDER = (KIT_CONTROLS_DEFINE, MODEL_EDIT_DEFINE)
 
 
 def carried_variants(profile, machines):
@@ -397,11 +390,11 @@ def _subsets(items):
 def kit_variants(directory, tools, compiler, profile, machines, objects, version, definitions, sweep=False):
     """A site kit's variants (tooling/browser_kit.py), or None when it carries none
     (carried_variants): for every build the site's collection would become with pack machines
-    adding carried services, defines and headers, each SDK object and each of its players' own
-    objects that differ from `objects` (the native build's, by name), compiled as
-    compile_collection would compile them there, and the SDK units those services add. Each
-    is listed once with every build it belongs to: its SDK unit defines and the headers that
-    reshape it (HEADER_SHAPES), or, for a player's own, its own unit defines. Also: the
+    adding carried services, defines and headers, each SDK object that differs from `objects`
+    (the native build's, by name), compiled as compile_collection would compile it there, and
+    the SDK units those services add. Machines' own objects never differ (own_unit_defines).
+    Each is listed once with every build it belongs to: its SDK unit defines and the headers
+    that reshape it (HEADER_SHAPES). Also: the
     arithmetic runtime members they need beyond the kit's, the fallbacks of the services they
     add (service_fallbacks) and the link order of every SDK object such a build may link.
     Units are compiled only where their preprocessed text differs from the site's, and each
@@ -414,10 +407,10 @@ def kit_variants(directory, tools, compiler, profile, machines, objects, version
     site_services, linked = set(site['services']), linked_extensions(machines)
     chosen_sources = unit_sources(machines, profile)
     unit_headers = lambda headers: [h for h in UNIT_HEADERS.values() if h in headers]
-    found = {}  # (name, owner, bytes) -> the entry, its builds included
+    found = {}  # (name, bytes) -> the entry, its builds included
 
-    def add(name, owner, data, build, service=None):
-        entry = found.setdefault((name, owner, data), dict(name=name, owner=owner, builds=[], data=data))
+    def add(name, data, build, service=None):
+        entry = found.setdefault((name, data), dict(name=name, owner=None, builds=[], data=data))
         if service is not None:
             entry['service'] = service
         entry['builds'].append(build)
@@ -464,7 +457,7 @@ def kit_variants(directory, tools, compiler, profile, machines, objects, version
                 if name not in objects:
                     # A unit a carried service adds: built for each define set it links with.
                     require(service in carried['services'], 'Unexpected kit variant unit: ' + name)
-                    add(name, None, compiled(folder, name, how), build, service)
+                    add(name, compiled(folder, name, how), build, service)
                     continue
                 if how[0] != 'cxx' or step.startswith('extension:'):
                     continue  # assembled, or an extension's (no defines): the native build's object
@@ -478,29 +471,7 @@ def kit_variants(directory, tools, compiler, profile, machines, objects, version
                             name + ": rebuilt for the site's build, it differs from the native build's")
                     rebuilt.add(name)
                 if data != objects[name]:
-                    add(name, None, data, build, service)
-    # Every player of a build with a player's define compiles its own units with it (own_unit_defines).
-    for kind, kind_defines in OWN_UNIT_DEFINES.items():
-        site_own = own_unit_defines(tuple(site['defines']), kind)
-        for extra in _subsets([d for d in kind_defines if d in carried['defines']])[1:]:
-            own = tuple(d for d in DEFINE_ORDER if d in site_own or d in extra)
-            for m in (m for m in machines if m.kind == kind):
-                for name, owner, step in plan([m], profile):
-                    if owner is not m or step.startswith('native:'):
-                        continue
-                    for label, unit_defines in (('own', own), ('site', site_own)):
-                        folder = directory / label / m.id
-                        folder.mkdir(parents=True, exist_ok=True)
-                        source = (m.source(step.removeprefix('source:')) if step.startswith('source:') else
-                                  str(adapter_source(folder, m, step, sweep, selected_services(profile, machines))))
-                        obj = child(directory / label, name)
-                        compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m), unit_defines)
-                        data = normalized(obj)
-                        if label == 'site':
-                            require(data == objects[name], name + ": rebuilt for the site's build, it differs from the "
-                                                                  "native build's")
-                        elif data != objects[name]:
-                            add(name, m.id, data, dict(defines=list(own)))
+                    add(name, data, build, service)
     stack_usage(directory)
     # A unit capability's sources (unit_sources) are the same under every define set.
     declared = {c for e in extensions_of(machines) for c in e.capabilities}
@@ -604,7 +575,7 @@ SDK_UNITS = ('divide', 'sample_kernel', 'memory', 'registration', 'registration_
              'players', 'player_hooks', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
              'drum_machines', 'drum_values_stock', 'drum_synthesis_stock', 'drum_trigger', 'drum_hooks',
              'drum_send', 'drum_send_hooks', 'track_call', 'track_stage', 'drum_locks', 'lock_handles', 'drumline', 'drumline_hooks',
-             'synth_shift_hooks', 'drum_kit_controls', 'drum_amp_envelope')
+             'synth_shift_hooks', 'drum_kit_controls', 'drum_amp_envelope', 'track_instrument', 'track_instrument_hooks')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -631,6 +602,9 @@ UNIT_SERVICES['drum_trigger'] = 'played_pad'
 # and the note-off hook an ampEnvelope kit's adapter reads only with such a kit.
 UNIT_SERVICES['drum_kit_controls'] = 'kit_controls'
 UNIT_SERVICES['drum_amp_envelope'] = 'amp_envelope'
+# A note player's track instrument (SDK 1.25, track_instrument.cpp): its publication, the
+# compositor hook's entry that runs it and Controls.instrument, only with a player declaring it.
+UNIT_SERVICES.update(dict.fromkeys(('track_instrument', 'track_instrument_hooks'), 'track_instrument'))
 # Per-key sends hook stock's mixer, so only a build with a padMix kit or a drumline_page
 # extension links them.
 UNIT_SERVICES.update(dict.fromkeys(('drum_send', 'drum_send_hooks'), 'drum_sends'))
@@ -674,8 +648,8 @@ def service_users(machines):
     Shift row, whose presets and step locks use the drums and drum_locks services;
     'playedPad': a drum kit declaring SDK 1.21 or later, whose screen reads the played pad;
     'trackStage': a synth's track stage; 'kitControls': a drum kit declaring padVolume, padRandom
-    or ampEnvelope, and 'ampEnvelope' one declaring ampEnvelope),
-    'extension' when it links extension code (native builds link all of the collection's;
+    or ampEnvelope, and 'ampEnvelope' one declaring ampEnvelope; 'trackInstrument': a note player
+    declaring it), 'extension' when it links extension code (native builds link all of the collection's;
     settings extensions link none), the capabilities they declare ('master_filter',
     'drumline_page') and the registry capabilities its extensions declare."""
     users = [m.kind for m in machines] + (['extension'] if linked_extensions(machines) else [])
@@ -688,6 +662,7 @@ def service_users(machines):
             ['trackStage' for m in machines if track_stage.track_stage(m) is not None] +
             ['kitControls' for m in machines if kit_controls(m)] +
             ['ampEnvelope' for m in machines if kit_controls(m) & 4] +
+            ['trackInstrument' for m in machines if player_instrument(m)] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
             (['drumline_page'] if any(e.drumline_page is not None for e in extensions_of(machines)) else []) +
             [c for e in extensions_of(machines) for c in e.capabilities])
@@ -949,7 +924,7 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
                                active_services(profile, service_users(machines)), version, chosen_sources)
 
     def cxx(source, obj, m=None):
-        unit_defines = defines if m is None else own_unit_defines(defines, m.kind)
+        unit_defines = defines if m is None else own_unit_defines(m)
         compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m), unit_defines)
 
     def build_unit(obj, m, step):

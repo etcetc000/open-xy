@@ -15,7 +15,7 @@ from tooling.formats import sha
 
 
 # What shaped a kit's objects (tooling.native.shared_build), which its pack records.
-BUILD = dict(services=['players'], defines=[], headers=[], unitDefines=dict(player=[]))
+BUILD = dict(services=['players'], defines=[], headers=[])
 
 
 class MachinePackTests(unittest.TestCase):
@@ -133,16 +133,15 @@ class SharedBuildTests(unittest.TestCase):
         services = set().union(*(active_services(profile, native.service_users([m])) for m in machines))
         self.assertEqual(whole['services'], sorted(services))
         self.assertEqual(set(whole['defines']), {d for m in machines for d in native.machine_build(profile, m)['defines']})
-        self.assertEqual(set(whole['defines']), {native.KIT_CONTROLS_DEFINE, native.PLAYER_INSTRUMENT_DEFINE,
-                                                 native.MODEL_EDIT_DEFINE})
+        self.assertEqual(set(whole['defines']), {native.KIT_CONTROLS_DEFINE, native.MODEL_EDIT_DEFINE})
         self.assertEqual(whole['headers'], sorted({h for m in machines for h in native.machine_build(profile, m)['headers']}))
-        self.assertEqual(whole['unitDefines'], {'player': [native.PLAYER_INSTRUMENT_DEFINE]})
-        # Each machine names only what it adds: a 1.25 player its define, a plain synth nothing.
-        self.assertEqual(native.machine_build(profile, fixture('probepads')),
-                         dict(defines=[native.PLAYER_INSTRUMENT_DEFINE], headers=[]))
+        self.assertIn('track_instrument', whole['services'])
+        self.assertEqual(sorted(whole), ['defines', 'headers', 'services'])
+        # Each machine names only what it adds: a player reading its track instrument a service
+        # (its feature), no define; a plain synth nothing.
+        self.assertEqual(native.machine_build(profile, fixture('probepads')), dict(defines=[], headers=[]))
+        self.assertIn('trackInstrument', native.service_users([fixture('probepads')]))
         self.assertEqual(native.machine_build(profile, fixture('probesynth')), dict(defines=[], headers=[]))
-        # A build without such machines compiles every unit as before.
-        self.assertEqual(native.shared_build(profile, [fixture('probesynth')])['unitDefines'], {'player': []})
 
 
 def ci_synth_folder(folder):
@@ -174,7 +173,7 @@ class KitVariants(unittest.TestCase):
         self.assertGreaterEqual(len(cases), 10)
         for case in cases:
             with self.subTest(case['name']):
-                self.assertEqual(machine_pack.variant_build(case['site'], case['carried'], case['pack'], case['machines']),
+                self.assertEqual(machine_pack.variant_build(case['site'], case['carried'], case['machines']),
                                  case['expected'])
 
     def test_the_rule_gives_a_native_build_of_the_site_with_the_pack(self):
@@ -198,7 +197,7 @@ class KitVariants(unittest.TestCase):
                 machine_at(directory / 'probeci')]
         self.assertEqual(native.machine_build(profile, pack[-1]), dict(defines=[], headers=['control_interaction']))
         carried = native.carried_variants(profile, site)
-        self.assertEqual(carried, dict(services=['amp_envelope', 'kit_controls', 'played_pad'],
+        self.assertEqual(carried, dict(services=['amp_envelope', 'kit_controls', 'played_pad', 'track_instrument'],
                                        defines=list(native.DEFINE_ORDER), headers=['control_interaction']))
         site_build = native.shared_build(profile, site)
         checked = 0
@@ -207,7 +206,7 @@ class KitVariants(unittest.TestCase):
                 union = site + list(chosen)
                 needs = [dict(kind=m.kind, services=sorted(active_services(profile, native.service_users([m]))),
                               **native.machine_build(profile, m)) for m in chosen]
-                result = machine_pack.variant_build(site_build, carried, native.shared_build(profile, union), needs)
+                result = machine_pack.variant_build(site_build, carried, needs)
                 self.assertEqual(result, dict(target=native.shared_build(profile, union)), [m.id for m in chosen])
                 checked += 1
         self.assertEqual(checked, 32)
@@ -228,6 +227,5 @@ class KitVariants(unittest.TestCase):
         amp = dict(kind='drum', services=sorted(active_services(profile, native.service_users([fixture('probekit23')]))),
                    **native.machine_build(profile, fixture('probekit23')))
         site_build = native.shared_build(profile, [controls])
-        self.assertEqual(machine_pack.variant_build(site_build, native.carried_variants(profile, [controls]),
-                                                    native.shared_build(profile, [controls, fixture('probekit23')]), [amp]),
+        self.assertEqual(machine_pack.variant_build(site_build, native.carried_variants(profile, [controls]), [amp]),
                          dict(target=native.shared_build(profile, [controls, fixture('probekit23')])))

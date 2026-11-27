@@ -133,12 +133,13 @@ DRUM_KIT_CONTROLS = ('padVolume', 'padRandom', 'ampEnvelope')
 # this line, the 1.23 line of SDK_VERSION's history (tooling/machines.py) and the "1.23" text in the
 # docs and fixtures.
 KIT_CONTROLS_SDK = (1, 23)
-# SDK 1.25: a note player's Controls.instrument (the kind of instrument its track holds), for
-# a player declaring it; and modelEdit, 0 or 1, for a drum kit whose value editor
+# SDK 1.25: trackInstrument, 0 or 1, for a note player that reads Controls.instrument (the
+# kind of instrument its track holds); and modelEdit, 0 or 1, for a drum kit whose value editor
 # (edit_model_parameter) may move the key to another model, as one dial over every model.
 # A renumber changes this line, SDK_VERSION and its history (tooling/machines.py) and the
 # "1.25" text in the docs and fixtures.
 SDK_1_25 = (1, 25)
+PLAYER_OPTIONS = ('trackInstrument',)
 DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls', 'parameterEdit', 'modelEdit',
                 *DRUM_KIT_CONTROLS)
 # Pad controls share 9 bits of stock's pad word +0x14; its sends take 6 more (drum_storage.hpp).
@@ -221,13 +222,15 @@ def validate_definition(value, kind):
         stock_content.check_identity(value['id'])
     label(value['name'])
     resources = value['resources']
-    options = {'sample': SAMPLE_OPTIONS, 'effect': EFFECT_OPTIONS, 'drum': DRUM_OPTIONS,
+    options = {'sample': SAMPLE_OPTIONS, 'effect': EFFECT_OPTIONS, 'drum': DRUM_OPTIONS, 'player': PLAYER_OPTIONS,
                'synth': ('trackControl', 'stereoOutput', 'releaseCallback', 'trackStage')}.get(kind, ())
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
     keys(resources, (*RESOURCES[kind], *optional), 'resources')
     require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'stockShift', 'padControls',
                                                                    'tailFrames', 'trackStage')),
             'Numeric resource requirements must be integers')
+    if kind == 'player':
+        require(resources.get('trackInstrument', 0) in (0, 1), 'trackInstrument must be 0 or 1')
     if kind == 'synth':
         for flag in ('stereoOutput', 'releaseCallback'):
             require(resources.get(flag, 0) in (0, 1), flag + ' must be 0 or 1')
