@@ -76,6 +76,12 @@
       "tag": "autotune-v0.2.2",
       "commit": "bac0c7903093a1c1543c2fd8aaeedafd3e38c91b",
       "path": "extensions/autotune"
+    },
+    {
+      "id": "variations",
+      "kind": "extension",
+      "maintainer": "codebrulee",
+      "status": "reserved"
     }
   ]
 }
