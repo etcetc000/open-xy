@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "sdk": "1.27",
+  "kind": "effect",
+  "description": "Test fixture: an extended effect page with its own audio and stock's output levels.",
+  "dryParameter": "dry"
+}

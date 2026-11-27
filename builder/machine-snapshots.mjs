@@ -30,8 +30,10 @@ export function createSnapshotService({compile = bytes => WebAssembly.compile(by
           {held:0, line:0, values:machine.preview.shift}] : [];
         const frame = display.tick(shownControls(parameters, shown), 0, 0, 0, true,
           {held_notes:0, note_off_serial:0}, ...row).slice();
+        // A player's absent slot (empty name) keeps an empty value, as on the device.
         return {frame, titles:machine.controls.slice(0, 4).map(title => title.toLowerCase()),
-          values:shown.map(slot => String(Math.round(parameters[slot] / 0x7fffffff * 100)))};
+          values:shown.map(slot => machine.preview.player && machine.controls[slot] === '' ? ''
+            : String(Math.round(parameters[slot] / 0x7fffffff * 100)))};
       })();
       cached = {frame, artwork:new Map()}; machineSnapshots.set(machine, cached);
     }
@@ -39,8 +41,12 @@ export function createSnapshotService({compile = bytes => WebAssembly.compile(by
       cached.artwork.set(artwork, cached.frame.then(({frame, titles, values}) => {
         const renderer = new SvgDisplay(artwork, machine.preview.graphics);
         renderer.apply(frame);
-        // The machine's header text, or the stock header's value.
-        const header = headerSvg(titles, values.map((value, slot) => renderer.header[slot] || value));
+        // The machine's header text, or the stock header's value. A whole-screen canvas shows none
+        // (a whole-screen kit's only while Shift is held), nor a paged player, which draws its own;
+        // a player's absent slot shows no caption.
+        const none = machine.fullCanvas === 1 || machine.preview.player && machine.pages;
+        const header = none ? '' : headerSvg(titles, values.map((value, slot) =>
+          machine.preview.player && machine.controls[slot] === '' ? '' : renderer.header[slot] || value));
         return '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220">' +
           '<rect width="480" height="220" fill="#000000"/>' + header + renderer.svg() + '</svg>';
       }));

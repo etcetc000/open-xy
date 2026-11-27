@@ -15,6 +15,20 @@ export class Audition {
     this.held = null;
     // A drum kit's model for the next note (engine.mjs setModel); null for other machines.
     this.model = null;
+    // An audio display's snapshot requests (takeAudio), by id.
+    this.snapshotSerial = 0; this.snapshots = new Map();
+  }
+  // What a screen reads from the audio: {snapshot, levels}, its audio snapshot (audioWords) and
+  // the preview's output levels (outputLevels), or null while audio is not running; the worklet
+  // takes them between quanta, with the display's reset request (audioReset).
+  takeAudio(reset = false, resetTarget = 1) {
+    if (!this.processor || !this.audioReady || this.context?.state !== 'running') return Promise.resolve(null);
+    const id = ++this.snapshotSerial;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { this.snapshots.delete(id); reject(new Error('Audio snapshot timed out')); }, 1000);
+      this.snapshots.set(id, {resolve, timer});
+      this.processor.port.postMessage({type:'audioSnapshot', id, track:0, reset, resetTarget});
+    });
   }
   async start() {
     const context = this.context = new AudioContext({sampleRate:44100, latencyHint:'interactive'});
@@ -36,10 +50,12 @@ export class Audition {
     processor.connect(gain).connect(context.destination);
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Audio preview did not start.')), 5000);
-      const fail = message => { clearTimeout(timer); this.stop(); reject(new Error(message)); this.onState(false, message); };
+      const fail = message => { clearTimeout(timer); this.endAudio(); this.stop(); reject(new Error(message)); this.onState(false, message); };
       processor.onprocessorerror = () => fail('Audio preview stopped. Select the machine again to retry.');
       processor.port.onmessage = ({data}) => {
-        if (data.ready) { clearTimeout(timer); resolve(); }
+        if (data.ready) { this.audioReady = true; clearTimeout(timer); resolve(); }
+        const pending = data.audioSnapshot !== undefined && this.snapshots.get(data.audioSnapshot);
+        if (pending) { clearTimeout(pending.timer); this.snapshots.delete(data.audioSnapshot); pending.resolve({snapshot: data.snapshot, levels: data.levels}); }
         if (data.error) fail(data.error);
       };
     });
@@ -64,7 +80,7 @@ export class Audition {
       if (this.held !== note) this.processor.port.postMessage({type:'off', note});
     } catch (error) {
       if (this.disposed || revision !== this.revision) return;
-      this.stop();
+      this.endAudio(); this.stop();
       this.processor?.disconnect(); this.processor?.port.close();
       await this.context?.close().catch(() => {});
       this.context = this.processor = this.gain = this.starting = null;
@@ -82,6 +98,13 @@ export class Audition {
     this.processor?.port.postMessage({type:'panic'});
     this.onState(false);
   }
+  // The worklet is gone or failed: a screen's pending and later snapshot requests read null
+  // at once, rather than each waiting out its timeout.
+  endAudio() {
+    this.audioReady = false;
+    for (const request of this.snapshots.values()) { clearTimeout(request.timer); request.resolve(null); }
+    this.snapshots.clear();
+  }
   setParameters(values) {
     this.parameters = [...values];
     this.processor?.port.postMessage({type:'parameters', value:this.parameters});
@@ -95,7 +118,7 @@ export class Audition {
     if (this.gain && this.playing) this.gain.gain.value = value;
   }
   destroy() {
-    this.disposed = true; this.stop();
+    this.disposed = true; this.stop(); this.endAudio();
     this.processor?.disconnect(); this.processor?.port.close();
     this.context?.close().catch(() => {});
   }

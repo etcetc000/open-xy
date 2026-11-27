@@ -11,7 +11,7 @@ const char* @PREFIX@_fx_parameter_name(opxy::u32) __asm__("@PREFIX@_fx_parameter
 extern const char @PREFIX@_fx_name[] __asm__("@PREFIX@_fx_name");
 }
 using State = @NAMESPACE@::State;
-@OBJECT@
+@AUDIO_STORAGE@@OBJECT@
 static_assert(alignof(State) <= opxy::effect_state_alignment, "Effect state alignment exceeds the FX object header");
 static_assert(sizeof(Object) <= 480, "Stock FX slots hold 480 bytes");
 static_assert(__builtin_offsetof(Object, state) == 4, "FX object header mismatch");
@@ -25,14 +25,14 @@ static void noop() {}
 // stock slot index: the track's, so 14 and 15 are the two sends.
 static void init(void* self, opxy::u32 slot) {
     Object* object = static_cast<Object*>(self);
-@INIT@@BUS_INIT@
+@INIT@@BUS_INIT@@AUDIO_INIT@
     @NAMESPACE@::initialize(object->state);
 }
 // +0x10: one 64-sample block, left and right processed in place.
 static void process(void* self, opxy::i32* left, opxy::i32* right, const opxy::i32* parameters) {
     Object* object = static_cast<Object*>(self);
-@BUS_RAISE@@SHIFT_PRELUDE@
-    @NAMESPACE@::process(object->state, @BUFFER@@TRANSPORT@left, right, @PARAMETERS@);@BUS_LOWER@
+@BUS_RAISE@@SHIFT_PRELUDE@@AUDIO_BEGIN@
+    @NAMESPACE@::process(object->state, @BUFFER@@TRANSPORT@left, right, @PARAMETERS@@AUDIO_ARGUMENT@);@AUDIO_END@@BUS_LOWER@
 }
 void* @PREFIX@_fx_factory(void* storage) {
     if (!storage) return nullptr;
@@ -66,3 +66,4 @@ const void* const @PREFIX@_fx_vtable[8] = {
     reinterpret_cast<const void*>(&zero), reinterpret_cast<const void*>(&dry_level)
 };
 }
+@AUDIO_BANK@

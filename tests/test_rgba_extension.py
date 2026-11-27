@@ -30,7 +30,7 @@ def write_fixture(folder):
     path.write_bytes(path.read_bytes().replace(b'id="probesynth_node_1" d="M0 0L0 10" fill="none"', b'id="probesynth_node_1" d="M0 0L0 10" fill="#334455"'))
     from tooling.machines import machine_at
     metadata = folder / 'machine.json'
-    record = json.loads(metadata.read_text()); record['sdk'] = '%d.%d' % definitions.EXTENDED_SDK; record.pop('identity', None)
+    record = json.loads(metadata.read_text()); record['sdk'] = '%d.%d' % definitions.AUDIO_SDK; record.pop('identity', None)
     metadata.write_text(json.dumps(record) + '\n')
     return machine_at(folder)
 

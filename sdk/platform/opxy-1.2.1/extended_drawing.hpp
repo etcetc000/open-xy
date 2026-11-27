@@ -1,15 +1,16 @@
 // Extended drawing renderer (docs/display.md#extended-drawing): applies
-// an extended frame (draw.hpp ExtendedFrame, RgbaFrame) to a synth's or
-// effect's artwork. Only an extended display's generated screen.cpp includes this,
-// after its display_binding.hpp; plain displays keep screen_drawing.hpp.
+// an extended frame (draw.hpp ExtendedFrame, RgbaFrame, GlyphFrame) to a synth's,
+// an effect's or a drum kit's artwork. Only an extended display's generated
+// screen.cpp includes this, after its display_binding.hpp; plain displays keep
+// screen_drawing.hpp.
 #pragma once
 #include "screen.hpp"
 #include "screen_header.hpp"
 #include "note_activity.hpp"
 #include "amp_envelope.hpp"
 #include "drum_send.hpp"
-#include "path_geometry.hpp"
-#include "rgba_palette.hpp"
+#include "extended_retained.hpp"
+#include "kit_screen.hpp"
 
 extern "C" opxy::u32 sdk_screen_activation(opxy::u32, opxy::u32) __asm__("sdk_screen_activation");
 
@@ -19,138 +20,6 @@ binding::DisplayState extended_state;
 u32 extended_activation;
 binding::DisplayInput extended_input;
 binding::Frame extended_frame;
-
-// The renderer object: the stock screen, then each node's leaf and the
-// visibility byte its artwork gave it, the text leaves and their applied text,
-// the palette, the frame's elapsed time, each path's validated command vector
-// and last applied key (adapters.screen_bytes).
-template <u32 N, u32 T, u32 P, u32 Paths> struct ExtendedObject {
-    Base base;
-    PathNode* nodes[N];
-    u8 authored_visibility[N];
-    Leaf* texts[T > 0 ? T : 1];
-    char shown[T > 0 ? T : 1][draw::text_capacity];
-    u32 palette[P > 0 ? P : 1];
-    i32 delta;
-    u32 geometry[Paths > 0 ? Paths : 1];
-    u32 keys[Paths > 0 ? Paths : 1];
-};
-// Stock path_draw reads this byte of a path leaf before it draws the path.
-const u32 visibility_byte = 92;
-
-template <class Frame> struct ExtendedRetained {
-    enum { path_count = Frame::path_count, point_count = Frame::point_count, node_count = Frame::node_count,
-           text_count = Frame::text_count, palette_count = Frame::palette_count };
-    typedef ExtendedObject<node_count, text_count, palette_count, path_count> Object;
-
-    static PathKind kind(u32 path) {
-        return Frame::cubic ? cubic_curve : (Frame::segment_paths & (u32(1) << path)) ? separate_segments :
-               (Frame::open_paths & (u32(1) << path)) ? open_polyline : closed_polyline;
-    }
-    // The path's command vector begin while its command types are still the
-    // ones its artwork declared (initial: as authored, filling its reservation), or 0.
-    static u32 geometry(void* raw, u32 path, bool initial = false) {
-        const PathNode* node = path_node(raw);
-        if (!node) return 0;
-        const Vector& v = node->commands;
-        if (!v.begin || v.begin & 3 || v.end < v.begin || v.capacity < v.end) return 0;
-        if (v.capacity - v.begin > 16384 || (v.end - v.begin) % 32) return 0;
-        const PathCommand* command = reinterpret_cast<const PathCommand*>(v.begin);
-        if (Frame::quadratic) {
-            if (v.capacity - v.begin < 32 * Frame::command_capacity) return 0;
-            return quadratic_types(command, (v.end - v.begin) / 32, Frame::command_capacity, initial) ? v.begin : 0;
-        }
-        if (Frame::counted) {
-            if (v.capacity - v.begin < 32 * command_count(point_count, kind(path))) return 0;
-            return counted_types(command, (v.end - v.begin) / 32, point_count, kind(path), initial) ? v.begin : 0;
-        }
-        if (v.end - v.begin != 32 * command_count(point_count, kind(path))) return 0;
-        return command_types(command, point_count, kind(path)) ? v.begin : 0;
-    }
-
-    // Copies a changed path's coordinates while its vector is still the one
-    // validated at bind. Quadratic and counted paths also set their command
-    // types and active end, within the reservation; nothing is reallocated.
-    static void apply_path(Object* o, const Frame& frame, u32 p) {
-        const typename Frame::path_type& path = frame.paths[p];
-        if (path.key == o->keys[p]) return;
-        const u32 begin = geometry(o->nodes[p], p);
-        if (!begin || begin != o->geometry[p]) return;
-        PathCommand* command = reinterpret_cast<PathCommand*>(begin);
-        const u32 count = path_coordinates(command, path, kind(p));
-        if (Frame::quadratic || Frame::counted) o->nodes[p]->commands.end = begin + 32 * count;
-        invalidate(o->nodes[p]);
-        o->keys[p] = path.key;
-    }
-
-    // A direct colour replaces the node's own paint record, never a shared one.
-    static void apply_rgba(Object* o, u32 i, u32 color, draw::Paint mode) {
-        PathNode* node = o->nodes[i];
-        if (!node || !o->base.svg) return;
-        bool changed = false;
-        if (mode != draw::rgba_fill && rgba_detail::unique(o->nodes, node_count, i, false)) {
-            const Vector& v = o->base.svg->strokes;
-            changed = rgba_detail::set_color(v.begin, v.end, v.capacity, 20, node->stroke, color);
-        }
-        if (mode != draw::rgba_stroke && static_cast<__INT16_TYPE__>(node->fill) > 0 &&
-            rgba_detail::unique(o->nodes, node_count, i, true)) {
-            const Vector& v = o->base.svg->fills;
-            changed = rgba_detail::set_color(v.begin, v.end, v.capacity, 4, node->fill, color) || changed;
-        }
-        if (changed) invalidate(node);
-    }
-
-    static void apply_node(Object* o, const Frame& frame, u32 i) {
-        const typename Frame::node_type& node = frame.nodes[i];
-        if (!o->nodes[i]) return;
-        reinterpret_cast<u8*>(o->nodes[i])[visibility_byte] = node.paint == draw::hidden ? 0 : o->authored_visibility[i];
-        if (node.paint == draw::hidden) return;
-        if (Frame::rgba && node.paint >= draw::rgba_stroke) apply_rgba(o, i, node.shade, node.paint);
-        else if (node.paint != draw::keep) paint(o->nodes[i], o->palette[node.shade], node.paint == draw::fill_and_stroke);
-        const draw::Matrix m = draw::matrix(node);
-        const u32 at[6] = {0, 1, 3, 4, 6, 7};
-        const i32 value[6] = {m.a, m.b, m.c, m.d, m.x, m.y};
-        set_words(&o->nodes[i]->leaf, at, value);
-    }
-
-    static void apply_text(Object* o, const Frame& frame, u32 i) {
-        const draw::Text& text = frame.texts[i];
-        Leaf* leaf = o->texts[i];
-        if (!leaf) return;
-        const u32 at[6] = {0, 1, 3, 4, 6, 7};
-        const i32 value[6] = {text.scale, 0, 0, text.scale, text.x, text.y};
-        set_words(leaf, at, value);
-        char* shown = o->shown[i];
-        u32 n = 0;
-        while (n < draw::text_capacity && shown[n] == text.chars[n] && text.chars[n]) ++n;
-        if (n < draw::text_capacity && shown[n] == text.chars[n]) return;
-        for (n = 0; n < draw::text_capacity; ++n) shown[n] = text.chars[n];
-        set_text(leaf, shown);
-    }
-
-    template <class Machine> static void bind(Object* o) {
-        for (u32 i = 0; i < node_count; ++i) {
-            o->nodes[i] = path_node(find(&o->base, Machine::ids[i]));
-            o->authored_visibility[i] = o->nodes[i] ? reinterpret_cast<u8*>(o->nodes[i])[visibility_byte] : 0;
-        }
-        for (u32 i = 0; i < text_count; ++i) {
-            o->texts[i] = text_node(find(&o->base, Machine::ids[node_count + i]));
-            o->shown[i][0] = 1;
-        }
-        for (u32 i = 0; i < palette_count; ++i)
-            o->palette[i] = palette_ids(find(&o->base, Machine::ids[node_count + text_count + i]), o->base.svg);
-        for (u32 i = 0; i < path_count; ++i) {
-            o->geometry[i] = geometry(o->nodes[i], i, true);
-            o->keys[i] = 0;
-        }
-    }
-    // The frame was validated by display_valid before this.
-    static void apply(Object* o, const Frame& frame) {
-        for (u32 p = 0; p < path_count; ++p) apply_path(o, frame, p);
-        for (u32 i = 0; i < node_count; ++i) apply_node(o, frame, i);
-        for (u32 i = 0; i < text_count; ++i) apply_text(o, frame, i);
-    }
-};
 
 // A whole-screen canvas has no stock title or value leaves: the page's
 // controls as refresh_controls reads them for a synth or an effect, without
@@ -186,32 +55,81 @@ inline bool canvas_controls(Base* o, Controls& controls) {
     return true;
 }
 
+// A whole-screen drum kit's header (fullCanvas on a kit): the SDK header's bar,
+// values and titles, composed over the kit's drawing (tooling/screen.py kit_header)
+// and shown only while Shift is held, where the kit's Shift page names what Shift
+// chooses. Otherwise the bar is hidden and the eight texts are blank, written
+// after refresh_controls each frame. Other screens compile none of this.
+template <bool Kit> struct CanvasKitHeader {
+    static void clear() {}
+    static void init(Base*) {}
+    static void show(Base*, bool) {}
+};
+struct CanvasKitBar { PathNode* nodes[8]; u8 visibility[8]; };
+CanvasKitBar canvas_kit_bar;
+template <> struct CanvasKitHeader<true> {
+    // No bar until the artwork has loaded: nothing kept from an earlier one.
+    static void clear() { for (u32 i = 0; i < 8; ++i) canvas_kit_bar.nodes[i] = 0; }
+    // After bind_controls: the bar's eight blocks, hidden until Shift is held.
+    static void init(Base* o) {
+        static const char* const ids[8] = {"bar_0", "bar_1", "bar_2", "bar_3", "bar_4", "bar_5", "bar_6", "bar_7"};
+        CanvasKitBar& bar = canvas_kit_bar;
+        for (u32 i = 0; i < 8; ++i) {
+            bar.nodes[i] = path_node(find(o, ids[i]));
+            bar.visibility[i] = bar.nodes[i] ? reinterpret_cast<u8*>(bar.nodes[i])[visibility_byte] : 0;
+        }
+        show(o, false);
+    }
+    static void show(Base* o, bool shifted) {
+        CanvasKitBar& bar = canvas_kit_bar;
+        for (u32 i = 0; i < 8; ++i)
+            if (bar.nodes[i]) reinterpret_cast<u8*>(bar.nodes[i])[visibility_byte] = shifted ? bar.visibility[i] : 0;
+        if (shifted) return;
+        for (u32 i = 0; i < page_controls; ++i) {
+            if (Leaf* title = text_node(o->titles[i])) set_text(title, "");
+            if (Leaf* value = text_node(o->values[i])) set_text(value, "");
+        }
+    }
+};
+
 // Machine: ids[] names the artwork's nodes (the first are the mutable paths),
-// then its text slots, then its palette entries.
+// then its text slots, then its palette entries; glyph_ids[] each glyph
+// definition's two outlines; kit whether it is a drum kit's screen, with
+// played_pad, selected_key and kit_controls as screen_drawing.hpp's.
 template <class Machine> struct ExtendedDrawing {
     typedef binding::Frame Frame;
     typedef ExtendedRetained<Frame> Renderer;
     typedef typename Renderer::Object Object;
     static_assert(sizeof(Machine::ids) / sizeof(Machine::ids[0]) ==
                   Frame::node_count + Frame::text_count + Frame::palette_count, "Drawing artwork IDs");
+    // A synth's or an effect's whole-screen canvas has no stock header; a kit's has
+    // the one it shows while Shift is held.
+    static const bool canvas = binding::full_canvas && !Machine::kit;
+    typedef CanvasKitHeader<binding::full_canvas && Machine::kit> KitHeader;
 
     static void init(Object* o) {
         clear(o);
         extended_activation = 0;
+        if (Machine::played_pad) played.valid = 0;
+        KitHeader::clear();
+        binding::audio_screen_reset();
         binding::display_reset(&extended_state, &extended_frame);
         if (!o->base.svg) return;
-        if (!binding::full_canvas) bind_controls(&o->base);
+        if (!canvas) bind_controls(&o->base);
         Renderer::template bind<Machine>(o);
+        KitHeader::init(&o->base);
     }
 
     static void animate(Object* o, const Controls& controls) {
         if (!controls.valid) return;
         const u32 activation = sdk_screen_activation(o->base.page, controls.track);
         if (activation && activation != extended_activation) {
+            binding::audio_screen_reset();
             binding::display_reset(&extended_state, &extended_frame);
             // A reset may reuse earlier nonzero geometry keys with new points.
             for (u32 p = 0; p < Frame::path_count; ++p) o->keys[p] = 0;
             extended_activation = activation;
+            if (Machine::played_pad) played.valid = 0;
         }
         draw::Input& input = extended_input;
         for (u32 i = 0; i < page_controls; ++i) {
@@ -223,7 +141,9 @@ template <class Machine> struct ExtendedDrawing {
         input.pan = static_cast<i8>(controls.pan);
         input.level = static_cast<i8>(controls.level);
         input.line = static_cast<u8>(controls.line);
-        input.selected_key = 0;
+        // A kit's selected key, 0..23 (pad 53 + n); 0 on other screens.
+        input.selected_key = Machine::selected_key && controls.pad >= 53 && controls.pad < 77
+            ? static_cast<u8>(controls.pad - 53) : 0;
         const u32 pads = sizeof(controls.pads) / sizeof(controls.pads[0]);
         for (u32 i = 0; i < 4; ++i) input.pad[i] = static_cast<i8>(i < pads ? controls.pads[i] : 0);
         for (u32 i = platform::kDrumKitPadFields; i < 4 && i < pads; ++i)
@@ -233,11 +153,16 @@ template <class Machine> struct ExtendedDrawing {
         input.elapsed = o->delta;
         input.track = controls.track;
         input.note_serial = controls.track < 8 ? note_serial(controls.track) : 0;
+        // A kit's played-pad snapshot (kit_screen.hpp); other screens' stays zero.
+        if (Machine::played_pad) played_pad_snapshot(controls, input.note_serial, input);
         sdk_display_note_activity(controls.track, &input);
         platform::amp_envelope(controls.track, input.amp);
         input.reduced_motion = 0;
+        binding::snapshot_audio(extended_input);
         binding::snapshot_encoders(extended_input);
+        binding::snapshot_levels(extended_input);
         binding::display_render(&extended_state, &extended_input, &extended_frame);
+        binding::finish_audio(extended_input);
         if (!binding::display_valid(&extended_frame)) return;
         Renderer::apply(o, extended_frame);
         if (!binding::full_canvas && !controls.choosing) apply_header(&o->base, extended_frame);
@@ -247,9 +172,14 @@ template <class Machine> struct ExtendedDrawing {
     static void frame(Object* o, i32 elapsed) {
         o->delta = elapsed;
         Controls controls;
-        if (!(binding::full_canvas ? canvas_controls(&o->base, controls) : refresh_controls(&o->base, controls))) return;
+        if (!(canvas ? canvas_controls(&o->base, controls) : refresh_controls(&o->base, controls))) return;
+        if (Machine::kit_controls) kit_cells(&o->base, controls);
+        // Guarded so a synth's or an effect's frame compiles exactly as before.
+        if (Machine::kit) KitHeader::show(&o->base, controls.choosing);
         animate(o, controls);
         draw(&o->base);
+        // A drum kit's held pad: Drumline's slide-up strip, over the page.
+        if (Machine::kit) draw_hold_strip(controls.track, elapsed);
     }
 };
 }}} // namespace opxy::screen::<unnamed>

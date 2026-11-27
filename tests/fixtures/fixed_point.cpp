@@ -2,6 +2,7 @@
 // independently: exact arithmetic in long long or double, then a clamp. Every
 // 1.15 operand pair on a stride, every pair near the range ends, every 1.15
 // value for the unary helpers, and the exact ties of the rounding multiply.
+// The pair helpers are checked half by half against the same references.
 #include <cmath>
 #include <cstdio>
 #include <opxy/q15.hpp>
@@ -34,6 +35,21 @@ static int normalized(int value) {
 static long long floor_shift(long long value, unsigned count) {
     return (long long)std::floor(double(value) / std::ldexp(1.0, int(count)));
 }
+// The value's low 16 or 32 bits as a two's complement number.
+static int wrap16(long long value) {
+    const long long bits = ((value % 65536) + 65536) % 65536;
+    return int(bits > 32767 ? bits - 65536 : bits);
+}
+static long long wrap32(long long value) {
+    const long long bits = (long long)((unsigned long long)value & 0xffffffffULL);
+    return bits > 2147483647LL ? bits - 4294967296LL : bits;
+}
+// A pair word from its two halves' values, and its halves back.
+static long long pair(long long low, long long high) {
+    return (low & 0xffff) | ((high & 0xffff) << 16);
+}
+static int low_half(long long word) { return wrap16(word & 0xffff); }
+static int high_half(long long word) { return wrap16((word >> 16) & 0xffff); }
 
 static int failures;
 static void expect(bool same, const char* what, long long a, long long b, long long got, long long want) {
@@ -51,6 +67,22 @@ static void binary16(int a, int b) {
     expect(got == want, "q15::multiply", a, b, got, want);
     got = opxy::q15::multiply_nearest(x, y); want = nearest(a, b);
     expect(got == want, "q15::multiply_nearest", a, b, got, want);
+    got = opxy::q15::subtract_wrapped(x, y); want = wrap16(a - b);
+    expect(got == want, "q15::subtract_wrapped", a, b, got, want);
+
+    // Pairs: (a, c) and (b, d), with second halves that run through the range
+    // on their own course.
+    const int c = wrap16(a * 7 + 12345), d = wrap16(b * 3 - 777);
+    const u32 ac = opxy::q15::pack(x, i16(c)), bd = opxy::q15::pack(y, i16(d));
+    expect(ac == pair(a, c), "q15::pack", a, c, ac, pair(a, c));
+    expect(opxy::q15::low(ac) == a && opxy::q15::high(ac) == c, "q15::low/high", a, c,
+           pair(opxy::q15::low(ac), opxy::q15::high(ac)), pair(a, c));
+    long long word = opxy::q15::multiply_pair(ac, y), wanted = pair(truncated(a, b), truncated(c, b));
+    expect(word == wanted, "q15::multiply_pair", (long long)ac, b, word, wanted);
+    word = opxy::q15::add_pair(ac, bd); wanted = pair(clamp16(a + b), clamp16(c + d));
+    expect(word == wanted, "q15::add_pair", (long long)ac, (long long)bd, word, wanted);
+    expect(opxy::q15::low(u32(word)) == low_half(wanted) && opxy::q15::high(u32(word)) == high_half(wanted),
+           "q15::low/high of a sum", a, c, word, wanted);
 }
 
 static u32 state = 12345;
@@ -72,6 +104,8 @@ int main() {
         expect(got == want, "q15::normalize", a, 0, got, want);
         got = opxy::q15::saturate(a); want = a;
         expect(got == want, "q15::saturate", a, 0, got, want);
+        got = opxy::q15::half(i16(a)); want = int(floor_shift(a, 1));
+        expect(got == want, "q15::half", a, 0, got, want);
     }
     const long long words[] = {0, 1, -1, 32767, 32768, -32768, -32769, 65535, -65536, 2147483647LL,
                                -2147483647LL - 1, 1073741824LL, -1073741824LL};
@@ -103,6 +137,11 @@ int main() {
             const long long got = opxy::q31::shift_right(i32(a), n), want = floor_shift(a, n);
             expect(got == want, "q31::shift_right", a, n, got, want);
         }
+        for (int n = -31; n < 32; ++n) {
+            const long long got = opxy::q31::shift(i32(a), n);
+            const long long want = n < 0 ? floor_shift(a, unsigned(-n)) : wrap32(a * (1LL << n));
+            expect(got == want, "q31::shift", a, n, got, want);
+        }
     }
     for (int i = 0; i < 2000000; ++i) {
         const long long a = i32(next()), b = i32(next());
@@ -113,6 +152,9 @@ int main() {
         const unsigned n = next() % 32;
         got = opxy::q31::shift_right(i32(a), n); want = floor_shift(a, n);
         expect(got == want, "q31::shift_right", a, n, got, want);
+        const int m = int(next() % 63) - 31;
+        got = opxy::q31::shift(i32(a), m); want = m < 0 ? floor_shift(a, unsigned(-m)) : wrap32(a * (1LL << m));
+        expect(got == want, "q31::shift", a, m, got, want);
     }
 
     // Exact ties of the rounding multiply, a product exactly halfway between two
