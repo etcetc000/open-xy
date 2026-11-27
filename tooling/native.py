@@ -124,7 +124,14 @@ PLAIN_SOURCES = {'divide': RUNTIME_ASM, 'memory': RUNTIME_CXX}
 def sdk_unit_defines(profile, machines):
     """The defines every SDK unit of a build compiles with (machines' own units take none of them)."""
     defines = (KIT_CONTROLS_DEFINE,) if 'kit_controls' in active_services(profile, service_users(machines)) else ()
-    return defines + sdk_defines(machines)
+    return defines + sdk_defines(machines) + ((MASTER_SHARED_DEFINE,) if master_shared(machines) else ())
+
+
+def master_shared(machines):
+    """Whether a collection has both Sample Studio and a master processor, whose master bus
+    entries the shared handler then runs (master_bus.cpp)."""
+    found = extensions_of(machines)
+    return any(e.sample_studio for e in found) and any(e.master_processor is not None for e in found)
 
 
 def compile_unit_source(gcc, tools, source, obj, defines):
@@ -257,6 +264,10 @@ def check_sources(machines):
 # (SDK 1.23): the shared drum units' calls into them (drum_kit_controls.hpp). Every
 # other build compiles those units as before.
 KIT_CONTROLS_DEFINE = '-DOPXY_KIT_CONTROLS=1'
+# Defined for every SDK unit of a collection with both Sample Studio and a master processor:
+# the two name their master bus entries apart and master_bus.cpp runs both. Every other
+# build compiles those units as before.
+MASTER_SHARED_DEFINE = '-DOPXY_MASTER_SHARED=1'
 # Defined for every SDK unit, and every player's unit, of a build with a player declaring
 # SDK 1.25 or later: Controls.instrument (opxy/player.hpp) and its publication
 # (players.cpp). Every other build compiles both as before.
@@ -342,7 +353,8 @@ def plan(machines, profile=None):
     services = active_services(profile or config(), service_users(machines))
     units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
               if (UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services) and
-              (step not in UNIT_HEADERS or includes_header(machines, UNIT_HEADERS[step]))]
+              (step not in UNIT_HEADERS or includes_header(machines, UNIT_HEADERS[step])) and
+              (step != 'master_bus' or master_shared(machines))]
     units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in linked_extensions(machines)]
     names = [name for name, _m, _step in units]
     require(len(names) == len(set(names)), 'Duplicate object name')
@@ -366,7 +378,7 @@ SDK_UNITS = ('divide', 'sample_kernel', 'memory', 'registration', 'registration_
              'mixer', 'mixer_hooks', 'drum_send', 'drum_send_hooks', 'track_call', 'track_stage', 'track_stage_table', 'drum_locks',
              'lock_handles', 'drumline', 'drumline_hooks', 'synth_shift_hooks', 'drum_kit_controls', 'drum_amp_envelope',
              'telemetry_protocol', 'telemetry_native', 'telemetry_hooks', 'telemetry_registry', 'device_identity',
-             'device_identity_hooks', 'sample_studio_host', 'sample_studio_hooks', 'sample_studio_audio')
+             'device_identity_hooks', 'sample_studio_host', 'sample_studio_hooks', 'sample_studio_audio', 'master_bus')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -429,6 +441,9 @@ UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks',
 # frame (service sample_studio), the master bus (master_bus) and the mixer (mixer).
 SAMPLE_STUDIO_UNITS = ('sample_studio_host', 'sample_studio_hooks', 'sample_studio_audio')
 UNIT_SERVICES.update(dict.fromkeys(SAMPLE_STUDIO_UNITS, 'sample_studio'))
+# The master bus's shared handler, compiled only for a collection with both the studio and a
+# master processor (master_shared) and linked whenever a selection uses either.
+UNIT_SERVICES['master_bus'] = 'master_bus'
 SAMPLE_STUDIO_ASSET = 'content/display/sample_studio.svg'
 # CPU capabilities (docs/cpu-capabilities.md). The idle cut's render hook and its
 # registry, and the send hook with the record its effects' inits write (send_bus.hpp:
@@ -605,7 +620,7 @@ KIT_CONTROLS_CALLS = ('sdk_drum_kit_unpack', 'sdk_drum_kit_keeps', 'sdk_drum_kit
                       'sdk_drum_amp_tick')
 
 
-def service_fallbacks(services):
+def service_fallbacks(services, shared=False):
     """What a selection that does not use a service gets for the service's entry points
     that shared objects (startup's included) import: kit_absent, which answers 0. Track
     control's saved data, the aux service's start, every call into the step-lock
@@ -617,7 +632,9 @@ def service_fallbacks(services):
     with a track stage, the mixer's begin the shared track call handler makes
     (track_call.s) when the build links no mixer; and, in a collection with the
     device identity, the master processor's receiver, which the identity's receiver
-    then replaces with stock's own setter (device_identity.cpp)."""
+    then replaces with stock's own setter (device_identity.cpp). In a collection with both
+    Sample Studio and a master processor (`shared`, master_shared), the master bus's shared
+    handler's calls into each (master_bus.cpp), which then runs stock's own code in its place."""
     fallbacks = {}
     if 'control' in services:
         fallbacks['control'] = dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'), 'kit_absent')
@@ -639,6 +656,9 @@ def service_fallbacks(services):
         # (device_identity.cpp): the master bus's (a master processor's or Sample
         # Studio's); kit_absent tells it to call stock's own setter instead.
         fallbacks.setdefault('master_bus', {})['sdk_master_receive'] = 'kit_absent'
+    if shared:
+        fallbacks.setdefault('master_filter', {}).update(dict.fromkeys(MASTER_PROCESSOR_BUS, 'kit_absent'))
+        fallbacks.setdefault('sample_studio', {}).update(dict.fromkeys(MASTER_STUDIO_BUS, 'kit_absent'))
     return fallbacks
 
 
@@ -646,6 +666,10 @@ def service_fallbacks(services):
 # Sample Studio's player's.
 MIXER_SENDS = ('sdk_drum_send_begin', 'sdk_drum_send_voice', 'sdk_drum_send_gain', 'sdk_drum_send_own_mix')
 MIXER_STUDIO = ('sdk_studio_mixer_begin', 'sdk_studio_voice', 'sdk_studio_gain', 'sdk_studio_level')
+# What the master bus's shared handler calls (master_bus.cpp): the master processor's entries
+# and Sample Studio's player's.
+MASTER_PROCESSOR_BUS = ('sdk_processor_process', 'sdk_processor_receive')
+MASTER_STUDIO_BUS = ('sdk_studio_master', 'sdk_studio_receive')
 
 
 def absent_extension_symbols(e):
@@ -676,7 +700,8 @@ def link(directory, tools, profile, definitions, machines, selected, name='modul
     # Entry points of services the whole collection's shared objects (startup's
     # included) call into but this selection doesn't link, as the builder resolves them.
     used = active_services(profile, service_users(chosen))
-    for service, fallbacks in service_fallbacks(active_services(profile, service_users(machines))).items():
+    for service, fallbacks in service_fallbacks(active_services(profile, service_users(machines)),
+                                                master_shared(machines)).items():
         if service not in used:
             aliases.update(fallbacks)
     definitions = {**definitions, **absent_numbers(absent)}

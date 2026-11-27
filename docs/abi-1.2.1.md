@@ -86,7 +86,10 @@ is the `parameter_receive` service, used by the master processor, the
 [device identity](#device-identity) and a `sample_studio` extension; a build with
 the device identity enters its receiver, which hands every number it does not own
 to the master processor's or Sample Studio's receiver, or to stock's setter in a
-build without either. Each service owns its own numbers, which
+build without either. A collection with both the master processor and Sample
+Studio shares that receiver and the master EQ call (`8d511b80`) through one
+handler, `master_bus.cpp`: Sample Studio's numbers, then the master processor's
+receiver; the master processor's stage, then Sample Studio's player. Each service owns its own numbers, which
 `tests/test_sample_studio.py` checks never overlap:
 
 - stock: 0 to 3;

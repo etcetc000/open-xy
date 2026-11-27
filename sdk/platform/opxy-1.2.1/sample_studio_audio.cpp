@@ -11,8 +11,15 @@ using opxy::platform::word;
 namespace studio = opxy::studio;
 
 extern "C" {
+#ifdef OPXY_MASTER_SHARED
+// Beside a master processor, the master bus's shared handler (master_bus.cpp) owns both calls
+// and asks the player for its part.
+void sdk_studio_master(i32* left, i32* right) __asm__("sdk_studio_master");
+u32 sdk_studio_receive(u32 id, i32 value) __asm__("sdk_studio_receive");
+#else
 void sdk_master_process(void* object, i32* left, i32* right) __asm__("sdk_master_process");
 void sdk_master_receive(u32 base, u32 id, i32 value) __asm__("sdk_master_receive");
+#endif
 void sdk_studio_voice(i32* out, u32 track) __asm__("sdk_studio_voice");
 void sdk_studio_gain(u32 track, i32 gain) __asm__("sdk_studio_gain");
 void sdk_studio_level(u32 track, i32 level) __asm__("sdk_studio_level");
@@ -24,7 +31,7 @@ const opxy::studio::Player* sdk_sample_studio_player() __asm__("sdk_sample_studi
 namespace {
 // The master EQ call at 8d511b80 runs once a block (64 stereo frames, Q31, separate left and right
 //    arrays) after dry + FX I + FX II are summed and before the master compressor and master volume.
-//    Stock's EQ first, then the player.
+//    Stock's EQ first, then the player (beside a master processor: its stage, then the player).
 // B3 IDs 146..160 are the player's channels 0..14 (after stock's 0..3, the master processor's
 // 128..137 and the device identity's 138..145); every other ID goes to stock's receiver.
 const u32 kFirstId = 146, kChannels = 15;
@@ -74,6 +81,19 @@ void unpin(u32 key) { stock<void(u32, u32)>(0x8d509df8)(word(kSampleManager), ke
 i32* fx_bus(u32 send) { return send < 2 ? kFxBuses[send] : nullptr; }
 }}  // namespace opxy::studio
 
+#ifdef OPXY_MASTER_SHARED
+// After the master processor's stage (or stock's EQ when none is selected).
+void sdk_studio_master(i32* left, i32* right) {
+    if (const studio::Player* p = player()) p->master(left, right);
+}
+// 1 when the number is the player's; the shared handler passes the rest on.
+u32 sdk_studio_receive(u32 id, i32 value) {
+    const studio::Player* p = player();
+    if (!p || id < kFirstId || id >= kFirstId + kChannels) return 0;
+    p->receive(id - kFirstId, value);
+    return 1;
+}
+#else
 void sdk_master_process(void* object, i32* left, i32* right) {
     stock<void(void*, i32*, i32*)>(0x11a02c10)(object, left, right);   // stock's master EQ, as before
     if (const studio::Player* p = player()) p->master(left, right);
@@ -86,6 +106,7 @@ void sdk_master_receive(u32 base, u32 id, i32 value) {
     }
     stock<void(u32, u32, i32)>(0x8d50eb8c)(base, id, value);
 }
+#endif
 void sdk_studio_mixer_begin() {
     if (const studio::Player* p = player()) p->mixer_begin();
 }

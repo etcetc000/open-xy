@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {KIT_KEYS, kitChoices, kitGroup, kitHeader, kitKey, kitMix, kitModel, kitSelectedKey, kitWord} from '../builder/core.mjs';
-import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readSelection, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, imageSettings, unitSettings, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256, readMachinePack, importMachinePack} from '../builder/core.mjs';
+import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readSelection, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, imageSettings, unitSettings, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256, readMachinePack, importMachinePack, hookSymbol} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of private firmware/toolchains.
 function elf() {
@@ -906,21 +906,64 @@ test('the mixer links with only Sample Studio: the sends resolve to kit_absent, 
   k.machines[0].features = ['deviceIdentity'];
   assert.ok(linkKit(k, ['a'], null, ['studio']).services.has('device_identity'));
 });
-test('one selected extension owns Sample Studio, never beside a master processor', () => {
+// Sample Studio beside a master processor (a collection with both): the master bus's shared handler
+// (sdk/master_bus.o, service master_bus) enters each side's entries, and a selection with one of them
+// links the other's to kit_absent, as tooling.native.service_fallbacks lists them with master_shared.
+test('the master bus links one shared handler for the studio and a master processor, or either alone', () => {
+  const {k} = mixerKit();
+  k.machines[0].kind = 'sample';
+  const sdk = (name, service, exports, imports = []) => {
+    const o = {...readObject(elf()), name, owner:null, service};
+    o.symbols = o.symbols.filter(s => s.name !== 'entry');
+    for (const n of exports) o.symbols.push({name:n, section:1, value:0, size:0, binding:1, type:2});
+    for (const n of imports) {
+      o.symbols.push({name:n, section:0, value:0, size:0, binding:1, type:0});
+      o.relocations.push({section:1, offset:0, type:18, symbol:o.symbols.length - 1, addend:0});
+    }
+    return o;
+  };
+  const processor = ['sdk_processor_process', 'sdk_processor_receive'], player = ['sdk_studio_master', 'sdk_studio_receive'];
+  k.objects = k.objects.filter(o => o.name !== 'sdk/sample_studio_audio.o');
+  k.objects.push(sdk('sdk/master_filter_stock.o', 'master_filter', processor),
+    sdk('sdk/sample_studio_audio.o', 'sample_studio', [...player, 'sdk_studio_mixer_begin', 'sdk_studio_voice', 'sdk_studio_gain', 'sdk_studio_level']),
+    sdk('sdk/master_bus.o', 'master_bus', ['sdk_master_process', 'sdk_master_receive'], [...processor, ...player]));
+  k.serviceFallbacks.master_filter = Object.fromEntries(processor.map(n => [n, 'kit_absent']));
+  Object.assign(k.serviceFallbacks.sample_studio, Object.fromEntries(player.map(n => [n, 'kit_absent'])));
+  k.extensions.push({id:'filter', claims:[], actions:[], master_processor:{state_id:'filter'}});
+  const sites = ['0x8d511b80', '0x8d5b145e'].map(a => k.profile.patches.find(p => p.address === a));
+  const both = linkKit(k, ['a'], null, ['studio', 'filter']);
+  for (const service of ['sample_studio', 'master_filter', 'master_bus', 'parameter_receive']) assert.ok(both.services.has(service), service);
+  assert.ok(linkedNames(both).includes('sdk/master_bus.o'));
+  for (const n of [...processor, ...player]) assert.equal(both.aliases.has(n), false, n);
+  assert.deepEqual(sites.map(p => hookSymbol(p, both.services)), ['sdk_master_process', 'sdk_master_receive']);
+  assert.equal(both.globals.get('sdk_master_process'), both.globals.get('sdk_master_receive'));   // master_bus.o's
+  const studio = linkKit(k, ['a'], null, ['studio']);
+  assert.ok(linkedNames(studio).includes('sdk/master_bus.o') && !linkedNames(studio).includes('sdk/master_filter_stock.o'));
+  for (const n of processor) assert.equal(studio.aliases.get(n), k.definitions.kit_absent, n);
+  const filter = linkKit(k, ['a'], null, ['filter']);
+  assert.ok(linkedNames(filter).includes('sdk/master_bus.o') && !linkedNames(filter).includes('sdk/sample_studio_audio.o'));
+  for (const n of player) assert.equal(filter.aliases.get(n), k.definitions.kit_absent, n);
+  // With the device identity too, its receiver runs first and hands the shared handler the rest.
+  k.machines[0].features = ['deviceIdentity'];
+  const all = linkKit(k, ['a'], null, ['studio', 'filter']);
+  assert.ok(all.services.has('device_identity'));
+  assert.equal(hookSymbol(sites[1], all.services), 'sdk_identity_receive');
+});
+test('one selected extension owns Sample Studio, beside a master processor if chosen', () => {
   const studio = {asset:'sample_studio.svg', artwork:'', sha256:''};
   const k = {extensions:[{id:'studio', claims:[], sample_studio:studio}, {id:'other', claims:[], sample_studio:studio},
     {id:'filter', claims:[], master_processor:{state_id:'filter'}}, {id:'observer', claims:[]}]};
   assert.equal(sharedClaim([k.extensions[0], k.extensions[3]]), null);
   assert.equal(sharedClaim([k.extensions[0], k.extensions[1]]), 'sample_studio');
-  assert.equal(sharedClaim([k.extensions[0], k.extensions[2]]), 'master_bus');
+  assert.equal(sharedClaim([k.extensions[0], k.extensions[2]]), null);   // one handler runs both (master_bus.cpp)
   assert.equal(claimLabel(k.extensions, 'sample_studio'), 'Sample Studio');
   assert.throws(() => extensionSelection(k, ['studio','other']), /both use Sample Studio\. Choose only one\./);
-  assert.throws(() => extensionSelection(k, ['filter','studio']), /both use the master bus\. Choose only one\./);
+  assert.deepEqual(extensionSelection(k, ['filter','studio']), ['studio','filter']);
   assert.deepEqual(extensionSelection(k, ['observer','studio']), ['studio','observer']);
   for (const choice of extensionChoices(k)) {
     assert.ok(choice.filter(id => id === 'studio' || id === 'other').length <= 1, choice.join());
-    assert.ok(!(choice.includes('filter') && (choice.includes('studio') || choice.includes('other'))), choice.join());
   }
+  assert.ok(extensionChoices(k).some(choice => choice.includes('filter') && choice.includes('studio')));
 });
 
 test('declared callbacks of unselected machines resolve to fallbacks only for SDK objects', () => {
