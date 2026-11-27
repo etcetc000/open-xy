@@ -75,11 +75,25 @@ build with it enters, the first one the build has winning (`tooling/firmware.py`
 site: its record is the `track_call` service, used by per-key sends and [track
 stages](#track-stage) alike; a build with a track stage enters the shared
 handler, which runs both, and one with per-key sends alone their own, as before.
+Three more of the mixer sites the sends hook (each voice, the track gain and
+the end of the send loops) are the `mixer` service (`mixer_hooks.s`, `mixer.cpp`),
+which per-key sends share with a `sample_studio` extension; the track call's
+record lists `mixer` too, entering the mixer's own handler when no track stage
+takes it. A build with one user resolves the others' entry points to
+`kit_absent`. The send buses' two sources stay `drum_sends`.
 Stock's call of its global parameter setter (`8d5b145e`) is another: its record
-is the `parameter_receive` service, used by the master processor and the
-[device identity](#device-identity); a build with the device identity enters its
-receiver, which hands every number it does not own to the master processor's
-receiver, or to stock's setter in a build without the master processor.
+is the `parameter_receive` service, used by the master processor, the
+[device identity](#device-identity) and a `sample_studio` extension; a build with
+the device identity enters its receiver, which hands every number it does not own
+to the master processor's or Sample Studio's receiver, or to stock's setter in a
+build without either. Each service owns its own numbers, which
+`tests/test_sample_studio.py` checks never overlap:
+
+- stock: 0 to 3;
+- the master processor: 128 to 137;
+- the device identity: 138 to 145;
+- Sample Studio: 146 to 160.
+
 The step locks of a kit's Shift fields are the `drum_locks` service, used by a
 `padMix` kit, by a synth with a Shift row and by a `drumline_page` extension.
 The `played_pad` service has no edit: it links the [drum trigger](#screens)
@@ -2145,7 +2159,7 @@ active pool as it was.
 ### Drumline's second page
 
 A [`drumline_page` extension](drumline-page.md) (the `drumline` service, which
-also turns on `samples`, `octaves`, `drums`, `drum_sends` and `drum_locks`)
+also turns on `samples`, `octaves`, `drums`, `mixer`, `drum_sends` and `drum_locks`)
 extends stock's own Drumline, engine 4 ("dbox": its page `dbox.svg`, its factory
 `8d513d1c`, its voices' method table `0x8404ce3c`), on every Drumline track
 ([`drumline.hpp`](../sdk/platform/opxy-1.2.1/drumline.hpp)). The extension

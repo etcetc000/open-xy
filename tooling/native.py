@@ -363,9 +363,10 @@ SDK_UNITS = ('divide', 'sample_kernel', 'memory', 'registration', 'registration_
              'master_filter_state', 'master_filter_collection', 'master_filter_stock', 'master_filter_hooks', 'master_filter_panel',
              'players', 'player_hooks', 'player_table', 'keyboard_octaves', 'sample_overview', 'sample_overview_stock',
              'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_trigger', 'drum_hooks',
-             'drum_send', 'drum_send_hooks', 'track_call', 'track_stage', 'track_stage_table', 'drum_locks', 'lock_handles', 'drumline', 'drumline_hooks',
-             'synth_shift_hooks', 'drum_kit_controls', 'drum_amp_envelope', 'telemetry_protocol', 'telemetry_native',
-             'telemetry_hooks', 'telemetry_registry', 'device_identity', 'device_identity_hooks')
+             'mixer', 'mixer_hooks', 'drum_send', 'drum_send_hooks', 'track_call', 'track_stage', 'track_stage_table', 'drum_locks',
+             'lock_handles', 'drumline', 'drumline_hooks', 'synth_shift_hooks', 'drum_kit_controls', 'drum_amp_envelope',
+             'telemetry_protocol', 'telemetry_native', 'telemetry_hooks', 'telemetry_registry', 'device_identity',
+             'device_identity_hooks', 'sample_studio_host', 'sample_studio_hooks', 'sample_studio_audio')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -388,8 +389,12 @@ UNIT_SERVICES['drum_trigger'] = 'played_pad'
 # and the note-off hook an ampEnvelope kit's adapter reads only with such a kit.
 UNIT_SERVICES['drum_kit_controls'] = 'kit_controls'
 UNIT_SERVICES['drum_amp_envelope'] = 'amp_envelope'
-# Per-key sends hook stock's mixer, so only a build with a padMix kit or a drumline_page
-# extension links them.
+# Stock's mixer: three sites the per-key sends and Sample Studio's player share (mixer.cpp),
+# and the track call's own handler when no track stage takes it (mixer_hooks.s), linked for a
+# padMix kit, a drumline_page extension or a sample_studio extension.
+UNIT_SERVICES.update(dict.fromkeys(('mixer', 'mixer_hooks'), 'mixer'))
+# Per-key sends: the send buses' sources and the sends themselves, only for a padMix kit or
+# a drumline_page extension.
 UNIT_SERVICES.update(dict.fromkeys(('drum_send', 'drum_send_hooks'), 'drum_sends'))
 # A synth's track stage (SDK 1.24, track_stage.py): the shared handler of stock's
 # track call (track_call.s), its runtime and the declaring synths' table, linked only
@@ -419,6 +424,12 @@ UNIT_SERVICES.update(dict.fromkeys(('track_control', 'track_control_table', 'tra
 UNIT_SERVICES.update(dict.fromkeys(('aux_tracks', 'aux_hooks'), 'aux'))
 
 UNIT_SERVICES.update(dict.fromkeys(('master_filter_stock','master_filter_hooks','master_filter_panel'), 'master_filter'))
+# Sample Studio (docs/sample-studio.md): an extension's editor in stock's sample library and its
+# player on the audio board, by the library controller's entry branches and the browser screen's
+# frame (service sample_studio), the master bus (master_bus) and the mixer (mixer).
+SAMPLE_STUDIO_UNITS = ('sample_studio_host', 'sample_studio_hooks', 'sample_studio_audio')
+UNIT_SERVICES.update(dict.fromkeys(SAMPLE_STUDIO_UNITS, 'sample_studio'))
+SAMPLE_STUDIO_ASSET = 'content/display/sample_studio.svg'
 # CPU capabilities (docs/cpu-capabilities.md). The idle cut's render hook and its
 # registry, and the send hook with the record its effects' inits write (send_bus.hpp:
 # their adapters write it only in builds with idle).
@@ -444,8 +455,14 @@ def service_users(machines):
     deviceIdentity),
     'extension' when it links extension code (native builds link all of the collection's;
     settings extensions link none), the capabilities they declare ('master_filter',
-    'drumline_page') and the registry capabilities its extensions declare."""
+    'drumline_page', 'sampleStudio': a sample_studio extension, which needs a sample-family
+    machine or a drumline_page extension for the samples service) and the registry
+    capabilities its extensions declare."""
     users = [m.kind for m in machines] + (['extension'] if linked_extensions(machines) else [])
+    studio = any(e.sample_studio for e in extensions_of(machines))
+    require(not studio or 'sample' in users or 'drum' in users or
+            any(e.drumline_page is not None for e in extensions_of(machines)),
+            'Sample Studio needs a sample-family machine in the build (the samples service)')
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
@@ -459,6 +476,7 @@ def service_users(machines):
             ['deviceIdentity' for m in machines if declares_device_identity(m.definition)] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
             (['drumline_page'] if any(e.drumline_page is not None for e in extensions_of(machines)) else []) +
+            (['sampleStudio'] if studio else []) +
             [c for e in extensions_of(machines) for c in e.capabilities])
 
 
@@ -594,8 +612,10 @@ def service_fallbacks(services):
     handles (startup.LOCK_CALLS), stock Drumline's second page (startup's
     sdk_drumline_get), the drum-kit controls' entry points the shared drum units
     call in a build with such a kit (drum_kit_controls.hpp): each 0 is a kit without
-    them, and, in a collection with a track stage, the per-key sends' reset the
-    shared track call handler makes (track_call.s); and, in a collection with the
+    them, the mixer's two users (mixer.cpp), the per-key sends and Sample Studio's
+    player, either of which a build that links the mixer may lack; in a collection
+    with a track stage, the mixer's begin the shared track call handler makes
+    (track_call.s) when the build links no mixer; and, in a collection with the
     device identity, the master processor's receiver, which the identity's receiver
     then replaces with stock's own setter (device_identity.cpp)."""
     fallbacks = {}
@@ -607,16 +627,25 @@ def service_fallbacks(services):
         fallbacks['drum_locks'] = dict.fromkeys(('sdk_step_locks_' + call[1] for call in LOCK_CALLS), 'kit_absent')
     if 'drumline' in services:
         fallbacks['drumline'] = {'sdk_drumline_service': 'kit_absent'}
+    if 'mixer' in services:
+        fallbacks['drum_sends'] = dict.fromkeys(MIXER_SENDS, 'kit_absent')
+        fallbacks['sample_studio'] = dict.fromkeys(MIXER_STUDIO, 'kit_absent')
     if 'track_stage' in services:
-        fallbacks['drum_sends'] = {'sdk_drum_send_begin': 'kit_absent'}
+        fallbacks['mixer'] = {'sdk_mixer_begin': 'kit_absent'}
     if 'kit_controls' in services:
         fallbacks['kit_controls'] = dict.fromkeys(KIT_CONTROLS_CALLS, 'kit_absent')
     if 'device_identity' in services:
         # The global parameter receiver's next step after the device identity's
-        # (device_identity.cpp): the master processor's; kit_absent tells it to call
-        # stock's own setter instead.
-        fallbacks.setdefault('master_filter', {})['sdk_master_receive'] = 'kit_absent'
+        # (device_identity.cpp): the master bus's (a master processor's or Sample
+        # Studio's); kit_absent tells it to call stock's own setter instead.
+        fallbacks.setdefault('master_bus', {})['sdk_master_receive'] = 'kit_absent'
     return fallbacks
+
+
+# What mixer.cpp calls at each of the mixer's sites: the per-key sends' entry points and
+# Sample Studio's player's.
+MIXER_SENDS = ('sdk_drum_send_begin', 'sdk_drum_send_voice', 'sdk_drum_send_gain', 'sdk_drum_send_own_mix')
+MIXER_STUDIO = ('sdk_studio_mixer_begin', 'sdk_studio_voice', 'sdk_studio_gain', 'sdk_studio_level')
 
 
 def absent_extension_symbols(e):
@@ -1490,6 +1519,10 @@ def prepare_assets(catalog, profile, machines):
             require(name not in outputs, 'Display asset collision: ' + name)
             outputs[name] = extensions.validate_master_artwork(path)
             owners[name] = 'Extension ' + e.id
+        if e.sample_studio:
+            require(SAMPLE_STUDIO_ASSET not in outputs, 'Display asset collision: ' + SAMPLE_STUDIO_ASSET)
+            outputs[SAMPLE_STUDIO_ASSET] = read(e.root / extensions.SAMPLE_STUDIO_ARTWORK)
+            owners[SAMPLE_STUDIO_ASSET] = 'Extension ' + e.id
     # Stock's own content is never replaced (tooling.stock_content). The menu file is the
     # one stock file a build writes: stock's, extended.
     for path, owner in owners.items():

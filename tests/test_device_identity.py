@@ -145,8 +145,9 @@ class Profile(unittest.TestCase):
         patch = record(profile, RECEIVE_SITE)
         self.assertEqual((patch['kind'], patch['length'], patch['before'], patch['call'], patch['service'], patch['symbol']),
                          ('hook', 4, 'fae397eb', True, 'parameter_receive', 'sdk_master_receive'))
+        # without the identity, the master bus's receiver: a master processor's or Sample Studio's
         self.assertEqual(list(patch['symbols'].items()), [('device_identity', 'sdk_identity_receive'),
-                                                          ('master_filter', 'sdk_master_receive')])
+                                                          ('master_bus', 'sdk_master_receive')])
         # The call it replaces is stock's setter, which the receiver calls without the master processor.
         self.assertEqual(decode_branch(int(RECEIVE_SITE, 16), bytes.fromhex(patch['before'])), (0x8d50eb8c, True))
         unit = (PLATFORM / 'device_identity.cpp').read_text(encoding='utf-8')
@@ -154,7 +155,8 @@ class Profile(unittest.TestCase):
         self.assertIn('stock<Receiver>(kStockSet)(base, id, value);', unit)
         services = profile['services']
         self.assertEqual(services['device_identity'], ['deviceIdentity'])
-        self.assertEqual(set(services['parameter_receive']), set(services['master_filter']) | set(services['device_identity']))
+        self.assertEqual(set(services['parameter_receive']), set(services['master_bus']) | set(services['device_identity']))
+        self.assertLessEqual(set(services['master_filter']), set(services['master_bus']))
         check_patch_boundaries(profile, len(profile['patches']))
 
     def test_the_handler_follows_which_services_the_build_has(self):
@@ -218,12 +220,14 @@ class Plan(unittest.TestCase):
         profile = config()
         # kit_absent, linked in every build (so a selection without the identity's
         # machine links too), tells the receiver to call stock's setter.
+        # The fallback belongs to the master bus, so a selection with Sample Studio's receiver (also
+        # sdk_master_receive) keeps its own and doesn't alias it.
         self.assertEqual(native.service_fallbacks(active_services(profile, ['synth', 'deviceIdentity'])),
-                         {'master_filter': {'sdk_master_receive': 'kit_absent'}})
-        self.assertNotIn('master_filter', native.service_fallbacks(active_services(profile, ['synth', 'master_filter'])))
+                         {'master_bus': {'sdk_master_receive': 'kit_absent'}})
+        self.assertNotIn('master_bus', native.service_fallbacks(active_services(profile, ['synth', 'master_filter'])))
         # With both, the fallback is declared for selections that leave the master processor out.
         self.assertEqual(native.service_fallbacks(active_services(profile, ['synth', 'deviceIdentity', 'master_filter'])),
-                         {'master_filter': {'sdk_master_receive': 'kit_absent'}})
+                         {'master_bus': {'sdk_master_receive': 'kit_absent'}})
         unit = (PLATFORM / 'device_identity.cpp').read_text(encoding='utf-8')
         self.assertIn('if (reinterpret_cast<Address>(master) == absent) stock<Receiver>(kStockSet)(base, id, value);', unit)
         self.assertIn('int kit_absent() __asm__("kit_absent");', (PLATFORM / 'startup.cpp.in').read_text(encoding='utf-8'))
