@@ -1,4 +1,5 @@
-"""Build a synth or drum browser audition module and authenticate served artifacts."""
+"""Build a synth or drum browser audition module, or a drawing note player's page preview, and
+authenticate served artifacts."""
 import argparse
 import json
 from pathlib import Path
@@ -26,11 +27,15 @@ EXTENDED_EXPORTS = ('opxy_display_extension', 'opxy_display_audio_words', 'opxy_
 AUDIO_EXPORTS = ('opxy_audio_words', 'opxy_audio_track', 'opxy_take_audio')
 TRANSPORT_EXPORTS = tuple('opxy_audio_' + name for name in ('capacity', 'sequence', 'requested', 'applied',
                                                             'reset_supported', 'reset'))
+# A drawing note player's page (adapters.generate_player_preview): its drawing transport, without a
+# sample overview, and a key's press and release and a player step.
+PLAYER_EXPORTS = tuple(name for name in DISPLAY_EXPORTS if name != 'opxy_display_sample') + (
+    'opxy_player_press', 'opxy_player_release', 'opxy_player_step')
 # A drum kit's keys and names (adapters.DRUM_KEYS), which the builder reads.
 DRUM_EXPORTS = ('opxy_drum_defaults', 'opxy_drum_model_name', 'opxy_drum_label', 'opxy_drum_count')
 MANIFEST_LIMIT = 65536
 # Shared inputs of every curated preview; the machine's own folder is added per build.
-SDK_SOURCES = ('tooling/preview.py', 'tooling/machines.py', 'tooling/adapters.py', 'tooling/definitions.py',
+SDK_SOURCES = ('tooling/preview.py', 'tools/check_player_preview.mjs', 'tooling/machines.py', 'tooling/adapters.py', 'tooling/definitions.py',
                'tooling/contributors.py', 'tooling/graphics.py', 'tools/check_preview_contract.mjs', 'sdk/host/voice_preview.cpp.in',
                'sdk/host/display_preview.cpp', 'sdk/host/display_preview_extended.cpp', 'tooling/audio_telemetry.py',
                'sdk/platform/blackfin/memory.cpp')
@@ -50,7 +55,7 @@ def compile_preview(compiler, definition, out, root, sources=(), includes=(), *,
              ROOT / 'sdk/platform/blackfin/memory.cpp']
     generate_display(out, definition=definition, kind=kind)
     display = definition.get('resources', {}).get('display', {})
-    extended = kind == 'synth' and extended_display(display)
+    extended = extended_display(display)
     units += [out / 'display_binding.cpp',
               ROOT / ('sdk/host/display_preview_extended.cpp' if extended else 'sdk/host/display_preview.cpp')]
     paths = [ROOT, ROOT / 'sdk/include', ROOT / 'sdk/platform/blackfin/freestanding', root,
@@ -72,6 +77,35 @@ def compile_preview(compiler, definition, out, root, sources=(), includes=(), *,
     # A drum kit's model count, for the contract to read every key and model the builder shows.
     models = (definition['resources']['modelCount'],) if kind == 'drum' else ()
     check_runtime(out / 'engine.wasm', display.get('paths', 0), display.get('points', 0), *models)
+
+
+def compile_player_preview(compiler, m, out):
+    """A drawing note player's page as one WebAssembly module: its display and player.cpp, drawn
+    from its State as on the device, silent (the instrument it plays is not in the preview)."""
+    from .adapters import generate_player_preview, player_instrument
+    from .native import PLAYER_INSTRUMENT_DEFINE
+    exports = PLAYER_EXPORTS + (('opxy_display_extension',) if extended_display(m.definition['resources']['display']) else ())
+    paths = [ROOT / 'sdk/include', ROOT / 'sdk/platform/blackfin/freestanding', m.root]
+    # Controls.instrument, as the device unit has it (every drawn player declares 1.25 or later).
+    defines = (PLAYER_INSTRUMENT_DEFINE,) if player_instrument(m) else ()
+    command = [compiler, *FLAGS, *defines, *('-I' + str(path) for path in paths), generate_player_preview(out, m),
+               ROOT / 'sdk/platform/blackfin/memory.cpp', '-o', out / 'engine.wasm', '-Wl,--no-entry',
+               '-Wl,-z,stack-size=16384', f'-Wl,--initial-memory={MEMORY}', f'-Wl,--max-memory={MEMORY}',
+               *('-Wl,--export=' + name for name in exports)]
+    result = subprocess.run([str(x) for x in command], capture_output=True, text=True, timeout=120,
+                            creationflags=NO_WINDOW)
+    require(result.returncode == 0, 'Preview compilation failed:\n' + result.stderr +
+            f'\nCheck the compiler with: python sdk.py doctor --preview --cxx "{compiler}"')
+    result = subprocess.run(['node', str(ROOT / 'tools/check_player_preview.mjs'), str(out / 'engine.wasm')],
+                            capture_output=True, text=True, timeout=120, creationflags=NO_WINDOW)
+    require(result.returncode == 0, 'Preview contract check failed:\n' + result.stdout + result.stderr)
+    print(result.stdout.strip())
+
+
+def previewed(m):
+    """Whether a machine has a browser preview: a synth or drum kit, or a note player that
+    draws its own page."""
+    return m.kind in ('synth', 'drum') or m.kind == 'player' and m.display == 'drawing'
 
 
 def check_runtime(module, paths=0, points=0, models=0):
@@ -121,9 +155,10 @@ def drawing_bindings(ids, display):
 
 
 def build(compiler, m, out, overwrite=False):
-    """The browser audition of a collection synth or drum (a Machine)."""
+    """The browser audition of a collection synth or drum, or the page of a note player that
+    draws its own (a Machine)."""
     from .native import check_sources, validate_panel
-    require(m.kind in ('synth', 'drum'), 'Browser previews audition synths and drums')
+    require(previewed(m), "Browser previews audition synths and drums and show drawing players' pages")
     require(not m.contains(out), 'Keep preview output outside the machine folder')
     executable = shutil.which(str(compiler))
     require(executable is not None, 'Clang++ with wasm32/wasm-ld is required; run python sdk.py doctor --preview')
@@ -132,7 +167,10 @@ def build(compiler, m, out, overwrite=False):
     validate_panel(m)
     before = source_hashes(m)
     out = fresh_output(out, overwrite, [m.root])
-    compile_preview(compiler, m.definition, out, m.root, m.sources, m.includes, kind=m.kind)
+    if m.kind == 'player':
+        compile_player_preview(compiler, m, out)
+    else:
+        compile_preview(compiler, m.definition, out, m.root, m.sources, m.includes, kind=m.kind)
     (out / 'panel.svg').write_bytes((m.root / 'panel.svg.fragment').read_bytes())
     if m.grayscale:
         (out / 'panel.grayscale.svg').write_bytes((m.root / m.grayscale).read_bytes())
@@ -146,7 +184,9 @@ def build(compiler, m, out, overwrite=False):
     (out / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8', newline='\n')
     preview_bundle(out)
     print(m.name + ' preview built: ' + str(out))
-    print('Run: python tools/serve_harness.py --preview "' + str(out) + '"')
+    # The harness auditions sound; a player's page shows in the builder.
+    if m.kind != 'player':
+        print('Run: python tools/serve_harness.py --preview "' + str(out) + '"')
 
 
 def preview_bundle(directory, *, require_reference=False):
@@ -182,7 +222,8 @@ def preview_bundle(directory, *, require_reference=False):
     root = manifest['root']
     require(isinstance(root, str) and Path(root).is_absolute(), 'Invalid machine folder in preview')
     m = machine_at(root)
-    require(m.id == manifest['engine'] and m.kind in ('synth', 'drum'), 'Browser previews audition synths and drums')
+    require(m.id == manifest['engine'] and previewed(m),
+            "Browser previews audition synths and drums and show drawing players' pages")
     require(manifest['sources'] == source_hashes(m), 'Preview is stale; rebuild from current source')
     require(manifest['definition'] == m.definition and manifest['description'] == m.description,
             'Preview controls or description differ from the machine')

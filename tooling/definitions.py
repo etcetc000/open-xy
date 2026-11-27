@@ -77,12 +77,18 @@ SDK_1_2_TEXTS, SDK_1_6_TEXTS = 4, 16
 # Nodes a display could hold before SDK 1.8.
 SDK_1_7_NODES = 256
 # Extended drawing (SDK 1.20, docs/display.md#extended-drawing): optional display
-# keys for synth and effect screens, each 0 or 1 unless EXTENDED_RANGES says otherwise.
+# keys for synth and effect screens, and from EXTENDED_SCREENS_SDK for a drum kit's screen
+# and a note player's own page, each 0 or 1 unless EXTENDED_RANGES says otherwise.
 # A display declaring none of them, within DISPLAY_LIMITS, is a plain one: its
 # generated code and renderer are those of a display before 1.20.
 # A renumber changes this line,
 # SDK_VERSION and its history (tooling/machines.py) and the "1.20" text in the docs and fixtures.
 EXTENDED_SDK = (1, 20)
+# Extended drawing on a drum kit's screen and a note player's own page. It takes the next free
+# number when it merges: a renumber changes this line, SDK_VERSION and its history
+# (tooling/machines.py) and the "1.28" text in the docs and fixtures.
+EXTENDED_SCREENS_SDK = (1, 28)
+EXTENDED_KINDS = ('synth', 'effect', 'drum', 'player')
 EXTENDED_KEYS = ('affine', 'fullCanvas', 'rgba', 'cubic', 'openPaths', 'segmentPaths', 'quadratic', 'commands',
                  'countedPaths', 'glyphs', 'glyphDefinitions', 'glyphStart', 'encoderActivity',
                  'audioWords', 'audioTransport', 'audioMode', 'audioReset', 'audioAccumulators', 'outputLevels')
@@ -583,7 +589,7 @@ def validate_display(display, kind=None):
         high = EXTENDED_RANGES.get(name, 1)
         require(type(display[name]) is int and 0 <= display[name] <= high, 'Display %s must be 0..%d' % (name, high))
     extended = extended_display(display)
-    require(not extended or kind in ('synth', 'effect'), 'Extended drawing is for synth and effect screens')
+    require(not extended or kind in EXTENDED_KINDS, 'Extended drawing is for synth, effect, drum kit and note player screens')
     for name, (low, high) in DISPLAY_LIMITS.items():
         high = EXTENDED_LIMITS.get(name, high) if extended else high
         low = 0 if name == 'palette' and display.get('affine') else low
@@ -605,6 +611,10 @@ def validate_extended(display, kind):
     """The extended keys' combinations (draw.hpp ExtendedFrame, RgbaFrame and GlyphFrame)."""
     def get(key):
         return display.get(key, 0)
+    # Glyphs, audio snapshots and output levels are a synth's or an effect's screen's only: the
+    # two kinds whose audio the transport carries (tooling/audio_telemetry.py).
+    require(kind in ('synth', 'effect') or not any(k in display for k in AUDIO_SDK_KEYS),
+            "Glyph atlases, a screen's own audio and output levels are for synth and effect screens")
     paths, points, commands = display['paths'], display['points'], get('commands')
     if get('quadratic'):
         require(get('affine') and paths > 0 and points == 0 and commands >= 2 and
@@ -633,8 +643,6 @@ def validate_extended(display, kind):
                 'Glyphs need affine, 1..16 glyphDefinitions and two nodes each from glyphStart, after the paths')
     else:
         require(not get('glyphDefinitions') and not get('glyphStart'), 'glyphDefinitions and glyphStart need glyphs')
-    # validate_display already limits extended keys to synth and effect screens, the two
-    # kinds whose audio the transport carries (tooling/audio_telemetry.py).
     if get('audioTransport'):
         words, mode = get('audioWords'), display.get('audioMode')
         require(words > 0 and mode is not None, 'audioTransport needs audioWords and audioMode')

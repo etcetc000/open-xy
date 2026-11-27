@@ -291,7 +291,8 @@ static inline bool valid(const F& frame) {
 }
 
 // Extended drawing (docs/display.md#extended-drawing): opt-in frame
-// shapes for synth and effect screens. A display declaring none of the
+// shapes for synth, effect and drum kit screens and a note player's own
+// page (kits and players from SDK 1.28). A display declaring none of the
 // extended keys keeps Frame, its renderer and its generated code unchanged.
 //
 // An affine node carries a whole 2 x 3 matrix, Q10, as SVG matrix(a,b,c,d,x,y):

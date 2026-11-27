@@ -43,7 +43,8 @@ void display(DisplayState& state, const opxy::draw::Input& input, Frame& output)
 | `palette` | 1..16 paint entries |
 | `stateBytes`, `stateAlignment` | `DisplayState` size (whole words) and alignment, checked against the compiled type |
 
-A synth or effect screen can go beyond these with [extended drawing](#extended-drawing).
+A synth's or effect's screen, and from SDK 1.28 a drum kit's or a note player's page, can go beyond these
+with [extended drawing](#extended-drawing).
 
 [draw.hpp](../sdk/include/opxy/draw.hpp) is the format definition.
 `DisplayState` is trivial, standard-layout data. Put it, with the frame type,
@@ -203,8 +204,8 @@ Machines reading the played-pad snapshot declare SDK 1.21 or newer. Browser
 hosts pass `{key, model, controls}` as the optional fifteenth argument to
 `PreviewDisplay.tick`, after `amp`, `mix`, `line`, `shiftRow` and `encoders`; omission clears the snapshot.
 They pass a 1.23 kit's selected key, 0..23, as the optional sixteenth (the
-builder's kit preview gives the key last pressed); omission gives 0. An
-extended display's [audio snapshot](#audio-snapshots) and
+builder's kit preview gives the key last pressed); omission gives 0. A synth's
+or an effect's extended display's [audio snapshot](#audio-snapshots) and
 [levels](#output-levels) follow as the seventeenth and eighteenth.
 
 A screen that draws its own header (the two-page header) shows the Shift
@@ -518,19 +519,23 @@ and source alongside the original; rebuilding is required after editing either.
 
 ## Extended drawing
 
-A synth or effect screen can declare more paths and points than the table in
-[Declaration](#declaration) allows, and the optional keys below. Any of them, declared even as 0,
-makes the display *extended*: it needs `"sdk": "1.20"`, uses
+A synth's or effect's screen, and from SDK 1.28 a drum kit's screen or a
+[note player's own page](api.md#a-players-own-drawn-page-sdk-126), can declare
+more paths and points than the table in [Declaration](#declaration) allows, and
+the optional keys below. Any of them, declared even as 0, makes the display
+*extended*: it needs `"sdk": "1.20"` (`"1.28"` on a kit or a player), uses
 `draw::ExtendedFrame` (or one of its aliases) instead of `draw::Frame`, and is
 drawn by a separate renderer. A display that uses none of them keeps
 `draw::Frame`, its renderer and its generated code exactly as before. The glyph,
-audio and level keys need `"sdk": "1.27"`.
+audio and level keys need `"sdk": "1.27"` and are for synth and effect screens.
+A kit's extended screen gets the same input as its plain one: its selected key,
+Shift choices and played-pad snapshot.
 
 | Key | Meaning |
 | --- | --- |
 | `paths`, `points` | Up to 32 paths and 256 points per path, 256 coordinate pairs in all |
 | `affine: 1` | Full affine node transforms (`draw::AffineNode`, `draw::affine`); `palette` may be 0; path coordinates reach ±8192 pixels |
-| `fullCanvas: 1` | The machine owns the whole 480×220 screen: the SDK header is left out. Control values still arrive in the input |
+| `fullCanvas: 1` | The machine owns the whole 480×220 screen: the SDK header is left out. Control values still arrive in the input. A drum kit's header comes back over its drawing only while Shift is held, showing what Shift chooses ([below](#a-whole-screen-drum-kit)) |
 | `rgba: 1` | Per-node 32-bit colors (`draw::RgbaFrame`, `draw::rgba`); needs `affine` and `palette: 0` |
 | `cubic: 1` | Every path is one cubic Bézier: four points, start, two controls, end; authored as `M … C …` without `Z` |
 | `openPaths`, `segmentPaths` | Bit masks: open polylines (`M`, then `L`s, no `Z`), or separate segments between adjacent points. They never share a path or go with `cubic` |
@@ -547,6 +552,16 @@ The renderer keeps each path's authored allocation and changes only its
 coordinates and active length, without allocating or parsing SVG while it
 animates. Browser and device rasterization can differ at the edges.
 
+### A whole-screen drum kit
+
+A drum kit that declares `fullCanvas` draws the whole screen, but its Shift
+page still needs the header: while Shift is held, the SDK header is drawn over
+the kit's drawing, its bar and the four cells naming what Shift chooses, as on
+any kit's Shift page. When Shift is let go the header goes again. The kit's
+drawing goes on underneath and gets `shift` 1 while it is shown; the frame's
+`header` captions are not shown. While it shows, the header covers the top 20
+pixels. The browser preview shows the kit without Shift.
+
 ### Encoder activity
 
 With `encoderActivity: 1` the input is `draw::EncoderInput` (or the audio
@@ -560,7 +575,7 @@ loads or automation.
 
 ### The last control touched
 
-A synth's screen can include
+A synth's screen (not an effect's, a kit's or a player's) can include
 [`opxy/control_interaction.hpp`](../sdk/include/opxy/control_interaction.hpp)
 and call `control_interaction::latest(track)` for the last control pressed or
 turned on that track: its physical encoder, parameter and value. Only a build

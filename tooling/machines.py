@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import (AUDIO_SDK, AUDIO_SDK_KEYS, DRUM_KIT_CONTROLS, EXTENDED_SDK, KIT_CONTROLS_SDK, SDK_1_25, extended_display, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
+from .definitions import (AUDIO_SDK, AUDIO_SDK_KEYS, DRUM_KIT_CONTROLS, EXTENDED_SCREENS_SDK, EXTENDED_SDK, KIT_CONTROLS_SDK, SDK_1_25, extended_display, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
@@ -92,7 +92,10 @@ PLAYER_DRAWING_SDK = (1, 26)
 # track stage), stock's output and input levels on a screen, and glyph atlases
 # (docs/display.md). A renumber changes AUDIO_SDK in definitions.py, this line and the
 # "SDK 1.27" text of the docs.
-SDK_VERSION = (1, 27)
+# 1.28 extends extended drawing to a drum kit's screen, with a whole-screen kit whose
+# header shows only while Shift is held, and to a note player's own page
+# (EXTENDED_SCREENS_SDK in definitions.py).
+SDK_VERSION = (1, 28)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -642,6 +645,8 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 7), 'More than %d display text slots' % SDK_1_6_TEXTS)
     if 'display' in definition['resources'] and extended_display(definition['resources']['display']):
         require_sdk(version, EXTENDED_SDK, 'Extended drawing (docs/display.md#extended-drawing)')
+        if kind in ('drum', 'player'):
+            require_sdk(version, EXTENDED_SCREENS_SDK, "Extended drawing on a drum kit's screen or a note player's page")
     if any(k in definition['resources'].get('display', {}) for k in AUDIO_SDK_KEYS):
         require_sdk(version, AUDIO_SDK, "Glyph atlases, a screen's own audio and output levels (docs/display.md)")
     if definition['resources'].get('display', {}).get('nodes', 0) > SDK_1_7_NODES:
