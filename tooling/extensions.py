@@ -32,6 +32,7 @@ RESERVED = {'runtime', 'collection', 'stock', *'''alignas alignof and and_eq asm
 TEXT_LIMITS = {'name': 32, 'description': 140, 'note': 100}
 MAX_EXTENSIONS = 16
 HEADER = 'sdk/include/opxy/extension.hpp'
+DEVICE_IDENTITY_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]opxy/device_identity\.hpp[>"]|\bopxy_device_identity\b', re.M)
 RUNTIME = 'sdk/platform/extension_runtime.hpp'
 SOURCE_SUFFIXES = ('.cpp', '.cc', '.h', '.hpp', '.inc')
 
@@ -262,7 +263,12 @@ def extension_at(folder):
                 'and no other files than README.md and LICENSE')
     for path in root.rglob('*'):
         if path.is_file() and path.suffix in SOURCE_SUFFIXES and '.git' not in path.relative_to(root).parts:
-            validate_source_boundary(path.read_text(encoding='utf-8'), f'{name}/{path.relative_to(root).as_posix()}')
+            text = path.read_text(encoding='utf-8')
+            validate_source_boundary(text, f'{name}/{path.relative_to(root).as_posix()}')
+            # Only a machine can declare the device identity (docs/api.md#device-identity).
+            require(not DEVICE_IDENTITY_INCLUDE.search(text),
+                    f'{name}/{path.relative_to(root).as_posix()}: an extension cannot read the device identity '
+                    '(opxy/device_identity.hpp); only a machine declaring deviceIdentity can')
     return Extension(name, root, tuple(data['claims']), tuple(data['actions']),
                      {k: data[k] for k in TEXT_LIMITS if k in data}, master_filter, drumline_page,
                      tuple(declared), linked, dict(settings))

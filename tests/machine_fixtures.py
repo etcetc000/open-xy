@@ -23,6 +23,8 @@ no machines of its own; these are small, valid folders, not copies of published 
   (SDK 1.19 heap voices); not in NAMES.
 - probestage: a saw whose track stage (SDK 1.24) widens its track's voice sum with a short
   delay; not in NAMES.
+- probeident: a saw that sounds once the audio processor has the device identity (SDK 1.30),
+  whose screen shows the GUI's copy in hex: the device check; not in NAMES.
 """
 from pathlib import Path
 import os
