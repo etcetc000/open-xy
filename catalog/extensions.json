@@ -76,6 +76,16 @@
       "tag": "autotune-v0.2.2",
       "commit": "bac0c7903093a1c1543c2fd8aaeedafd3e38c91b",
       "path": "extensions/autotune"
+    },
+    {
+      "id": "sample_studio",
+      "kind": "extension",
+      "maintainer": "mmockett",
+      "status": "published",
+      "repository": "https://github.com/mmockett/OP-XY-SampleStudio",
+      "tag": "v1.0.0",
+      "commit": "6729f2730817f2869b5f5040efbb554171e83be6",
+      "path": "sample_studio"
     }
   ]
 }
