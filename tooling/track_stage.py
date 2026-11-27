@@ -14,8 +14,8 @@ from .cpu import control_defaults
 from .definitions import ROOT, shift_words
 from .formats import require
 
-# The first SDK version with track stages. A renumber changes this line (and
-# SDK_VERSION in machines.py and the "SDK 1.24" text of docs/api.md).
+# The first SDK version with track stages. A renumber changes this line (and the 1.24
+# line of SDK_VERSION's history in machines.py and the "SDK 1.24" text of docs/api.md).
 TRACK_STAGE_SDK = (1, 24)
 # The hold of a stage that never sleeps (track_stage.hpp kUnbounded).
 UNBOUNDED = 0xffffffff
@@ -58,11 +58,35 @@ def adapter_values(m, shift_row=False):
                              (shift_words(m.definition) or [0] * 8)))
     for key, value in (('PREFIX', m.prefix), ('NAMESPACE', m.definition['id']), ('STATE_BYTES', stage['stateBytes']),
                        ('STATE_ALIGNMENT', stage['stateAlignment']), ('STAGE_WORDS', words), ('STAGE_PARAMETERS', given),
-                       ('STAGE_DEFAULTS', defaults)):
+                       ('STAGE_DEFAULTS', defaults), *audio_values(m).items()):
         require(('@%s@' % key) in source, 'Track stage template placeholder missing')
         source = source.replace('@%s@' % key, str(value))
     # After the template's last line, which keeps its own line end.
     return dict(TRACK_STAGE='\n' + source.rstrip('\n'))
+
+
+def audio_values(m):
+    """A stage declaring audio (SDK 1.27): track_process takes the synth's AudioContext for
+    its track, on the bank its voices publish to (adapters.audio_voice_values), as one more
+    update after the voice loop; the diagnostic's run publishes into scratch words no screen
+    reads, so its publishing is timed. Empty for a stage without it, which keeps its text."""
+    if not track_stage(m).get('audio'):
+        return dict(STAGE_AUDIO_BEGIN='', STAGE_AUDIO_ARGUMENT='', STAGE_AUDIO_END='', STAGE_BENCHMARK_AUDIO='')
+    display = m.definition['resources']['display']
+    count = display['audioWords']
+    reset = bool(display.get('audioReset'))
+    handshake = 'audio_handshake, audio_handshake + 1, audio_handshake + 2' if reset else 'nullptr, nullptr, nullptr'
+    return dict(
+        STAGE_AUDIO_BEGIN=('    auto* audio_bank = sdk_audio.resolve(track);\n'
+                           '    const opxy::AudioContext audio_context = sdk_audio.context(track, audio_bank);\n'
+                           '    sdk_audio.begin(audio_bank);\n'),
+        STAGE_AUDIO_ARGUMENT=', audio_context',
+        STAGE_AUDIO_END='\n    sdk_audio.end(audio_bank);',
+        # With the handshake, one reset is pending (requested 1, applied 0, target 1), so the
+        # first block times the stage's reset branch.
+        STAGE_BENCHMARK_AUDIO=(f'    static volatile u32 audio_words[{count}];\n' +
+                               ('    volatile u32 audio_handshake[3] = {1, 0, 1};\n' if reset else '') +
+                               f'    const AudioContext audio_context(0, audio_words, {count}, {handshake}, 0, true);\n'))
 
 
 def stage_symbols(m):

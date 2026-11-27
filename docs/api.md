@@ -79,7 +79,7 @@ and requires each other machine to fit beside them, as the builder offers it.
 | Synth controls | 4 positions, at most 8 parameters, and a Shift row of at most 8 (SDK 1.13) | The stock four-knob page and eight-word parameter vector; the row takes two spare track words |
 | Sample and effect controls | 1..8 | The stock eight-word parameter vector |
 | Control labels | 8 characters | The stock parameter page |
-| Display shape | ≤ 4 paths of ≤ 64 points, ≤ 512 nodes (more than 256 need `"sdk": "1.8"`), ≤ 16 text slots (more than 4 need `"sdk": "1.3"`), ≤ 16 palette entries; a synth or effect's [extended drawing](display.md#extended-drawing) (`"sdk": "1.20"`) up to 32 paths sharing 256 points | Fixed-size renderer object and frame |
+| Display shape | ≤ 4 paths of ≤ 64 points, ≤ 512 nodes (more than 256 need `"sdk": "1.8"`), ≤ 16 text slots (more than 4 need `"sdk": "1.3"`), ≤ 16 palette entries; a synth's or effect's [extended drawing](display.md#extended-drawing) (`"sdk": "1.20"`; a drum kit's or a note player's page `"1.28"`) up to 32 paths sharing 256 points | Fixed-size renderer object and frame |
 
 `voiceBytes`, `sharedBytes` and display state have no limit of their own
 beyond whole words and module memory. Browser previews run 8 voices in
@@ -446,7 +446,7 @@ A synth declares:
 | `releaseCallback` | Optional integer 0/1 (SDK 1.12): receive the [voice release event](synth-release.md) |
 | `display` | The screen's frame budget; see the [display API](display.md) |
 | `trackControl` | Optional: the [track control](#track-control) state's `stateBytes` and `stateAlignment`, and optionally `unique`, `savedBytes`, `aux` and `sharedLfo` |
-| `trackStage` | Optional (SDK 1.24): the [track stage](#track-stage)'s `stateBytes`, `stateAlignment` and `tailFrames` |
+| `trackStage` | Optional (SDK 1.24): the [track stage](#track-stage)'s `stateBytes`, `stateAlignment` and `tailFrames`, and from SDK 1.27 an optional `audio` |
 
 The SDK never runs constructors or destructors for `Voice`, `Shared` or
 `DisplayState`: their storage starts zeroed and the callbacks set it up.
@@ -562,6 +562,9 @@ void render(Voice& voice, Shared& shared, opxy::u32 owner,
             opxy::Output output, opxy::Parameters parameters, opxy::Pitch pitch);
 ```
 
+A synth declaring [`audioTransport`](display.md#audio-snapshots) (SDK 1.27)
+takes a final `const opxy::AudioContext&` in `render`.
+
 Storage begins zeroed; `owner` is a stable nonzero voice ID, the stock voice
 index plus one. A large voice may declare `static constexpr unsigned
 zeroed_bytes` (a multiple of 4 for word stores) to have only that leading
@@ -644,7 +647,12 @@ aux output and both sends, which all get the processed sum, as from an insert
 before the fader. Stock keeps a synth voice 3 bits below the scale `render`
 writes, so eight voices at half scale sum to about half scale. Keep the stage's
 nominal gain at unity, saturate (the [Q31 helpers](../sdk/include/opxy/q31.hpp)),
-and do not rely on the absolute level.
+and do not rely on the absolute level. A synth's [audio
+snapshots](display.md#audio-snapshots) come from its voices' `render`, before the
+stage. A stage declaring `audio: 1` (SDK 1.27, with the display's `audioTransport`)
+can also publish: `track_process` then takes a final `const opxy::AudioContext&` for
+its track, on the words its voices publish to, after them in the block, so it can
+show the track's own sound on the synth's screen.
 
 `track_process` runs once per block on each instrument track that holds the
 synth, in the same block as its voices: the SDK adds no latency. `track_reset`
@@ -665,6 +673,7 @@ the track's voices stop:
 | --- | --- |
 | `stateBytes`, `stateAlignment` | `TrackState` size (whole words) and alignment (4 or 8), checked against the compiled type |
 | `tailFrames` | Frames the stage can sound after its input stops, at most 2^24 (6.3 minutes), or `"unbounded"` |
+| `audio` | Optional, 0 or 1 (SDK 1.27, needs the display's `audioTransport`): `track_process` takes the synth's `const opxy::AudioContext&` after `voices` ([audio snapshots](display.md#audio-snapshots)) |
 
 While the stage sounds after the track's last voice, stock keeps mixing the
 track as if a voice still played. Once the track has had no voice, and the
@@ -863,10 +872,11 @@ audio side but the silenced CV output.
 
 SDK 1.8 adds `"kind": "drum"`: one registered instrument with independent
 model selection and sound controls on 24 keys. It supplies the synth
-lifecycle, a drawing display, and the same resources plus `modelCount`
-(2..64). Each key holds a model and eight 7-bit controls. A kit of more than
-16 models stores them in a prefix code, which holds at most 15 models that use
-all eight controls (`parameter_count` 8); `sdk.py test --machine` counts them
+lifecycle, a drawing display (from SDK 1.28 an [extended](display.md#extended-drawing)
+one, which may [take the whole screen](display.md#a-whole-screen-drum-kit)), and the
+same resources plus `modelCount` (2..64). Each key holds a model and eight 7-bit
+controls. A kit of more than 16 models stores them in a prefix code, which
+holds at most 15 models that use all eight controls (`parameter_count` 8); `sdk.py test --machine` counts them
 and fails a kit with more; on the device such a kit's keys play their defaults
 and turn nothing. The definition declares
 the eight controls: slots 0..3 on the four encoders and slots 4..7 their
@@ -1494,8 +1504,10 @@ many words the sample needs (0 declines), allocates them from the stock heap
 within that machine's budget, and runs `prepare_step` in bounded chunks on the
 stock file worker until `prepared` publishes the immutable result. Nothing is
 prepared while the sample browser is open, and a sample that does not fit stays
-unanalyzed. Results are released before stock frees the sample. A collection's
-analysis budgets together may not exceed 2 MiB.
+unanalyzed. Results are released before stock frees the sample. Whatever their
+budgets add up to, the analysis machines in a firmware hold at most 2 MiB
+together: a sample that would go over waits, as one over its machine's own
+budget does, until a sample is released.
 
 ### Sample kernel
 
@@ -1694,6 +1706,10 @@ dotted, 1/8, 1/8 dotted, 1/4 and 1/2. `opxy::division(control)` gives the index
 and `opxy::division_sixteenths` the length in sixteenths of a quarter note, and
 the send page shows the length's name in place of the number, as for stock
 delay's Size.
+
+An effect whose page shows its own audio ([audio snapshots](display.md#audio-snapshots),
+SDK 1.27) takes `const opxy::AudioContext&` after `parameters` and publishes
+its send's words there.
 
 `process` writes only the wet return. An effect may declare `dryParameter` in
 `machine.json`, naming a control with a linear 0..1 mapping. The adapter returns
@@ -2042,9 +2058,9 @@ octaves. Hidden nodes move beyond the display.
 
 A player may instead draw its page as a synth draws its screen: declare
 `"resources": {"display": {...}}` with the [display fields](display.md#declaration)
-(plain drawing; the [extended](display.md#extended-drawing) keys are for synths and
-effects), `"sdk": "1.26"`, and supply `display.h` (the `DisplayState` and `Frame`
-types, as a synth's) and `display.cpp`:
+(from SDK 1.28 also the [extended](display.md#extended-drawing) keys), `"sdk": "1.26"`
+(`"1.28"` for an extended display), and supply `display.h` (the `DisplayState` and
+`Frame` types, as a synth's) and `display.cpp`:
 
 ```cpp
 void display_reset(DisplayState&);
@@ -2064,16 +2080,19 @@ player's second page, `line` 1 there), `elapsed`, `track`, the track's
 [amp envelope](display.md#amp-envelope-sdk-110), and `shift` as `Controls.shift`;
 the shift row's values and turns are in `Controls`. `reduced_motion` is 0, the
 drum fields 0. The display resets when its page is shown again or the track
-changes, as a synth's does.
+changes, as a synth's does. With `encoderActivity` the input is
+`draw::EncoderInput`, which `display` takes in place of `draw::Input`.
 
 A one-page player keeps the stock header: its labels, and each value the frame's
 `header` caption or else the amount 0..100. A paged player draws the
 [two-page header](display.md#two-page-header) itself, in its own frame and
 artwork, as a paged synth does; the SDK adds none. No fragment is generated for a player: copy the
 header block, with its cover over the stock header, from the `panel.svg.fragment` of an eight-control
-synth (`sdk.py new --controls 8`), or the stock header's values show beneath its own. `sdk.py test` checks the
-artwork against the declared display and runs the display on the host with
-`player.cpp` over a held key's frames, refusing invalid ones.
+synth (`sdk.py new --controls 8`), or the stock header's values show beneath its own. A `fullCanvas`
+page has no header. `sdk.py test` checks the artwork against the declared display and runs
+the display on the host with `player.cpp` over a held key's frames, refusing
+invalid ones; it also builds the page's browser preview, which the builder shows (with
+Clang's wasm32 target and Node.js, as a synth's preview needs).
 
 Not yet run on a device: the renderer is the dot page's registration and
 compositor path with the synth renderer's frame application, compiled into the

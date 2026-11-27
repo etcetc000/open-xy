@@ -55,6 +55,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
 | Extension events | 8 | Observes live input, stock transport and queued controls for extensions, lets a Record double-tap owner edit notes through stock editing and undo, and lets an extension add [USB host drivers](#usb-host-drivers) while the host stack starts; linked only when an extension is selected |
+| Audio transport | 2 | Runs the SDK's snapshot service after stock's background service on the audio processor (`8c0ba4f4`, stock `8d4d6a10` first) and takes SDK packets before stock's receive between the processors (`8d5b1af4`): only a packet starting with the SDK header (4, then `OXAD`) is taken, every other packet, empty ones included, goes to stock `8d4d669e` with its registers; a taken packet returns 0, which the caller does not read (it reloads R0 at `8d5b17a8`); linked only with a synth or effect declaring [`audioTransport`](display.md#audio-snapshots) |
 | Module | 1 record | One loader block holding the linked module |
 
 The sample rows (sample dispatch, analysis, drum-page services and recorder)
@@ -91,7 +92,23 @@ project companion rows) form the `control` service in the same way: a build
 uses them only when it includes a machine with [track control](api.md#track-control)
 or [hidden pages](api.md#alternate-controls). The aux track rows form the `aux`
 service, used only by a machine that [takes over aux tracks](api.md#aux-tracks).
-[Extended drawing](display.md#extended-drawing) needs no edit: its encoder
+The audio transport rows form the `telemetry` service, used only by a synth or
+effect declaring `audioTransport`. An effect's words are its send's: its
+process finds its send by comparing itself with stock's effect objects of slots
+14 and 15 (`11b01d88 + 4 × track`, read only), and the transport reads them only
+while that slot still holds an object with the effect's method table. The
+service sends its packets with stock's sender between the processors
+(`11a00ec0`, opcode `b5`, endpoint `841460b4`) and its flush (`8c043a24`),
+setting the queue's batch byte (`+172`) for the call and restoring it, the
+only stock memory it writes. It also reads stock's timer (`8d5be290`), the
+audio side's engine per track (`11b01d48`), the audio frame index (`84a50b98`),
+the prepared amplitude (`11903400`), the processor role byte (`86c05ca4`), and,
+before each send, the sender's state, read only: the endpoint's fields at
+`841460b4 + 3f4dd`, `+ 3f4ee`, `+ 3f4ef`, `+ 3f4f0` and `+ 3f4f8`, and the queue object
+`84185824` at `+0`, `+0c`, `+10`, `+14`, `+18`, its opcode bitmap at `+38` and the batch byte.
+[Extended drawing](display.md#extended-drawing) otherwise needs no edit: [output
+levels](display.md#output-levels) read entries 0..2 of stock's GUI level table
+(`080376e4`, read only: output left, output right, the selected input); its encoder
 activity reads stock's per-frame encoder flags (`8d51f1be`, read only), and the
 last control touched is recorded in the existing encoder press and turn hooks,
 compiled in only when a machine includes `opxy/control_interaction.hpp`, reading
@@ -558,6 +575,21 @@ resolved on the loaded kit. Only the screen of a kit declaring SDK 1.21 or later
 (`drum_trigger.cpp`) is the `played_pad` service's, which a build links only
 with such a kit.
 
+A drum kit's [extended](display.md#extended-drawing) screen (SDK 1.28) is drawn by
+the extended renderer
+([`extended_drawing.hpp`](../sdk/platform/opxy-1.2.1/extended_drawing.hpp)) with the
+same kit input as the plain one, from the same calls
+([`kit_screen.hpp`](../sdk/platform/opxy-1.2.1/kit_screen.hpp)). A whole-screen
+kit's display file carries the template's header after the kit's drawing, its
+bar as eight paths `bar_0`..`bar_7`; stock's control binder `8d521704` finds its
+values and titles as on any kit's page. While Shift is not held, the renderer
+clears each bar path's visibility byte (+92, which stock's path draw reads, as
+for an extended display's hidden node) and blanks the eight texts each frame
+after the kit's page has written them. A note player's extended page applies
+its frame with the same retained frame application (`ExtendedRetained`,
+[`extended_retained.hpp`](../sdk/platform/opxy-1.2.1/extended_retained.hpp)) in
+the player's own unit. Neither adds an edit.
+
 Stock paints the screen slots in ascending page order each frame, so page
 numbers are layers. The compositor's loop advance is hooked: when the selected
 page is an owned synth's, it is painted right after slot 0, beneath stock
@@ -968,9 +1000,9 @@ callback only reads published data. Entries are keyed by sample object and
 engine. The GUI marks assigned paths of analysis machines through the cache
 message's priority byte, which carries only "assigned", so the file worker
 prepares each such sample for every registered analysis machine, each within
-its own budget. Browser page 4 suppresses new requests: stock auditions
-replace regions while it is open. Results are released before stock frees the
-PCM object.
+its own budget and all within the 2 MiB they share. Browser page 4 suppresses
+new requests: stock auditions replace regions while it is open. Results are
+released before stock frees the PCM object.
 
 ### Pad settings and the drum page
 

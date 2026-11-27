@@ -7,7 +7,7 @@ const frame=display.tick(shownControls(Array(8).fill(0),[0,1,2,3]),17,0);
 const nodes=Array.from({length:17},()=>({attributes:{stroke:'#12ABEF'},setAttribute(k,v){this.attributes[k]=v;}}));
 const renderer=Object.assign(Object.create(SvgDisplay.prototype),{
   points:4,paths:nodes,nodes,texts:[],keys:Array(17).fill(0),applied:Array(17).fill(''),shown:[],palette:[],fillable:Array(17).fill(false),
-  extended:true,stride:9,concealed:[],authoredVisibility:[],strokeable:Array(17).fill(true),
+  extended:true,stride:9,glyphCount:0,concealed:[],authoredVisibility:[],strokeable:Array(17).fill(true),
   affine:true,cubic:true,openPaths:0,segmentPaths:0,nodesAt:153,nodeWords:8,textsAt:289,headerAt:298,frameWords:306,
 });
 renderer.apply(frame);

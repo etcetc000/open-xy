@@ -434,6 +434,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
     if (m.preview) {
       $('art-caption').textContent = m.preview.kit
         ? 'Play the kit’s keys: each plays its own machine, one hit at a time, and shows it on the screen. The OP–XY’s own effects aren’t included.'
+        : m.preview.player ? 'Play keys to see the player’s page. The preview plays no sound.'
         : 'Audition the sound and screen. The OP–XY’s own envelopes and effects aren’t included.';
     } else {
       $('art-preview').append(node('span', 'No browser preview for this machine yet.', 'art-placeholder'));
@@ -470,6 +471,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         // A drum kit (SDK kits): each key keeps its own model and controls, set up as the kit's
         // drum_defaults sets them; pressing a key selects it, as on the device. Controls are 0..127.
         const kit = m.preview.kit, keys = new Map();
+        // A note player's page (SDK 1.26): its keys run the player itself; nothing sounds.
+        const player = m.preview.player === true;
         let selected = null, names = null;
         const selectKey = key => {
           if (!keys.has(key)) keys.set(key, core.kitKey(display.api, kit, key));
@@ -477,7 +480,7 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           parameters.splice(0, 8, ...selected.controls.map(core.kitWord));
         };
         if (kit) selectKey(53);
-        let serial = 0, previous = 0, handle, cancelled = false;
+        let serial = 0, previous = 0, handle, cancelled = false, steps = 0;
         const noteActivity = new retained.NoteActivity();
         // A small keyboard from middle C: a key plays its note while held. The preview plays
         // one note at a time, the newest held key; letting it go returns to the one before.
@@ -485,20 +488,24 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         const noteNames = ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'], held = [];
         const keyboard = node('div', undefined, 'preview-keys');
         keyboard.id = 'preview-keys'; keyboard.setAttribute('role', 'group'); keyboard.setAttribute('aria-label', 'Preview keyboard');
-        for (const note of kit ? core.KIT_KEYS : Array.from({length:18}, (_, i) => 60 + i)) {
+        // A player's keyboard is the device's live range from its lowest key, F3 to E5, as a kit's.
+        for (const note of kit || player ? core.KIT_KEYS : Array.from({length:18}, (_, i) => 60 + i)) {
           const black = [1, 3, 6, 8, 10].includes(note % 12), name = noteNames[note % 12] + (Math.floor(note / 12) - 1);
           const key = node('button', note % 12 === 0 ? name : undefined, 'preview-key' + (black ? ' black' : ''));
           key.type = 'button'; key.setAttribute('aria-label', name);
           const press = () => {
             if (key.dataset.down === 'true') return;
             if (kit && selected.key !== note) chooseKey(note);
-            key.dataset.down = 'true'; held.push(note); noteActivity.noteOn(note); trigger(); audio.play(note);
+            key.dataset.down = 'true'; held.push(note); noteActivity.noteOn(note);
+            if (player) display.api.opxy_player_press(note, 100);
+            trigger(); audio.play(note);
           };
           const lift = () => {
             if (key.dataset.down !== 'true') return;
             key.dataset.down = 'false';
             const sounding = held.at(-1) === note;
             held.splice(held.indexOf(note), 1);
+            if (player) display.api.opxy_player_release(note);
             noteActivity.noteOff(note); frame(0);
             // A kit's hit plays out, as a kit's voices on the device ignore the key's release.
             if (kit) return;
@@ -515,7 +522,8 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         const volume = node('label', 'Volume', 'audition-volume'), level = node('input');
         level.type = 'range'; level.min = '0'; level.max = '100'; level.value = '50'; level.setAttribute('aria-label', 'Preview volume');
         volume.append(level);
-        const audio = new audition(compiled, voiceWords(), (playing, error) => {
+        const silent = {play() {}, release() {}, stop() {}, destroy() {}, setVolume() {}, setParameters() {}, setModel() {}};
+        const audio = player ? silent : new audition(compiled, voiceWords(), (playing, error) => {
           if (!cancelled) frame(0);
           if (error && ticket === previewRevision) $('art-caption').textContent = 'Audio unavailable: ' + error;
         });
@@ -538,30 +546,59 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
           };
         }
         stopAudio = () => {
+          // A player lets go of every key it holds, as the device's keys would.
+          if (player) for (const note of held) display.api.opxy_player_release(note);
           held.length = 0;
           for (const key of keyboard.children) key.dataset.down = 'false';
           noteActivity.panic(); frame(0); audio.stop();
         };
         level.oninput = () => audio.setVolume(Number(level.value) / 100);
         $('audition-controls').classList.toggle('kit', Boolean(kit));
-        $('audition-controls').append(keyboard, ...(kit ? [model] : []), volume);
+        $('audition-controls').append(keyboard, ...(kit ? [model] : []), ...(player ? [] : [volume]));
         const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+        // An audio or levels display's frame waits for the worklet; elapsed time accumulates meanwhile.
+        let framePending = false, pendingElapsed = 0;
         function frame(dt = 34) {
+          pendingElapsed = Math.min(8192, pendingElapsed + dt);
+          if (framePending || cancelled) return;
+          if (!display.audioWords && !display.outputLevels) return draw(null);
+          framePending = true;
+          audio.takeAudio(display.audioResetRequested(), display.audioResetTarget() || 1).then(draw).catch(error => { if (!cancelled) $('art-caption').textContent = error.message; })
+            .finally(() => { framePending = false; });
+        }
+        function draw(taken) {
+          if (cancelled) return;
+          const dt = pendingElapsed;
+          pendingElapsed = 0;
+          // A player's steps since the last frame, at 480 a second as sdk.py test runs them; the
+          // fraction carries to the next frame. With reduced motion only key presses draw.
+          if (player) {
+            steps = Math.min(64, steps + dt * 480 / 1024);
+            for (; steps >= 1; --steps) display.api.opxy_player_step();
+          }
           const input = shownControls(parameters, shown);
           // The preview is one track: a changing track would tell the machine to start over.
           const row = shiftWords.length ? [0, 0, [0, 0, 0, 0], null, {pan:0, level:0}, 0,
-            {held:0, line:shown.some(slot => slot >= 4) ? 1 : 0, values:shiftWords}] : [];
+            {held:0, line:shown.some(slot => slot >= 4) ? 1 : 0, values:shiftWords}]
+            // A player's line, as on the device: 1 on a paged player's second page.
+            : player ? [0, 0, [0, 0, 0, 0], null, {pan:0, level:0}, shown.some(slot => slot >= 4) ? 1 : 0] : [];
           // A kit's selected key: its model, Shift's choices for it, and its pan, level and pad fields.
           const drum = kit ? [selected.model, 0, core.kitChoices(kit, selected.model, selected.choke), null, core.kitMix(kit),
             shown.some(slot => slot >= 4) ? 1 : 0, null, null, null, core.kitSelectedKey(kit, selected.key)] : [];
-          renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity, ...row, ...drum));
-          // A whole-screen canvas has no header.
-          if (renderer.fullCanvas) { header.innerHTML = ''; return; }
+          // An audio display's snapshot and levels follow every other argument (docs/display.md#audio-snapshots).
+          const rest = display.audioWords || display.outputLevels ? [...(kit ? drum : [...(row.length ? row : [0, 0, [0, 0, 0, 0],
+            null, {pan:0, level:0}, 0, null]), null, null, 0]), taken?.snapshot ?? null, taken?.levels ?? null] : [...row, ...drum];
+          renderer.apply(display.tick(input, dt, serial, 0, reduced.matches, noteActivity, ...rest));
+          // A whole-screen canvas has no header, nor a paged player's page, which draws its own.
+          if (renderer.fullCanvas || player && m.pages) { header.innerHTML = ''; return; }
           // The machine's header text, or the stock header: a synth's percentage of the shown
           // parameter, a kit's model's label and 0..127 value.
           const [titles, values] = kit ? core.kitHeader(names, selected.controls, shown)
-            : [shown.map(slot => m.controls[slot].toLowerCase()), shown.map(slot => String(Math.round(parameters[slot] / 0x7fffffff * 100)))];
-          header.innerHTML = retained.headerSvg(titles, values.map((value, i) => renderer.header[i] || value));
+            : [shown.map(slot => m.controls[slot].toLowerCase()),
+               // A player's absent slot (empty name) keeps an empty value, as on the device.
+               shown.map(slot => player && m.controls[slot] === '' ? '' : String(Math.round(parameters[slot] / 0x7fffffff * 100)))];
+          header.innerHTML = retained.headerSvg(titles, values.map((value, i) =>
+            player && m.controls[shown[i]] === '' ? '' : renderer.header[i] || value));
         }
         const controls = m.controls.map((name, i) => {
           const label = node('label', undefined, 'preview-control'), input = node('input');
@@ -596,9 +633,12 @@ export async function createBuilder({core = Core, wizardApi = Wizard, retained =
         if (kit) syncControls();
         $('controls').replaceChildren(...controls);
         const trigger = () => { serial = serial + 1 >>> 0; frame(0); };
-        canvas.setAttribute('role', 'button'); canvas.setAttribute('tabindex', '0'); canvas.setAttribute('aria-label', 'Trigger ' + m.name + ' display preview');
-        canvas.onclick = trigger; canvas.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(); } };
-        frame(0); trigger();
+        // A player's page sees notes only from its keys, as on the device: its screen triggers nothing.
+        if (!player) {
+          canvas.setAttribute('role', 'button'); canvas.setAttribute('tabindex', '0'); canvas.setAttribute('aria-label', 'Trigger ' + m.name + ' display preview');
+          canvas.onclick = trigger; canvas.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(); } };
+        }
+        frame(0); if (!player) trigger();
         function animate(time) {
           if (cancelled) return;
           if (time - previous >= 32 && !document.hidden && !document.querySelector('[data-page="2"]').hidden) {

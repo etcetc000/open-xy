@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '1bad5bdbf79ade17ef46bb0a668787cdb359254329809d888e953e1311b22bd1';
+export const PROFILE_SHA256 = '7a8785783ad28bdb31eb2c5327b48a115a8eda0b9f0753d4e0dc2fff0bd51f0c';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -157,6 +157,20 @@ const fits = (requested, numbers) => Object.keys(requested).length === Object.ke
 // as tooling/device.py assumes the device's FAT storage does.
 // tooling.screen.CANVAS: a whole-screen canvas's display file before its artwork.
 const CANVAS_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220"></svg>';
+// tooling.screen.kit_header: the template's header over a whole-screen drum kit's drawing,
+// which its screen shows only while Shift is held: the bar's eight blocks as paths bar_0..bar_7,
+// then the template's values and titles groups as they are.
+export function canvasKitHeader(template) {
+  const bar = /<g id="bar">([\s\S]*?)<\/g>/.exec(template);
+  const blocks = bar ? [...bar[1].matchAll(/<rect\b([^>]*)\/>/g)].map((block, i) => {
+    const attribute = name => new RegExp(String.raw`\s` + name + '="([^"]*)"').exec(block[1])?.[1];
+    const x = Number(attribute('x') ?? 0), width = Number(attribute('width')), height = Number(attribute('height'));
+    return `<path id="bar_${i}" d="M${x} 0L${x + width} 0L${x + width} ${height}L${x} ${height}Z" fill="${attribute('fill')}"/>`;
+  }) : [];
+  const start = template.indexOf('<g id="values">'), end = template.lastIndexOf('</svg>');
+  check(blocks.length === 8 && start > 0 && end > start, 'Unexpected screen template header');
+  return '<g id="bar">' + blocks.join('') + '</g>\n  ' + template.slice(start, end);
+}
 export const machineContentPaths = id => [`content/display/${id}.svg`, `content/presets/${id}`,
   `content/samples/${id}`, `content/aux_presets/${id}`];
 export function stockContentFile(profile, path) {
@@ -1475,9 +1489,11 @@ export async function buildAssets(kit, selection, catalog, numbers, options = {}
       check(files['content/display/' + m.asset] === undefined, 'Display asset collision: ' + m.asset);
       try {
         const fragment = selectArtwork(m, graphicsForMachine(m, {graphics, graphicsOverrides}));
-        // A whole-screen canvas (fullCanvas) leaves the stock header out (tooling.screen.compose).
+        // A whole-screen canvas (fullCanvas) leaves the stock header out, and a drum kit's
+        // carries it over its drawing for its Shift page (tooling.screen.compose).
         check(m.fullCanvas === undefined || m.fullCanvas === 0 || m.fullCanvas === 1, 'Invalid full canvas flag');
-        const artwork = (m.fullCanvas === 1 ? CANVAS_SVG : baseSvg).replace('</svg>', fragment + '</svg>');
+        const header = m.fullCanvas === 1 && m.kind === 'drum' ? canvasKitHeader(baseSvg) : '';
+        const artwork = (m.fullCanvas === 1 ? CANVAS_SVG : baseSvg).replace('</svg>', fragment + header + '</svg>');
         files['content/display/' + m.asset] = utf8.encode(artwork);
       } catch (error) {
         throw new Error('Could not prepare ' + m.id + ' graphics: ' + error.message + '. Keep this machine’s original design or use corrected artwork.');

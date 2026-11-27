@@ -1,0 +1,5 @@
+<g id="probeplayer_panel">
+  <path id="probeplayer_node_0" d="M-200 0 C-80 -40 80 -40 200 0" fill="none" stroke="#78c8ff" stroke-width="2"/>
+  <circle id="probeplayer_node_1" cx="0" cy="0" r="4" fill="#ffffff" stroke="#ffffff" stroke-width="1"/>
+  <text id="probeplayer_text_0" transform="matrix(1 0 0 1 20 200)" fill="#CBCBCB" font-family="UniversNextPro-Light" font-size="10px">0</text>
+</g>
