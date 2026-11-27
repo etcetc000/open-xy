@@ -554,22 +554,21 @@ const exclusiveUses = e => [...(e.claims ?? []), ...(e.drumline_page ? ['drumlin
   ...(e.sample_studio ? ['sample_studio'] : []), ...Object.keys(e.settings ?? {}).map(c => 'setting:' + c)];
 
 // A claim (an exclusive control such as Record double-tap) two extensions share, if any.
-// Sample Studio's player takes the master EQ call and the B3 receiver, which master
-// processors use, so the two share 'master_bus' (tooling.extensions.check_collection).
+// Sample Studio and a master processor share the master bus's calls through one handler
+// (master_bus.cpp), so they are no claim of each other's.
 export function sharedClaim(extensions) {
   const seen = new Set();
   for (const e of extensions) for (const claim of exclusiveUses(e)) {
     if (seen.has(claim)) return claim;
     seen.add(claim);
   }
-  if (extensions.some(e => e.sample_studio) && extensions.some(processorOf)) return 'master_bus';
   return null;
 }
 
 // The registry's label for a claim, as the kit carries it with each extension.
 export const claimLabel = (extensions, claim) =>
   extensions.map(e => claim.startsWith('setting:') ? e.settings?.[claim.slice(8)]?.label : e.claim_labels?.[claim])
-    .find(Boolean) ?? ({drumline_page: 'Drumline page 2', sample_studio: 'Sample Studio', master_bus: 'the master bus'}[claim] ??
+    .find(Boolean) ?? ({drumline_page: 'Drumline page 2', sample_studio: 'Sample Studio'}[claim] ??
       claim.replace(/^setting:/, '').replaceAll('_', ' '));
 
 // Every extension choice a build can make, in collection order: each subset
@@ -706,7 +705,8 @@ export async function openKit(kit) {
       const data=decode64(f.artwork);
       check(data.length>0 && data.length<=65536 && await sha256(data)===f.sha256, 'Master filter artwork differs');
     }
-    // Sample Studio (tooling.extensions): linked code, its page artwork, never a master processor.
+    // Sample Studio (tooling.extensions): linked code and its page artwork; an extension is not
+    // both it and a master processor.
     if (e.sample_studio !== undefined) {
       const st = e.sample_studio;
       check(st && typeof st === 'object' && Object.keys(st).sort().join() === 'artwork,asset,sha256' &&

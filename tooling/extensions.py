@@ -388,8 +388,6 @@ def check_collection(extensions):
     require(len(pages) <= 1, f'{DRUMLINE_PAGE_LABEL} has multiple owners: ' + ', '.join(pages))
     studios = [e.id for e in extensions if e.sample_studio]
     require(len(studios) <= 1, 'Sample Studio has multiple owners: ' + ', '.join(studios))
-    # Its player hooks the master EQ call and the B3 receiver, the master processor's sites.
-    require(not (studios and processors), 'Sample Studio and a master processor share hook sites; build them apart')
     return extensions
 
 
@@ -505,7 +503,7 @@ def metadata(extensions, origins):
             # (builder/core.mjs exclusiveUses).
             row['drumline_page'] = True
         if e.sample_studio:
-            # Exclusive too, and never beside a master processor; the builder installs its artwork.
+            # Exclusive too; the builder installs its artwork.
             data = (e.root / SAMPLE_STUDIO_ARTWORK).read_bytes()
             row['sample_studio'] = dict(asset=SAMPLE_STUDIO_ARTWORK, artwork=base64.b64encode(data).decode('ascii'),
                                         sha256=hashlib.sha256(data).hexdigest())

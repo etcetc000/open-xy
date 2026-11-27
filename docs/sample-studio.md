@@ -41,9 +41,10 @@ extern const studio::Player player = {receive, mixer_begin, voice, track_gain, t
 }}}
 ```
 
-One extension per build declares it, and not beside a master processor: both
-use the master EQ call and the B3 receiver. The build also needs a sample-family
-machine or a `drumline_page` extension, for the samples service.
+One extension per build declares it, and it can sit beside a master processor:
+the two share the master EQ call and the B3 receiver through one handler (see
+[Sites](#sites)). The build also needs a sample-family machine or a
+`drumline_page` extension, for the samples service.
 
 ## The editor
 
@@ -117,7 +118,17 @@ All OS 1.2.1, in [`profiles/opxy-1.2.1.json`](../profiles/opxy-1.2.1.json):
   (`sample_studio_audio.cpp`). With the device identity in the build, its
   receiver runs first and hands the studio every number it doesn't own. The B3
   ranges are stock's 0 to 3, the master processor's 128 to 137, the device
-  identity's 138 to 145 and Sample Studio's 146 to 160;
+  identity's 138 to 145 and Sample Studio's 146 to 160. Beside a master
+  processor, the shared handler (`master_bus.cpp`) runs the master processor's
+  stage, which is stock's EQ while it has none selected, then the player, as
+  stock's EQ then the player without one. So the studio's dry audition is never
+  filtered by a master processor, as it is never EQ'd, while its send returns,
+  already on the bus, are, as every track's are. Prints record the player's dry
+  audio and the send returns, never the master bus, so a master processor
+  never reaches a saved file. The handler is compiled only for a collection with
+  both, whose two units then name their entries apart; a selection with one of
+  them resolves the other's to `kit_absent`, and a collection with one of them
+  builds as before;
 - service `mixer`: four sites in stock's mixer (a track's voice loop, each
   rendered voice, the track gain and the send loops' end), shared with the
   per-key sends (`mixer_hooks.s`, `mixer.cpp`). A build with the mixer and no
@@ -129,5 +140,5 @@ aren't linked, and the mixer only for a `padMix` kit or a `drumline_page`
 extension.
 
 The browser builder does the same: it links the studio when its extension is
-chosen, installs its artwork, refuses a second studio or a master processor
-beside it, and asks for a sample engine or Drumline page 2.
+chosen, installs its artwork, refuses a second studio, and asks for a sample
+engine or Drumline page 2.
