@@ -95,7 +95,11 @@ PLAYER_DRAWING_SDK = (1, 26)
 # 1.28 extends extended drawing to a drum kit's screen, with a whole-screen kit whose
 # header shows only while Shift is held, and to a note player's own page
 # (EXTENDED_SCREENS_SDK in definitions.py).
-SDK_VERSION = (1, 28)
+# 1.29 adds more one-instruction helpers to opxy/q15.hpp (half, subtract_wrapped and the pair
+# helpers pack, low, high, multiply_pair, add_pair) and an arithmetic shift by a signed count,
+# shift, to opxy/q31.hpp. A renumber changes this line, SDK_VERSION and the "SDK 1.29" text of
+# those headers, docs/api.md (its CPU notes and the sdk row) and tests/test_fixed_point_helpers.py.
+SDK_VERSION = (1, 29)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}

@@ -135,9 +135,19 @@ host does fast and the Blackfin does not:
   instructions on the device. All give the same results on the host. None
   reads or sets the rounding mode: `multiply_nearest` rounds an exact tie in
   the processor's current mode (unbiased, to even, after reset; the host
-  always rounds to even), so do not depend on which way a tie falls. The two
-  namespaces share names, so call these qualified (`q15::saturate`,
-  `q31::saturate`).
+  always rounds to even), so do not depend on which way a tie falls. SDK 1.29
+  adds more of the processor's own operations, one instruction each: `q15::half`,
+  `q15::subtract_wrapped` (wraps instead of saturating), `q31::shift` (an
+  arithmetic shift by a signed count, -31..31: right when negative, wrapping
+  left when positive), and pairs, two 1.15 values in one word such as a stereo
+  frame: `q15::pack`, `low`, `high`, `multiply_pair` (both halves times one
+  value, truncating as `multiply` does) and `add_pair` (saturating per half);
+  `low` and `high` are plain C. Call these instead of writing inline assembly:
+  every assembly statement in the two headers declares the arithmetic flags
+  (ASTAT and CC) changed, except `q31::add` (ASTAT only) and `product` (none),
+  so code that moves from the same instruction written out with the same
+  declarations keeps its object code. The two namespaces share names, so call
+  these qualified (`q15::saturate`, `q31::saturate`).
 - **64-bit arithmetic** and floating point may need software helpers. The
   build links only the required authenticated [arithmetic runtime](toolchain.md)
   members; their code counts toward module memory.
@@ -1785,7 +1795,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.28 and builds 1.0 to 1.28 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.29 and builds 1.0 to 1.29 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
