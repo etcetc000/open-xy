@@ -577,11 +577,10 @@ test("a pack player declaring its track instrument links the carried unit alone,
     'sdk/control.o', 'sdk/aux.o', 'sdk/absent.o', 'sdk/runtime/_divsi3.o']);
   assert.ok(!candidate.objects.some(o => o.name === 'sdk/played_pad.o' || o.name === 'sdk/kit_controls.o'));
   assert.equal(candidate.serviceFallbacks, undefined);
-  // Only a selection with that player links it; the site's player alone links what the site does.
+  // Only a selection with that player links its service; every selection links the reshaped startup.
   assert.ok(linkKit(candidate, ['a', 'another']).globals.has('svc_track_instrument'));
-  assert.ok(!linkKit(candidate, ['a', 'sitep']).globals.has('svc_track_instrument'));
-  const site = await openKit(base);
-  assert.deepEqual(linkKit(candidate, ['a', 'sitep']).module, linkKit(site, ['a', 'sitep']).module);
+  const own = linkKit(candidate, ['a', 'sitep']);
+  assert.ok(!own.globals.has('svc_track_instrument') && own.globals.has('start_ci') && !own.globals.has('start'));
   // With the kit controls too: the header's reshaped startup has no variant for that build, so the
   // kit is refused rather than linked with the site's startup; with one, it is swapped in.
   kitControls(pack.machines[0]);

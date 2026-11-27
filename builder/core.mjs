@@ -1909,7 +1909,8 @@ function validVariants(kit) {
       o.builds.every(b => Object.keys(b).every(key => key === 'defines' || key === 'headers') &&
         within(b.defines, site.defines, v.build.defines) &&
         // A site object's variant is never built as the site's own object was.
-        !(base && b.headers === undefined && within(b.defines, site.defines, [])) &&
+        !(base && within(b.defines, site.defines, []) && within(b.headers ?? [],
+          (site.headers ?? []).filter(h => (v.shapes[h] ?? []).includes(o.name)), [])) &&
         (b.headers === undefined || b.headers.length > 0 && within(b.headers, [], PACK_HEADERS) &&
           b.headers.every(h => (v.shapes[h] ?? []).includes(o.name))));
     // No two objects of one name for one build.
