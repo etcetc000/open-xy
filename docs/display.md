@@ -204,8 +204,8 @@ Machines reading the played-pad snapshot declare SDK 1.21 or newer. Browser
 hosts pass `{key, model, controls}` as the optional fifteenth argument to
 `PreviewDisplay.tick`, after `amp`, `mix`, `line`, `shiftRow` and `encoders`; omission clears the snapshot.
 They pass a 1.23 kit's selected key, 0..23, as the optional sixteenth (the
-builder's kit preview gives the key last pressed); omission gives 0. An
-extended display's [audio snapshot](#audio-snapshots) and
+builder's kit preview gives the key last pressed); omission gives 0. A synth's
+or an effect's extended display's [audio snapshot](#audio-snapshots) and
 [levels](#output-levels) follow as the seventeenth and eighteenth.
 
 A screen that draws its own header (the two-page header) shows the Shift

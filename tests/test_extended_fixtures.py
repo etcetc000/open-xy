@@ -69,7 +69,8 @@ class ExtendedFixtures(unittest.TestCase):
     def test_each_display_compiles_against_its_generated_input(self):
         # Effects have no browser preview: this is where an effect page's display meets the
         # input type its declaration generates, before a device build.
-        for name in EXTENDED:
+        # A player's page is its own unit, compiled in test_extended_screens.PlayerPage.
+        for name in (name for name in EXTENDED if SCREEN_UNIT.get(name) is None):
             m = fixture(name)
             with self.subTest(name=name), tempfile.TemporaryDirectory() as temp:
                 adapters.generate_display(Path(temp), machine=m)
