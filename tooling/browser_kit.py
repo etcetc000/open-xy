@@ -214,6 +214,9 @@ def unit_sources(output, tools, compiler, profile, machines, objects):
 def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, personal=False, compiler=None):
     profile, machines, definitions = native.configuration(native.package_collection(package))
     refuse_adapter_capabilities(native.extensions_of(machines))
+    manifest = document(Path(package) / 'manifest.json')
+    require(not manifest.get('collection_probe', False), 'Collection-probe builds cannot be exported as browser kits')
+    require(not manifest.get('collection_loader', False), 'Resident-loader builds cannot be exported as browser kits')
     sources = catalog_sources(machines, personal)
     require(sha(stock_catalog) == profile['stock_catalog_sha256'], 'Stock catalog hash mismatch')
     runtime_members = document(package / 'analysis/compile-report.json').get('runtime', [])
@@ -289,7 +292,7 @@ def write_builder(kit, output):
     imports = ("import {createGraphicsConfiguration} from './graphics-configuration.mjs';\n"
                "import {createSnapshotService} from './machine-snapshots.mjs';\n"
                "import {createGraphicsDialog} from './graphics-dialog.mjs';\n"
-               "import * as Core from './core.mjs';\nimport * as Wizard from './wizard.mjs';\n"
+               "import * as Core from './core.mjs';\nimport * as Manager from './manager.mjs';\nimport * as Wizard from './wizard.mjs';\n"
                "import * as Retained from '../sdk/browser/display.mjs';\n"
                "import * as Visuals from './visuals.mjs';\n"
                "import {editedShown, shownControls} from '../sdk/browser/controls.mjs';\n"
@@ -328,10 +331,11 @@ def write_builder(kit, output):
         'export ', '') + '\nreturn {createWizard};\n})();\n'
     audition = read(ROOT / 'builder/audition.mjs').decode('utf-8')
     audition_imports = ("import engineSource from '../sdk/browser/engine.mjs?raw';\n"
+                        "import effectSource from '../sdk/browser/effect.mjs?raw';\n"
                         "import processorSource from '../sdk/browser/processor.mjs?raw';\n")
     require(audition.startswith(audition_imports), 'Unexpected audition imports')
     bundled += 'const Audition = (() => {\n'
-    for variable, file in [('engineSource', 'engine.mjs'), ('processorSource', 'processor.mjs')]:
+    for variable, file in [('engineSource', 'engine.mjs'), ('effectSource', 'effect.mjs'), ('processorSource', 'processor.mjs')]:
         bundled += 'const ' + variable + '=' + json.dumps(read(ROOT / 'sdk/browser' / file).decode('utf-8')) + ';\n'
     bundled += audition[len(audition_imports):].replace('export ', '') + '\nreturn Audition;\n})();\n'
     bundled += read(ROOT / 'builder/browser.mjs').decode('utf-8').replace('export ', '') + '\n'
@@ -350,6 +354,8 @@ def write_builder(kit, output):
         require(source.startswith(module_imports), 'Unexpected browser imports: ' + file)
         bundled += ('const ' + factory + ' = (() => {\n' + bindings + '\n' +
                     source[len(module_imports):].replace('export ', '') + '\nreturn ' + factory + ';\n})();\n')
+    bundled += 'const Manager = (() => {\n' + read(ROOT / 'builder/manager.mjs').decode('utf-8').replace(\
+        'export ', '') + '\nreturn {mount};\n})();\n'
     bundled += app[len(imports):].replace('export ', '') + '\nawait createBuilder({audition:Audition});\n'
     # Include attribution even when refreshing a kit exported before device setup existed.
     kit = dict(kit)

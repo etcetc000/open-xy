@@ -4,6 +4,35 @@ import {BUSY, Device, container, objectInfo, ptpString, readString} from '../bui
 
 import {fakeDevice} from './fixtures/mtp.mjs';
 
+test('regular OP-XY still-image MTP supports collection write and readback', async () => {
+  const {device, state} = fakeDevice({files: {'projects/existing.xy': Uint8Array.of(7)}});
+  device.vendorId = 0x2367; device.productId = 0x0021;
+  await device.selectConfiguration(1);
+  Object.assign(device.configuration.interfaces[0].alternate,
+    {interfaceClass: 6, interfaceSubclass: 1, interfaceProtocol: 1});
+  const mtp = new Device(device), bytes = Uint8Array.of(1, 2, 3);
+  await mtp.open();
+  await mtp.send('projects/openxy/collection.oxc', bytes);
+  assert.deepEqual(await mtp.read('projects/openxy/collection.oxc'), bytes);
+  await mtp.close();
+  assert.deepEqual(state.read('projects/existing.xy'), Uint8Array.of(7));
+});
+
+test('still-image interfaces require the exact OP-XY and MTP interface descriptors', async () => {
+  for (const change of [{productId: 1}, {vendorId: 1}, {interfaceSubclass: 2}, {interfaceProtocol: 2}]) {
+    const {device, state} = fakeDevice();
+    device.vendorId = 0x2367; device.productId = 0x0021;
+    await device.selectConfiguration(1);
+    const alternate = device.configuration.interfaces[0].alternate;
+    Object.assign(alternate, {interfaceClass: 6, interfaceSubclass: 1, interfaceProtocol: 1});
+    for (const [key, value] of Object.entries(change))
+      (key.startsWith('interface') ? alternate : device)[key] = value;
+    await assert.rejects(new Device(device).open(), /MTP/);
+    assert.deepEqual(state.ops, []);
+    assert.equal(state.opened, false);
+  }
+});
+
 test('reads the original OS in chunks without using any write operations', async () => {
   const path = 'upgrade/firmware/blackfin/bin/os.ldr';
   const bytes = Uint8Array.from({length: 3 * 1024 * 1024 - 12}, (_, i) => i * 13);

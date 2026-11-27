@@ -73,6 +73,8 @@ def check_patch_boundaries(profile, count):
         if kind == 'hook':
             require(isinstance(patch.get('symbol'), str) and patch['symbol'] and type(patch.get('call')) is bool,
                     'A hook names its module symbol and call/jump form')
+        require('absolute_jump' not in patch or (kind == 'hook' and patch['absolute_jump'] is True
+                and patch['call'] is False and patch['length'] == 8), 'Invalid absolute jump hook policy')
         # A site several services need has one hook (firmware.hook_symbol): `symbols` maps
         # each service to the handler a build with it enters, the first active one winning.
         # Whenever the record's service is active one of them is, so `symbol` is one of them.

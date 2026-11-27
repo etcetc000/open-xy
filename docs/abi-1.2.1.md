@@ -992,7 +992,12 @@ are retained per track/key because stock can construct a pending voice even
 after its note-off. A new ordinary manual note clears only its matching slot.
 
 The factory matches the parent note's identity and manual provenance, then
-copies the snapshot into the voice. Subsequent cuts cannot move that audition's
+copies the snapshot into the voice. The shared track/key table stores only raw
+ranges when no compiled sample machine declares `sliceTiming`; otherwise it
+also retains the processed clock's settings and parameters. The complete
+collection determines this storage, including machines a browser kit may
+select later. Packet format, validation and deferred-note lifetime are the same
+in both cases. Subsequent cuts cannot move that audition's
 playhead; later control and tempo edits apply to the next audition. Scoped
 source note-on/off calls preserve the source pad through stock keyboard
 remapping and project transpose. Ordinary and sequencer notes retain their

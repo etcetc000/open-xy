@@ -17,10 +17,9 @@ extern "C" bool sdk_drum_kit_readout(opxy::u32 track, opxy::u32 position, opxy::
 extern "C" void sdk_sample_overview_update(opxy::u32) __asm__("sdk_sample_overview_update");
 
 namespace opxy { namespace screen { namespace {
-// One typed GUI state, input and frame; never accessed by audio callbacks.
+// Persistent GUI state and frame; callback input is rebuilt on the GUI stack.
 binding::DisplayState display_state;
 u32 display_activation;
-draw::Input display_input;
 binding::Frame display_frame;
 
 // The track's note-start counter: stock counts live and sequenced note starts
@@ -134,6 +133,7 @@ template <class Machine> struct Drawing {
             display_activation = activation;
             played.valid = 0;
         }
+        draw::Input display_input = {};
         for (u32 i = 0; i < page_controls; ++i) {
             display_input.parameters[i] = controls.values[i];
             display_input.shown[i] = controls.shown[i];

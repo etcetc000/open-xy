@@ -11,6 +11,7 @@ object layouts, method tables, storage, registration and menu entries:
 import copy
 import json
 import math
+import re
 from pathlib import Path
 
 from .benchmark import append_callback
@@ -76,7 +77,7 @@ def idle_values(m, drum, idle, output_frames='opxy::block_frames', voice_of_held
             .replace('@VOICE_OF_HELD@', voice_of_held).replace('@SETTLES@', settles) for key, text in pieces.items()}
 
 
-def generate_voice(directory, m, sweep=False, idle=False):
+def generate_voice(directory, m, sweep=False, idle=False, benchmark=True):
     """The native machine object, method table and voice pool for a synth. In a sweep
     build (benchmark.cpp.in) its voices render with the swept controls while a sweep run
     of this machine is active; other builds' voices never look."""
@@ -154,7 +155,7 @@ def generate_voice(directory, m, sweep=False, idle=False):
     values.update(idle_values(m, m.kind == 'drum', idle, values.get('OUTPUT_FRAMES', 'opxy::block_frames'),
                               values.get('VOICE_OF_HELD', 'slot->voice')))
     path = expand('drum_voice.cpp.in' if m.kind == 'drum' else 'voice.cpp.in', values, Path(directory) / 'voice.cpp')
-    return append_callback(path, m) if m.kind == 'drum' else path
+    return append_callback(path, m) if benchmark and m.kind == 'drum' else path
 
 
 # The idle cut's pieces of the synth voice adapter (voice.cpp.in), in builds with idle.
@@ -742,11 +743,13 @@ def generate_screen_order(directory):
     return expand('screen_order.cpp.in', RELOCATED, Path(directory) / 'screen_order.cpp')
 
 
-def generate_screen(directory, m):
+def generate_screen(directory, m, artwork=None):
     """The machine's renderer: its display shape and artwork IDs as data for the
     SDK renderer (screen_drawing.hpp), and its exported screen symbols. Compiled
     after the display binding it includes."""
     from .native import display_ids
+    if artwork is not None:
+        require(re.fullmatch(r'openxy-[0-9a-f]{64}\.svg',artwork) is not None, 'Invalid content-addressed artwork')
     ids = display_ids(m.prefix, m.definition['resources']['display'])
     table = ''.join(f'    "{name}",\n' for name in ids)
     if extended_display(m.definition['resources']['display']):
@@ -771,7 +774,7 @@ struct Machine {{
 const char* const Machine::ids[{len(ids)}] = {{
 {table}}};
 }}
-OPXY_SCREEN(opxy::screen::Drawing<Machine>, "{m.prefix}", "{m.native_name}.svg", {RELOCATED['PAGE_LIMIT']}, {screen_bytes(m)})
+OPXY_SCREEN(opxy::screen::Drawing<Machine>, "{m.prefix}", "{artwork or m.native_name+'.svg'}", {RELOCATED['PAGE_LIMIT']}, {screen_bytes(m)})
 '''
     destination = Path(directory) / 'screen.cpp'
     destination.write_text(source, encoding='utf-8', newline='\n')
@@ -843,6 +846,15 @@ def generate_sample_voice(directory, m, benchmark=False):
     values['REFUSAL_DEFINITIONS'] = sample_refusal(m.prefix, values['STEREO']) if refusing else ''
     path = expand('sample_voice.cpp.in', values, Path(directory) / f'sample_voice_{m.prefix}.cpp')
     return append_callback(path, m) if benchmark else path
+
+
+def generate_sample_slice_bridge(directory, machines):
+    """Size frozen slicer snapshots for every machine the collection can link."""
+    timing = any(m.kind == 'sample' and m.definition['resources'].get('sliceTiming', 0) for m in machines)
+    path = Path(directory) / 'sample_slice_bridge.cpp'
+    path.write_text(f'#define OPXY_SAMPLE_SLICE_TIMING {int(timing)}\n'
+                    '#include "drum_controls_stock.cpp"\n', encoding='utf-8', newline='\n')
+    return path
 
 
 def generate_sample_callbacks(directory, machines):
@@ -1271,7 +1283,7 @@ def catalog_entry(m):
 
 
 
-def generate_player_object(directory, m):
+def generate_player_object(directory, m, artwork=None):
     """A player's stock object methods around its press and release, and its own page: the SDK's
     dot page (screen_player.hpp), or the one its display draws (SDK 1.26, screen_player_drawing.hpp)."""
     from .native import player_header_ids, player_page_ids
@@ -1304,6 +1316,11 @@ def generate_player_object(directory, m):
             page = (TEMPLATES / 'player_page.cpp.in').read_text(encoding='utf-8')
             # A paged player's page also drives the two-row header in its artwork (native.page_artwork).
             ids = player_page_ids(p) + (player_header_ids(p + '_header') if paged(m.definition) else [])
+        if artwork is not None:
+            require(re.fullmatch(r'openxy-[0-9a-f]{64}\.svg', artwork) is not None,
+                    'Invalid content-addressed player artwork')
+            require(page.count('"@NAME@.svg"') == 1, 'Changed player artwork boundary')
+            page = page.replace('"@NAME@.svg"', json.dumps(artwork))
         fields.update(IDS='\n'.join(f'    "{name}",' for name in ids), ID_COUNT=str(len(ids)))
         for key, value in fields.items():
             page = page.replace('@' + key + '@', value)

@@ -90,13 +90,18 @@ class ExperimentalMemory(unittest.TestCase):
         self.assertEqual(python, browser)
         self.assertEqual(self.profile, config())  # the reviewed profile is not changed
 
-    def test_sdk_builds_refuse_a_layout_that_asks_for_it(self):
+    def test_sdk_builds_require_explicit_matching_expanded_memory(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'layout.json'
-            path.write_text(json.dumps(dict(layout_document({}), memory='expanded', reserved_bytes=4 * 1024 * 1024)), encoding='utf-8')
+            expanded = layout_document({}, expanded_memory=True)
+            path.write_text(json.dumps(expanded), encoding='utf-8')
             with self.assertRaisesRegex(ValueError, 'experimental memory'):
                 read_layout(path, build=True)
+            self.assertEqual(read_layout(path, build=True, expanded_memory=True), {})
             self.assertEqual(read_layout(path), {})  # project companions need only the numbers
+            path.write_text(json.dumps(dict(expanded, reserved_bytes=5 * 1024 * 1024)), encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, 'matching layout'):
+                read_layout(path, build=True, expanded_memory=True)
             # An integral float reads as the builder reads it; Infinity and NaN do not.
             for reserved, ok in ((4194304.0, True), (float('inf'), False), (float('nan'), False), (4194304.5, False), (10 ** 400, False),  # Infinity in JavaScript
                                  (2 ** 60 + 1, True)):  # rounds to 2**60, as in JavaScript

@@ -58,7 +58,8 @@ def filled_early(plain):
     """Whether the plain renderer's animate touches its input before the first page_controls
     loop, where input_fill does not look."""
     body = plain[plain.index('static void animate('):]
-    return 'display_input' in body[:body.index('for (u32 i = 0; i < page_controls; ++i) {')]
+    before_fill = body[:body.index('for (u32 i = 0; i < page_controls; ++i) {')]
+    return 'display_input' in before_fill.replace('draw::Input display_input = {};', '')
 
 
 def unexpected(plain, extended):

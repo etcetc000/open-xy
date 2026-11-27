@@ -32,7 +32,7 @@ HOST_CXX = host_compiler()
 
 @unittest.skipUnless(HOST_CXX, 'No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
 class SampleServices(unittest.TestCase):
-    def run_fixture(self, name, extra=(), defines=()):
+    def run_fixture(self, name, extra=(),loader=False,defines=()):
         with tempfile.TemporaryDirectory(prefix='sample-services-') as folder:
             binary = Path(folder) / (name + ('.exe' if os.name == 'nt' else ''))
             hidden = dict(creationflags=subprocess.CREATE_NO_WINDOW) if os.name == 'nt' else {}
@@ -90,10 +90,11 @@ class SampleServices(unittest.TestCase):
                     (ROOT / 'tests/fixtures/amp_envelope_host.hpp').read_bytes())
             if name == 'startup':
                 generate_startup(folder, ['first', 'second', 'sampled', 'drawn'], ['effect'], ['sampled', 'drawn'], ['drawn'],
-                                 effect_screens=['effect'], player_pages=['player'], control=True)
+                                 effect_screens=['effect'], player_pages=['player'], control=True, collection_loader=loader)
             # A fixture that includes barrier.hpp supplies host_barrier for the Blackfin SSYNC.
             command = [HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-D__builtin_bfin_ssync()=host_barrier()',
-                       *('-D' + define for define in defines), '-I' + str(folder), '-I' + str(ROOT / 'sdk/include'),
+                       *(['-DOPENXY_LOADER_HEALTH'] if loader else []),
+                       *('-D' + value for value in defines), '-I' + str(folder), '-I' + str(ROOT / 'sdk/include'),
                        '-I' + str(ROOT / 'sdk/platform/opxy-1.2.1'), str(ROOT / 'tests/fixtures' / (name + '.cpp')),
                        *(str(ROOT / path) for path in extra), '-o', str(binary)]
             result = subprocess.run(command, capture_output=True, text=True, timeout=120, **hidden)
@@ -121,6 +122,9 @@ class SampleServices(unittest.TestCase):
     def test_keyboard_effective_octave_and_gui_refresh(self):
         self.run_fixture('keyboard_octaves')
 
+    def test_freestanding_high_word_multiply_matches_wide_reference(self):
+        self.run_fixture('integer_runtime')
+
     def test_progress_never_takes_over_another_notification(self):
         self.run_fixture('sample_progress')
 
@@ -144,6 +148,10 @@ class SampleServices(unittest.TestCase):
 
     def test_pad_shortcuts_clipboard_and_multi_edit(self):
         self.run_fixture('drum_controls', ('sdk/platform/opxy-1.2.1/sample_machines.cpp',))
+
+    def test_raw_slicer_snapshots_preserve_routing_and_deferred_factories(self):
+        self.run_fixture('drum_controls', ('sdk/platform/opxy-1.2.1/sample_machines.cpp',),
+                         ('OPXY_SAMPLE_SLICE_TIMING=0',))
 
     def test_slicer_source_preview_matches_timestamp_rate_and_frozen_bounds(self):
         self.run_fixture('sample_preview')
@@ -175,6 +183,9 @@ class SampleServices(unittest.TestCase):
 
     def test_startup_registers_in_order_and_gates_the_catalog(self):
         self.run_fixture('startup')
+
+    def test_loader_health_requires_finished_successful_registration(self):
+        self.run_fixture('startup',loader=True)
 
     def test_benchmark_forwards_stock_and_only_owned_arbitrary_synths(self):
         self.run_fixture('benchmark')

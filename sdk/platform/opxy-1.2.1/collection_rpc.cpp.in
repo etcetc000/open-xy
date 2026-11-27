@@ -1,0 +1,146 @@
+// Hold-only startup diagnostic. Both initializers stop before registration;
+// COPY and PUBLISH are explicitly refused. No executable RAM is written.
+#include "stock.hpp"
+#include "collection_gate.hpp"
+using namespace opxy;
+using namespace opxy::platform;
+using namespace opxy::collection::activation;
+extern "C" {
+u32 sdk_collection_rpc_dispatch(void*) __asm__("sdk_collection_rpc_dispatch");
+u32 sdk_collection_rpc_stock(void*) __asm__("sdk_collection_rpc_stock");
+void sdk_collection_rpc_entry() __asm__("sdk_collection_rpc_entry");
+void sdk_collection_rpc_probe() __asm__("sdk_collection_rpc_probe");
+u32 sdk_voice_ticks() __asm__("sdk_voice_ticks");
+}
+namespace {
+const u32 magic=0xcf585950;
+const Identity identity={@IDENTITY@};
+alignas(8) unsigned char request[36], tcb[112];
+alignas(8) u32 helper_stack[2048];
+GateMailbox mailbox;
+volatile u32 done, good, aborted, nonce, helper_frozen, helper_refused;
+bool entered, reported, record_frozen;
+u32 record_nonce, record_refused;
+const char* record_result="entry-missing";
+void delay(u32 ticks) { stock<void(u32)>(0x8c040188)(ticks); }
+bool command(u32& ticket,u32 operation,u32 expected,u32& value) {
+    if (ticket==127) return false;
+    ++ticket;
+    for (u32 i=0;i<1000 && !aborted;++i) {
+        const u16 marker=u16(0x8000u | ticket<<7 | operation);
+        stock<void(void*,u32,u32,u32,u16)>(0x8c0c3c3c)(request,45,magic,nonce,marker);
+        // Only the dedicated helper owns this task notification and request.
+        // A stuck wait cannot make an initializer reuse its notification bit.
+        stock<u32(void*)>(0x8c0c3a88)(request);
+        const u32 status=*reinterpret_cast<const u32*>(request+0x14);
+        value=*reinterpret_cast<const u32*>(request+0x18);
+        if (status!=busy) return status==expected;
+        delay(10);
+    }
+    return false;
+}
+void helper(void*) {
+    u32 token=sdk_voice_ticks() ^ 0x184b207d;
+    if (!token) token=1;
+    nonce=token;
+    u32 ticket=0,value=0;
+    bool ok=command(ticket,claim,accepted,value) && value==leased;
+    // Synthetic identity only: distinct fields bind this diagnostic build,
+    // not an external image. The installer must compare staged identities.
+    const u32 groups[]={platform_word,abi_word,digest_word};
+    const unsigned char* identities[]={identity.platform,identity.abi,identity.digest};
+    for (u32 group=0;ok && group<3;++group) for (u32 word=0;ok && word<8;++word) {
+        const unsigned char* p=identities[group]+word*4;
+        const u32 expected=u32(p[0]) | u32(p[1])<<8 | u32(p[2])<<16 | u32(p[3])<<24;
+        ok=command(ticket,groups[group]+word,accepted,value) && value==expected;
+    }
+    ok=ok && command(ticket,generation,accepted,value) && value==1;
+    ok=ok && command(ticket,slot,accepted,value) && value==0;
+    ok=ok && command(ticket,freeze,accepted,value) && value==frozen;
+    helper_frozen=ok;
+    if (ok) {
+        ok=command(ticket,copy,refused,value) && value==frozen;
+        if (ok) ++helper_refused;
+        ok=ok && command(ticket,publish,refused,value) && value==frozen;
+        if (ok) ++helper_refused;
+    }
+    ok=ok && command(ticket,query,accepted,value) && value==frozen;
+    // On failure audio's bounded lease expires to the embedded collection.
+    const bool cancelled=command(ticket,cancel,accepted,value) && value==baseline;
+    good=ok && cancelled; done=1;
+    for (;;) delay(60000);
+}
+void append(char* text,u32& n,const char* value) { while (*value) text[n++]=*value++; }
+void hex(char* text,u32& n,u32 value) {
+    const char* digits="0123456789abcdef";
+    for (u32 i=0;i<8;++i) text[n++]=digits[(value>>(28-i*4))&15];
+}
+}
+u32 sdk_collection_rpc_dispatch(void* value) {
+    const unsigned char* message=static_cast<const unsigned char*>(value);
+    const u16 marker=*reinterpret_cast<const u16*>(message+32);
+    if (stock<u32()>(0x8d5c3eac)()!=0 || static_cast<signed char>(message[8])!=45 ||
+        *reinterpret_cast<const u32*>(message+12)!=magic || (marker&0xc000u)!=0x8000u ||
+        !(marker&0x3f80u) || !*reinterpret_cast<const u32*>(message+28))
+        return sdk_collection_rpc_stock(value);
+    // Main owns gate transitions; handler only queues a ticket and replies.
+    u32* words=static_cast<u32*>(value);
+    const Reply result=mailbox.exchange((marker>>7)&127,words[7],marker&127);
+    words[5]=result.status; words[6]=result.value;
+    return stock<u32(u32,void*)>(0x8c0c0c80)(word(0x84259220),value);
+}
+void sdk_collection_rpc_entry() {
+    if (entered) return;
+    entered=true;
+    const bool gui=stock<u32()>(0x8d5c3eac)()!=0;
+    if (gui) {
+        const void* task=stock<void*(void(*)(void*),const char*,u32,void*,u32,u32*,void*)>(0x8c03f744)(
+            helper,"openxy-hold-probe",2048,nullptr,1,helper_stack,tcb);
+        for (u32 i=0;task && !done && i<1000;++i) delay(10);
+        aborted=1;
+        const bool completed=done!=0;
+        record_result=!task ? "create-failed" : !completed ? "timeout" : good ? "hold-roundtrip-ok" : "hold-failed";
+        record_nonce=nonce; record_frozen=completed && helper_frozen;
+        record_refused=completed ? helper_refused : 0;
+    } else {
+        StartupGate gate={};
+        gate.enter(identity,true,0,10000);
+        bool cancelled=false;
+        for (u32 i=0;i<=1000 && !gate.return_embedded();++i) {
+            const u32 now=i*10; gate.tick(now);
+            u32 ticket=0,epoch=0,operation=0;
+            if (mailbox.take(ticket,epoch,operation)) {
+                // Refuse destructive operations even after FREEZE. This probe
+                // has no copy/cache/dispatch-publication backend.
+                const Reply result=(operation==copy || operation==publish) ?
+                    Reply{refused,gate.phase()} : gate.request(epoch,operation,now);
+                if (result.status==accepted && operation==claim) record_nonce=epoch;
+                if (result.status==accepted && operation==freeze) record_frozen=true;
+                if (result.status==refused && (operation==copy || operation==publish)) ++record_refused;
+                if (result.status==accepted && operation==cancel) cancelled=true;
+                mailbox.complete(ticket,result);
+            }
+            if (!gate.return_embedded()) delay(10);
+        }
+        record_result=cancelled ? "hold-cancelled" : "hold-timeout";
+    }
+}
+void sdk_collection_rpc_probe() {
+    if (reported) return;
+    reported=true;
+    const bool gui=stock<u32()>(0x8d5c3eac)()!=0;
+    char text[448]; u32 n=0;
+    append(text,n,"{\"format\":\"openxy-collection-rpc-probe/2\",\"execution\":false,\"platform\":\"@PLATFORM@\",\"role\":\"");
+    append(text,n,gui ? "gui" : "audio");
+    append(text,n,"\",\"gate\":\"initializer-entry\",\"result\":\""); append(text,n,record_result);
+    append(text,n,"\",\"epoch\":\""); hex(text,n,record_nonce);
+    append(text,n,"\",\"initializer-held\":"); append(text,n,entered ? "true" : "false");
+    append(text,n,",\"freeze-seen\":"); append(text,n,record_frozen ? "true" : "false");
+    append(text,n,",\"destructive-requests-refused\":\""); hex(text,n,record_refused);
+    append(text,n,"\",\"released-to\":\"embedded\"}\n");
+    const char* path=gui ? "/fat32/projects/openxy/gui-rpc-status.oxc" : "/fat32/projects/openxy/audio-rpc-status.oxc";
+    if (void* file=stock<void*(const char*,const char*)>(0x8fed0348)(path,"wb")) {
+        stock<u32(const void*,u32,u32,void*)>(0x8fed0780)(text,1,n,file);
+        stock<int(void*)>(0x8fed00ae)(file);
+    }
+}

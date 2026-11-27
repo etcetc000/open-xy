@@ -160,6 +160,13 @@ namespace sdk_drum_transport {
 struct Absent {};
 template <class V, class S> Absent drum_transport(V&, S&, opxy::u32, const opxy::Transport&) { return Absent(); }
 }
+// One DSP body serves normal rendering and the isolated diagnostic workload.
+// Keeping this SDK wrapper out of line avoids duplicating author DSP code.
+static __attribute__((noinline)) void sdk_drum_render(Voice& voice, Shared& state, opxy::u32 id,
+                                                     opxy::Output output, opxy::Parameters controls,
+                                                     opxy::Pitch pitch) {
+    @NAMESPACE@::render(voice, state, id, output, controls, pitch);
+}
 // An engine may narrow the range the track menu's scramble draws a control
 // from with `void scramble_range(u32 model, u32 slot, u8* low, u8* high)` in its
 // namespace (both 0..127); a kit without one scrambles each control over 0..127.
@@ -300,7 +307,7 @@ static inline void render_voice(void* self, opxy::i32* output, const opxy::i32* 
             using namespace sdk_drum_transport;
             drum_transport(slot->voice, shared, slot->owner, transport);
         }
-        @NAMESPACE@::render(slot->voice, shared, slot->owner, output, live, pitch);
+        sdk_drum_render(slot->voice, shared, slot->owner, output, live, pitch);
 @IDLE_FOLLOW@        // The track filter, where stock's normal renderer runs a synth voice's:
         // after the render, before the amplitude envelope and pan.
         if (filter != opxy::platform::kDrumFilterNone && handle->pool < opxy::platform::kDrumFilterPool)
