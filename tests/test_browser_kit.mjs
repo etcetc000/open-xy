@@ -902,9 +902,9 @@ test('the mixer links with only Sample Studio: the sends resolve to kit_absent, 
   for (const n of studio) assert.equal(alone.aliases.has(n), false);
   // Neither user: the mixer isn't linked at all.
   assert.deepEqual(linkedNames(linkKit(k, ['a'])), ['a.o']);
-  // The device identity's message uses B3 parameters 138..145, which the studio's player owns.
+  // The device identity beside the studio: their B3 parameters are apart (138..145, 146..160).
   k.machines[0].features = ['deviceIdentity'];
-  assert.throws(() => linkKit(k, ['a'], null, ['studio']), /Sample Studio and the device identity/);
+  assert.ok(linkKit(k, ['a'], null, ['studio']).services.has('device_identity'));
 });
 test('one selected extension owns Sample Studio, never beside a master processor', () => {
   const studio = {asset:'sample_studio.svg', artwork:'', sha256:''};

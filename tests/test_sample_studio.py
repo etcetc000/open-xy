@@ -149,13 +149,36 @@ class Sites(unittest.TestCase):
 
     def test_the_receiver_gives_the_player_its_channels_and_stock_the_rest(self):
         audio = AUDIO.read_text()
-        self.assertIn('const u32 kFirstId = 138, kChannels = 15;', audio)
+        self.assertIn('const u32 kFirstId = 146, kChannels = 15;', audio)
         receiver = re.search(r'void sdk_master_receive\(u32 base, u32 id, i32 value\) \{(.*?)\n\}', audio, re.S).group(1)
         self.assertEqual(receiver.count('0x8d50eb8c'), 1)   # stock's setter has no bounds check
         self.assertLess(receiver.index('id >= kFirstId && id < kFirstId + kChannels'), receiver.index('0x8d50eb8c'))
         self.assertIn('p->receive(id - kFirstId, value);', receiver)
         master = re.search(r'void sdk_master_process\(void\* object, i32\* left, i32\* right\) \{(.*?)\n\}', audio, re.S).group(1)
         self.assertLess(master.index('0x11a02c10'), master.index('p->master(left, right)'))   # stock's EQ first
+
+    def test_no_two_services_share_a_b3_parameter(self):
+        # Stock's audio board receives every B3 parameter through one call (8d5b145e), shared by the
+        # services that own some: each range read from its own source, none overlapping, each within
+        # a byte. A clash would show only on a device, where one receiver swallows the other's numbers.
+        def numbers(path, pattern):
+            m = re.search(pattern, path.read_text())
+            self.assertIsNotNone(m, path.name)
+            return [int(x) for x in m.groups()]
+        master = numbers(PLATFORM / 'master_processor.hpp', r'message_id = (\d+), commit_id = (\d+)')
+        identity = numbers(PLATFORM / 'device_identity.cpp', r'kBegin = (\d+), kFirstWord = \d+, kCommit = (\d+)')
+        first, count = numbers(AUDIO, r'kFirstId = (\d+), kChannels = (\d+)')
+        studio = [first, first + count - 1]
+        ranges = {'stock': [0, 3], 'master processor': master, 'device identity': identity, 'Sample Studio': studio}
+        self.assertEqual(studio, [146, 160])
+        names = sorted(ranges, key=lambda n: ranges[n][0])
+        for a, b in zip(names, names[1:]):
+            self.assertLess(ranges[a][1], ranges[b][0], (a, ranges[a], b, ranges[b]))
+        for name, (low, high) in ranges.items():
+            self.assertTrue(0 <= low <= high <= 255, name)
+        # the editor's channels reach the player at the same base, both ways
+        self.assertIn('stock<void(u32, i32)>(0x8d4dc84c)(%d + channel, value);' % first, HOST.read_text())
+        self.assertIn('if (channel < %d)' % count, HOST.read_text())
 
     def test_the_player_reaches_the_mixer_through_its_service(self):
         # mixer.cpp calls the player's four entry points, which this board's unit defines; a build
@@ -259,12 +282,9 @@ class Tooling(unittest.TestCase):
 
         class Identity(Machine):
             definition = {'resources': {'deviceIdentity': 1}}
-        # the device identity's message uses B3 parameters 138..145, which the player owns
-        self.assertIn('deviceIdentity', native.service_users([Machine(), Identity()]))
-        with self.assertRaises(Exception):
-            native.service_users(Built([Machine(), Identity()], [Studio()]))
-        self.assertIn("check(!services.has('sample_studio') || !services.has('device_identity'),",
-                      (ROOT / 'builder/core.mjs').read_text())
+        # the device identity and the studio share a build: their B3 ranges are apart (below)
+        self.assertIn('sampleStudio', native.service_users(Built([Machine(), Identity()], [Studio()])))
+        self.assertIn('deviceIdentity', native.service_users(Built([Machine(), Identity()], [Studio()])))
 
     def test_units_belong_to_the_service(self):
         from tooling import native

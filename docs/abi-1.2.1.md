@@ -85,9 +85,15 @@ Stock's call of its global parameter setter (`8d5b145e`) is another: its record
 is the `parameter_receive` service, used by the master processor, the
 [device identity](#device-identity) and a `sample_studio` extension; a build with
 the device identity enters its receiver, which hands every number it does not own
-to the master processor's receiver, or to stock's setter in a build without the
-master processor. Sample Studio's player owns numbers 138 to 152, which overlap
-the identity's 138 to 145, so a build refuses the device identity beside it.
+to the master processor's or Sample Studio's receiver, or to stock's setter in a
+build without either. Each service owns its own numbers, which
+`tests/test_sample_studio.py` checks never overlap:
+
+- stock: 0 to 3;
+- the master processor: 128 to 137;
+- the device identity: 138 to 145;
+- Sample Studio: 146 to 160.
+
 The step locks of a kit's Shift fields are the `drum_locks` service, used by a
 `padMix` kit, by a synth with a Shift row and by a `drumline_page` extension.
 The `played_pad` service has no edit: it links the [drum trigger](#screens)

@@ -878,9 +878,6 @@ export function linkKit(kit, selection, layout = null, extensionIds = [], settin
   // Sample Studio reads keys through the samples service (tooling.native.service_users).
   check(!services.has('sample_studio') || services.has('samples'),
     'Sample Studio needs a sample engine or Drumline page 2 in the build.');
-  // Its player owns B3 parameters 138..152; the device identity's message uses 138..145.
-  check(!services.has('sample_studio') || !services.has('device_identity'),
-    'Sample Studio and the device identity both use B3 parameters 138 to 145. Choose one.');
   // A unit capability's chosen value links its objects in place of the native build's, under the
   // same names and in the same place (tooling.native UNIT_SOURCES).
   const units = unitSettings(kit, [...extensions], settings);

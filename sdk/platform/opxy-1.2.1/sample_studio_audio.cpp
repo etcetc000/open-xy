@@ -25,8 +25,9 @@ namespace {
 // The master EQ call at 8d511b80 runs once a block (64 stereo frames, Q31, separate left and right
 //    arrays) after dry + FX I + FX II are summed and before the master compressor and master volume.
 //    Stock's EQ first, then the player.
-// B3 IDs 138..152 are the player's channels 0..14; every other ID goes to stock's receiver.
-const u32 kFirstId = 138, kChannels = 15;
+// B3 IDs 146..160 are the player's channels 0..14 (after stock's 0..3, the master processor's
+// 128..137 and the device identity's 138..145); every other ID goes to stock's receiver.
+const u32 kFirstId = 146, kChannels = 15;
 // The send effects' input buses this block (FX I's C, FX II's I), interleaved stereo Q31.
 i32* const kFxBuses[2] = {reinterpret_cast<i32*>(0x84caa140), reinterpret_cast<i32*>(0x84caa340)};
 // The sample pool stock loads samples into (mutex, then the dlmalloc mspace).

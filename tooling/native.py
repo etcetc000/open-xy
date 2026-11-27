@@ -463,9 +463,6 @@ def service_users(machines):
     require(not studio or 'sample' in users or 'drum' in users or
             any(e.drumline_page is not None for e in extensions_of(machines)),
             'Sample Studio needs a sample-family machine in the build (the samples service)')
-    # Its player owns B3 parameters 138..152; the device identity's message uses 138..145.
-    require(not studio or not any(declares_device_identity(m.definition) for m in machines),
-            'Sample Studio and the device identity both use B3 parameters 138 to 145; build them apart')
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
@@ -639,9 +636,9 @@ def service_fallbacks(services):
         fallbacks['kit_controls'] = dict.fromkeys(KIT_CONTROLS_CALLS, 'kit_absent')
     if 'device_identity' in services:
         # The global parameter receiver's next step after the device identity's
-        # (device_identity.cpp): the master processor's; kit_absent tells it to call
-        # stock's own setter instead.
-        fallbacks.setdefault('master_filter', {})['sdk_master_receive'] = 'kit_absent'
+        # (device_identity.cpp): the master bus's (a master processor's or Sample
+        # Studio's); kit_absent tells it to call stock's own setter instead.
+        fallbacks.setdefault('master_bus', {})['sdk_master_receive'] = 'kit_absent'
     return fallbacks
 
 

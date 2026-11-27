@@ -251,9 +251,9 @@ Borrowed borrow(u32 key) {
 }
 void release_sample(u32 key) { sdk_sample_cache_sample_release(key); }
 SampleView sample_view(const void* object) { return opxy::platform::stock_sample_view(object); }
-// Main board to audio board: stock's B3 parameter send (8d4dc84c); IDs 138..152 are the player's.
+// Main board to audio board: stock's B3 parameter send (8d4dc84c); IDs 146..160 are the player's.
 void send(u32 channel, i32 value) {
-    if (channel < 15) stock<void(u32, i32)>(0x8d4dc84c)(138 + channel, value);
+    if (channel < 15) stock<void(u32, i32)>(0x8d4dc84c)(146 + channel, value);
 }
 }}  // namespace opxy::studio
 

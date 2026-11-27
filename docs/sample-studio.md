@@ -111,9 +111,13 @@ All OS 1.2.1, in [`profiles/opxy-1.2.1.json`](../profiles/opxy-1.2.1.json):
 - service `sample_studio`: five entry branches in the library controller
   (press, Shift press, release, turn) and the browser screen's frame
   (`sample_studio_hooks.s`, `sample_studio_host.cpp`);
-- service `master_bus`: the master EQ call and the audio board's B3 receiver.
-  IDs 138 to 152 go to the player and never to stock; every other ID goes to
-  stock's setter (`sample_studio_audio.cpp`);
+- service `master_bus`: the master EQ call, and the audio board's B3 receiver
+  through the shared `parameter_receive` record. IDs 146 to 160 go to the
+  player and never to stock; every other ID goes on, to stock's setter
+  (`sample_studio_audio.cpp`). With the device identity in the build, its
+  receiver runs first and hands the studio every number it doesn't own. The B3
+  ranges are stock's 0 to 3, the master processor's 128 to 137, the device
+  identity's 138 to 145 and Sample Studio's 146 to 160;
 - service `mixer`: four sites in stock's mixer (a track's voice loop, each
   rendered voice, the track gain and the send loops' end), shared with the
   per-key sends (`mixer_hooks.s`, `mixer.cpp`). A build with the mixer and no
