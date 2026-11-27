@@ -2688,6 +2688,19 @@
         "block_percent": 1.979095,
         "peak_percent": 3.778134
       }
+    },
+    {
+      "id": "halcyon_player",
+      "kind": "player",
+      "maintainer": "akadanieljoshua",
+      "status": "published",
+      "repository": "https://github.com/akadanieljoshua/Halcyon-Player",
+      "tag": "v1.0.0",
+      "commit": "2ca01fa87a1d6a33e05a9dfd04c70dd8d778a40e",
+      "path": ".",
+      "keywords": [
+        "ambient"
+      ]
     }
   ]
 }
