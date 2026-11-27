@@ -13,7 +13,8 @@ covers prerequisites. Read the
 examples and the [machine API](https://github.com/etcetc000/open-xy/blob/staging/docs/api.md)
 for the supported interfaces. Follow the
 [UX conventions](https://github.com/etcetc000/open-xy/blob/staging/docs/ux.md);
-Macro Osc is the two-page reference. Synth starters with five to eight controls
+Macro Osc shows two-page controls working; take the screen's look from
+[synth screens](https://github.com/etcetc000/open-xy/blob/staging/docs/synth-screens.md). Synth starters with five to eight controls
 use the [shared header](https://github.com/etcetc000/open-xy/blob/staging/docs/display.md#two-page-header):
 keep its SVG block and update the labels/value captions with your controls.
 Columns without alternates repeat the same saved parameter on both rows.
