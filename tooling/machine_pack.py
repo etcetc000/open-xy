@@ -27,7 +27,7 @@ def write(kit, output, notices=None):
     require(machines, 'A machine pack needs at least one custom machine')
     owners = {m['id'] for m in machines}
     # Every kind a native build makes. `build` is what shaped the objects (native.shared_build):
-    # the site's must match it where the pack's machines depend on it (core.mjs importMachinePack).
+    # the site links them in a build its kit's variants make (core.mjs importMachinePack, variantKit).
     pack = dict(format=FORMAT, version=kit['version'], sdk=kit['sdk'],
                 profileSha256=sha(base64.b64decode(kit['profileSource'], validate=True)),
                 definitions=kit['definitions'], fixed=kit['fixed'], build=kit['build'], machines=machines,

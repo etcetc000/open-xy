@@ -635,6 +635,8 @@ test('a kit with malformed variants is refused', async () => {
     v => { v.objects[4].name = 'sdk/unlisted.o'; }, v => { delete v.objects[5].service; },
     v => { v.objects[6].name = 'sdk/runtime/_divsi3.o/../x.o'; }, v => { v.objects[6].builds = [{defines:[]}]; },
     v => { v.objects[0].name = 'sdk/runtime/_x.o'; },
+    // A site object's variant built as the site's own: it would replace it in every build.
+    v => { v.objects[0].builds = [{defines:[]}]; },
     v => { v.build.services.push('control'); }, v => { v.build.headers.push('sample_kernel'); },
     v => { v.objects.splice(5, 1); },
   ]) {

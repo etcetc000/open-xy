@@ -2134,7 +2134,6 @@ a note player only, and needs `"sdk": "1.25"` or later. Without it, a
 player's own code reading `instrument` on its `Controls` does not compile, and
 one naming `DrumInstrument` or `OtherInstrument` outside comments is refused
 (its tests and tools aside).
-In a build with a declaring player, its `Controls` take about 12 instructions
-more on the usual path (a published byte per track) and each GUI frame asks
-stock for eight tracks' engines, counted from the compiler's listing, not
-timed on a device ([firmware](abi-1.2.1.md#players-track-instrument)).
+In a build with a declaring player, its `Controls` go through one more call,
+which copies them and reads a published byte per track, and each GUI frame asks
+stock for eight tracks' engines; neither is timed on a device ([firmware](abi-1.2.1.md#players-track-instrument)).

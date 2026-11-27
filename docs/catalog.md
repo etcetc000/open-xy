@@ -135,7 +135,7 @@ any of them, the builder links them for every build while the pack is imported,
 as a native build of the site's collection with the pack's machines would: a
 service's units are added, and objects built with a define or a header replace
 the site's. Builds without such a pack link the site's objects, unchanged. The
-carried objects add to the site's download: about SIZE_RAW (SIZE_GZ compressed)
+carried objects add to the site's download: about 107 KB (53 KB compressed)
 for a catalog of a hundred machines.
 A machine published to the catalog after the site's release is exported as
 a catalog machine, not a custom one, and cannot be imported. A pack that imports

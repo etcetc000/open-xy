@@ -13,7 +13,7 @@ no machines of its own; these are small, valid folders, not copies of published 
   ampEnvelope, with chokeSameKey); its screen reads the selected key and the Shift choices.
 - probekit25: probekit21 as a three-model kit declaring SDK 1.25 and modelEdit: its first
   control runs through every model (edit_model_parameter).
-- probepads: a note player declaring SDK 1.25 that reads Controls.instrument: one fixed pad
+- probepads: a note player declaring SDK 1.25 and trackInstrument that reads Controls.instrument: one fixed pad
   on a drum track, its notes snapped to a scale elsewhere.
 - voiceheap: a sine with a long echo whose voices are too large for module memory
   (SDK 1.19 heap voices); not in NAMES.
