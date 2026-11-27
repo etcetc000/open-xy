@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import (AUDIO_SDK, AUDIO_SDK_KEYS, DRUM_KIT_CONTROLS, EXTENDED_SCREENS_SDK, EXTENDED_SDK, KIT_CONTROLS_SDK, SDK_1_25, extended_display, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
+from .definitions import (AUDIO_SDK, AUDIO_SDK_KEYS, DEVICE_IDENTITY_SDK, DRUM_KIT_CONTROLS, EXTENDED_SCREENS_SDK, EXTENDED_SDK, KIT_CONTROLS_SDK, SDK_1_25, extended_display, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
@@ -99,7 +99,9 @@ PLAYER_DRAWING_SDK = (1, 26)
 # helpers pack, low, high, multiply_pair, add_pair) and an arithmetic shift by a signed count,
 # shift, to opxy/q31.hpp. A renumber changes this line, SDK_VERSION and the "SDK 1.29" text of
 # those headers, docs/api.md (its CPU notes and the sdk row) and tests/test_fixed_point_helpers.py.
-SDK_VERSION = (1, 29)
+# 1.30 lets a machine of any kind read the device identity (resources.deviceIdentity,
+# opxy/device_identity.hpp; DEVICE_IDENTITY_SDK in definitions.py).
+SDK_VERSION = (1, 30)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -564,6 +566,16 @@ def reads_sample_overview(root, header='sample_overview'):
                if path.suffix in ('.cc', '.cpp', '.h', '.hpp') and path.relative_to(root).parts[0] not in ('tests', 'tools'))
 
 
+# The device identity's reader by name: code that declares it itself, without the header.
+DEVICE_IDENTITY_READER = re.compile(r'\bopxy_device_identity\b')
+
+
+def reads_device_identity(root):
+    """Whether a machine's own C++, its tests and tools aside, names the device identity's reader."""
+    return any(DEVICE_IDENTITY_READER.search(path.read_text(encoding='utf-8', errors='replace')) for path in tree(root)
+               if path.suffix in ('.cc', '.cpp', '.h', '.hpp') and path.relative_to(root).parts[0] not in ('tests', 'tools'))
+
+
 def machine_at(root, identity=None):
     """The machine in a folder; its definition names it."""
     root = Path(os.path.abspath(root))
@@ -617,6 +629,8 @@ def machine_at(root, identity=None):
         require_sdk(version, track_stage.TRACK_STAGE_SDK, "A synth's track stage (trackStage)")
         if 'audio' in definition['resources']['trackStage']:
             require_sdk(version, AUDIO_SDK, "A track stage's audio snapshots (trackStage audio)")
+    if 'deviceIdentity' in definition['resources']:
+        require_sdk(version, DEVICE_IDENTITY_SDK, 'The device identity (deviceIdentity)')
     if any(p['display'] == 'division' for p in definition['parameters']):
         require_sdk(version, (1, 2), 'A division control')
     if kind == 'sample' and definition['resources']['voiceCapacity'] < STOCK_VOICES:
@@ -702,6 +716,10 @@ def machine_at(root, identity=None):
         require(kind == 'synth', "Only a synth's own screen reads opxy/control_interaction.hpp")
     if reads_sample_overview(root, 'sample_kernel'):
         require_sdk(version, (1, 17), 'The sample kernel (opxy/sample_kernel.hpp)')
+    # Only a firmware with a machine declaring it links the identity's device code.
+    if reads_sample_overview(root, 'device_identity') or reads_device_identity(root):
+        require(definition['resources'].get('deviceIdentity', 0) == 1,
+                'A machine that includes opxy/device_identity.hpp declares "deviceIdentity": 1 in its resources')
     native = read_native(root, identity)
     # The native plan compiles extra translation units only into synths.
     if kind not in ('synth', 'drum'):
