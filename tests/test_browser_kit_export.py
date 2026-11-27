@@ -153,9 +153,9 @@ class BrowserKitExport(unittest.TestCase):
         self.assertEqual(firmware, (fast / 'candidate/os.ldr').read_bytes())
 
     def test_a_site_kit_takes_a_pack_needing_its_variants_as_a_native_kit(self):
-        # A site with a synth, a player and a kit of earlier SDKs carries its objects as a pack of a 1.25
-        # player, kits with the drum-kit controls and modelEdit, and a synth reading the last control
-        # touched needs them. Imported, every selection links as a kit exported with all of them does;
+        # A site with a synth, a player and a kit of earlier SDKs carries what a pack of a player
+        # reading its track instrument, kits with the drum-kit controls and modelEdit, and a synth
+        # reading the last control touched needs: the services' units and its SDK objects built so. Imported, every selection links as a kit exported with all of them does;
         # without the pack, the site's own build is unchanged.
         from test_machine_pack import ci_synth_folder
         from tooling import machine_pack, native
@@ -166,11 +166,15 @@ class BrowserKitExport(unittest.TestCase):
         pack = (FIXTURES / 'probepads', FIXTURES / 'probekit23', FIXTURES / 'probekit25', work / 'probeci')
         site_dir = self.export(*site)
         kit = json.loads((site_dir / 'kit.json').read_text(encoding='utf-8'))
-        self.assertEqual(kit['variants']['build'], dict(services=['amp_envelope', 'kit_controls', 'played_pad'],
+        self.assertEqual(kit['variants']['build'], dict(services=['amp_envelope', 'kit_controls', 'played_pad',
+                                                                  'track_instrument'],
                                                         defines=list(native.DEFINE_ORDER), headers=['control_interaction']))
         built = {o['name'] for o in kit['variants']['objects']}
-        self.assertTrue({'sdk/players.o', 'sdk/synth_controls.o', 'sdk/drum_kit_controls.o', 'sdk/drum_amp_envelope.o',
-                         'sdk/drum_trigger.o', 'probeplayer/player_object.o'} <= built, built)
+        self.assertTrue({'sdk/synth_controls.o', 'sdk/drum_kit_controls.o', 'sdk/drum_amp_envelope.o',
+                         'sdk/drum_trigger.o', 'sdk/track_instrument.o', 'sdk/track_instrument_hooks.o'} <= built, built)
+        # Neither the players' bridge nor any machine's own object has a variant.
+        self.assertFalse(built & {'sdk/players.o', 'probeplayer/player_object.o'}, built)
+        self.assertTrue(all(o['owner'] is None for o in kit['variants']['objects']))
         # Without a pack, the site's build: its kit links the same image as sdk.py build of its machines.
         plain = self.build(*site)
         module, firmware = self.link(site_dir, plain, [], {})
@@ -188,7 +192,7 @@ class BrowserKitExport(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr[-3000:])
         outcome = json.loads(result.stdout)
         self.assertEqual(outcome['compared'], 2 ** 7 - 1)
-        self.assertEqual(outcome['build'], {key: whole['build'][key] for key in ('services', 'defines', 'headers', 'unitDefines')})
+        self.assertEqual(outcome['build'], {key: whole['build'][key] for key in ('services', 'defines', 'headers')})
 
 
 if __name__ == '__main__':

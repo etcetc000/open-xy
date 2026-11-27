@@ -552,14 +552,17 @@ def reads_sample_overview(root, header='sample_overview'):
                if path.suffix in ('.cc', '.cpp', '.h', '.hpp') and path.relative_to(root).parts[0] not in ('tests', 'tools'))
 
 
-# A note player's own C++ naming its track's instrument: Controls.instrument or its kinds.
-TRACK_INSTRUMENT = re.compile(r'(?:\.|->)\s*instrument\b|\b(?:Other|Drum)Instrument\b')
+# The kinds of Controls.instrument (opxy/player.hpp), outside comments. Reading the member
+# itself without the declaration does not compile: the member exists only with it.
+TRACK_INSTRUMENT = re.compile(r'\b(?:Other|Drum)Instrument\b')
+COMMENTS = re.compile(r'//[^\n]*|/\*.*?\*/', re.S)
 
 
 def reads_track_instrument(root):
-    """Whether a machine's own C++, its tests and tools aside, reads Controls.instrument
-    (opxy/player.hpp), which only a player declaring resources.trackInstrument has."""
-    return any(TRACK_INSTRUMENT.search(path.read_text(encoding='utf-8', errors='replace')) for path in tree(root)
+    """Whether a machine's own C++, its tests and tools aside, names the kinds of
+    Controls.instrument, which only a player declaring resources.trackInstrument has."""
+    return any(TRACK_INSTRUMENT.search(COMMENTS.sub(' ', path.read_text(encoding='utf-8', errors='replace')))
+               for path in tree(root)
                if path.suffix in ('.cc', '.cpp', '.h', '.hpp') and path.relative_to(root).parts[0] not in ('tests', 'tools'))
 
 

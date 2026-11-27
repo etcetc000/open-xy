@@ -630,12 +630,18 @@ class PlayerInstrument(unittest.TestCase):
             with self.assertRaisesRegex(Exception, 'declares resources.trackInstrument'):
                 self.player(declared=declared, name='padsundeclared')
             shutil.rmtree(self.root / 'padsundeclared')
-        for text in ('u32 k(const Controls& c) { return c.instrument; }', 'u32 k(const Controls* c) { return c->instrument; }',
-                     'const u32 k = opxy::player::DrumInstrument;', 'const u32 k = OtherInstrument;'):
+        unread = self.unread()
+        for text in ('const opxy::u32 k = opxy::player::DrumInstrument;', 'const opxy::u32 k = OtherInstrument;'):
             with self.assertRaisesRegex(Exception, 'declares resources.trackInstrument'):
-                self.player(declared=None, name='padsread', source=source.replace('namespace probepads {',
+                self.player(declared=None, name='padsread', source=unread.replace('namespace probepads {',
                                                                                   'namespace probepads {\n' + text, 1))
             shutil.rmtree(self.root / 'padsread')
+        # A comment naming them, or a member of the player's own called instrument, is no reading.
+        for text in ('// DrumInstrument on a drum track', '/* OtherInstrument */',
+                     'struct Mine { opxy::u32 instrument; }; inline opxy::u32 k(const Mine& m) { return m.instrument; }'):
+            self.player(declared=None, name='padsfine', source=unread.replace('namespace probepads {',
+                                                                              'namespace probepads {\n' + text, 1))
+            shutil.rmtree(self.root / 'padsfine')
         # Its own tests and tools may name it.
         m = self.player(declared=None, name='padstests', source=self.unread())
         (Path(m.root) / 'tests').mkdir()

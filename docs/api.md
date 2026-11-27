@@ -2130,9 +2130,10 @@ kinds and gives the player its `Controls`. Every other player, in any build,
 keeps the 112-byte `Controls` and its code exactly as without the
 declaration, and a build without a declaring player links nothing of it: its
 firmware is the same as without the feature. `trackInstrument` is 0 or 1, for
-a note player only, and needs `"sdk": "1.25"` or later. A player whose own
-code names `instrument` on a `Controls`, or `DrumInstrument` or
-`OtherInstrument`, without declaring it is refused (its tests and tools aside).
+a note player only, and needs `"sdk": "1.25"` or later. Without it, a
+player's own code reading `instrument` on its `Controls` does not compile, and
+one naming `DrumInstrument` or `OtherInstrument` outside comments is refused
+(its tests and tools aside).
 In a build with a declaring player, its `Controls` take about 12 instructions
 more on the usual path (a published byte per track) and each GUI frame asks
 stock for eight tracks' engines, counted from the compiler's listing, not

@@ -141,11 +141,12 @@ class TrackCall(unittest.TestCase):
                 self.assertEqual(patch_active(patch, services, False), symbol is not None)
                 if symbol:
                     self.assertEqual(hook_symbol(patch, services), symbol)
-        # Every other hook enters its own symbol, whatever is linked.
-        everything = set(profile['services'])
+        # Every other hook enters its own symbol, whatever is linked, but the compositor's loop
+        # advance, which the track instrument's entry replaces (tests/test_players.py).
+        everything = set(profile['services']) - {'track_instrument'}
         for p in profile['patches']:
             if p['kind'] == 'hook' and p['address'] != SITE:
-                self.assertNotIn('symbols', p)
+                self.assertEqual('symbols' in p, p['symbol'] == 'sdk_screen_advance')
                 self.assertEqual(hook_symbol(p, everything), p['symbol'])
 
     def test_a_shared_hook_names_declared_services(self):
@@ -178,6 +179,33 @@ class TrackCall(unittest.TestCase):
                                  json.dumps([profile['services'], [track_call(profile), *bad]])],
                                 capture_output=True, text=True, cwd=ROOT, timeout=60, check=True)
         self.assertEqual(json.loads(result.stdout), [True] + [False] * len(bad))
+
+    def test_a_hook_every_build_applies_names_handlers_that_replace_its_own(self):
+        # The compositor's loop advance (no service): its `symbols` replace its own symbol in a
+        # build with one of their services, so its own symbol is none of them; the same in the
+        # browser (builder/core.mjs validSharedHook) and for the browser's whole profile.
+        profile = config()
+        find = lambda p: next(e for e in p['patches'] if e.get('symbol') == 'sdk_screen_advance')
+        bad = []
+        for change in (lambda e: e['symbols'].update(players='sdk_screen_advance'),
+                       lambda e: e['symbols'].update(nothing='sdk_instrument_advance'),
+                       lambda e: e['symbols'].update(track_instrument=''),
+                       lambda e: e.update(profiling=False), lambda e: e.update(symbols={})):
+            changed = copy.deepcopy(profile)
+            change(find(changed))
+            with self.assertRaises(ValueError):
+                check_patch_boundaries(changed, len(changed['patches']))
+            bad.append(find(changed))
+        check_patch_boundaries(profile, len(profile['patches']))
+        script = ('import {validSharedHook} from %s;\nconst [services, edits] = JSON.parse(process.argv[1]);\n'
+                  'process.stdout.write(JSON.stringify(edits.map(e => validSharedHook(e, services))));'
+                  % json.dumps((ROOT / 'builder/core.mjs').as_uri()))
+        edits = [p for p in profile['patches'] if 'symbols' in p]
+        result = subprocess.run(['node', '--input-type=module', '-e', script,
+                                 json.dumps([profile['services'], [*edits, *bad]])],
+                                capture_output=True, text=True, cwd=ROOT, timeout=60, check=True)
+        self.assertEqual(json.loads(result.stdout), [True] * len(edits) + [False] * len(bad))
+        self.assertEqual(len(edits), 2)
 
     def test_the_browser_enters_the_same_handler(self):
         profile = config()

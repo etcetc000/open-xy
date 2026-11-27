@@ -1081,15 +1081,20 @@ const words = (...values) => {
 // edit's `symbols` maps each to the handler a selection with it enters, the first
 // one the selection uses winning; otherwise its `symbol` (tooling.firmware.hook_symbol).
 // Whether an edit's `symbols` map is absent or valid (tooling.pipeline.check_patch_boundaries):
-// a service hook's, naming declared services with a handler each, its own symbol among them,
-// and together used by exactly the users of the record's service. `services` is the profile's.
+// naming declared services with a handler each. A service hook's holds its own symbol and is
+// together used by exactly the users of the record's service; a hook every build applies (no
+// service) names handlers that replace its own symbol, which is none of them. `services` is the
+// profile's.
 export function validSharedHook(edit, services) {
   const shared = edit.symbols;
   if (shared === undefined) return true;
-  if (edit.kind !== 'hook' || edit.service === undefined || typeof shared !== 'object' || shared === null ||
-      Array.isArray(shared) || !Object.keys(shared).length || !Object.values(shared).includes(edit.symbol) ||
+  if (edit.kind !== 'hook' || typeof shared !== 'object' || shared === null ||
+      Array.isArray(shared) || !Object.keys(shared).length ||
       !Object.entries(shared).every(([service, symbol]) => Object.hasOwn(services, service) &&
-        typeof symbol === 'string' && symbol) || !Object.hasOwn(services, edit.service)) return false;
+        typeof symbol === 'string' && symbol)) return false;
+  if (edit.service === undefined)
+    return edit.profiling === undefined && !Object.values(shared).includes(edit.symbol);
+  if (!Object.values(shared).includes(edit.symbol) || !Object.hasOwn(services, edit.service)) return false;
   const users = new Set(Object.keys(shared).flatMap(s => services[s]));
   const own = new Set(services[edit.service]);
   return users.size === own.size && [...users].every(u => own.has(u));
@@ -1933,9 +1938,11 @@ function variantKit(base, target) {
   const names = new Set(base.objects.map(o => o.name));
   const added = [...chosen.values()].filter(o => !names.has(o.name) && target.services.includes(o.service))
     .map(o => ({name:o.name, owner:null, bytes:o.bytes, sha256:o.sha256, service:o.service}));
-  // Every service it adds links its units built for it (tooling.native.kit_variants builds each for every define set).
-  check(target.services.every(service => base.build.services.includes(service) || added.some(o => o.service === service)),
-    'Invalid kit variants');
+  // Every service it adds links all its units built for it (tooling.native.kit_variants builds
+  // each for every define set it links with).
+  check(target.services.every(service => base.build.services.includes(service) ||
+    v.order.every(name => !v.objects.some(o => o.name === name && o.service === service) ||
+      added.some(o => o.name === name))), 'Invalid kit variants');
   const shared = [...objects.filter(o => o.owner === null && !o.runtime), ...added]
     .sort((a, b) => v.order.indexOf(a.name) - v.order.indexOf(b.name));
   const runtime = [...objects.filter(o => o.runtime),

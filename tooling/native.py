@@ -916,9 +916,9 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         execute([tools['as'], '-mcpu=bf707', '-I', ROOT, '-o', obj, source])
 
     # The SDK's units of a build with a kit declaring the drum-kit controls see
-    # OPXY_KIT_CONTROLS; a machine's own units never do. SDK 1.25: a 1.25 player's
-    # Controls.instrument, which every player of its build shares with the SDK units (a
-    # player's own units see that define alone), and a modelEdit kit's editor.
+    # OPXY_KIT_CONTROLS, and of a build with a modelEdit kit OPXY_MODEL_EDIT; a machine's
+    # own units never do. A machine's own units take its own defines alone (own_unit_defines):
+    # a player declaring trackInstrument, Controls.instrument.
     defines = sdk_unit_defines(profile, machines)
     sdk_unit = sdk_unit_source(machines, defines, [h for h in SHARED_HEADERS if includes_header(machines, h)],
                                active_services(profile, service_users(machines)), version, chosen_sources)
