@@ -1,28 +1,36 @@
 // The player's own drawn page (screen_player_drawing.hpp, SDK 1.26): its
 // display.cpp, compiled here after player.cpp so that it reads State, draws a
-// draw::Frame each GUI frame. It registers in a free page slot at startup and
-// paints in place of the stock Maestro page while the selected track plays this
-// player (players.cpp).
+// draw::Frame (from SDK 1.28 an extended frame) each GUI frame. It registers in
+// a free page slot at startup and paints in place of the stock Maestro page
+// while the selected track plays this player (players.cpp).
 #include "registration.hpp"
 #include "display.cpp"
-#include "screen_player_drawing.hpp"
+@INCLUDES@#include "screen_player_drawing.hpp"
 namespace {
 struct Page {
     typedef @NAMESPACE@::DisplayState DisplayState;
-    typedef opxy::draw::Frame<@PATHS@, @POINTS@, @NODES@, @TEXTS@, @PALETTE@> Frame;
+    typedef @FRAME@ Frame;
+    // What its display reads (draw::Input, or with encoderActivity draw::EncoderInput) and
+    // the renderer that applies its frame (an extended one for an extended display).
+    typedef opxy::draw::@INPUT@ Input;
+    typedef opxy::screen::@RETAINED@<Frame> Retained;
     static const bool paged = @PAGED@;
+    static const bool full_canvas = @FULL_CANVAS@;   // fullCanvas: no stock header
     static const char* const ids[@ID_COUNT@];
     static const char* const titles[8];
     static const void* const* vtable() { return @PREFIX@_player_vtable; }
     static opxy::player::Controls controls(void* object) { return opxy::platform::player_controls(object); }
+    static void bind(Retained::Object* object) { @BIND@ }
     static void reset(DisplayState& display, Frame& frame) {
         @NAMESPACE@::display_reset(display);
         for (opxy::u32 i = 0; i < Frame::path_count; ++i) frame.paths[i].key = 0;
     }
+    // The encoders' activity, read once a frame when the display declares it.
+    static void snapshot(Input& input) { @SNAPSHOT@ }
     // The player's display, with the State its note callbacks keep: a GUI read
     // while the sequencer may be changing it, as player::display's is.
     static void render(void* object, DisplayState& display, const opxy::player::Controls& controls,
-                       const opxy::draw::Input& input, Frame& frame) {
+                       const Input& input, Frame& frame) {
         @NAMESPACE@::display(display, static_cast<const State&>(state(object)), controls, input, frame);
     }
 };

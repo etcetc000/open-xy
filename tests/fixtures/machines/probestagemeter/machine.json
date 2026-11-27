@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "sdk": "1.27",
+  "kind": "synth",
+  "description": "Test fixture: a saw whose track stage publishes the track's block peaks to its screen."
+}

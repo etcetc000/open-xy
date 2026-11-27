@@ -77,15 +77,29 @@ SDK_1_2_TEXTS, SDK_1_6_TEXTS = 4, 16
 # Nodes a display could hold before SDK 1.8.
 SDK_1_7_NODES = 256
 # Extended drawing (SDK 1.20, docs/display.md#extended-drawing): optional display
-# keys for synth and effect screens, each 0 or 1 unless EXTENDED_RANGES says otherwise.
+# keys for synth and effect screens, and from EXTENDED_SCREENS_SDK for a drum kit's screen
+# and a note player's own page, each 0 or 1 unless EXTENDED_RANGES says otherwise.
 # A display declaring none of them, within DISPLAY_LIMITS, is a plain one: its
 # generated code and renderer are those of a display before 1.20.
 # A renumber changes this line,
 # SDK_VERSION and its history (tooling/machines.py) and the "1.20" text in the docs and fixtures.
 EXTENDED_SDK = (1, 20)
+# Extended drawing on a drum kit's screen and a note player's own page. It takes the next free
+# number when it merges: a renumber changes this line, SDK_VERSION and its history
+# (tooling/machines.py) and the "1.28" text in the docs and fixtures.
+EXTENDED_SCREENS_SDK = (1, 28)
+EXTENDED_KINDS = ('synth', 'effect', 'drum', 'player')
 EXTENDED_KEYS = ('affine', 'fullCanvas', 'rgba', 'cubic', 'openPaths', 'segmentPaths', 'quadratic', 'commands',
-                 'countedPaths', 'encoderActivity')
-EXTENDED_RANGES = dict(openPaths=0xffffffff, segmentPaths=0xffffffff, commands=128)
+                 'countedPaths', 'glyphs', 'glyphDefinitions', 'glyphStart', 'encoderActivity',
+                 'audioWords', 'audioTransport', 'audioMode', 'audioReset', 'audioAccumulators', 'outputLevels')
+EXTENDED_RANGES = dict(openPaths=0xffffffff, segmentPaths=0xffffffff, commands=128, glyphs=64, glyphDefinitions=16,
+                       glyphStart=255, audioWords=256, audioMode=2, audioAccumulators=24)
+# The keys SDK 1.27 adds to extended drawing: glyph atlases, a screen's own audio and
+# stock's levels. A renumber changes this line, SDK_VERSION and its history
+# (tooling/machines.py) and the "1.27" text in the docs and fixtures.
+AUDIO_SDK = (1, 27)
+AUDIO_SDK_KEYS = ('glyphs', 'glyphDefinitions', 'glyphStart', 'audioWords', 'audioTransport', 'audioMode', 'audioReset',
+                  'audioAccumulators', 'outputLevels')
 EXTENDED_LIMITS = dict(paths=32, points=256)
 # Path storage: coordinate pairs in all, and a counted display's reserved bytes.
 EXTENDED_POINTS, COUNTED_PATH_BYTES = 256, 2816
@@ -119,6 +133,9 @@ EFFECT_BUS_SHIFT = 12
 # A synth's track stage (SDK 1.24, tooling/track_stage.py): its TrackState's size and
 # alignment, checked against the compiled type, and its tail, as an effect's tailFrames.
 TRACK_STAGE_KEYS = ('stateBytes', 'stateAlignment', 'tailFrames')
+# Optional (SDK 1.27): audio 1 gives track_process the synth's AudioContext, so the stage
+# publishes to its screen's audio snapshots (display audioTransport).
+TRACK_STAGE_OPTIONS = ('audio',)
 # A drum kit's models in named groups (SDK 1.8), which Shift and the first encoder choose
 # (with padMix, which takes Shift's first row, they only title the models);
 # chokeSameKey 1 for a note to cut the voices still sounding its track's same key;
@@ -234,6 +251,8 @@ def validate_definition(value, kind):
             require(resources.get(flag, 0) in (0, 1), flag + ' must be 0 or 1')
         if 'trackStage' in resources:
             validate_track_stage(resources['trackStage'])
+            require(not resources['trackStage'].get('audio') or resources.get('display', {}).get('audioTransport'),
+                    'trackStage audio needs the display to declare audioTransport')
     if 'voiceCapacity' in resources:
         require(1 <= resources['voiceCapacity'] <= 256, 'Voice capacity must be 1..256')
     # A sample engine's voice is bound to its sample when created, so it needs a
@@ -543,9 +562,11 @@ def validate_synth_resources(resources, kind='synth'):
 
 
 def validate_track_stage(stage):
-    """A synth's trackStage: TrackState in whole words aligned to 4 or 8, and its tail in
-    frames (at most 2^24) or "unbounded"."""
-    keys(stage, TRACK_STAGE_KEYS, 'trackStage')
+    """A synth's trackStage: TrackState in whole words aligned to 4 or 8, its tail in
+    frames (at most 2^24) or "unbounded", and optionally audio, 0 or 1."""
+    require(isinstance(stage, dict) and set(TRACK_STAGE_KEYS) <= set(stage) <= set(TRACK_STAGE_KEYS + TRACK_STAGE_OPTIONS),
+            'Unexpected trackStage fields')
+    require(type(stage.get('audio', 0)) is int and stage.get('audio', 0) in (0, 1), 'trackStage audio is 0 or 1')
     size, alignment, tail = stage['stateBytes'], stage['stateAlignment'], stage['tailFrames']
     require(type(size) is int and type(alignment) is int and 4 <= size and alignment in (4, 8) and
             size % alignment == 0, 'Track stage state must occupy whole words, aligned to 4 or 8 bytes')
@@ -568,7 +589,7 @@ def validate_display(display, kind=None):
         high = EXTENDED_RANGES.get(name, 1)
         require(type(display[name]) is int and 0 <= display[name] <= high, 'Display %s must be 0..%d' % (name, high))
     extended = extended_display(display)
-    require(not extended or kind in ('synth', 'effect'), 'Extended drawing is for synth and effect screens')
+    require(not extended or kind in EXTENDED_KINDS, 'Extended drawing is for synth, effect, drum kit and note player screens')
     for name, (low, high) in DISPLAY_LIMITS.items():
         high = EXTENDED_LIMITS.get(name, high) if extended else high
         low = 0 if name == 'palette' and display.get('affine') else low
@@ -587,9 +608,13 @@ def validate_display(display, kind=None):
 
 
 def validate_extended(display, kind):
-    """The extended keys' combinations (draw.hpp ExtendedFrame and RgbaFrame)."""
+    """The extended keys' combinations (draw.hpp ExtendedFrame, RgbaFrame and GlyphFrame)."""
     def get(key):
         return display.get(key, 0)
+    # Glyphs, audio snapshots and output levels are a synth's or an effect's screen's only: the
+    # two kinds whose audio the transport carries (tooling/audio_telemetry.py).
+    require(kind in ('synth', 'effect') or not any(k in display for k in AUDIO_SDK_KEYS),
+            "Glyph atlases, a screen's own audio and output levels are for synth and effect screens")
     paths, points, commands = display['paths'], display['points'], get('commands')
     if get('quadratic'):
         require(get('affine') and paths > 0 and points == 0 and commands >= 2 and
@@ -612,6 +637,25 @@ def validate_extended(display, kind):
             'Cubic paths have four points and no topology mask')
     require(not get('rgba') or get('affine') and display['palette'] == 0, 'rgba needs affine and palette 0')
     require(get('affine') or display['palette'] >= 1, 'Display palette must be 1..16 without affine')
+    if get('glyphs'):
+        require(get('affine') and 1 <= get('glyphDefinitions') and paths <= get('glyphStart') and
+                get('glyphStart') + 2 * get('glyphs') <= display['nodes'],
+                'Glyphs need affine, 1..16 glyphDefinitions and two nodes each from glyphStart, after the paths')
+    else:
+        require(not get('glyphDefinitions') and not get('glyphStart'), 'glyphDefinitions and glyphStart need glyphs')
+    if get('audioTransport'):
+        words, mode = get('audioWords'), display.get('audioMode')
+        require(words > 0 and mode is not None, 'audioTransport needs audioWords and audioMode')
+        require(mode != 1 or words == 1, 'audioMode 1 (one packed accumulator) needs audioWords 1')
+        require(mode != 2 or 1 <= display.get('audioAccumulators', 1) < words,
+                'audioMode 2 needs 1..24 audioAccumulators, fewer than audioWords')
+        require('audioAccumulators' not in display or mode == 2, 'audioAccumulators needs audioMode 2')
+        require(not get('audioReset') or mode != 1, 'audioReset needs audioMode 0 or 2')
+    else:
+        # A snapshot exists on the device only through the transport: without it a screen
+        # would work in every preview and stay blank on hardware.
+        require(not any(k in display for k in ('audioWords', 'audioMode', 'audioReset', 'audioAccumulators')),
+                'audioWords, audioMode, audioReset and audioAccumulators need audioTransport')
 
 
 def validate_parameter(parameter, alternate=False, required=True):
