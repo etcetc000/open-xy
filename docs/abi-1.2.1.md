@@ -54,6 +54,7 @@ version is rejected. The output differs from stock in exactly these places:
 | Aux tracks | 13 | Lets a track control machine take over aux track 12 (CV): its chooser on Shift + M1 (the effect list on the sends), its presets on Shift + track key, its page on M1, its parameter names on the LFO's destinations, its own LFO whichever track is selected, and CV and gate kept silent; four MTP allowlist edits show the user's aux presets |
 | Preset scan | 1 | Hides factory presets whose engine the build does not install ([presets](#presets)) |
 | Startup label | 1 | Shows `OPEN <version>-1.2.1` at boot, `<version>` from [`VERSION`](../VERSION), through the stock startup text renderer |
+| Device identity | 1, and the global parameter receiver call | Reads the [device identity](api.md#device-identity) on the GUI processor and sends it to the audio processor ([device identity](#device-identity)); linked only with a machine declaring `"deviceIdentity": 1` |
 | Extension events | 8 | Observes live input, stock transport and queued controls for extensions, lets a Record double-tap owner edit notes through stock editing and undo, and lets an extension add [USB host drivers](#usb-host-drivers) while the host stack starts; linked only when an extension is selected |
 | Audio transport | 2 | Runs the SDK's snapshot service after stock's background service on the audio processor (`8c0ba4f4`, stock `8d4d6a10` first) and takes SDK packets before stock's receive between the processors (`8d5b1af4`): only a packet starting with the SDK header (4, then `OXAD`) is taken, every other packet, empty ones included, goes to stock `8d4d669e` with its registers; a taken packet returns 0, which the caller does not read (it reloads R0 at `8d5b17a8`); linked only with a synth or effect declaring [`audioTransport`](display.md#audio-snapshots) |
 | Module | 1 record | One loader block holding the linked module |
@@ -80,6 +81,13 @@ which per-key sends share with a `sample_studio` extension; the track call's
 record lists `mixer` too, entering the mixer's own handler when no track stage
 takes it. A build with one user resolves the others' entry points to
 `kit_absent`. The send buses' two sources stay `drum_sends`.
+Stock's call of its global parameter setter (`8d5b145e`) is another: its record
+is the `parameter_receive` service, used by the master processor, the
+[device identity](#device-identity) and a `sample_studio` extension; a build with
+the device identity enters its receiver, which hands every number it does not own
+to the master processor's receiver, or to stock's setter in a build without the
+master processor. Sample Studio's player owns numbers 138 to 152, which overlap
+the identity's 138 to 145, so a build refuses the device identity beside it.
 The step locks of a kit's Shift fields are the `drum_locks` service, used by a
 `padMix` kit, by a synth with a Shift row and by a `drumline_page` extension.
 The `played_pad` service has no edit: it links the [drum trigger](#screens)
@@ -2518,7 +2526,8 @@ sweep and the row still from the track.
 
 ## Master-processor capability
 
-The conditional `master_filter` service redirects these stock 1.2.1 sites.
+The conditional `master_filter` service redirects these stock 1.2.1 sites (the
+B3 parameter receiver call through the shared `parameter_receive` record).
 Eight-byte entry branches replay their exact original prologues in adapter
 trampolines before resuming stock. Four-byte call sites remain relative; the
 master audio call retains its eight-byte absolute footprint. The existing
@@ -2531,14 +2540,15 @@ project save/deserialize hooks are shared, not replaced or duplicated.
 | `8c093888` | MIX encoder entry | `4360990900e80300` |
 | `8d537d04` | EQ frame entry | `00e82400e305666f` |
 | `8d511b80` | Master stereo EQ processing call | `00dea011102c0000` |
-| `8d5b145e` | B3 parameter receiver call | `fae397eb` |
+| `8d5b145e` | B3 parameter receiver call (shared with the [device identity](#device-identity)) | `fae397eb` |
 | `8d598a3c` | Active project publication getter call | `ffe3ea5b` |
 | `8d588114` | New-project preparation entry | `00e80c15e305666f` |
 
 MIX page is word `+0x88`, with EQ at index 1; M2 key 7 takes the shifted
 vtable method while Shift is held. Keys 10–13 are encoder clicks. Stock
 continuous stepping is `8d4d6cc8`; an actual edit uses dirty marker `8d585ee8`.
-B3 virtual IDs 128–137 are consumed before stock's unbounded parameter setter
+B3 virtual IDs 128–137, and in a build with the [device identity](#device-identity)
+138–145, are consumed before stock's unbounded parameter setter
 `8d50eb8c`, including malformed values. ID 128 begins a parameter transaction:
 selection in bits 0–4 (0 is EQ, 1–16 are registered processors), count in bits
 5–8, explicit audio reset in bit 9, and a 21-bit sequence in bits 10–30.
@@ -2561,3 +2571,49 @@ before binding; EQ slot 33 is never overwritten. Path commands remain fixed
 32-byte records (type at +24); the shared retained renderer checks exact command counts
 and types and caches geometry/palette references. Author frames use the normal
 positive-scale hide transform for degenerate geometry. All this runs on the GUI role.
+
+## Device identity
+
+The `device_identity` service gives machines declaring `"deviceIdentity": 1` the
+[device identity](api.md#device-identity) (`device_identity.cpp`,
+`device_identity_hooks.s`). Each processor keeps its own copy, which never
+changes once marked known; `opxy_device_identity` copies it out.
+
+| Site | Purpose | Original bytes |
+| --- | --- | --- |
+| `8c0b73a8` | The main loop's call of `8d57c0f8` (no arguments), every pass, whatever the screen | `00de578df8c00000` |
+| `8d5b145e` | B3 parameter receiver call (the `parameter_receive` record, shared with the [master processor](#master-processor-capability)) | `fae397eb` |
+
+The main-loop handler makes stock's call, then saves every register, runs the
+service and restores them, so the loop continues as after stock's call. The
+service does nothing on the audio processor (role byte `86c05ca4` zero). On the
+GUI processor, until it has the identity, it looks every 100 ms (stock's
+microsecond clock `8d5be3a0`), 600 times at most (a minute or more, as the loop passes): the boot information's word at `08010e68` must
+hold an address in the 1000 bytes from `0x84000`, the 18 bytes at `08010e52`
+are the identity, and the word must be unchanged after they are read. It then
+sends the identity at most once a second, 32 times, and after that does nothing more
+than check that it is done. Each time is eight B3 global parameter messages
+(`8d4dc84c(id, value)`, a five-byte payload: the ID byte and the value's four
+bytes): ID 138 with a 24-bit sequence number, IDs 139–144 with the bytes three
+to a word, little-endian (byte `i` is byte `i % 3` of word `i / 3`), and ID 145
+with the low 24 bits of FNV-1a, 32-bit, over the sequence's three bytes and the
+18 identity bytes, little-endian. Every value is below 2^24, so none is
+negative. Stock's own B3 messages carry its master EQ's parameters, IDs 0–3
+(the callers of `8d4dc84c` at `8c09361e`, `8c0936ba`, `8c093c50`, `8d58ea0e`
+and `8d598a6e`); the master processor's carry 128–137.
+
+The audio processor's receiver consumes IDs 138–145 before stock's unbounded
+setter `8d50eb8c`, whatever their values, and passes every other ID on
+unchanged: to the master processor's receiver, or, in a build without it, where
+that symbol resolves to `kit_absent`, to stock's setter as the call did. A begin
+starts a message and the six words follow it; a value of 2^24 or more ends it.
+The commit sets the identity only if all six words arrived since the begin and
+the check matches. The first such message sets it and later ones change
+nothing. The check guards against a lost or mixed-up message, not against a
+forged one. The GUI processor ignores these IDs and does not pass them to
+stock's setter either. Neither path has a computed stack bound, as the master
+processor's audio entry does: the GUI handler adds its saved registers and the
+service's few words to the main loop's stack, the receiver one small frame in
+front of the master processor's. Nothing else in the GUI's or
+the audio processor's traffic changes, and a build without the service sends
+none of them.

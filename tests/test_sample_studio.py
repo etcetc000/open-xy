@@ -69,7 +69,11 @@ class Sites(unittest.TestCase):
         self.assertIn('sampleStudio', profile['services']['mixer'])
         self.assertNotIn('sampleStudio', profile['services']['drum_sends'])   # the send buses' sources stay the sends'
         bus = [p for p in profile['patches'] if p.get('service') == 'master_bus']
-        self.assertEqual(sorted(p['address'] for p in bus), ['0x8d511b80', '0x8d5b145e'])
+        self.assertEqual(sorted(p['address'] for p in bus), ['0x8d511b80'])
+        # the B3 receiver's call is shared with the device identity: the master bus's receiver without it
+        receive = next(p for p in profile['patches'] if p['address'] == '0x8d5b145e')
+        self.assertEqual((receive['service'], receive['symbols']['master_bus']), ('parameter_receive', 'sdk_master_receive'))
+        self.assertIn('sampleStudio', profile['services']['parameter_receive'])
 
     def test_each_trampoline_replays_its_bytes_and_returns_after_them(self):
         text = HOOKS.read_text()
@@ -243,15 +247,24 @@ class Tooling(unittest.TestCase):
 
         class Machine:
             kind = 'sample'
-            definition = {}
+            definition = {'resources': {}}
 
         class Synth:
             kind = 'synth'
-            definition = {}
+            definition = {'resources': {}}
         self.assertNotIn('sampleStudio', native.service_users([Machine()]))
         self.assertIn('sampleStudio', native.service_users(Built([Machine()], [Studio()])))
         with self.assertRaises(Exception):
             native.service_users(Built([Synth()], [Studio()]))   # needs the samples service
+
+        class Identity(Machine):
+            definition = {'resources': {'deviceIdentity': 1}}
+        # the device identity's message uses B3 parameters 138..145, which the player owns
+        self.assertIn('deviceIdentity', native.service_users([Machine(), Identity()]))
+        with self.assertRaises(Exception):
+            native.service_users(Built([Machine(), Identity()], [Studio()]))
+        self.assertIn("check(!services.has('sample_studio') || !services.has('device_identity'),",
+                      (ROOT / 'builder/core.mjs').read_text())
 
     def test_units_belong_to_the_service(self):
         from tooling import native

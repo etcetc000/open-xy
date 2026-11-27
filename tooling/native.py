@@ -27,7 +27,7 @@ from .adapters import (kit_controls, model_edit, pad_mix, player_instrument, pla
                        generate_voice, generate_drum_callbacks, preset_files, sample_callbacks, track_control,
                        control_callbacks)
 from .contributors import validate_source_boundary
-from .definitions import extended_display, paged, synth_shift
+from .definitions import device_identity as declares_device_identity, extended_display, paged, synth_shift
 from .firmware import active_services, assemble, hook_instruction, hook_symbol, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
 from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, sample_path, tree
@@ -365,8 +365,8 @@ SDK_UNITS = ('divide', 'sample_kernel', 'memory', 'registration', 'registration_
              'drum_machines', 'drum_callbacks', 'drum_values_stock', 'drum_synthesis_stock', 'drum_trigger', 'drum_hooks',
              'mixer', 'mixer_hooks', 'drum_send', 'drum_send_hooks', 'track_call', 'track_stage', 'track_stage_table', 'drum_locks',
              'lock_handles', 'drumline', 'drumline_hooks', 'synth_shift_hooks', 'drum_kit_controls', 'drum_amp_envelope',
-             'telemetry_protocol', 'telemetry_native', 'telemetry_hooks', 'telemetry_registry',
-             'sample_studio_host', 'sample_studio_hooks', 'sample_studio_audio')
+             'telemetry_protocol', 'telemetry_native', 'telemetry_hooks', 'telemetry_registry', 'device_identity',
+             'device_identity_hooks', 'sample_studio_host', 'sample_studio_hooks', 'sample_studio_audio')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -439,6 +439,9 @@ UNIT_SERVICES['idle_cut'] = 'idle'
 UNIT_SERVICES.update(dict.fromkeys(('track_hooks', 'floor_hooks'), 'block_trims'))
 # The DSP board's per-block hook and the output slack it arms.
 UNIT_SERVICES.update(dict.fromkeys(('dsp_block', 'dsp_block_hooks', 'output_slack', 'output_slack_hooks'), 'output_slack'))
+# The device identity (SDK 1.30, device_identity.cpp): the GUI's read and send, the audio
+# processor's receive, and opxy_device_identity, linked only with a machine declaring it.
+UNIT_SERVICES.update(dict.fromkeys(('device_identity', 'device_identity_hooks'), 'device_identity'))
 
 
 def service_users(machines):
@@ -448,7 +451,8 @@ def service_users(machines):
     'playedPad': a drum kit declaring SDK 1.21 or later, whose screen reads the played pad;
     'trackStage': a synth's track stage; 'kitControls': a drum kit declaring padVolume, padRandom
     or ampEnvelope, and 'ampEnvelope' one declaring ampEnvelope; 'audioTransport': a machine
-    whose screen shows its own audio),
+    whose screen shows its own audio; 'deviceIdentity': a machine of any kind declaring
+    deviceIdentity),
     'extension' when it links extension code (native builds link all of the collection's;
     settings extensions link none), the capabilities they declare ('master_filter',
     'drumline_page', 'sampleStudio': a sample_studio extension, which needs a sample-family
@@ -459,6 +463,9 @@ def service_users(machines):
     require(not studio or 'sample' in users or 'drum' in users or
             any(e.drumline_page is not None for e in extensions_of(machines)),
             'Sample Studio needs a sample-family machine in the build (the samples service)')
+    # Its player owns B3 parameters 138..152; the device identity's message uses 138..145.
+    require(not studio or not any(declares_device_identity(m.definition) for m in machines),
+            'Sample Studio and the device identity both use B3 parameters 138 to 145; build them apart')
     return (users + ['trackControl' for m in machines if track_control(m)] +
             ['auxTrack' for m in machines if track_control(m) and track_control(m).get('aux')] +
             ['hidePages' for m in machines if 'hidePages' in m.definition] +
@@ -469,6 +476,7 @@ def service_users(machines):
             ['kitControls' for m in machines if kit_controls(m)] +
             ['ampEnvelope' for m in machines if kit_controls(m) & 4] +
             ['audioTransport' for m in audio_telemetry.users(machines)] +
+            ['deviceIdentity' for m in machines if declares_device_identity(m.definition)] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
             (['drumline_page'] if any(e.drumline_page is not None for e in extensions_of(machines)) else []) +
             (['sampleStudio'] if studio else []) +
@@ -608,9 +616,11 @@ def service_fallbacks(services):
     sdk_drumline_get), the drum-kit controls' entry points the shared drum units
     call in a build with such a kit (drum_kit_controls.hpp): each 0 is a kit without
     them, the mixer's two users (mixer.cpp), the per-key sends and Sample Studio's
-    player, either of which a build that links the mixer may lack, and, in a
-    collection with a track stage, the mixer's begin the shared track call handler
-    makes (track_call.s) when the build links no mixer."""
+    player, either of which a build that links the mixer may lack; in a collection
+    with a track stage, the mixer's begin the shared track call handler makes
+    (track_call.s) when the build links no mixer; and, in a collection with the
+    device identity, the master processor's receiver, which the identity's receiver
+    then replaces with stock's own setter (device_identity.cpp)."""
     fallbacks = {}
     if 'control' in services:
         fallbacks['control'] = dict.fromkeys(('sdk_control_kept_write', 'sdk_control_kept_load'), 'kit_absent')
@@ -627,6 +637,11 @@ def service_fallbacks(services):
         fallbacks['mixer'] = {'sdk_mixer_begin': 'kit_absent'}
     if 'kit_controls' in services:
         fallbacks['kit_controls'] = dict.fromkeys(KIT_CONTROLS_CALLS, 'kit_absent')
+    if 'device_identity' in services:
+        # The global parameter receiver's next step after the device identity's
+        # (device_identity.cpp): the master processor's; kit_absent tells it to call
+        # stock's own setter instead.
+        fallbacks.setdefault('master_filter', {})['sdk_master_receive'] = 'kit_absent'
     return fallbacks
 
 

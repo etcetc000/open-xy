@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '8e73b6dd89f7049aea3a016947c884862595ad4fa2e4fd0bf876324d64a2a9d1';
+export const PROFILE_SHA256 = '496b3c2b9564f7e89b190e5b53cca08167bda9b056defb46bad84c49343f4172';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -878,6 +878,9 @@ export function linkKit(kit, selection, layout = null, extensionIds = [], settin
   // Sample Studio reads keys through the samples service (tooling.native.service_users).
   check(!services.has('sample_studio') || services.has('samples'),
     'Sample Studio needs a sample engine or Drumline page 2 in the build.');
+  // Its player owns B3 parameters 138..152; the device identity's message uses 138..145.
+  check(!services.has('sample_studio') || !services.has('device_identity'),
+    'Sample Studio and the device identity both use B3 parameters 138 to 145. Choose one.');
   // A unit capability's chosen value links its objects in place of the native build's, under the
   // same names and in the same place (tooling.native UNIT_SOURCES).
   const units = unitSettings(kit, [...extensions], settings);

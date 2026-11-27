@@ -143,10 +143,11 @@ class TrackCall(unittest.TestCase):
                 self.assertEqual(patch_active(patch, services, False), symbol is not None)
                 if symbol:
                     self.assertEqual(hook_symbol(patch, services), symbol)
-        # Every other hook enters its own symbol, whatever is linked.
+        # Every other hook enters its own symbol, whatever is linked, but for the global
+        # parameter receiver's call, which the device identity shares (test_device_identity.py).
         everything = set(profile['services'])
         for p in profile['patches']:
-            if p['kind'] == 'hook' and p['address'] != SITE:
+            if p['kind'] == 'hook' and p['address'] not in (SITE, '0x8d5b145e'):
                 self.assertNotIn('symbols', p)
                 self.assertEqual(hook_symbol(p, everything), p['symbol'])
 
