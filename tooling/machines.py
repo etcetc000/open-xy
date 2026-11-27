@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import (AUDIO_SDK, AUDIO_SDK_KEYS, DRUM_KIT_CONTROLS, EXTENDED_SDK, KIT_CONTROLS_SDK, SDK_1_25, extended_display, ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
+from .definitions import (AUDIO_SDK, AUDIO_SDK_KEYS, DRUM_KIT_CONTROLS, EXTENDED_SDK, KIT_CONTROLS_SDK, SDK_1_25, extended_display, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
@@ -980,16 +980,10 @@ def collection(entries=None, layout=None):
     pages = [m.identity['page'] for m in machines if m.display != 'stock']
     require(len(set(engines)) == len(engines) and len(set(effects)) == len(effects) and len(set(pages)) == len(pages),
             'Conflicting engine, effect or page ID')
-    check_analysis_budgets(machines)
-    return machines
-
-
-def check_analysis_budgets(machines):
-    """Every machine's analysis budget comes from one stock-heap allowance; heap voice arenas have their own."""
-    total = sum(m.definition['resources'].get('sampleAnalysis', 0) for m in machines if m.kind == 'sample')
-    require(total <= ANALYSIS_HEAP_LIMIT,
-            'Sample analysis budgets exceed the collection limit of %d bytes' % ANALYSIS_HEAP_LIMIT)
+    # Heap voices are reserved at boot, so their budget is checked here. Sample analyses
+    # come and go: the device shares one allowance among them (sample_cache.cpp).
     voice_heap.check_budget(machines)
+    return machines
 
 
 def by_kind(machines, *kinds):

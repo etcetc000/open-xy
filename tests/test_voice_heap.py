@@ -148,20 +148,20 @@ class Budget(unittest.TestCase):
         self.assertEqual(voice_heap.VOICE_HEAP_LIMIT, 1024 * 1024)
         heap = self.machine('voiceheap')
         # Apart from the analysis allowance: both may be full at once.
-        machines.check_analysis_budgets([heap, fixture('probesynth'), self.machine('probesample', sampleAnalysis=2 * 1024 * 1024)])
+        voice_heap.check_budget([heap, fixture('probesynth'), self.machine('probesample', sampleAnalysis=2 * 1024 * 1024)])
         # 1 MiB of voices exactly (+ 3 bytes of alignment slack) is refused; 4 bytes a voice less fits.
         fits = self.machine('voiceheap', voiceCapacity=27, voiceBytes=37448)
         self.assertLessEqual(voice_heap.arena_bytes(fits), voice_heap.VOICE_HEAP_LIMIT)
-        machines.check_analysis_budgets([fits])
+        voice_heap.check_budget([fits])
         over = self.machine('voiceheap', voiceCapacity=27, voiceBytes=37452)
         with self.assertRaisesRegex(ValueError, r'Heap voices \(voiceheap: 1048659 bytes\) exceed the 1048576 bytes'):
-            machines.check_analysis_budgets([over])
+            voice_heap.check_budget([over])
 
     def test_the_megabyte_counts_every_heap_synth(self):
         many = [self.machine('voiceheap') for _ in range(7)]
-        machines.check_analysis_budgets(many)  # 7 x 147,567 bytes
+        voice_heap.check_budget(many)  # 7 x 147,567 bytes
         with self.assertRaisesRegex(ValueError, r'exceed the 1048576 bytes'):
-            machines.check_analysis_budgets(many + [self.machine('voiceheap')])
+            voice_heap.check_budget(many + [self.machine('voiceheap')])
 
     def test_a_collection_with_heap_voices_checks_its_budget(self):
         with tempfile.TemporaryDirectory() as folder:

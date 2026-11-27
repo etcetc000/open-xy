@@ -1493,8 +1493,10 @@ many words the sample needs (0 declines), allocates them from the stock heap
 within that machine's budget, and runs `prepare_step` in bounded chunks on the
 stock file worker until `prepared` publishes the immutable result. Nothing is
 prepared while the sample browser is open, and a sample that does not fit stays
-unanalyzed. Results are released before stock frees the sample. A collection's
-analysis budgets together may not exceed 2 MiB.
+unanalyzed. Results are released before stock frees the sample. Whatever their
+budgets add up to, the analysis machines in a firmware hold at most 2 MiB
+together: a sample that would go over waits, as one over its machine's own
+budget does, until a sample is released.
 
 ### Sample kernel
 
