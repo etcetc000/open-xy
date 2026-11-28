@@ -2075,9 +2075,13 @@ export async function importMachinePack(base, pack) {
       define:`SDK objects built with ${name}, which this site's are not`,
       header:`SDK objects built for opxy/${name}.hpp, which this site's are not`}[what] +
       '. It can extend only a site whose collection already uses that' +
-      // A kit exported before kits carried variants: exported again, it may carry this.
-      (base.variants === undefined && (VARIANT_SERVICES.includes(name) || VARIANT_DEFINES.includes(name) ||
-        VARIANT_HEADERS.includes(name)) ? ", or whose kit carries it built in: export the site's kit again." : '.'));
+      // A kit exported before kits carried variants: exported again, it carries a header's, and a
+      // service's or define's when the site links the service it goes with (tooling.native
+      // carried_variants: players for the track instrument, drums for the drum-kit items).
+      (base.variants === undefined && (VARIANT_HEADERS.includes(name) ||
+        (VARIANT_SERVICES.includes(name) || VARIANT_DEFINES.includes(name)) &&
+        base.build.services.includes(name === 'track_instrument' ? 'players' : 'drums'))
+        ? ", or whose kit carries it built in: export the site's kit again." : '.'));
   }
   // The site's kit as a native build of its collection with these machines exports it.
   const site = chosen.target === base.build ? base : variantKit(base, chosen.target);

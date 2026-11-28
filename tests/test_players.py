@@ -728,7 +728,7 @@ inline bool shift_held() { return fake_shift; }
 namespace registry { struct StockString { char text[16]; u32 length,capacity; }; }
 }}
 ''', encoding='utf-8')
-        # The track instrument's unit sees this stock.hpp, which its copy here finds first.
+        # The copied units here (the track instrument's and players.cpp) see this stock.hpp first.
         (self.root / 'stock.hpp').write_text('''#pragma once
 #include <opxy/types.hpp>
 const void* stock_address(opxy::u32);
