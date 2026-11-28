@@ -93,6 +93,13 @@ class MachinePackTests(unittest.TestCase):
                     machine = json.loads(archive.read('machines.json'))['machines'][0]
                     self.assertEqual(machine, kit['machines'][0])
 
+    def test_export_refuses_a_kind_the_builder_cannot_import(self):
+        kit = self.kit()
+        kit['machines'][0]['kind'] = 'master'
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, 'a master machine, which a machine pack cannot carry'):
+                write(kit, directory)
+
     def test_export_requires_a_custom_machine(self):
         kit = self.kit()
         kit['machines'][0]['origin'] = 'catalog'

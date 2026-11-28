@@ -1777,6 +1777,7 @@ function packAuxPresets(m) {
     return Object.keys(preset).sort().join() === (role ? 'platform,type,version' : 'params,platform,type,version') &&
       preset.platform === 'OP-XY' && preset.version === 1 && (role ? path === 'content/aux_presets/cv/init.json' :
         preset.type === m.id && path.startsWith(`content/aux_presets/${m.id}/`) &&
+        /^[a-z0-9][a-z0-9 _-]{0,14}\.json$/.test(path.slice(`content/aux_presets/${m.id}/`.length)) &&
         Array.isArray(preset.params) && preset.params.length === 8 &&
         preset.params.every(n => Number.isInteger(n) && n >= 0 && n <= 32767));
   });
@@ -2004,6 +2005,11 @@ export async function importMachinePack(base, pack) {
     if (shared !== undefined)
       throw new Error(`${m.id} defines ${shared}, which ${[...definedBy.get(shared)].find(id => id !== m.id)} also defines`);
     if (m.preview) check(await sha256(decode64(m.preview.wasm)) === m.preview.sha256, 'Machine preview hash mismatch');
+    // A service it switches on with hooks must have its objects in this kit as well as in its
+    // build record: a pack never adds them, and a build would hook into nothing.
+    for (const service of activeServices(base.profile, [m]))
+      check(!base.profile.patches.some(edit => edit.service === service && edit.kind === 'hook') ||
+        candidate.objects.some(o => o.service === service), `${m.id} needs the ${service} service, which this site does not link`);
     // Catch missing imports (an SDK header unit, arithmetic runtime member or service
     // object the site does not link), duplicate exports and machines that cannot fit even
     // alone, in the larger memory a site offers. The user's combined selection is
