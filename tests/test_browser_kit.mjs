@@ -265,7 +265,7 @@ test('packs refuse unknown kinds and malformed services or heap voices', async (
     [m => { m.auxPresets = {'../../x.json':'{}'}; }, /aux machine/], [m => { m.fullCanvas = 'x'; }, /full canvas/],
     [m => { m.preview = {wasm:'', sha256:'0'.repeat(64), defaults:[0, 0, 0, 0], kit:{models:1e9}}; }, /preview/],
     [m => { m.preview = {wasm:'', sha256:'0'.repeat(64), defaults:[0, 0, 0, 0], shift:Array(8).fill(0)}; }, /preview/],
-    // Only the features an imported kind declares: never a capability, another kind or an aux track.
+    // Only the features an imported kind declares: never a capability or another kind's.
     ...['Bad', 'control', 'load_governor', 'release_floor', 'extension', 'drum', 'padMix', 'auxTrack', 'kitControls']
       .map(f => [m => { m.features = [f]; }, /features/]),
     [m => { m.features = 'hidePages'; }, /features/],
