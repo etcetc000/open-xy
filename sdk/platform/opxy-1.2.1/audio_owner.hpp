@@ -9,13 +9,14 @@ namespace opxy { namespace platform { namespace telemetry {
 // Its number is a link-time symbol's value (its engine or effect number); its bank
 // accessor is the machine adapter's, and the rest is its declared shape.
 struct Owner {
+    // Pointers first: 16 bytes on the device, which a synth's record space counts.
     const char* number;
-    bool effect;
     opxy_transport::telemetry::Bank* (*bank)(u32 slot);
     u16 words;
     u8 mode;
     bool reset;
     u8 prefix;
+    bool effect;
 };
 }}}
 

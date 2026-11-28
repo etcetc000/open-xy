@@ -25,7 +25,7 @@
 #include "audio_owner.hpp"
 #include "barrier.hpp"
 
-static_assert(sizeof(void*) != 4 || opxy::platform::kRecordTableBytes == 192,
+static_assert(sizeof(void*) != 4 || opxy::platform::kRecordTableBytes == 208,
               "tooling/records.py RECORD_TABLE_BYTES differs");
 
 using opxy::u8;
