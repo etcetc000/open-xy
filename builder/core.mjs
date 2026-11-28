@@ -278,10 +278,11 @@ export function numberLayout(rules, fixed, layout, machines) {
       check(sameNumbers(numbers[name], identity), `${name} has fixed numbers; the layout gives it others`);
     // An effect number later found unusable on stock is let go and numbered again.
     else if (Object.hasOwn(identity, 'effect') && !pools.effect.includes(identity.effect)) continue;
-    // An engine number among the effect numbers, which earlier SDKs gave out, is let go too;
-    // a fixed machine's is never another's.
-    else if (Object.hasOwn(identity, 'engine') && rules.effects.includes(identity.engine) &&
-      !fixedEngines.has(identity.engine)) {
+    // An engine number among the effect numbers, which earlier SDKs gave out (from the engine
+    // pool alone), is let go too; a fixed machine's is never another's, and a stock engine's is
+    // refused as before.
+    else if (Object.hasOwn(identity, 'engine') && pools.engine.includes(identity.engine) &&
+      rules.effects.includes(identity.engine) && !fixedEngines.has(identity.engine)) {
       if (!released.has(identity.engine)) released.set(identity.engine, name);
       check(released.get(identity.engine) === name, `${name} and ${released.get(identity.engine)} both hold engine ${identity.engine} in this layout`);
       moved.push(name);
@@ -2047,6 +2048,11 @@ export async function importMachinePack(base, pack) {
     check(!existing.has(m.id), `${m.id} is already one of this site's machines. Ask its author for a pack ` +
       'that names it differently, or use the site\'s.');
     check((m.features ?? []).every(f => users.has(f)), 'Invalid machine features');
+    // What the machine says it adds is part of what its author's build was shaped by.
+    const own = m.build ?? {defines:[], headers:[]};
+    check([...activeServices(base.profile, [m])].every(s => pack.build.services.includes(s)) &&
+      own.defines.every(d => pack.build.defines.includes(d)) && own.headers.every(h => pack.build.headers.includes(h)),
+      'Invalid machine build');
     if (m.catalog === '') return m;
     const entry = JSON.parse(m.catalog.trim().slice(1)), indent = '\n            ';
     const numbered = ['effect', 'player'].includes(m.kind);

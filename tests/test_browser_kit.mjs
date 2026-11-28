@@ -54,7 +54,10 @@ async function packFixture() {
     catalog:', {"type":"' + id + '","default_params":[0,0,0,0,0,0,0,0]}',
     artwork:'<rect id="panel" width="1" height="1"/>', asset:id + '.svg'});
   const pack = {format:'opxy-machine-pack/2', version:k.version, sdk:SDK, profileSha256:await sha256(profileBytes),
-    definitions:structuredClone(k.definitions), fixed:structuredClone(k.fixed), build:structuredClone(k.build),
+    definitions:structuredClone(k.definitions), fixed:structuredClone(k.fixed),
+    // Its author's build, which shaped its machines' objects: every service, define and header they may use.
+    build:{services:Object.keys(JSON.parse(profileBytes).services), defines:['-DOPXY_PLAYER_INSTRUMENT=1',
+      '-DOPXY_KIT_CONTROLS=1', '-DOPXY_MODEL_EDIT=1'], headers:['control_interaction', 'sample_kernel']},
     machines:[custom('custom'), custom('another')],
     objects:[await capsuleOf('custom/voice.o', 'custom', 'custom_record'),
       await capsuleOf('another/voice.o', 'another', 'another_record')], notices:'Author license'};
@@ -422,6 +425,15 @@ test('pack machines with audio snapshots, the device identity or a drawn player 
   }
 });
 
+test('a pack machine needs its services, defines and headers in its author build record', async () => {
+  for (const change of [p => { p.build.services = p.build.services.filter(s => s !== 'drums'); },
+    p => { p.machines[1].build = {defines:['-DOPXY_PLAYER_INSTRUMENT=1'], headers:[]}; p.build.defines = []; },
+    p => { p.machines[2].build = {defines:[], headers:['control_interaction']}; p.build.headers = []; }]) {
+    const {base, pack} = await kindsFixture(); change(pack);
+    await assert.rejects(importMachinePack(base, pack), /Invalid machine build/, change.toString());
+  }
+});
+
 test('packs and sites without a valid build record are refused', async () => {
   for (const [change, error] of [
     [(b, p) => { delete p.build; }, /earlier Open-XY release/],
@@ -461,6 +473,10 @@ test('pack drum kits, players and aux machines are checked as their kinds are bu
     [p => { p.machines[2].auxPresets['content/aux_presets/third/x.json'] = auxPreset('third', 32768); }, /aux machine/],
     [p => { p.machines[2].auxPresets['content/aux_presets/third/x.json'] = '{"params":[],"x":"<script>"}'; }, /aux machine/],
     [p => { p.machines[2].auxPresets['content/aux_presets/cv/x.json'] = AUX_INIT; }, /aux machine/],
+    // An aux preset's file stays in its machine's folder (presetFiles).
+    ...['content/aux_presets/third/../a/p0.json', 'content/aux_presets/third/../../../x.json',
+      'content/aux_presets/third/sub/x.json'].map(path =>
+      [p => { p.machines[2].auxPresets[path] = auxPreset('third'); }, /aux preset/]),
     [p => { p.machines[2].auxPresets['content/aux_presets/third/x.json'] = auxPreset('third') + ' '.repeat(2048); }, /aux machine/],
     [p => { p.machines[2].features = ['auxTrack']; }, /features/],
     // An aux machine named as the stock role it takes over (tooling.adapters.check_track_controls).
