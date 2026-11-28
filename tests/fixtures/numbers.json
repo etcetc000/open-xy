@@ -157,6 +157,8 @@
     {"name": "the fixed machines keep their engine numbers among the effect numbers",
      "layout": {"fm2op": {"engine": 34, "page": 82}, "macroosc": {"engine": 26, "page": 83}, "timestretch": {"engine": 35, "page": 7}},
      "machines": [["fm2op", "synth", {"engine": null, "page": null}], ["macroosc", "synth", {"engine": 26, "page": 83}]],
-     "numbers": {}}
+     "numbers": {}},
+    {"name": "a layout's engine number among the effect numbers but outside the engine pool is held, as before", "layout": {"old": {"engine": 23, "page": 90}}, "machines": [["old", "synth", {"engine": null, "page": null}]], "numbers": {"old": {"engine": 23, "page": 90}}},
+    {"name": "a let-go machine keeps its page, which another layout entry cannot share", "layout": {"a": {"engine": 40, "page": 90}, "b": {"engine": 70, "page": 90}}, "machines": [], "error": "a and b both hold page 90 in this layout"}
   ]
 }

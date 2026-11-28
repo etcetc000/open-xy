@@ -925,9 +925,11 @@ def number_layout(rules, fixed, layout, machines):
             # An effect number later found unusable on stock (its controls never
             # moved) is let go: the machine is numbered again like a new one.
             continue
-        elif 'engine' in identity and identity['engine'] in rules['effects'] and identity['engine'] not in fixed_engines:
-            # An engine number among the effect numbers, which earlier SDKs gave
-            # out, is let go too (below); a fixed machine's is never another's.
+        elif ('engine' in identity and identity['engine'] in pools['engine'] and identity['engine'] in rules['effects'] and
+              identity['engine'] not in fixed_engines):
+            # An engine number among the effect numbers, which earlier SDKs gave out
+            # (from the engine pool alone), is let go too (below); a fixed machine's is
+            # never another's, and a stock engine's is refused as before.
             n = identity['engine']
             require(released.setdefault(n, name) == name, f'{name} and {released[n]} both hold engine {n} in this layout')
             moved.append(name)

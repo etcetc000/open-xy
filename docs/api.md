@@ -1992,8 +1992,9 @@ held so an old project never opens another machine. The builder and
 the next build so every machine keeps its numbers. A machine new to the layout
 gets numbers from its own place in each pool above, worked out from its ID
 (FNV-1a, 32-bit, of the ID's UTF-8 bytes, modulo the pool's size), or the next
-free number above it, wrapping around; an engine passes over the effect
-numbers, which stay in its pool (34..255) so every other place stays where it was.
+free number above it, wrapping around. A machine's own place is worked out over
+the whole engine pool, 34..255, so every place stays where it was, but an engine
+passes over the effect numbers and is given only 63..255 (the table above).
 Earlier SDKs gave engines effect numbers: a layout that holds one lets it go,
 and that machine, built now or not, keeps its screen and is given an engine
 number from its own place, in ID order, before any machine new to the layout.
