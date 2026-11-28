@@ -2371,11 +2371,21 @@ publish into the same storage. No audio callback uses GUI pattern getters.
 
 ### Players: track instrument
 
-SDK 1.25 adds no hook and no stock address for players. In a build with a
-player declaring 1.25 (`OPXY_PLAYER_INSTRUMENT`), the compositor substitute,
-with the Shift word, publishes each instrument track's kind of instrument
-(`Controls.instrument`) into eight bytes of the players service, from stock
-calls on the GUI: the track's engine getter `8d58781c` (`LINK`, `CALL
+The track instrument (SDK 1.31) adds no hook site and no stock address for players. Only a build
+with a player declaring `resources.trackInstrument`, or a player declaring
+SDK 1.25 to 1.30, links the `track_instrument` service (`track_instrument.cpp`, `track_instrument_hooks.s`);
+any other build applies the compositor's loop-advance hook (`8d5214c2`) as
+before. With the service, that hook enters `sdk_instrument_advance` in place
+of `sdk_screen_advance` (the record's `symbols`): the same handler but for the
+C++ it calls, which at a frame's first slot publishes each instrument track's
+kind of instrument (`Controls.instrument`) into eight bytes of the service,
+then runs the compositor's step (`sdk_screen_next`) as without it. The
+declaring player's own units compile with `OPXY_PLAYER_INSTRUMENT`; their
+`player_controls` calls reach `sdk_instrument_controls`, which takes the
+112-byte `Controls` from `players.cpp` (by its symbol, returned in memory the
+caller provides) and appends the track's published kind. `players.cpp` and
+every other player compile as in a build without the service. The kinds come
+from stock calls on the GUI: the track's engine getter `8d58781c` (`LINK`, `CALL
 8d587708`, `R0 = [P1 + 0x18]`: the engine word of the current pattern's track
 object), which the drum services already call, and stock's drum predicate
 `8d5b79f0` on that engine (1 for engine 3 or 4, else 0). The drums service

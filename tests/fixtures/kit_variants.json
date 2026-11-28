@@ -1,0 +1,86 @@
+{
+  "about": "Shared by tests/test_machine_pack.py (tooling.machine_pack.variant_build) and tests/test_browser_kit.mjs (builder/core.mjs variantBuild): what a site's SDK objects must be built with for a pack's machines, given the site's build record, what its variants carry and each pack machine's needs.",
+  "cases": [
+    {
+      "name": "a synth adding nothing keeps the site's build",
+      "site": {"services": ["drums", "octaves", "players", "samples"], "defines": [], "headers": ["sample_kernel"]},
+      "carried": {"services": ["amp_envelope", "kit_controls", "played_pad", "track_instrument"], "defines": ["-DOPXY_KIT_CONTROLS=1"], "headers": ["control_interaction"]},
+      "machines": [{"kind": "synth", "services": [], "defines": [], "headers": []}],
+      "expected": {"target": {"services": ["drums", "octaves", "players", "samples"], "defines": [], "headers": ["sample_kernel"]}}
+    },
+    {
+      "name": "a player declaring its track instrument takes the carried service, and no define",
+      "site": {"services": ["drums", "octaves", "players", "samples"], "defines": [], "headers": ["sample_kernel"]},
+      "carried": {"services": ["amp_envelope", "kit_controls", "played_pad", "track_instrument"], "defines": ["-DOPXY_KIT_CONTROLS=1"], "headers": ["control_interaction"]},
+      "machines": [{"kind": "player", "services": ["octaves", "players", "track_instrument"], "defines": [], "headers": []},
+                   {"kind": "player", "services": ["octaves", "players"], "defines": [], "headers": []}],
+      "expected": {"target": {"services": ["drums", "octaves", "players", "samples", "track_instrument"], "defines": [], "headers": ["sample_kernel"]}}
+    },
+    {
+      "name": "a player not declaring it adds nothing beside a site that links the track instrument",
+      "site": {"services": ["octaves", "players", "track_instrument"], "defines": [], "headers": []},
+      "carried": {"services": [], "defines": [], "headers": []},
+      "machines": [{"kind": "player", "services": ["octaves", "players"], "defines": [], "headers": []}],
+      "expected": {"target": {"services": ["octaves", "players", "track_instrument"], "defines": [], "headers": []}}
+    },
+    {
+      "name": "the track instrument the site does not carry is refused",
+      "site": {"services": ["octaves", "players"], "defines": [], "headers": []},
+      "carried": {"services": [], "defines": [], "headers": ["control_interaction"]},
+      "machines": [{"kind": "player", "services": ["octaves", "players", "track_instrument"], "defines": [], "headers": []}],
+      "expected": {"refused": [0, "service", "track_instrument"]}
+    },
+    {
+      "name": "a kit with the drum-kit controls, an amp envelope and a played-pad screen takes the carried services and define",
+      "site": {"services": ["drums", "octaves", "players", "samples"], "defines": [], "headers": ["sample_kernel"]},
+      "carried": {"services": ["amp_envelope", "kit_controls", "played_pad", "track_instrument"], "defines": ["-DOPXY_KIT_CONTROLS=1"], "headers": ["control_interaction"]},
+      "machines": [{"kind": "drum", "services": ["amp_envelope", "drums", "kit_controls", "octaves", "played_pad", "samples"], "defines": ["-DOPXY_KIT_CONTROLS=1"], "headers": []}],
+      "expected": {"target": {"services": ["amp_envelope", "drums", "kit_controls", "octaves", "played_pad", "players", "samples"], "defines": ["-DOPXY_KIT_CONTROLS=1"], "headers": ["sample_kernel"]}}
+    },
+    {
+      "name": "a kit needing a service the site neither links nor carries is refused",
+      "site": {"services": ["octaves", "players"], "defines": [], "headers": []},
+      "carried": {"services": ["track_instrument"], "defines": [], "headers": ["control_interaction"]},
+      "machines": [{"kind": "drum", "services": ["drums", "octaves", "samples"], "defines": [], "headers": []}],
+      "expected": {"refused": [0, "service", "drums"]}
+    },
+    {
+      "name": "a define the site does not carry is refused",
+      "site": {"services": ["drums", "octaves", "samples"], "defines": [], "headers": []},
+      "carried": {"services": [], "defines": ["-DOPXY_KIT_CONTROLS=1"], "headers": []},
+      "machines": [{"kind": "drum", "services": ["drums", "octaves", "samples"], "defines": ["-DOPXY_MODEL_EDIT=1"], "headers": []}],
+      "expected": {"refused": [0, "define", "-DOPXY_MODEL_EDIT=1"]}
+    },
+    {
+      "name": "a synth reading the last control touched takes the carried header",
+      "site": {"services": ["drums", "octaves", "players", "samples"], "defines": [], "headers": ["sample_kernel"]},
+      "carried": {"services": [], "defines": [], "headers": ["control_interaction"]},
+      "machines": [{"kind": "synth", "services": [], "defines": [], "headers": ["control_interaction"]}],
+      "expected": {"target": {"services": ["drums", "octaves", "players", "samples"], "defines": [], "headers": ["control_interaction", "sample_kernel"]}}
+    },
+    {
+      "name": "a header-tied unit the site neither links nor carries is refused",
+      "site": {"services": ["octaves", "players"], "defines": [], "headers": []},
+      "carried": {"services": [], "defines": [], "headers": ["control_interaction"]},
+      "machines": [{"kind": "sample", "services": [], "defines": [], "headers": ["sample_kernel"]}],
+      "expected": {"refused": [0, "header", "sample_kernel"]}
+    },
+    {
+      "name": "everything at once: the defines in build order, the services and headers sorted",
+      "site": {"services": ["drums", "octaves", "players", "samples"], "defines": [], "headers": ["sample_kernel"]},
+      "carried": {"services": ["amp_envelope", "kit_controls", "played_pad", "track_instrument"], "defines": ["-DOPXY_KIT_CONTROLS=1", "-DOPXY_MODEL_EDIT=1"], "headers": ["control_interaction"]},
+      "machines": [{"kind": "synth", "services": [], "defines": [], "headers": ["control_interaction"]},
+                   {"kind": "drum", "services": ["drums", "kit_controls", "octaves", "played_pad", "samples"], "defines": ["-DOPXY_MODEL_EDIT=1", "-DOPXY_KIT_CONTROLS=1"], "headers": []},
+                   {"kind": "player", "services": ["octaves", "players", "track_instrument"], "defines": [], "headers": []}],
+      "expected": {"target": {"services": ["drums", "kit_controls", "octaves", "played_pad", "players", "samples", "track_instrument"], "defines": ["-DOPXY_KIT_CONTROLS=1", "-DOPXY_MODEL_EDIT=1"], "headers": ["control_interaction", "sample_kernel"]}}
+    },
+    {
+      "name": "the first machine needing what the site lacks is named",
+      "site": {"services": ["drums", "octaves", "players", "samples"], "defines": [], "headers": ["sample_kernel"]},
+      "carried": {"services": ["played_pad"], "defines": [], "headers": []},
+      "machines": [{"kind": "drum", "services": ["drums", "octaves", "played_pad", "samples"], "defines": [], "headers": []},
+                   {"kind": "drum", "services": ["drums", "kit_controls", "octaves", "samples"], "defines": ["-DOPXY_KIT_CONTROLS=1"], "headers": []}],
+      "expected": {"refused": [1, "service", "kit_controls"]}
+    }
+  ]
+}

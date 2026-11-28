@@ -33,7 +33,10 @@ def host_tests(m, host_cxx, scratch):
         binary = scratch / (m.id + '-' + test.stem + ('.exe' if os.name == 'nt' else ''))
         # The folder's include paths, as its preview and native builds use them.
         includes = [ROOT / 'sdk/include', m.root, *(m.root / extra for extra in getattr(m, 'includes', ()))]
-        command = [host_cxx, '-std=c++11', '-O2', '-Wall', '-Werror', *('-I' + str(path) for path in includes),
+        # Its own units' defines (native.own_unit_defines): a track instrument player's Controls.instrument.
+        from .native import own_unit_defines
+        command = [host_cxx, '-std=c++11', '-O2', '-Wall', '-Werror', *own_unit_defines(m),
+                   *('-I' + str(path) for path in includes),
                    # Only a drum kit's tests link its extra sources: other machines' tests
                    # include what they need, and linking them as well defines it twice.
                    str(test), *(str(m.root / source) for source in (m.sources if getattr(m, 'kind', None) == 'drum' else ())),

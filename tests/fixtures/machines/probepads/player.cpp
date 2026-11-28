@@ -1,5 +1,5 @@
 #include <opxy/player.hpp>
-// Test fixture for Controls.instrument (SDK 1.25): on a drum track every key plays the one
+// Test fixture for Controls.instrument (resources.trackInstrument): on a drum track every key plays the one
 // pad the first control chooses (pads are keys 53..76); on any other track a key plays its
 // note snapped down to C major.
 namespace probepads {

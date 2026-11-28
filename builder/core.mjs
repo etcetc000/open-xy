@@ -10,7 +10,7 @@ export const selectArtwork = Graphics.selectArtwork;
 // The init preset's authored settings, shared with tooling.adapters.default_preset
 // (write_builder inlines this same file's content for the offline export).
 import DEFAULT_PRESET_TEMPLATE from '../tooling/default_preset.json' with { type: 'json' };
-export const PROFILE_SHA256 = '496b3c2b9564f7e89b190e5b53cca08167bda9b056defb46bad84c49343f4172';
+export const PROFILE_SHA256 = '2335350523fa162bb0bbe15efe0ec8c87ff68ce8395d127931acc6d30c33e299';
 export function requireThat(ok, message) { if (!ok) throw new Error(message); }
 const check = requireThat;
 const utf8 = new TextEncoder();
@@ -745,6 +745,8 @@ export async function openKit(kit) {
   }
   // What shaped its objects (tooling.native.shared_build), which a machine pack's must fit.
   check(kit.build === undefined || validBuild(kit.build), 'Invalid kit build');
+  // Its objects as pack machines may need them built (tooling.browser_kit.kit_variants).
+  await checkVariants(kit);
   check(kit.linked === undefined || (Array.isArray(kit.linked) && kit.linked.length > 0 &&
     new Set(kit.linked).size === kit.linked.length && kit.linked.every(id => kit.machines.some(m => m.id === id))),
     'Invalid linked machines');
@@ -1111,15 +1113,20 @@ const words = (...values) => {
 // edit's `symbols` maps each to the handler a selection with it enters, the first
 // one the selection uses winning; otherwise its `symbol` (tooling.firmware.hook_symbol).
 // Whether an edit's `symbols` map is absent or valid (tooling.pipeline.check_patch_boundaries):
-// a service hook's, naming declared services with a handler each, its own symbol among them,
-// and together used by exactly the users of the record's service. `services` is the profile's.
+// naming declared services with a handler each. A service hook's holds its own symbol and is
+// together used by exactly the users of the record's service; a hook every build applies (no
+// service) names handlers that replace its own symbol, which is none of them. `services` is the
+// profile's.
 export function validSharedHook(edit, services) {
   const shared = edit.symbols;
   if (shared === undefined) return true;
-  if (edit.kind !== 'hook' || edit.service === undefined || typeof shared !== 'object' || shared === null ||
-      Array.isArray(shared) || !Object.keys(shared).length || !Object.values(shared).includes(edit.symbol) ||
+  if (edit.kind !== 'hook' || typeof shared !== 'object' || shared === null ||
+      Array.isArray(shared) || !Object.keys(shared).length ||
       !Object.entries(shared).every(([service, symbol]) => Object.hasOwn(services, service) &&
-        typeof symbol === 'string' && symbol) || !Object.hasOwn(services, edit.service)) return false;
+        typeof symbol === 'string' && symbol)) return false;
+  if (edit.service === undefined)
+    return edit.profiling === undefined && !Object.values(shared).includes(edit.symbol);
+  if (!Object.values(shared).includes(edit.symbol) || !Object.hasOwn(services, edit.service)) return false;
   const users = new Set(Object.keys(shared).flatMap(s => services[s]));
   const own = new Set(services[edit.service]);
   return users.size === own.size && [...users].every(u => own.has(u));
@@ -1738,7 +1745,7 @@ const PACK_MACHINE_KEYS = new Set(['id', 'name', 'kind', 'prefix', 'description'
 const PACK_CONTROLS = {synth:[4, true], drum:[8, false], sample:[1, false], effect:[1, false], player:[4, true]};
 // The defines a machine may add to its build's SDK units, by kind (tooling.native.machine_build:
 // sdk_unit_defines), and the header-tied units any machine's own C++ may include (SHARED_HEADERS).
-const PACK_DEFINES = {player:['-DOPXY_PLAYER_INSTRUMENT=1'], drum:['-DOPXY_KIT_CONTROLS=1', '-DOPXY_MODEL_EDIT=1']};
+const PACK_DEFINES = {drum:['-DOPXY_KIT_CONTROLS=1', '-DOPXY_MODEL_EDIT=1']};
 const PACK_HEADERS = ['control_interaction', 'sample_kernel'];
 // The stock roles an aux machine may take over, by their preset folders (tooling.adapters.AUX_ROLES):
 // only track 12's, so the importer counts aux takeovers and presets over every aux machine.
@@ -1747,7 +1754,7 @@ const AUX_ROLES = ['cv'];
 // capability, an extension's or another kind's.
 const PACK_FEATURES = {synth:['trackControl', 'auxTrack', 'hidePages', 'synthShift', 'trackStage', 'audioTransport',
   'deviceIdentity'], drum:['hidePages', 'padMix', 'playedPad', 'kitControls', 'ampEnvelope', 'deviceIdentity'],
-  sample:['deviceIdentity'], effect:['audioTransport', 'deviceIdentity'], player:['deviceIdentity']};
+  sample:['deviceIdentity'], effect:['audioTransport', 'deviceIdentity'], player:['trackInstrument', 'deviceIdentity']};
 // A drum kit's preview (tooling.browser_kit.kit_preview): its models (2..64, tooling.definitions)
 // and their groups, as the builder's audition and snapshots read them.
 function packKitPreview(kit, features) {
@@ -1874,37 +1881,145 @@ function checkPackMachine(m, fixed = {}) {
 function validBuild(build) {
   const names = list => Array.isArray(list) && list.length <= 64 && list.every(v => typeof v === 'string');
   return Boolean(build) && typeof build === 'object' && !Array.isArray(build) &&
-    Object.keys(build).sort().join() === 'defines,headers,services,unitDefines' &&
-    names(build.services) && names(build.defines) && names(build.headers) &&
-    Boolean(build.unitDefines) && typeof build.unitDefines === 'object' && !Array.isArray(build.unitDefines) &&
-    Object.entries(build.unitDefines).every(([kind, list]) => Object.hasOwn(PACK_CONTROLS, kind) && names(list));
+    Object.keys(build).sort().join() === 'defines,headers,services' &&
+    names(build.services) && names(build.defines) && names(build.headers);
 }
-// A pack machine extends a site only when it adds nothing to what shaped the site's SDK objects,
-// and its own objects were compiled as the site would compile them (tooling.native.shared_build):
-// a native build of the site's collection with the machine then links what the site links.
-// What it needs that the site lacks, in words, or null.
-function missingBuild(profile, site, pack, m) {
-  const service = [...activeServices(profile, [m])].find(s => !site.services.includes(s));
-  if (service !== undefined) return `the ${service} service, which this site does not link`;
-  const define = (m.build?.defines ?? []).find(d => !site.defines.includes(d));
-  if (define !== undefined) return `SDK objects built with ${define}, which this site's are not`;
-  const header = (m.build?.headers ?? []).find(h => !site.headers.includes(h));
-  if (header !== undefined) return `SDK objects built for opxy/${header}.hpp, which this site's are not`;
-  const own = kit => Object.hasOwn(kit.unitDefines, m.kind) ? kit.unitDefines[m.kind] : [];
-  if (!sameValue(own(pack), own(site)))
-    return `its objects compiled as this site compiles a ${m.kind}'s (with ${own(site).join(' ') || 'no defines'}): ` +
-      "its author's export used another collection. Ask for a pack exported with this site's collection";
-  return null;
+// The SDK unit defines in the order a build gives them (tooling.native.DEFINE_ORDER).
+const DEFINE_ORDER = ['-DOPXY_KIT_CONTROLS=1', '-DOPXY_MODEL_EDIT=1', '-DOPXY_MASTER_SHARED=1'];
+// The defines a kit's variants may carry (tooling.native.VARIANT_DEFINES); the master bus's comes
+// from the site's extensions alone.
+const VARIANT_DEFINES = ['-DOPXY_KIT_CONTROLS=1', '-DOPXY_MODEL_EDIT=1'];
+const NO_VARIANTS = {services:[], defines:[], headers:[]};
+// What a site kit's variants may add besides those defines (tooling.native.VARIANT_SERVICES and
+// HEADER_SHAPES): services whose units they carry, and headers that reshape their units.
+const VARIANT_SERVICES = ['amp_envelope', 'kit_controls', 'played_pad', 'track_instrument'], VARIANT_HEADERS = ['control_interaction'];
+// What a site's SDK objects must have been built with for pack machines (tooling.machine_pack.variant_build):
+// a native build of the site's collection with them links exactly what the site then links.
+// `site` is its kit's build record (tooling.native.shared_build), `carried` what the site's variants
+// can add (kit.variants.build, tooling.native.carried_variants) and `machines` each pack machine's
+// services, defines and header-tied units. A machine may add only what the site has or carries; its
+// own objects are the same in any build (tooling.native.own_unit_defines). {target}: the site's
+// build with everything the machines add (the site's own when they add nothing), or
+// {refused: [machine index, 'service' | 'define' | 'header', what]}.
+export function variantBuild(site, carried, machines) {
+  const services = new Set(site.services), defines = new Set(site.defines), headers = new Set(site.headers);
+  for (const [index, m] of machines.entries()) {
+    for (const [what, list, built, extra] of [['service', m.services, site.services, carried.services],
+      ['define', m.defines, site.defines, carried.defines], ['header', m.headers, site.headers, carried.headers]]) {
+      const missing = list.find(x => !built.includes(x) && !extra.includes(x));
+      if (missing !== undefined) return {refused:[index, what, missing]};
+    }
+    m.services.forEach(x => services.add(x)); m.defines.forEach(x => defines.add(x)); m.headers.forEach(x => headers.add(x));
+  }
+  const added = services.size > new Set(site.services).size || defines.size > new Set(site.defines).size ||
+    headers.size > new Set(site.headers).size;
+  return {target:!added ? site : {services:[...services].sort(), defines:DEFINE_ORDER.filter(d => defines.has(d)),
+    headers:PACK_HEADERS.filter(h => headers.has(h))}};
+}
+// A site kit's variants (tooling.browser_kit.kit_variants): what they can add, none of it the site's
+// and each something a pack machine may add (checkPackMachine); the link order of every SDK object
+// a build may link, the site's own in their order; the units each header-tied unit reshapes; the
+// fallbacks of the services they add; and their objects, each a kit SDK object's or a unit of a
+// service they add, rebuilt for each build listed, or an arithmetic runtime member.
+function validVariants(kit) {
+  const v = kit.variants, site = kit.build;
+  const names = list => Array.isArray(list) && list.length <= 256 && new Set(list).size === list.length &&
+    list.every(x => typeof x === 'string');
+  const plain = x => Boolean(x) && typeof x === 'object' && !Array.isArray(x);
+  if (!(plain(v) && Object.keys(v).sort().join() === 'build,objects,order,serviceFallbacks,shapes' && site !== undefined &&
+    plain(v.build) && Object.keys(v.build).sort().join() === 'defines,headers,services' &&
+    ['services', 'defines', 'headers'].every(key => names(v.build[key]) && v.build[key].every(x => !site[key].includes(x))) &&
+    v.build.services.every(x => VARIANT_SERVICES.includes(x) && Object.hasOwn(kit.profile.services ?? {}, x)) &&
+    v.build.defines.every(x => VARIANT_DEFINES.includes(x)) && v.build.headers.every(x => VARIANT_HEADERS.includes(x)) &&
+    // Each service they add comes with a unit of its own.
+    v.build.services.every(x => v.objects?.some?.(o => o?.service === x)) &&
+    names(v.order) && plain(v.shapes) && Object.entries(v.shapes).every(([h, units]) => VARIANT_HEADERS.includes(h) &&
+      names(units) && units.every(name => v.order.includes(name))) &&
+    plain(v.serviceFallbacks) && Object.entries(v.serviceFallbacks).every(([service, fallbacks]) =>
+      v.build.services.includes(service) && plain(fallbacks) &&
+      Object.entries(fallbacks).every(pair => pair.every(x => typeof x === 'string' && x.length > 0))) &&
+    Array.isArray(v.objects) && v.objects.length <= 4096)) return false;
+  const shared = kit.objects.filter(o => o.owner === null && !o.runtime).map(o => o.name);
+  if (!sameValue(v.order.filter(name => shared.includes(name)), shared)) return false;
+  const keys = new Set();
+  const unitSources = new Set(Object.values(kit.unitSources ?? {}).flatMap(values => Object.values(values).flat().map(o => o.name)));
+  const within = (list, built, extra) => names(list) && built.every(x => list.includes(x)) &&
+    list.every(x => built.includes(x) || extra.includes(x));
+  return v.objects.every(o => {
+    if (!(plain(o) && typeof o.name === 'string' && typeof o.bytes === 'string' && /^[a-f0-9]{64}$/.test(o.sha256) &&
+      !unitSources.has(o.name))) return false;
+    const base = kit.objects.find(b => b.name === o.name);
+    if (o.runtime !== undefined)
+      return Object.keys(o).sort().join() === 'bytes,name,owner,runtime,sha256' && o.runtime === true && o.owner === null &&
+        /^sdk\/runtime\/_[A-Za-z0-9_]+\.o$/.test(o.name) && base === undefined;
+    if (!(Object.keys(o).every(key => ['name', 'owner', 'service', 'builds', 'bytes', 'sha256'].includes(key)) &&
+      o.owner === null && Array.isArray(o.builds) && o.builds.length > 0 && o.builds.every(plain))) return false;
+    const fits = v.order.includes(o.name) && (base ? base.owner === null && !base.runtime && base.extension === undefined &&
+        o.service === base.service : v.build.services.includes(o.service)) &&
+      o.builds.every(b => Object.keys(b).every(key => key === 'defines' || key === 'headers') &&
+        within(b.defines, site.defines, v.build.defines) &&
+        // A site object's variant is never built as the site's own object was.
+        !(base && within(b.defines, site.defines, []) && within(b.headers ?? [],
+          (site.headers ?? []).filter(h => (v.shapes[h] ?? []).includes(o.name)), [])) &&
+        (b.headers === undefined || b.headers.length > 0 && within(b.headers, [], PACK_HEADERS) &&
+          b.headers.every(h => (v.shapes[h] ?? []).includes(o.name))));
+    // No two objects of one name for one build.
+    return fits && o.builds.every(b => {
+      const key = canonical([o.name, b.defines.toSorted(), (b.headers ?? []).toSorted()]);
+      if (keys.has(key)) return false;
+      keys.add(key);
+      return true;
+    });
+  });
+}
+async function checkVariants(kit) {
+  check(kit.variants === undefined || validVariants(kit), 'Invalid kit variants');
+  for (const o of kit.variants?.objects ?? [])
+    check(await sha256(decode64(o.bytes)) === o.sha256, 'Curated object hash mismatch: ' + o.name);
+}
+// The site's kit as a native build of its collection with pack machines needing `target` (variantBuild)
+// would have exported it: the variants built for it in place of the objects they rebuild, the units
+// of the services it adds in link order, the arithmetic runtime members its variants need, those
+// services' fallbacks and `target` as its build. `base` is the site's kit as exported (validVariants).
+function variantKit(base, target) {
+  const v = base.variants;
+  const same = (a, b) => sameValue(a.toSorted(), b.toSorted());
+  const built = o => o.builds?.some(b => same(b.defines, target.defines) &&
+    same(b.headers ?? [], target.headers.filter(h => (v.shapes[h] ?? []).includes(o.name))));
+  const chosen = new Map(v.objects.filter(built).map(o => [o.name, o]));
+  // Every unit a header it adds reshapes is built for it: a unit missing one is never the site's.
+  check(target.headers.every(h => (base.build.headers ?? []).includes(h) ||
+    (v.shapes[h] ?? []).every(name => chosen.has(name))), 'Invalid kit variants');
+  const objects = base.objects.map(o => chosen.has(o.name) ? {...o, bytes:chosen.get(o.name).bytes, sha256:chosen.get(o.name).sha256} : o);
+  const names = new Set(base.objects.map(o => o.name));
+  const added = [...chosen.values()].filter(o => !names.has(o.name) && target.services.includes(o.service))
+    .map(o => ({name:o.name, owner:null, bytes:o.bytes, sha256:o.sha256, service:o.service}));
+  // Every service it adds links all its units built for it (tooling.native.kit_variants builds
+  // each for every define set it links with).
+  check(target.services.every(service => base.build.services.includes(service) ||
+    v.order.every(name => !v.objects.some(o => o.name === name && o.service === service) ||
+      added.some(o => o.name === name))), 'Invalid kit variants');
+  const shared = [...objects.filter(o => o.owner === null && !o.runtime), ...added]
+    .sort((a, b) => v.order.indexOf(a.name) - v.order.indexOf(b.name));
+  const runtime = [...objects.filter(o => o.runtime),
+    ...v.objects.filter(o => o.runtime).map(o => ({name:o.name, owner:null, bytes:o.bytes, sha256:o.sha256, runtime:true}))];
+  const fallbacks = {...base.serviceFallbacks ?? {},
+    ...Object.fromEntries(Object.entries(v.serviceFallbacks).filter(([service]) => target.services.includes(service)))};
+  const {variants, ...kit} = base;
+  return {...kit, objects:[...objects.filter(o => o.owner !== null), ...shared, ...runtime], build:target,
+    ...(Object.keys(fallbacks).length ? {serviceFallbacks:fallbacks} : {})};
 }
 
 // Import custom machines into the site's collection, matched by ID: a pack carries only
 // its own machines and their objects, their records included, and no shared object
 // depends on which machines a selection holds (machine records), so it extends the site
 // whatever its catalog holds, as long as both come from one release and SDK revision and the
-// site's SDK objects were built with everything the pack's machines use (missingBuild).
-// Never replace the site's firmware profile, stock content, fixed numbers, runtime,
-// SDK objects or machines. `base` is the site's kit as exported, before openKit: the
-// candidate is opened from it, keeping its unit sources and service fallbacks.
+// site's SDK objects were built with everything the pack's machines use, or the site carries
+// them built so (variantBuild): then those variants replace them for every selection, as a
+// native build of the site's collection with the pack's machines compiles them (variantKit).
+// Never replace the site's firmware profile, stock content, fixed numbers or machines. `base`
+// is the site's kit as exported, before openKit: the candidate is opened from it, keeping its
+// unit sources and service fallbacks.
 export async function importMachinePack(base, pack) {
   const keys = ['format', 'version', 'sdk', 'profileSha256', 'definitions', 'fixed', 'build', 'machines', 'objects',
     'notices'];
@@ -1922,6 +2037,7 @@ export async function importMachinePack(base, pack) {
     'This pack targets a different Open-XY release or SDK revision. Ask its author for a matching pack.');
   check(validBuild(pack.build), 'Unsupported machine pack');
   check(validBuild(base.build), 'This site predates machine packs of every kind. Export its kit again.');
+  await checkVariants(base);
   check(Array.isArray(pack.machines) && pack.machines.length > 0 &&
     base.machines.length + pack.machines.length <= base.profile.identities.engines, 'Invalid custom machines');
   // The menu entry is rebuilt from its checked values in tooling.adapters.catalog_entry's
@@ -1939,9 +2055,6 @@ export async function importMachinePack(base, pack) {
     check([...activeServices(base.profile, [m])].every(s => pack.build.services.includes(s)) &&
       own.defines.every(d => pack.build.defines.includes(d)) && own.headers.every(h => pack.build.headers.includes(h)),
       'Invalid machine build');
-    const missing = missingBuild(base.profile, base.build, pack.build, m);
-    check(missing === null, `${m.id} needs ${missing}.` + (missing?.startsWith('its objects') ? '' :
-      ' It can extend only a site whose collection already uses that.'));
     if (m.catalog === '') return m;
     const entry = JSON.parse(m.catalog.trim().slice(1)), indent = '\n            ';
     const numbered = ['effect', 'player'].includes(m.kind);
@@ -1953,6 +2066,25 @@ export async function importMachinePack(base, pack) {
       (numbered ? ',' + indent + '"id": ' + entry.id : '') +
       ',' + indent + '"default_params": [' + entry.default_params.join(', ') + ']\n        }' + (numbered ? '' : '\n')};
   });
+  // What the site's SDK objects must have been built with for these machines: its own, or variants it carries.
+  const chosen = variantBuild(base.build, base.variants?.build ?? NO_VARIANTS, pack.machines.map(m =>
+    ({kind:m.kind, services:[...activeServices(base.profile, [m])], defines:m.build?.defines ?? [], headers:m.build?.headers ?? []})));
+  if (chosen.refused) {
+    const [index, what, name] = chosen.refused, id = pack.machines[index].id;
+    throw new Error(`${id} needs ` + {service:`the ${name} service, which this site does not link`,
+      define:`SDK objects built with ${name}, which this site's are not`,
+      header:`SDK objects built for opxy/${name}.hpp, which this site's are not`}[what] +
+      '. It can extend only a site whose collection already uses that' +
+      // A kit exported before kits carried variants: exported again, it carries a header's, and a
+      // service's or define's when the site links the service it goes with (tooling.native
+      // carried_variants: players for the track instrument, drums for the drum-kit items).
+      (base.variants === undefined && (VARIANT_HEADERS.includes(name) ||
+        (VARIANT_SERVICES.includes(name) || VARIANT_DEFINES.includes(name)) &&
+        base.build.services.includes(name === 'track_instrument' ? 'players' : 'drums'))
+        ? ", or whose kit carries it built in: export the site's kit again." : '.'));
+  }
+  // The site's kit as a native build of its collection with these machines exports it.
+  const site = chosen.target === base.build ? base : variantKit(base, chosen.target);
   // A native build refuses a collection with more machines taking over an aux track than its
   // chooser lists (tooling.adapters.AUX_CHOICES, the stock role first).
   const auxMachines = [...base.machines, ...added].filter(m => (m.features ?? []).includes('auxTrack')).length;
@@ -1978,9 +2110,9 @@ export async function importMachinePack(base, pack) {
   check(typeof pack.notices === 'string' && pack.notices.length <= 1024 ** 2, 'Invalid machine notices');
   // Machine objects before the SDK's, as a native build of the site's collection with these
   // machines after its own links them (tooling/native.py plan).
-  const first = base.objects.findIndex(o => o.owner === null), shared = first < 0 ? base.objects.length : first;
-  const objects = [...base.objects.slice(0, shared), ...pack.objects, ...base.objects.slice(shared)];
-  const candidate = await openKit({...base, linked:undefined, machines:[...base.machines, ...added], objects,
+  const first = site.objects.findIndex(o => o.owner === null), shared = first < 0 ? site.objects.length : first;
+  const objects = [...site.objects.slice(0, shared), ...pack.objects, ...site.objects.slice(shared)];
+  const candidate = await openKit({...site, linked:undefined, variants:undefined, machines:[...base.machines, ...added], objects,
     notices:base.notices + '\n\nImported machine pack\n\n' + pack.notices});
   // What the SDK's objects name, and the entry points services fall back from: no machine
   // object may define one, so a selection links the same shared code with or without it.

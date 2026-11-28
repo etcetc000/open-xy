@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import (AUDIO_SDK, AUDIO_SDK_KEYS, DEVICE_IDENTITY_SDK, DRUM_KIT_CONTROLS, EXTENDED_SCREENS_SDK, EXTENDED_SDK, KIT_CONTROLS_SDK, SDK_1_25, extended_display, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
+from .definitions import (AUDIO_SDK, AUDIO_SDK_KEYS, DEVICE_IDENTITY_SDK, DRUM_KIT_CONTROLS, EXTENDED_SCREENS_SDK, EXTENDED_SDK, KIT_CONTROLS_SDK, SDK_1_25, extended_display, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, TRACK_INSTRUMENT_SDK, paged,
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
@@ -84,6 +84,7 @@ IDLE_SDK = (1, 22)
 # instrument track, processed in place on the track's voice sum once per block.
 # 1.25 gives a note player its track's kind of instrument (Controls.instrument) and lets a
 # drum kit's value editor move the key to another model (resources.modelEdit; SDK_1_25 in definitions.py).
+# From 1.31 the instrument is only a declaring player's (below).
 # 1.26 lets a note player draw its own page (resources.display): a draw::Frame from its
 # State and Controls each GUI frame, as a synth draws its screen. PLAYER_DRAWING_SDK is
 # the one place to renumber it, with the "SDK 1.26" text of docs/api.md and docs/display.md.
@@ -101,7 +102,9 @@ PLAYER_DRAWING_SDK = (1, 26)
 # those headers, docs/api.md (its CPU notes and the sdk row) and tests/test_fixed_point_helpers.py.
 # 1.30 lets a machine of any kind read the device identity (resources.deviceIdentity,
 # opxy/device_identity.hpp; DEVICE_IDENTITY_SDK in definitions.py).
-SDK_VERSION = (1, 30)
+# 1.31 makes a note player's track instrument opt-in: Controls.instrument exists only for a
+# player declaring resources.trackInstrument (TRACK_INSTRUMENT_SDK in definitions.py).
+SDK_VERSION = (1, 31)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -568,6 +571,20 @@ def reads_sample_overview(root, header='sample_overview'):
                if path.suffix in ('.cc', '.cpp', '.h', '.hpp') and path.relative_to(root).parts[0] not in ('tests', 'tools'))
 
 
+# The kinds of Controls.instrument (opxy/player.hpp), outside comments. Reading the member
+# itself without the declaration does not compile: the member exists only with it.
+TRACK_INSTRUMENT = re.compile(r'\b(?:Other|Drum)Instrument\b')
+COMMENTS = re.compile(r'//[^\n]*|/\*.*?\*/', re.S)
+
+
+def reads_track_instrument(root):
+    """Whether a machine's own C++, its tests and tools aside, names the kinds of
+    Controls.instrument, which only a player declaring resources.trackInstrument has."""
+    return any(TRACK_INSTRUMENT.search(COMMENTS.sub(' ', path.read_text(encoding='utf-8', errors='replace')))
+               for path in tree(root)
+               if path.suffix in ('.cc', '.cpp', '.h', '.hpp') and path.relative_to(root).parts[0] not in ('tests', 'tools'))
+
+
 # The device identity's reader by name: code that declares it itself, without the header.
 DEVICE_IDENTITY_READER = re.compile(r'\bopxy_device_identity\b')
 
@@ -614,6 +631,9 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 21), 'Per-model drum value editing (parameterEdit)')
     if definition['resources'].get('modelEdit'):
         require_sdk(version, SDK_1_25, 'Drum value editing across models (modelEdit)')
+    # The declaration itself, even as 0, needs 1.31.
+    if 'trackInstrument' in definition['resources']:
+        require_sdk(version, TRACK_INSTRUMENT_SDK, "A note player's track instrument (trackInstrument)")
     # Only a set flag needs 1.12: an explicit 0 is the mono, callback-free default.
     if kind == 'synth' and any(definition['resources'].get(k) for k in ('stereoOutput', 'releaseCallback')):
         require_sdk(version, (1, 12), 'Stereo synth output and voice release callbacks (stereoOutput, releaseCallback)')
@@ -716,6 +736,12 @@ def machine_at(root, identity=None):
     if reads_sample_overview(root, 'control_interaction'):
         require_sdk(version, EXTENDED_SDK, 'The last control touched (opxy/control_interaction.hpp)')
         require(kind == 'synth', "Only a synth's own screen reads opxy/control_interaction.hpp")
+    # From SDK 1.31 Controls.instrument exists only for a player declaring it (opxy/player.hpp); a
+    # player declaring SDK 1.25 to 1.30 has it as before (adapters.player_instrument).
+    require(kind != 'player' or version < TRACK_INSTRUMENT_SDK or definition['resources'].get('trackInstrument', 0) == 1 or
+            not reads_track_instrument(root),
+            "A note player reading its track's instrument (Controls.instrument) declares resources.trackInstrument "
+            '(SDK %d.%d)' % TRACK_INSTRUMENT_SDK)
     if reads_sample_overview(root, 'sample_kernel'):
         require_sdk(version, (1, 17), 'The sample kernel (opxy/sample_kernel.hpp)')
     # Only a firmware with a machine declaring it links the identity's device code.

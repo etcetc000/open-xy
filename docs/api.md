@@ -1447,6 +1447,7 @@ means 0. Callbacks are functions in the machine's namespace.
 | `ampEnvelope` | 0 or 1; drum kits without `padMix`, SDK 1.23 | M2's start, attack, hold and decay kept per key and shaping each note, fading on note-off ([drum-kit controls](#the-drum-kit-controls)) | |
 | `parameterEdit` | 0 or 1; drum kits, SDK 1.21 | A turn of an available control (below the model's count and named), without Shift and with no step held, asks the kit for the control's next stored value instead of moving it one unit a detent ([drum kits](#synthesis-drum-kits)) | `edit_parameter` |
 | `modelEdit` | 0 or 1; drum kits, SDK 1.25; not with `parameterEdit` | The same turns ask the kit for the key's next model and value, so one encoder can run through every model ([drum kits](#synthesis-drum-kits)) | `edit_model_parameter` |
+| `trackInstrument` | 0 or 1; note players, SDK 1.31 | `Controls.instrument`: the kind of instrument the player's track holds ([track instrument](#a-players-track-instrument-sdk-131)) | |
 | `padSettings` | 0 or 1; drum sampler base | The SDK saves 18 machine-defined bits with each pad | `sample_defaults`, `sample_assign` |
 | `drumControls` | 0 or 1; needs `padSettings` | The drum page's machine encoders and panel | `drum_control`, `drum_panel` |
 | `sliceTiming` | 0 or 1; needs `drumControls` and SDK 1.7 | Lazy-chop audition through the machine, with a matching source-frame tap clock | `slice_clock` |
@@ -1862,7 +1863,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.30 and builds 1.0 to 1.30 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.31 and builds 1.0 to 1.31 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
@@ -2036,8 +2037,10 @@ passed to a build with `--machine`.
 SDK 1.8 adds `"kind": "player"`. A player transforms live and sequenced notes
 before the track's instrument receives them. Its `machine.json` declares no
 identity or base; the layout assigns an unused player type and its own page.
-Use four parameters (or five to eight, below), `"resources": {}`, `player.cpp` and `panel.svg.fragment`
-(or, drawing its [own page](#a-players-own-drawn-page-sdk-126), a display in `resources`, `display.h` and `display.cpp`).
+Use four parameters (or five to eight, below), `"resources": {}` (or the
+[track instrument](#a-players-track-instrument-sdk-131) alone), `player.cpp`
+and `panel.svg.fragment` (or, drawing its [own page](#a-players-own-drawn-page-sdk-126),
+a display in `resources`, `display.h` and `display.cpp`).
 A parameter an encoder doesn't need may be left empty, declared `"absent": true`
 as for a synth's empty slot: its title and value stay empty and its encoder turns nothing.
 A player with five to eight parameters declares `"press": "page"` (SDK 1.16):
@@ -2248,10 +2251,11 @@ that stock delivers keyboard notes to the player while Shift is held. Key
 events other than notes (the -/+ keys, Shift + key) and Shift + encoder clicks
 are not available to players; they need a new hook.
 
-### A player's track instrument (SDK 1.25)
+### A player's track instrument (SDK 1.31)
 
-A player declaring `"sdk": "1.25"` or later also receives `Controls.instrument`, the
-kind of instrument its track holds, as stock classifies it:
+A player declaring `"resources": {"trackInstrument": 1}` (SDK 1.31 or
+later) also receives `Controls.instrument`, the kind of instrument its track
+holds, as stock classifies it:
 `opxy::player::DrumInstrument` for stock's drum sampler, its drum synth or an
 SDK drum kit, `OtherInstrument` for anything else (a synth, the keyboard
 sampler, a sample engine, an empty track) and on a track outside the eight
@@ -2264,12 +2268,19 @@ forks the drum sampler reads `OtherInstrument`: stock does not classify it as
 a drum.
 
 `instrument` follows `clicks` (offset 112; `Controls` is 116 bytes). It exists
-only in a build with a player declaring SDK 1.25 or later, where every player
-of the build gets it; a build without one keeps the 112-byte `Controls` and
-compiles every player and the SDK's player code exactly as before. A player
-that reads it declares 1.25: one declaring an older version that reads it
-compiles only beside a 1.25 player, and reads the kind there. In such a
-build, building `Controls` takes about 12 instructions more on the usual path
-(a published byte per track), and each GUI frame asks stock for eight tracks'
-engines, counted from the compiler's listing, not timed on a device
-([firmware](abi-1.2.1.md#players-track-instrument)).
+only for a player declaring `trackInstrument`: the SDK compiles that player's
+own code with it and links the track instrument's unit, which publishes the
+kinds and gives the player its `Controls`. Every other player, in any build,
+keeps the 112-byte `Controls` and its code exactly as without the
+declaration, and a build without a declaring player links nothing of it: its
+firmware is the same as without the feature. `trackInstrument` is 0 or 1, for
+a note player only, and the key itself, even as 0, needs `"sdk": "1.31"` or
+later. A player declaring SDK 1.25 to 1.30 has `instrument` without declaring
+anything, as those SDKs gave it, and its build links the track instrument's unit
+the same way. From 1.31, without the declaration, a
+player's own code reading `instrument` on its `Controls` does not compile, and
+one naming `DrumInstrument` or `OtherInstrument` outside comments is refused
+(its tests and tools aside).
+In a build with a declaring player, its `Controls` go through one more call,
+which copies them and reads a published byte per track, and each GUI frame asks
+stock for eight tracks' engines; neither is timed on a device ([firmware](abi-1.2.1.md#players-track-instrument)).

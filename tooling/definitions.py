@@ -151,12 +151,17 @@ DRUM_KIT_CONTROLS = ('padVolume', 'padRandom', 'ampEnvelope')
 # this line, the 1.23 line of SDK_VERSION's history (tooling/machines.py) and the "1.23" text in the
 # docs and fixtures.
 KIT_CONTROLS_SDK = (1, 23)
-# SDK 1.25: a note player's Controls.instrument (the kind of instrument its track holds), for
-# a player declaring it; and modelEdit, 0 or 1, for a drum kit whose value editor
+# SDK 1.25: a note player's Controls.instrument (the kind of instrument its track holds); and
+# modelEdit, 0 or 1, for a drum kit whose value editor
 # (edit_model_parameter) may move the key to another model, as one dial over every model.
 # A renumber changes this line, SDK_VERSION and its history (tooling/machines.py) and the
 # "1.25" text in the docs and fixtures.
 SDK_1_25 = (1, 25)
+# SDK 1.31: trackInstrument, 0 or 1, for a note player that reads Controls.instrument, which
+# exists only for a player declaring it. A renumber changes this line, SDK_VERSION and its
+# history (tooling/machines.py) and the "1.31" text in the docs and fixtures.
+TRACK_INSTRUMENT_SDK = (1, 31)
+PLAYER_OPTIONS = ('trackInstrument',)
 DRUM_OPTIONS = ('modelGroups', 'chokeSameKey', 'padMix', 'padControls', 'parameterEdit', 'modelEdit',
                 *DRUM_KIT_CONTROLS)
 # SDK 1.30: deviceIdentity, 0 or 1, for a machine of any kind that reads the device identity
@@ -247,7 +252,7 @@ def validate_definition(value, kind):
     label(value['name'])
     resources = value['resources']
     options = {'sample': SAMPLE_OPTIONS, 'effect': EFFECT_OPTIONS, 'drum': DRUM_OPTIONS,
-               'synth': ('trackControl', 'stereoOutput', 'releaseCallback', 'trackStage'), 'player': ('display',)}.get(kind, ())
+               'synth': ('trackControl', 'stereoOutput', 'releaseCallback', 'trackStage'), 'player': ('display', *PLAYER_OPTIONS)}.get(kind, ())
     if kind != 'master':
         options = (*options, 'deviceIdentity')
     optional = tuple(k for k in options if isinstance(resources, dict) and k in resources)
@@ -255,6 +260,8 @@ def validate_definition(value, kind):
     require(all(type(v) is int for k, v in resources.items() if k not in ('display', 'modelGroups', 'trackControl', 'stockShift', 'padControls',
                                                                    'tailFrames', 'trackStage')),
             'Numeric resource requirements must be integers')
+    if kind == 'player':
+        require(resources.get('trackInstrument', 0) in (0, 1), 'trackInstrument must be 0 or 1')
     require(resources.get('deviceIdentity', 0) in (0, 1), 'deviceIdentity must be 0 or 1')
     if kind == 'synth':
         for flag in ('stereoOutput', 'releaseCallback'):

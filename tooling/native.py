@@ -287,9 +287,9 @@ KIT_CONTROLS_DEFINE = '-DOPXY_KIT_CONTROLS=1'
 # the two name their master bus entries apart and master_bus.cpp runs both. Every other
 # build compiles those units as before.
 MASTER_SHARED_DEFINE = '-DOPXY_MASTER_SHARED=1'
-# Defined for every SDK unit, and every player's unit, of a build with a player declaring
-# SDK 1.25 or later: Controls.instrument (opxy/player.hpp) and its publication
-# (players.cpp). Every other build compiles both as before.
+# Defined for the own units of a note player declaring resources.trackInstrument (SDK 1.31),
+# or SDK 1.25 to 1.30, alone: its Controls.instrument (opxy/player.hpp), which the track_instrument service's
+# unit gives it (track_instrument.cpp). No SDK unit, and no other machine's, compiles with it.
 PLAYER_INSTRUMENT_DEFINE = '-DOPXY_PLAYER_INSTRUMENT=1'
 # Defined for every SDK unit of a build with a kit declaring modelEdit (SDK 1.25): the
 # shared editor's call into its editor (drum_model_edit.hpp). Every other build compiles
@@ -297,22 +297,16 @@ PLAYER_INSTRUMENT_DEFINE = '-DOPXY_PLAYER_INSTRUMENT=1'
 MODEL_EDIT_DEFINE = '-DOPXY_MODEL_EDIT=1'
 
 
-# The defines a kind's own units take when its build's SDK units compile with them: a
-# player's, Controls.instrument (opxy/player.hpp), which its build's players and SDK units
-# share. Other kinds' units take none.
-OWN_UNIT_DEFINES = {'player': (PLAYER_INSTRUMENT_DEFINE,)}
-
-
-def own_unit_defines(defines, kind):
-    """The defines a `kind` machine's own units compile with, in a build whose SDK units compile with `defines`."""
-    return tuple(d for d in defines if d in OWN_UNIT_DEFINES.get(kind, ()))
+def own_unit_defines(m):
+    """The defines machine `m`'s own units compile with, whatever else its build holds: a
+    player that reads its track instrument (adapters.player_instrument: one declaring
+    resources.trackInstrument, or SDK 1.25 to 1.30), Controls.instrument; none otherwise."""
+    return (PLAYER_INSTRUMENT_DEFINE,) if player_instrument(m) else ()
 
 
 def sdk_defines(machines):
-    """The SDK 1.25 defines a build's machines ask for, in a fixed order: none for a build
-    without a 1.25 player or a modelEdit kit."""
-    return (((PLAYER_INSTRUMENT_DEFINE,) if any(player_instrument(m) for m in machines) else ()) +
-            ((MODEL_EDIT_DEFINE,) if any(model_edit(m) for m in machines) else ()))
+    """The SDK 1.25 define a build's machines ask for: none for a build without a modelEdit kit."""
+    return (MODEL_EDIT_DEFINE,) if any(model_edit(m) for m in machines) else ()
 
 
 def compile_cxx(cxx, assembler, source, obj, includes=(), defines=()):
@@ -353,16 +347,17 @@ def includes_header(machines, header):
 def shared_build(profile, machines):
     """What, beyond the SDK revision's sources, shapes a build's SDK objects and its machines'
     own: the profile services it links (their units, startup's calls into them and the
-    fallbacks), the defines every SDK unit compiles with, the header-tied units its
-    machines include and the defines each kind's own units compile with. Each is the union
-    of its machines' (machine_build) and its extensions' contributions. A machine pack
+    fallbacks), the defines every SDK unit compiles with and the header-tied units its
+    machines include. Each is the union of its machines' (machine_build) and its
+    extensions' contributions; a machine's own units depend on itself alone
+    (own_unit_defines). A machine pack
     records its own (tooling/machine_pack.py), and a site imports a pack machine only when
-    the machine adds nothing to the site's (builder/core.mjs importMachinePack): its
+    the machine adds nothing to the site's but what its kit carries (builder/core.mjs
+    importMachinePack, carried_variants): its
     objects then link as a native build of the site's collection with that machine does."""
     defines = sdk_unit_defines(profile, machines)
     return dict(services=sorted(active_services(profile, service_users(machines))), defines=list(defines),
-                headers=[h for h in SHARED_HEADERS if includes_header(machines, h)],
-                unitDefines={kind: list(own_unit_defines(defines, kind)) for kind in sorted(OWN_UNIT_DEFINES)})
+                headers=[h for h in SHARED_HEADERS if includes_header(machines, h)])
 
 
 def machine_build(profile, m):
@@ -370,6 +365,179 @@ def machine_build(profile, m):
     features name (tooling/browser_kit.py machine_entry): defines and header-tied units."""
     return dict(defines=list(sdk_unit_defines(profile, [m])),
                 headers=[h for h in SHARED_HEADERS if includes_header([m], h)])
+
+
+# A site kit's variants (kit_variants): what its SDK objects can also be built for, so that
+# the builder imports a pack machine needing it by swapping those objects in
+# (builder/core.mjs importMachinePack), as a native build of the site's collection with that
+# machine compiles them. Each define and service a pack machine may add, with the service any
+# machine needing it also uses: a site without that one refuses such a machine anyway, so its
+# kit carries nothing for it.
+VARIANT_DEFINES = {KIT_CONTROLS_DEFINE: 'drums', MODEL_EDIT_DEFINE: 'drums'}
+VARIANT_SERVICES = {'played_pad': 'drums', 'kit_controls': 'drums', 'amp_envelope': 'drums', 'track_instrument': 'players'}
+# The define a build linking a service compiles its SDK units with (sdk_unit_defines: an
+# ampEnvelope kit is a kitControls one).
+SERVICE_DEFINES = {'kit_controls': KIT_CONTROLS_DEFINE, 'amp_envelope': KIT_CONTROLS_DEFINE}
+# The SDK units each header-tied unit reshapes, rather than links (sdk_unit_source): a kit
+# carries their variants; it carries none for a header that links a unit (UNIT_HEADERS).
+HEADER_SHAPES = {'control_interaction': ('synth_controls',)}
+# The SDK unit defines in the order sdk_unit_defines gives them (the master bus's comes from
+# the collection's extensions, never from a pack machine, so every variant keeps the site's).
+DEFINE_ORDER = (KIT_CONTROLS_DEFINE, MODEL_EDIT_DEFINE, MASTER_SHARED_DEFINE)
+
+
+def carried_variants(profile, machines):
+    """What a site kit of `machines` carries variants for: the VARIANT_SERVICES and
+    VARIANT_DEFINES its build lacks while linking the service each goes with, and the
+    HEADER_SHAPES headers its machines do not include (shared_build)."""
+    build = shared_build(profile, machines)
+    carried = dict(services=[s for s in sorted(VARIANT_SERVICES)
+                             if s not in build['services'] and VARIANT_SERVICES[s] in build['services']],
+                   defines=[d for d in DEFINE_ORDER if d in VARIANT_DEFINES and d not in build['defines'] and
+                            VARIANT_DEFINES[d] in build['services']],
+                   headers=[h for h in sorted(HEADER_SHAPES) if h not in build['headers']])
+    # A service and its define come together, unless the site's units have the define already.
+    require(all((s in carried['services']) == (d in carried['defines']) for s, d in SERVICE_DEFINES.items()
+                if d not in build['defines'] and (s in carried['services'] or d in carried['defines'])),
+            'Unexpected kit variants')
+    return carried
+
+
+def preprocess_cxx(cxx, source, include_paths, defines):
+    """The preprocessed text compile_cxx compiles: two builds of a unit with the same text give
+    the same object, since no define reaches the object otherwise."""
+    generated = Path(source).is_absolute()
+    flags = [*CXX_FLAGS, *defines, *('-I' + str((ROOT / path).resolve()) for path in include_paths)]
+    return subprocess.run([str(cxx), *flags, '-E', Path(source).name if generated else source],
+                          cwd=Path(source).parent if generated else ROOT, check=True, capture_output=True,
+                          timeout=300, **hidden_process()).stdout
+
+
+def _subsets(items):
+    return [[x for i, x in enumerate(items) if mask >> i & 1] for mask in range(1 << len(items))]
+
+
+def kit_variants(directory, tools, compiler, profile, machines, objects, version, definitions, sweep=False):
+    """A site kit's variants (tooling/browser_kit.py), or None when it carries none
+    (carried_variants): for every build the site's collection would become with pack machines
+    adding carried services, defines and headers, each SDK object that differs from `objects`
+    (the native build's, by name), compiled as compile_collection would compile it there, and
+    the SDK units those services add. Machines' own objects never differ (own_unit_defines).
+    Each is listed once with every build it belongs to: its SDK unit defines and the headers
+    that reshape it (HEADER_SHAPES). Also: the
+    arithmetic runtime members they need beyond the kit's, the fallbacks of the services they
+    add (service_fallbacks) and the link order of every SDK object such a build may link.
+    Units are compiled only where their preprocessed text differs from the site's, and each
+    such unit is rebuilt for the site too, which must give the native build's object back."""
+    carried = carried_variants(profile, machines)
+    if not any(carried.values()):
+        return None
+    directory, gcc = Path(directory), compiler_paths(compiler)
+    site = shared_build(profile, machines)
+    site_services, linked = set(site['services']), linked_extensions(machines)
+    chosen_sources = unit_sources(machines, profile)
+    unit_headers = lambda headers: [h for h in UNIT_HEADERS.values() if h in headers]
+    found = {}  # (name, bytes) -> the entry, its builds included
+
+    def add(name, data, build, service=None):
+        entry = found.setdefault((name, data), dict(name=name, owner=None, builds=[], data=data))
+        if service is not None:
+            entry['service'] = service
+        entry['builds'].append(build)
+
+    def normalized(obj):
+        obj.write_bytes(normalize_object(read(obj)))
+        require('R_BFIN_RIMM16' not in execute([tools['objdump'], '-r', obj]), 'Truncated address relocation in ' + obj.name)
+        return read(obj)
+
+    def compiled(folder, name, how):
+        obj = child(folder, name)
+        obj.parent.mkdir(parents=True, exist_ok=True)
+        build_sdk_unit(gcc, tools, how, obj)
+        return normalized(obj)
+
+    def text(how):
+        return preprocess_cxx(gcc['cxx'], how[1], how[2], how[3])
+
+    site_source = sdk_unit_source(machines, tuple(site['defines']), site['headers'], site_services, version,
+                                  chosen_sources)
+    site_text, rebuilt = {}, set()
+    (directory / 'site').mkdir(parents=True, exist_ok=True)
+    work = 0
+    for extra_defines in _subsets(carried['defines']):
+        defines = tuple(d for d in DEFINE_ORDER if d in site['defines'] or d in extra_defines)
+        # The carried services a build with these defines may link.
+        services = site_services | {s for s in carried['services'] if s not in SERVICE_DEFINES or SERVICE_DEFINES[s] in defines}
+        for extra_headers in _subsets(carried['headers']):
+            if not extra_defines and not extra_headers and services == site_services:
+                continue
+            headers = [h for h in SHARED_HEADERS if h in site['headers'] or h in extra_headers]
+            source = sdk_unit_source(machines, defines, headers, services, version, chosen_sources)
+            work += 1
+            (directory / str(work)).mkdir()
+            for name, _m, step in sdk_plan(services, unit_headers(headers), linked, master_shared(machines)):
+                reshaped = [h for h in headers if step in HEADER_SHAPES.get(h, ())]
+                # A header reshapes only its units: the others are this define set's without it.
+                if extra_headers and not any(step in HEADER_SHAPES[h] for h in extra_headers):
+                    continue
+                folder = directory / str(work)
+                how = source(folder, step)
+                build = dict(defines=list(defines), **({'headers': reshaped} if reshaped else {}))
+                service = UNIT_SERVICES.get(step)
+                if name not in objects:
+                    # A unit a carried service adds: built for each define set it links with.
+                    require(service in carried['services'], 'Unexpected kit variant unit: ' + name)
+                    add(name, compiled(folder, name, how), build, service)
+                    continue
+                if how[0] != 'cxx' or step.startswith('extension:'):
+                    continue  # assembled, or an extension's (no defines): the native build's object
+                if name not in site_text:
+                    site_text[name] = text(site_source(directory / 'site', step))
+                if text(how) == site_text[name]:
+                    continue
+                data = compiled(folder, name, how)
+                if name not in rebuilt:
+                    require(compiled(directory / 'site', name, site_source(directory / 'site', step)) == objects[name],
+                            name + ": rebuilt for the site's build, it differs from the native build's")
+                    rebuilt.add(name)
+                if data != objects[name]:
+                    add(name, data, build, service)
+    stack_usage(directory)
+    # A unit capability's sources (unit_sources) are the same under every define set.
+    declared = {c for e in extensions_of(machines) for c in e.capabilities}
+    for capability, units in UNIT_SOURCES.items():
+        if capability not in declared:
+            continue
+        for unit, fast in units.items():
+            for path in (fast, PLAIN_SOURCES[unit]):
+                if path.endswith('.s'):
+                    continue
+                texts = {preprocess_cxx(gcc['cxx'], path, includes(),
+                                        tuple(d for d in DEFINE_ORDER if d in site['defines'] or d in extra))
+                         for extra in _subsets(carried['defines'])}
+                require(len(texts) == 1, f'{path} differs between the kit variants, which do not carry its objects')
+    entries = list(found.values())
+    # The arithmetic runtime members their objects need beyond the kit's.
+    inputs = list(objects.values()) + [e['data'] for e in entries]
+    if entries and runtime.needs_runtime(inputs, definitions):
+        require(gcc['runtime'] is not None, 'This compiler profile has no authenticated arithmetic runtime')
+        archive = runtime.archive_members(read(gcc['runtime']))
+        candidates = {name: runtime.normalize_member(data) for name, data in archive.items()
+                      if name.endswith('.o') and name[:-2] in runtime.MEMBERS}
+        for member in runtime.select(inputs, candidates, definitions):
+            if runtime.object_name(member) not in objects:
+                entries.append(dict(name=runtime.object_name(member), owner=None, runtime=True, data=candidates[member]))
+    every = site_services | set(carried['services'])
+    order = [name for name, _m, _step in sdk_plan(every, unit_headers(site['headers']), linked, master_shared(machines))]
+    # The SDK's objects ('sdk' is a reserved machine prefix), its arithmetic runtime aside.
+    shared = [name for name in objects if name.startswith('sdk/') and not name.startswith(runtime.PREFIX)]
+    require([name for name in order if name in objects] == [name for name in shared if name in order] and
+            set(shared) <= set(order), "The kit variants' link order differs from the native build's")
+    base_fallbacks = service_fallbacks(site_services, master_shared(machines))
+    fallbacks = {k: v for k, v in service_fallbacks(every, master_shared(machines)).items() if k not in base_fallbacks}
+    require(set(fallbacks) <= set(carried['services']), 'Unexpected kit variant fallbacks')
+    return dict(build=carried, order=order, shapes={h: [f'sdk/{u}.o' for u in units] for h, units in HEADER_SHAPES.items()},
+                serviceFallbacks=fallbacks, objects=entries)
 
 
 def host_units(m):
@@ -406,14 +574,22 @@ def plan(machines, profile=None):
         # A machine's own routines (native/<name>.s), assembled into it alone.
         units += [(f'{m.id}/native_{unit.name}.o', m, 'native:' + unit.name) for unit in m.native]
     services = active_services(profile or config(), service_users(machines))
-    units += [(f'sdk/{step}.o', None, step) for step in SDK_UNITS
-              if (UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services) and
-              (step not in UNIT_HEADERS or includes_header(machines, UNIT_HEADERS[step])) and
-              (step != 'master_bus' or master_shared(machines))]
-    units += [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in linked_extensions(machines)]
+    units += sdk_plan(services, [h for h in UNIT_HEADERS.values() if includes_header(machines, h)],
+                      linked_extensions(machines), master_shared(machines))
     names = [name for name, _m, _step in units]
     require(len(names) == len(set(names)), 'Duplicate object name')
     return units
+
+
+def sdk_plan(services, headers, linked, shared=False):
+    """The SDK's shared objects of a build linking `services`, the header-tied units of `headers`
+    and the `linked` extensions, in link order, as plan lists them after the machines'; the master
+    bus's shared handler only for a collection with both its users (`shared`, master_shared)."""
+    return ([(f'sdk/{step}.o', None, step) for step in SDK_UNITS
+             if (UNIT_SERVICES.get(step) is None or UNIT_SERVICES[step] in services) and
+             (step not in UNIT_HEADERS or UNIT_HEADERS[step] in headers) and
+             (step != 'master_bus' or shared)] +
+            [(f'sdk/extension_{e.id}.o', None, 'extension:' + e.id) for e in linked])
 
 
 # The SDK's shared objects, after every machine's. Sources are TEMPLATES/<unit>.cpp
@@ -433,7 +609,8 @@ SDK_UNITS = ('divide', 'sample_kernel', 'memory', 'registration', 'registration_
              'mixer', 'mixer_hooks', 'drum_send', 'drum_send_hooks', 'track_call', 'track_stage', 'drum_locks',
              'lock_handles', 'drumline', 'drumline_hooks', 'synth_shift_hooks', 'drum_kit_controls', 'drum_amp_envelope',
              'telemetry_protocol', 'telemetry_native', 'telemetry_hooks', 'telemetry_registry', 'device_identity',
-             'device_identity_hooks', 'sample_studio_host', 'sample_studio_hooks', 'sample_studio_audio', 'master_bus')
+             'device_identity_hooks', 'sample_studio_host', 'sample_studio_hooks', 'sample_studio_audio', 'master_bus',
+             'track_instrument', 'track_instrument_hooks')
 # SDK units that exist only for a profile service, linked when a machine needs it.
 UNIT_SERVICES = dict.fromkeys(('sample_machines', 'sample_hooks', 'sample_callbacks', 'sample_cache',
                                'sample_cache_stock', 'sample_cache_hooks', 'sample_progress',
@@ -460,6 +637,9 @@ UNIT_SERVICES['drum_trigger'] = 'played_pad'
 # and the note-off hook an ampEnvelope kit's adapter reads only with such a kit.
 UNIT_SERVICES['drum_kit_controls'] = 'kit_controls'
 UNIT_SERVICES['drum_amp_envelope'] = 'amp_envelope'
+# A note player's track instrument (SDK 1.31, track_instrument.cpp): its publication, the
+# compositor hook's entry that runs it and Controls.instrument, only with a player declaring it.
+UNIT_SERVICES.update(dict.fromkeys(('track_instrument', 'track_instrument_hooks'), 'track_instrument'))
 # Stock's mixer: three sites the per-key sends and Sample Studio's player share (mixer.cpp),
 # and the track call's own handler when no track stage takes it (mixer_hooks.s), linked for a
 # padMix kit, a drumline_page extension or a sample_studio extension.
@@ -526,7 +706,7 @@ def service_users(machines):
     'trackStage': a synth's track stage; 'kitControls': a drum kit declaring padVolume, padRandom
     or ampEnvelope, and 'ampEnvelope' one declaring ampEnvelope; 'audioTransport': a machine
     whose screen shows its own audio; 'deviceIdentity': a machine of any kind declaring
-    deviceIdentity),
+    deviceIdentity; 'trackInstrument': a note player declaring it),
     'extension' when it links extension code (native builds link all of the collection's;
     settings extensions link none), the capabilities they declare ('master_filter',
     'drumline_page', 'sampleStudio': a sample_studio extension, which needs a sample-family
@@ -546,6 +726,7 @@ def service_users(machines):
             ['trackStage' for m in machines if track_stage.track_stage(m) is not None] +
             ['kitControls' for m in machines if kit_controls(m)] +
             ['ampEnvelope' for m in machines if kit_controls(m) & 4] +
+            ['trackInstrument' for m in machines if player_instrument(m)] +
             ['audioTransport' for m in audio_telemetry.users(machines)] +
             ['deviceIdentity' for m in machines if declares_device_identity(m.definition)] +
             (['master_filter'] if any(e.master_processor is not None for e in extensions_of(machines)) else []) +
@@ -830,52 +1011,22 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         execute([tools['as'], '-mcpu=bf707', '-I', ROOT, '-o', obj, source])
 
     # The SDK's units of a build with a kit declaring the drum-kit controls see
-    # OPXY_KIT_CONTROLS; a machine's own units never do. SDK 1.25: a 1.25 player's
-    # Controls.instrument, which every player of its build shares with the SDK units (a
-    # player's own units see that define alone), and a modelEdit kit's editor.
+    # OPXY_KIT_CONTROLS, and of a build with a modelEdit kit OPXY_MODEL_EDIT; a machine's
+    # own units never do. A machine's own units take its own defines alone (own_unit_defines):
+    # a player declaring trackInstrument, Controls.instrument.
     defines = sdk_unit_defines(profile, machines)
+    sdk_unit = sdk_unit_source(machines, defines, [h for h in SHARED_HEADERS if includes_header(machines, h)],
+                               active_services(profile, service_users(machines)), version, chosen_sources)
 
     def cxx(source, obj, m=None):
-        unit_defines = defines if m is None else own_unit_defines(defines, m.kind)
+        unit_defines = defines if m is None else own_unit_defines(m)
         compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m), unit_defines)
 
     def build_unit(obj, m, step):
         folder = obj.parent
         folder.mkdir(exist_ok=True)
         if m is None:
-            if step == 'telemetry_protocol':
-                return cxx(TEMPLATES + 'telemetry/protocol.cpp', obj)
-            if step == 'synth_controls' and includes_header(machines, 'control_interaction'):
-                return cxx(str(control_interaction_unit(folder)), obj)
-            if step.startswith('extension:'):
-                chosen = step.removeprefix('extension:')
-                extension = next(e for e in extensions_of(machines) if e.id == chosen)
-                return compile_cxx(gcc['cxx'], tools['as'], str(extensions.generate_extension(folder, extension)),
-                                   obj, includes() + [str(extension.root)])
-            if step == 'master_filter_collection':
-                return cxx(str(extensions.generate_master_collection(folder, extensions_of(machines))), obj)
-            if step == 'extension_runtime':
-                return cxx('sdk/platform/extension_runtime.cpp', obj)
-            if step == 'extension_collection':
-                return cxx(str(extensions.generate_collection(folder, linked_extensions(machines))), obj)
-            if step == 'screen_order':
-                return cxx(str(generate_screen_order(folder)), obj)
-            if step == 'registration_stock':
-                return cxx(str(generate_registration_stock(folder)), obj)
-            if step in PLAIN_SOURCES:  # divide, memory: a unit capability may choose their source
-                return compile_unit_source(gcc, tools, chosen_sources.get(step, PLAIN_SOURCES[step]), obj, defines)
-            if step == 'sample_kernel':
-                return assemble_unit(ROOT / KERNEL_ASM, obj)
-            if step == 'startup_label':
-                return assemble_unit(startup_label.generate(folder, version), obj)
-            if step == 'startup':
-                services = active_services(profile, service_users(machines))
-                return cxx(str(generate_startup(folder, control='control' in services, aux='aux' in services,
-                                                locks='drum_locks' in services,
-                                                drumline='drumline' in services)), obj)
-            if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
-                return cxx(TEMPLATES + step + '.cpp', obj)
-            return assemble_unit(ROOT / TEMPLATES / (step + '.s'), obj)
+            return build_sdk_unit(gcc, tools, sdk_unit(folder, step), obj)
         if step.startswith('source:'):
             return cxx(m.source(step.removeprefix('source:')), obj, m)
         if step.startswith('native:'):
@@ -922,6 +1073,59 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
         report['heap_voices'] = heap
     save_json(directory / 'compile-report.json', report)
     return bytes(module), report, patch_profile
+
+
+def sdk_unit_source(machines, defines, headers, services, version, chosen_sources=None):
+    """How a build makes each of its SDK units: (folder, step) -> ('cxx', source, include
+    paths, defines) or ('as', source), writing a generated source into `folder`. `defines` are
+    its SDK units' (sdk_unit_defines), `headers` the header-tied units its machines include
+    (SHARED_HEADERS), `services` those it links and `chosen_sources` a unit capability's sources
+    (unit_sources). A site kit's variants (kit_variants) make the same units for other defines,
+    headers and services."""
+    chosen_sources = chosen_sources or {}
+
+    def source(folder, step):
+        def cxx(path):
+            return 'cxx', str(path), includes(), defines
+        if step == 'telemetry_protocol':
+            return cxx(TEMPLATES + 'telemetry/protocol.cpp')
+        if step == 'synth_controls' and 'control_interaction' in headers:
+            return cxx(control_interaction_unit(folder))
+        if step.startswith('extension:'):
+            chosen = step.removeprefix('extension:')
+            extension = next(e for e in extensions_of(machines) if e.id == chosen)
+            return 'cxx', str(extensions.generate_extension(folder, extension)), includes() + [str(extension.root)], ()
+        if step == 'master_filter_collection':
+            return cxx(extensions.generate_master_collection(folder, extensions_of(machines)))
+        if step == 'extension_runtime':
+            return cxx('sdk/platform/extension_runtime.cpp')
+        if step == 'extension_collection':
+            return cxx(extensions.generate_collection(folder, linked_extensions(machines)))
+        if step == 'screen_order':
+            return cxx(generate_screen_order(folder))
+        if step == 'registration_stock':
+            return cxx(generate_registration_stock(folder))
+        if step in PLAIN_SOURCES:  # divide, memory: a unit capability may choose their source
+            chosen = chosen_sources.get(step, PLAIN_SOURCES[step])
+            return ('as', chosen) if chosen.endswith('.s') else cxx(chosen)
+        if step == 'sample_kernel':
+            return 'as', KERNEL_ASM
+        if step == 'startup_label':
+            return 'as', startup_label.generate(folder, version)
+        if step == 'startup':
+            return cxx(generate_startup(folder, control='control' in services, aux='aux' in services,
+                                        locks='drum_locks' in services, drumline='drumline' in services))
+        if (ROOT / TEMPLATES / (step + '.cpp')).is_file():
+            return cxx(TEMPLATES + step + '.cpp')
+        return 'as', TEMPLATES + step + '.s'
+    return source
+
+
+def build_sdk_unit(gcc, tools, how, obj):
+    """Compile or assemble one SDK unit into `obj` as sdk_unit_source says."""
+    if how[0] == 'as':
+        return execute([tools['as'], '-mcpu=bf707', '-I', ROOT, '-o', obj, ROOT / how[1]])
+    return compile_cxx(gcc['cxx'], tools['as'], how[1], obj, how[2], how[3])
 
 
 def control_interaction_unit(folder):
