@@ -144,8 +144,10 @@ Build with the SDK the destination site was released from: check out the
 SDK revision it was built from, normally the release tag of the version the
 builder shows beside its name (`v0.0.7`; the beta site is built from the current
 `staging`), with the pinned native tools and your own stock OS, and keep its
-`sdk/`, `tooling/` and `profiles/` unchanged: the pack records a digest of them
-that the site's must match. Catalog updates published since do not matter. Fetch
+`sdk/`, `tooling/` and `profiles/` unchanged: the pack records a digest of the
+tracked files under `sdk/include`, `sdk/platform` and `tooling` (Markdown aside),
+the firmware profile, the linker script and the extensions profile
+(`tooling.native.sdk_sources`), which the site's must match. Catalog updates published since do not matter. Fetch
 that revision's catalog, then export the site's collection with the SDK's own
 extensions (one `--extension` per folder under `extensions/` at that revision,
 in name order, as `sdk.py release` adds them) and your custom machine folders
