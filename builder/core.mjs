@@ -1768,7 +1768,7 @@ export async function importMachinePack(base, pack) {
   const keys = ['format', 'version', 'sdk', 'profileSha256', 'definitions', 'fixed', 'machines', 'objects', 'notices'];
   check(pack && typeof pack === 'object' && !Array.isArray(pack) && typeof pack.format === 'string' &&
     pack.format.startsWith('opxy-machine-pack/'), 'Unsupported machine pack');
-  check(pack.format === MACHINE_PACK_FORMAT, 'This pack comes from an earlier Open-XY release. Ask its author for one ' +
+  check(pack.format === MACHINE_PACK_FORMAT, 'This pack comes from a different Open-XY release. Ask its author for one ' +
     'exported with this release.');
   check(Object.keys(pack).sort().join() === keys.sort().join(), 'Unsupported machine pack');
   check(pack.version === base.version && typeof base.sdk === 'string' && pack.sdk === base.sdk &&
