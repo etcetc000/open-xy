@@ -1909,6 +1909,11 @@ export async function importMachinePack(base, pack) {
     check(!existing.has(m.id), `${m.id} is already one of this site's machines. Ask its author for a pack ` +
       'that names it differently, or use the site\'s.');
     check((m.features ?? []).every(f => users.has(f)), 'Invalid machine features');
+    // What the machine says it adds is part of what its author's build was shaped by.
+    const own = m.build ?? {defines:[], headers:[]};
+    check([...activeServices(base.profile, [m])].every(s => pack.build.services.includes(s)) &&
+      own.defines.every(d => pack.build.defines.includes(d)) && own.headers.every(h => pack.build.headers.includes(h)),
+      'Invalid machine build');
     const missing = missingBuild(base.profile, base.build, pack.build, m);
     check(missing === null, `${m.id} needs ${missing}.` + (missing?.startsWith('its objects') ? '' :
       ' It can extend only a site whose collection already uses that.'));

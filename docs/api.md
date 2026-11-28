@@ -756,7 +756,8 @@ stock's global parameter messages the audio processor receives, and sends the
 identity 32 times, at most once a second, from when it is read ([firmware
 ABI](abi-1.2.1.md#device-identity)). A machine pack may add a machine
 declaring `"deviceIdentity": 1` only to a site whose own catalog already links
-the service ([machine packs](catalog.md#import-custom-machines)).
+its `device_identity` and `parameter_receive` services ([machine
+packs](catalog.md#import-custom-machines)).
 
 ## Track control
 
