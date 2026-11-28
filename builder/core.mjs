@@ -1886,7 +1886,7 @@ export async function importMachinePack(base, pack) {
     'notices'];
   check(pack && typeof pack === 'object' && !Array.isArray(pack) && typeof pack.format === 'string' &&
     pack.format.startsWith('opxy-machine-pack/'), 'Unsupported machine pack');
-  check(pack.format === MACHINE_PACK_FORMAT, 'This pack comes from an earlier Open-XY release. Ask its author for one ' +
+  check(pack.format === MACHINE_PACK_FORMAT, 'This pack comes from a different Open-XY release. Ask its author for one ' +
     'exported with this release.');
   // A format 2 pack without its build record predates packs of every kind.
   check(Object.hasOwn(pack, 'build'), 'This pack comes from an earlier Open-XY release. Ask its author for one ' +
