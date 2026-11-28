@@ -73,9 +73,9 @@ struct MachineRecord {
 // The bytes of table rows the shared tables may copy for one record, at most: a
 // synth's or a kit's (machine_tables.cpp checks it). machine_records.o reserves
 // this much per selected machine, and once more for the companion table's end
-// (tooling/records.py and builder/core.mjs RECORD_TABLE_BYTES, 192 on the device). Rows
+// (tooling/records.py and builder/core.mjs RECORD_TABLE_BYTES, 208 on the device). Rows
 // hold words and pointers, so a host test's are larger.
-const u32 kRecordTableBytes = 48 * sizeof(void*);
+const u32 kRecordTableBytes = 52 * sizeof(void*);
 }}
 
 extern "C" {

@@ -82,8 +82,8 @@ def owner_row(m):
     d = display(m.definition)
     return Row((f'extern const char {number_symbol(m)}[] __asm__("{number_symbol(m)}");',
                 f'opxy_transport::telemetry::Bank* {bank_symbol(m)}(opxy::u32) __asm__("{bank_symbol(m)}");'),
-               f'{{{number_symbol(m)}, {str(m.kind == "effect").lower()}, {bank_symbol(m)}, {d["audioWords"]}, '
-               f'{d["audioMode"]}, {str(bool(d.get("audioReset"))).lower()}, {d.get("audioAccumulators", 1)}}}')
+               f'{{{number_symbol(m)}, {bank_symbol(m)}, {d["audioWords"]}, {d["audioMode"]}, '
+               f'{str(bool(d.get("audioReset"))).lower()}, {d.get("audioAccumulators", 1)}, {str(m.kind == "effect").lower()}}}')
 
 
 def generate_registry(directory, machines):
