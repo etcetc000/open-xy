@@ -16,7 +16,7 @@ from typing import NamedTuple
 
 from . import audio_telemetry
 from .benchmark import append_callback
-from .definitions import (KIT_CONTROLS_SDK, TRACK_INSTRUMENT_SDK, extended_display, ROOT, STOCK_VOICES, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
+from .definitions import (KIT_CONTROLS_SDK, SDK_1_25, TRACK_INSTRUMENT_SDK, extended_display, ROOT, STOCK_VOICES, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
                           shift_choices, shift_field, shift_parameters, stock_shift_codes, synth_shift,
                           validate_definition)
 
@@ -402,10 +402,15 @@ def kit_amp_defaults(m):
 
 def player_instrument(m):
     """Whether a note player reads Controls.instrument: one declaring resources.trackInstrument
-    (SDK 1.31). Its own units compile with OPXY_PLAYER_INSTRUMENT and its build links the
-    track_instrument service (native.py); no other unit of its build changes."""
-    return (getattr(m, 'kind', 'synth') == 'player' and getattr(m, 'sdk', (1, 0)) >= TRACK_INSTRUMENT_SDK and
-            bool(m.definition['resources'].get('trackInstrument', 0)))
+    (SDK 1.31), or any player declaring SDK 1.25 to 1.30, which had it without declaring it. Its
+    own units compile with OPXY_PLAYER_INSTRUMENT and its build links the track_instrument
+    service (native.py); no other unit of its build changes."""
+    if getattr(m, 'kind', 'synth') != 'player':
+        return False
+    sdk = getattr(m, 'sdk', (1, 0))
+    if sdk < TRACK_INSTRUMENT_SDK:
+        return sdk >= SDK_1_25
+    return bool(m.definition['resources'].get('trackInstrument', 0))
 
 
 def model_edit(m):

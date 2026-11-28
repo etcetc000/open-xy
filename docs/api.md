@@ -2272,7 +2272,9 @@ keeps the 112-byte `Controls` and its code exactly as without the
 declaration, and a build without a declaring player links nothing of it: its
 firmware is the same as without the feature. `trackInstrument` is 0 or 1, for
 a note player only, and the key itself, even as 0, needs `"sdk": "1.31"` or
-later (SDK 1.25 to 1.30 gave it to every player declaring 1.25 or later). Without it, a
+later. A player declaring SDK 1.25 to 1.30 has `instrument` without declaring
+anything, as those SDKs gave it, and its build links the track instrument's unit
+the same way. From 1.31, without the declaration, a
 player's own code reading `instrument` on its `Controls` does not compile, and
 one naming `DrumInstrument` or `OtherInstrument` outside comments is refused
 (its tests and tools aside).

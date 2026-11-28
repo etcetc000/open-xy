@@ -736,8 +736,10 @@ def machine_at(root, identity=None):
     if reads_sample_overview(root, 'control_interaction'):
         require_sdk(version, EXTENDED_SDK, 'The last control touched (opxy/control_interaction.hpp)')
         require(kind == 'synth', "Only a synth's own screen reads opxy/control_interaction.hpp")
-    # Controls.instrument exists only for a player declaring it (opxy/player.hpp).
-    require(kind != 'player' or definition['resources'].get('trackInstrument', 0) == 1 or not reads_track_instrument(root),
+    # From SDK 1.31 Controls.instrument exists only for a player declaring it (opxy/player.hpp); a
+    # player declaring SDK 1.25 to 1.30 has it as before (adapters.player_instrument).
+    require(kind != 'player' or version < TRACK_INSTRUMENT_SDK or definition['resources'].get('trackInstrument', 0) == 1 or
+            not reads_track_instrument(root),
             "A note player reading its track's instrument (Controls.instrument) declares resources.trackInstrument "
             '(SDK %d.%d)' % TRACK_INSTRUMENT_SDK)
     if reads_sample_overview(root, 'sample_kernel'):

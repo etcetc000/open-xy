@@ -1884,6 +1884,9 @@ function validBuild(build) {
 }
 // The SDK unit defines in the order a build gives them (tooling.native.DEFINE_ORDER).
 const DEFINE_ORDER = ['-DOPXY_KIT_CONTROLS=1', '-DOPXY_MODEL_EDIT=1', '-DOPXY_MASTER_SHARED=1'];
+// The defines a kit's variants may carry (tooling.native.VARIANT_DEFINES); the master bus's comes
+// from the site's extensions alone.
+const VARIANT_DEFINES = ['-DOPXY_KIT_CONTROLS=1', '-DOPXY_MODEL_EDIT=1'];
 const NO_VARIANTS = {services:[], defines:[], headers:[]};
 // What a site kit's variants may add besides those defines (tooling.native.VARIANT_SERVICES and
 // HEADER_SHAPES): services whose units they carry, and headers that reshape their units.
@@ -1924,7 +1927,7 @@ function validVariants(kit) {
     plain(v.build) && Object.keys(v.build).sort().join() === 'defines,headers,services' &&
     ['services', 'defines', 'headers'].every(key => names(v.build[key]) && v.build[key].every(x => !site[key].includes(x))) &&
     v.build.services.every(x => VARIANT_SERVICES.includes(x) && Object.hasOwn(kit.profile.services ?? {}, x)) &&
-    v.build.defines.every(x => DEFINE_ORDER.includes(x)) && v.build.headers.every(x => VARIANT_HEADERS.includes(x)) &&
+    v.build.defines.every(x => VARIANT_DEFINES.includes(x)) && v.build.headers.every(x => VARIANT_HEADERS.includes(x)) &&
     // Each service they add comes with a unit of its own.
     v.build.services.every(x => v.objects?.some?.(o => o?.service === x)) &&
     names(v.order) && plain(v.shapes) && Object.entries(v.shapes).every(([h, units]) => VARIANT_HEADERS.includes(h) &&

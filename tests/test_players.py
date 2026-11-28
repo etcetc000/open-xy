@@ -581,6 +581,10 @@ class PlayerInstrument(unittest.TestCase):
         self.assertFalse(player_instrument(self.player(declared=0, name='padszero', source=self.unread())))
         for m in (fixture('probesynth'), fixture('probefx'), fixture('probekit23'), fixture('probekit25')):
             self.assertFalse(player_instrument(m))
+        # A player declaring SDK 1.25 to 1.30 reads it without declaring anything, as those SDKs gave it.
+        for sdk in ('1.25', '1.30'):
+            self.assertTrue(player_instrument(self.player(sdk=sdk, declared=None, name='padsimplicit' + sdk[2:])))
+        self.assertFalse(player_instrument(self.player(sdk='1.24', declared=None, name='padsearly', source=self.unread())))
         # No SDK unit compiles with the define: only the declaring player's own units do.
         every = [pads, plain, fixture('probesynth'), fixture('probekit23'), fixture('probekit25')]
         self.assertNotIn(native.PLAYER_INSTRUMENT_DEFINE, native.sdk_unit_defines(config(), every))
