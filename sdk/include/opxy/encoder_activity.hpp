@@ -1,9 +1,5 @@
 #pragma once
-#include <opxy/draw.hpp>
-// Members stay inline in every object: SDK objects keep no COMDAT copies (tooling.native).
-#ifndef OPXY_ALWAYS_INLINE
-#define OPXY_ALWAYS_INLINE __attribute__((always_inline)) inline
-#endif
+#include <opxy/audio_transport.hpp>
 namespace opxy { namespace draw {
 // GUI-frame physical encoder activity. A zero mask is meaningful only when
 // available == 1. Never inferred from parameter differences or note gates.
@@ -15,5 +11,8 @@ struct EncoderActivity {
 };
 template<class Base> struct WithEncoderActivity : Base { EncoderActivity encoders; };
 typedef WithEncoderActivity<Input> EncoderInput;
-static_assert(sizeof(EncoderInput) == sizeof(Input) + 8, "Encoder drawing input layout");
+typedef WithEncoderActivity<AudioInput> EncoderAudioInput;
+typedef WithEncoderActivity<TelemetryInput> EncoderTelemetryInput;
+static_assert(sizeof(EncoderInput) == sizeof(Input) + 8 && sizeof(EncoderAudioInput) == sizeof(AudioInput) + 8 &&
+              sizeof(EncoderTelemetryInput) == sizeof(TelemetryInput) + 8, "Encoder drawing input layout");
 }}

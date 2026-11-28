@@ -145,7 +145,7 @@ def machine_entry(m, profile, sources, output, preview_cxx):
         # A whole-screen canvas: its display file has no stock header (core.mjs buildAssets).
         if m.definition['resources'].get('display', {}).get('fullCanvas'):
             entry['fullCanvas'] = 1
-    if m.display != 'stock' and m.kind in ('synth', 'drum'):
+    if preview.previewed(m):
         preview_dir = output / ('preview-' + m.id)
         preview.build(preview_cxx, m, preview_dir)
         preview.preview_bundle(preview_dir, require_reference=True)
@@ -160,6 +160,9 @@ def machine_entry(m, profile, sources, output, preview_cxx):
         # (builder/core.mjs kitKey). Each key's model and controls come from the module.
         if m.kind == 'drum':
             entry['preview']['kit'] = kit_preview(m.definition, m.sdk)
+        # A note player's page (SDK 1.26): silent, its keys run the player (builder/app.mjs).
+        if m.kind == 'player':
+            entry['preview']['player'] = True
     # A synth with a Shift row: its own presets keep the row in sample-less regions
     # (builder/core.mjs presetFiles).
     if m.kind == 'synth' and synth_shift(m.definition):
@@ -236,8 +239,13 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
         if name in extension_objects:
             entry['extension'] = extension_objects[name]
         objects.append(entry)
-    # Stock addresses only: each selection's machine numbers are the builder's.
+    # Stock addresses only: each selection's machine numbers are the builder's. Every kit also
+    # carries the stock calls the audio transport's hooks continue to, whether its collection
+    # links them or not, so a machine pack's addresses equal its site's whatever either's
+    # catalog holds (builder/core.mjs importMachinePack); a selection that links no transport
+    # names none of them.
     stock = {key: value for key, value in definitions.items() if key in native.DEFINITIONS}
+    stock.update(native.TELEMETRY_DEFINITIONS)
     # The machines the native package links, whose selection reproduces it.
     linked = document(package / 'analysis/compile-report.json')['linked']
     # The release version, as the firmware's boot label shows it.
@@ -251,7 +259,8 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                                               extension_origins(native.extensions_of(machines), personal)),
                stockCatalog=base64.b64encode(stock_catalog).decode('ascii'),
                screenTemplate=screen.template().decode('utf-8'))
-    fallbacks = native.service_fallbacks(native.active_services(profile, native.service_users(machines)))
+    fallbacks = native.service_fallbacks(native.active_services(profile, native.service_users(machines)),
+                                         native.master_shared(machines))
     if fallbacks:
         kit['serviceFallbacks'] = fallbacks
     chosen_units = unit_sources(output, tools, compiler, profile, machines,

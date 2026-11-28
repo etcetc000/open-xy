@@ -77,7 +77,7 @@ class ControlInteraction(unittest.TestCase):
             folder=Path(temp);m=fixture.write_fixture(folder/'machine');out=folder/'out';out.mkdir()
             p=m.root/'display.cpp';s=p.read_text()
             s='#include <opxy/control_interaction.hpp>\n'+s
-            s=s.replace('const opxy::i32 x = static_cast<opxy::i32>(input.track) + 1;',
+            s=s.replace('const opxy::i32 x = input.audio_count ? (input.audio_words[0] & 2047) : -1;',
                         'const auto e=opxy::control_interaction::latest(input.track);\n    const opxy::i32 x=e.available?e.serial:-1;')
             s=s.replace('512, x, 0','512, x, e.normalized_value_at_event')
             s=s.replace('0, 0, 0, 0, 1024','0, 0, 0, static_cast<opxy::i32>(e.physical_knob), static_cast<opxy::i32>(e.parameter_index)')

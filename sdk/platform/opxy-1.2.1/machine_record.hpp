@@ -23,6 +23,7 @@ struct DrumModelEdit;
 struct DrumKit;
 struct DrumSendKit;
 namespace track_stage { struct Stage; }
+namespace telemetry { struct Owner; }
 
 // The kinds, in the order sdk_machine_records lists them (tooling/records.py KINDS).
 namespace machine_kind {
@@ -59,6 +60,7 @@ struct MachineRecord {
     const DrumKit* kit;
     const DrumSendKit* send;
     const track_stage::Stage* stage;
+    const telemetry::Owner* audio;
     // Its diagnostic runs (benchmark.cpp, tooling/benchmark.py): a row per run; in a
     // sweep build, a synth's swept settings and its controls' defaults beside them.
     const benchmark::Run* runs;

@@ -76,19 +76,19 @@ template <class Setup, class Block> double worst_block(Setup setup, Block block)
 '''
 
 SYNTH = r'''
-#include "engine.cpp"
+#include "engine.cpp"@AUDIO_INCLUDE@
 ''' + HARNESS + r'''
 // One voice at 440 Hz, its note started again before each run.
 int main() {
     static @NS@::Voice voice;
     static @NS@::Shared shared;
-    opxy::u32 pitch[opxy::block_frames];
+@AUDIO_STORAGE@    opxy::u32 pitch[opxy::block_frames];
     for (unsigned i = 0; i < opxy::block_frames; ++i) pitch[i] = 42852281u;
     static opxy::i32 output[opxy::block_frames * @CHANNELS@];
     volatile opxy::i32 sink = 0;
     @NS@::initialize(voice, shared, 1);
     std::printf("%.1f\n", worst_block([&] { @NS@::start(voice, shared, 1); }, [&](const opxy::i32* parameters, int b) {
-        @NS@::render(voice, shared, 1, output, parameters, pitch);
+        @NS@::render(voice, shared, 1, output, parameters, pitch@AUDIO_ARGUMENT@);
         sink = sink + output[b & (opxy::block_frames * @CHANNELS@ - 1)];
     }));
     return 0;
@@ -96,12 +96,12 @@ int main() {
 '''
 
 EFFECT = r'''
-#include "fx.cpp"
+#include "fx.cpp"@AUDIO_INCLUDE@
 ''' + HARNESS + r'''
 // A stereo noise burst through the effect.
 int main() {
     static @NS@::State state;
-@BUFFER_STORAGE@
+@AUDIO_STORAGE@@BUFFER_STORAGE@
     static opxy::i32 noise[opxy::block_frames], left[opxy::block_frames], right[opxy::block_frames];
     opxy::u32 seed = 1;
     for (unsigned i = 0; i < opxy::block_frames; ++i)
@@ -110,7 +110,7 @@ int main() {
     @NS@::initialize(state);
     std::printf("%.1f\n", worst_block([] {}, [&](const opxy::i32* parameters, int b) {
         for (unsigned i = 0; i < opxy::block_frames; ++i) left[i] = right[i] = noise[i];
-        @NS@::process(state, @BUFFER@@TRANSPORT@left, right, parameters);
+        @NS@::process(state, @BUFFER@@TRANSPORT@left, right, parameters@AUDIO_ARGUMENT@);
         sink = sink + left[b & (opxy::block_frames - 1)];
     }));
     return 0;
@@ -199,6 +199,22 @@ def block_cost(m, host_cxx, scratch):
     buffer_argument = f'opxy::Buffer{{words, {words}u}}, ' if words else ''
     # A tempo-aware effect runs at 120 BPM, playing.
     transport_argument = 'opxy::Transport{1200u, 0u, true}, ' if m.definition['resources'].get('transport') else ''
+    # A synth or effect with audio snapshots renders into a host bank of its declared words.
+    # Its declared mode and reset handshake, as the device bank has them.
+    display = m.definition['resources'].get('display', {})
+    audio = display.get('audioWords', 0)
+    contract = '%d, %d, %s, %d' % (audio, display.get('audioMode', 0), 'true' if display.get('audioReset') else 'false',
+                                   display.get('audioAccumulators', 1))
+    # A synth plays track 0; an effect publishes as on the first send (track 14), as the device benchmark runs it.
+    if audio and m.kind == 'effect':
+        handshake = ('audio_handshake, audio_handshake + 1, audio_handshake + 2' if display.get('audioReset')
+                     else 'nullptr, nullptr, nullptr')
+        audio_storage = (f'    static volatile opxy::u32 audio_words[{audio}] = {{}}, audio_handshake[3] = {{}};\n'
+                         f'    const opxy::AudioContext audio_context(14, audio_words, {audio}, {handshake});\n')
+    else:
+        audio_storage = ('    static opxy::HostTelemetryBank<%s> audio;\n'
+                         '    const opxy::AudioContext audio_context = audio.context(0);\n' % contract) if audio else ''
+    audio_argument = ', audio_context' if audio else ''
     positions = [sweep(p) for p in parameters]
     counts = [len(values) for values in positions] + [0] * (8 - len(positions))
     # A synth's Shift row (SDK 1.13) renders as parameters 8..15, swept as the device
@@ -212,6 +228,8 @@ def block_cost(m, host_cxx, scratch):
         counts += [len(values) for values in rows] + [0] * (8 - len(rows))
     source = (template.replace('@NS@', m.definition['id']).replace('@BLOCKS@', '400')
               .replace('@CHANNELS@', '2' if m.definition['resources'].get('stereoOutput') else '1')
+              .replace('@AUDIO_INCLUDE@', '\n#include <opxy/audio_transport.hpp>' if audio else '')
+              .replace('@AUDIO_STORAGE@', audio_storage).replace('@AUDIO_ARGUMENT@', audio_argument)
               .replace('@POSITIONS@', ', '.join(str(v) for values in positions for v in values))
               .replace('@COUNTS@', ', '.join(map(str, counts)))
               .replace('@POSITION_COUNT@', str(sum(counts)))

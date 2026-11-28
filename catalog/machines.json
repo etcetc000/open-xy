@@ -2670,7 +2670,7 @@
       "id": "braindance",
       "kind": "sample",
       "maintainer": "mmockett",
-      "status": "draft",
+      "status": "published",
       "repository": "https://github.com/mmockett/OP-XY-BrainDance",
       "tag": "v1.0.1",
       "commit": "ce44bd23ba2071041a8adc5ff25ac9538bf771db",

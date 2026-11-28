@@ -11,7 +11,7 @@ others: the browser builder writes the same object for its selection
 """
 from pathlib import Path
 
-from . import benchmark, track_stage
+from . import audio_telemetry, benchmark, track_stage
 from .adapters import (CONTROL_USINGS, companion_row, drum_row, kit_row, lfo_row, model_edit_row, player_row, sample_row,
                        send_row, synth_control_row, track_control_row)
 from .formats import require
@@ -34,7 +34,8 @@ TABLES = (('sample', sample_row, 'opxy::platform::SampleMachine', 'sample_machin
           ('model_edit', model_edit_row, 'opxy::platform::DrumModelEdit', 'drum_model_edit.hpp'),
           ('kit', kit_row, 'opxy::platform::DrumKit', 'drum_kit_controls.hpp'),
           ('send', send_row, 'opxy::platform::DrumSendKit', 'drum_send.hpp'),
-          ('stage', track_stage.stage_row, 'opxy::platform::track_stage::Stage', 'track_stage.hpp'))
+          ('stage', track_stage.stage_row, 'opxy::platform::track_stage::Stage', 'track_stage.hpp'),
+          ('audio', audio_telemetry.owner_row, 'opxy::platform::telemetry::Owner', 'audio_owner.hpp'))
 
 
 def symbol(m):
