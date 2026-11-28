@@ -473,10 +473,10 @@ test('pack drum kits, players and aux machines are checked as their kinds are bu
     [p => { p.machines[2].auxPresets['content/aux_presets/third/x.json'] = auxPreset('third', 32768); }, /aux machine/],
     [p => { p.machines[2].auxPresets['content/aux_presets/third/x.json'] = '{"params":[],"x":"<script>"}'; }, /aux machine/],
     [p => { p.machines[2].auxPresets['content/aux_presets/cv/x.json'] = AUX_INIT; }, /aux machine/],
-    // An aux preset's file stays in its machine's folder (presetFiles).
+    // An aux preset's file stays in its machine's folder, under a preset name (packAuxPresets).
     ...['content/aux_presets/third/../a/p0.json', 'content/aux_presets/third/../../../x.json',
       'content/aux_presets/third/sub/x.json'].map(path =>
-      [p => { p.machines[2].auxPresets[path] = auxPreset('third'); }, /aux preset/]),
+      [p => { p.machines[2].auxPresets[path] = auxPreset('third'); }, /aux machine/]),
     [p => { p.machines[2].auxPresets['content/aux_presets/third/x.json'] = auxPreset('third') + ' '.repeat(2048); }, /aux machine/],
     [p => { p.machines[2].features = ['auxTrack']; }, /features/],
     // An aux machine named as the stock role it takes over (tooling.adapters.check_track_controls).
