@@ -858,7 +858,7 @@ export function selectRuntime(objects, candidates, definitions = {}) {
 // selected machines' records by kind, then ID, and reserves the space startup builds the
 // shared tables in, RECORD_TABLE_BYTES per machine and once more (machine_record.hpp
 // kRecordTableBytes). No other object depends on which machines a selection holds.
-export const RECORD_TABLE_BYTES = 192;
+export const RECORD_TABLE_BYTES = 208;
 export const RECORDS_OBJECT = 'sdk/machine_records.o';
 const RECORDS_SYMBOLS = new Set(['sdk_machine_records', 'sdk_machine_record_count', 'sdk_machine_record_space',
   'sdk_machine_record_space_bytes']);

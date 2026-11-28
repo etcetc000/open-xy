@@ -21,7 +21,7 @@ from .stock_tables import EFFECT_COUNT, ENGINE_COUNT
 # The most table bytes one record's rows take (machine_record.hpp kRecordTableBytes):
 # machine_records.o reserves this much per selected machine, and once more for the
 # companion table's ending row. builder/core.mjs RECORD_TABLE_BYTES is the same.
-RECORD_TABLE_BYTES = 192
+RECORD_TABLE_BYTES = 208
 OBJECT = 'sdk/machine_records.o'
 # Each record member a table row fills, the row function, its C++ type and its header.
 TABLES = (('sample', sample_row, 'opxy::platform::SampleMachine', 'sample_machines.hpp'),
