@@ -15,7 +15,7 @@ struct Call { u32 manager, track, sum, in[8], r0, out[8]; i32 sp; u32 cycles; };
 extern "C" {
 void run_call(Call* call, u32 which) __asm__("run_call");
 u32 stub_render(u32 track, i32* sum) __asm__("stub_render");
-void sdk_drum_send_begin() __asm__("sdk_drum_send_begin");
+void sdk_mixer_begin() __asm__("sdk_mixer_begin");
 extern const stage::Stage* sdk_track_stages __asm__("sdk_track_stages");
 extern u32 sdk_track_stage_count __asm__("sdk_track_stage_count");
 }
@@ -27,7 +27,7 @@ u32 stub_render(u32 track, i32* sum) {
         for (u32 i = 0; i < 128; ++i) sum[i] += (i32)((track << 20) + (v << 12) + i * 3) - 0x40000;
     return voices[track];
 }
-void sdk_drum_send_begin() { ++begins; }
+void sdk_mixer_begin() { ++begins; }
 
 // Engine 40's stage halves the left channel; with no voice it leaves a tail word.
 static int ready() { return 1; }
