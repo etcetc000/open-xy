@@ -2104,7 +2104,7 @@ export async function importMachinePack(base, pack) {
   check(typeof pack.notices === 'string' && pack.notices.length <= 1024 ** 2, 'Invalid machine notices');
   // Machine objects before the SDK's, as a native build of the site's collection with these
   // machines after its own links them (tooling/native.py plan).
-  const shared = site.objects.findIndex(o => o.owner === null);
+  const first = site.objects.findIndex(o => o.owner === null), shared = first < 0 ? site.objects.length : first;
   const objects = [...site.objects.slice(0, shared), ...pack.objects, ...site.objects.slice(shared)];
   const candidate = await openKit({...site, linked:undefined, variants:undefined, machines:[...base.machines, ...added], objects,
     notices:base.notices + '\n\nImported machine pack\n\n' + pack.notices});

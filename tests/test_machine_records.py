@@ -247,6 +247,9 @@ class RecordsObject(unittest.TestCase):
                 source, obj = folder / f'{i}.s', folder / f'{i}.o'
                 source.write_text(records.assembly(machines), encoding='utf-8', newline='\n')
                 subprocess.run([str(assembler), '-mcpu=bf707', '-o', str(obj), str(source)], check=True, **HIDDEN)
+                # The native link takes the normalized object (native.normalize_object): the same bytes here.
+                from tooling.native import normalize_object
+                self.assertEqual(normalize_object(obj.read_bytes()), obj.read_bytes(), i)
                 listed.append(dict(path=obj.as_posix(), machines=[dict(id=m.id, prefix=m.prefix, kind=m.kind)
                                                                   for m in machines]))
             script = folder / 'compare.mjs'
