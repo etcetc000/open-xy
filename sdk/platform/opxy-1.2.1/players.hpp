@@ -56,7 +56,7 @@ int register_player_page(const Record* record, const Screen* screen);
 u32 player_row(u32 track);
 // The track's eight parameters.
 #if OPXY_PLAYER_INSTRUMENT
-// A player declaring resources.trackInstrument compiles its own units with
+// A player declaring resources.trackInstrument (or SDK 1.25 to 1.30) compiles its own units with
 // OPXY_PLAYER_INSTRUMENT (tooling/native.py): its controls come from the track
 // instrument's unit, which adds Controls.instrument to players.cpp's.
 opxy::player::Controls sdk_instrument_controls(void* object) __asm__("sdk_instrument_controls");

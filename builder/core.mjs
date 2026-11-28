@@ -1911,7 +1911,8 @@ export function variantBuild(site, carried, machines) {
     }
     m.services.forEach(x => services.add(x)); m.defines.forEach(x => defines.add(x)); m.headers.forEach(x => headers.add(x));
   }
-  const added = services.size > site.services.length || defines.size > site.defines.length || headers.size > site.headers.length;
+  const added = services.size > new Set(site.services).size || defines.size > new Set(site.defines).size ||
+    headers.size > new Set(site.headers).size;
   return {target:!added ? site : {services:[...services].sort(), defines:DEFINE_ORDER.filter(d => defines.has(d)),
     headers:PACK_HEADERS.filter(h => headers.has(h))}};
 }
@@ -2075,7 +2076,7 @@ export async function importMachinePack(base, pack) {
       header:`SDK objects built for opxy/${name}.hpp, which this site's are not`}[what] +
       '. It can extend only a site whose collection already uses that' +
       // A kit exported before kits carried variants: exported again, it may carry this.
-      (base.variants === undefined && (VARIANT_SERVICES.includes(name) || DEFINE_ORDER.includes(name) ||
+      (base.variants === undefined && (VARIANT_SERVICES.includes(name) || VARIANT_DEFINES.includes(name) ||
         VARIANT_HEADERS.includes(name)) ? ", or whose kit carries it built in: export the site's kit again." : '.'));
   }
   // The site's kit as a native build of its collection with these machines exports it.

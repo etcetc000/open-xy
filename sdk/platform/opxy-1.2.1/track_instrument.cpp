@@ -1,6 +1,7 @@
 // A note player's track instrument (resources.trackInstrument, SDK 1.31): the kind of
 // instrument each instrument track holds, as Controls.instrument gives it. Linked only
-// with the track_instrument service, which a player declaring the resource selects
+// with the track_instrument service, which a player declaring the resource (or SDK
+// 1.25 to 1.30) selects
 // (tooling/native.py); every other build links neither this unit nor its hook, and
 // compiles players.cpp and every player's own units as they are without it.
 //

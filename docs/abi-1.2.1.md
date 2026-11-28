@@ -2372,8 +2372,8 @@ publish into the same storage. No audio callback uses GUI pattern getters.
 ### Players: track instrument
 
 The track instrument (SDK 1.31) adds no hook site and no stock address for players. Only a build
-with a player declaring `resources.trackInstrument` links the
-`track_instrument` service (`track_instrument.cpp`, `track_instrument_hooks.s`);
+with a player declaring `resources.trackInstrument`, or a player declaring
+SDK 1.25 to 1.30, links the `track_instrument` service (`track_instrument.cpp`, `track_instrument_hooks.s`);
 any other build applies the compositor's loop-advance hook (`8d5214c2`) as
 before. With the service, that hook enters `sdk_instrument_advance` in place
 of `sdk_screen_advance` (the record's `symbols`): the same handler but for the

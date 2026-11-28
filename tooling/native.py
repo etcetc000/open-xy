@@ -277,8 +277,8 @@ KIT_CONTROLS_DEFINE = '-DOPXY_KIT_CONTROLS=1'
 # the two name their master bus entries apart and master_bus.cpp runs both. Every other
 # build compiles those units as before.
 MASTER_SHARED_DEFINE = '-DOPXY_MASTER_SHARED=1'
-# Defined for the own units of a note player declaring resources.trackInstrument (SDK 1.31)
-# alone: its Controls.instrument (opxy/player.hpp), which the track_instrument service's
+# Defined for the own units of a note player declaring resources.trackInstrument (SDK 1.31),
+# or SDK 1.25 to 1.30, alone: its Controls.instrument (opxy/player.hpp), which the track_instrument service's
 # unit gives it (track_instrument.cpp). No SDK unit, and no other machine's, compiles with it.
 PLAYER_INSTRUMENT_DEFINE = '-DOPXY_PLAYER_INSTRUMENT=1'
 # Defined for every SDK unit of a build with a kit declaring modelEdit (SDK 1.25): the
@@ -289,7 +289,8 @@ MODEL_EDIT_DEFINE = '-DOPXY_MODEL_EDIT=1'
 
 def own_unit_defines(m):
     """The defines machine `m`'s own units compile with, whatever else its build holds: a
-    player declaring resources.trackInstrument, Controls.instrument; none otherwise."""
+    player that reads its track instrument (adapters.player_instrument: one declaring
+    resources.trackInstrument, or SDK 1.25 to 1.30), Controls.instrument; none otherwise."""
     return (PLAYER_INSTRUMENT_DEFINE,) if player_instrument(m) else ()
 
 

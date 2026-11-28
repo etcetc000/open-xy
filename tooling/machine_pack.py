@@ -67,7 +67,8 @@ def variant_build(site, carried, machines):
         services.update(m['services'])
         defines.update(m['defines'])
         headers.update(m['headers'])
-    if len(services) == len(site['services']) and len(defines) == len(site['defines']) and len(headers) == len(site['headers']):
+    if (len(services) == len(set(site['services'])) and len(defines) == len(set(site['defines'])) and
+            len(headers) == len(set(site['headers']))):
         return dict(target=site)
     return dict(target=dict(services=sorted(services), defines=[d for d in DEFINE_ORDER if d in defines],
                             headers=[h for h in SHARED_HEADERS if h in headers]))

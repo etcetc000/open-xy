@@ -105,7 +105,8 @@ struct Update {
 // the GUI once per frame and a callback reads the latest, so after the
 // track's instrument changes, press, update and display see the new kind
 // within a frame. The member exists only for a player declaring
-// resources.trackInstrument (SDK 1.31 or later): the SDK compiles that
+// resources.trackInstrument (SDK 1.31 or later), or declaring SDK 1.25 to
+// 1.30 as those SDKs gave it: the SDK compiles that
 // player's own units with OPXY_PLAYER_INSTRUMENT and links the track
 // instrument's unit. Every other player keeps the 112-byte Controls, and its
 // code, as it was, whichever players share its build.
