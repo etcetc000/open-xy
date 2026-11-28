@@ -87,9 +87,9 @@ class EffectAudio(unittest.TestCase):
             synth = scope_synth()
             row = audio_telemetry.owner_row(m)
             self.assertIn('extern const char probefx_fx_id[] __asm__("probefx_fx_id");', row.declarations)
-            self.assertEqual(row.value, '{probefx_fx_id, true, probefx_audio_bank, 4, 0, false, 1}')
+            self.assertEqual(row.value, '{probefx_fx_id, probefx_audio_bank, 4, 0, false, 1, true}')
             self.assertEqual(audio_telemetry.owner_row(synth).value,
-                             '{probesynth_engine_id, false, probesynth_audio_bank, 2, 2, true, 1}')
+                             '{probesynth_engine_id, probesynth_audio_bank, 2, 2, true, 1, false}')
             self.assertIsNone(audio_telemetry.owner_row(fixture('probefx')))
             for number in (m.identity['effect'], 0x8000 | m.identity['effect'], synth.identity['engine']):
                 self.assertNotIn(str(number), row.value)
