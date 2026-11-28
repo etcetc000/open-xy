@@ -105,18 +105,19 @@ class TrackCall(unittest.TestCase):
         patch = track_call(profile)
         self.assertEqual((patch['kind'], patch['length'], patch['before'], patch['call'], patch['service'], patch['symbol']),
                          ('hook', 4, '00e38f5d', True, 'track_call', 'sdk_drum_send_track'))
-        self.assertEqual(list(patch['symbols'].items()), [('track_stage', 'sdk_track_call'), ('drum_sends', 'sdk_drum_send_track')])
+        # without a track stage, the mixer's own handler (per-key sends and Sample Studio's player)
+        self.assertEqual(list(patch['symbols'].items()), [('track_stage', 'sdk_track_call'), ('mixer', 'sdk_drum_send_track')])
         # The instruction it replaces calls the voice loop, which the shared handler calls in its place.
         self.assertEqual(decode_branch(int(SITE, 16), bytes.fromhex(patch['before'])), (LOOP, True))
         handler = (PLATFORM / 'track_call.s').read_text(encoding='utf-8')
         self.assertIn('P0.H = 0x%04x; P0.L = 0x%04x;\n    CALL (P0);' % (LOOP >> 16, LOOP & 0xffff), handler)
-        self.assertIn('P0.H = 0x8d51; P0.L = 0xc708;\n    JUMP (P0);', (PLATFORM / 'drum_send_hooks.s').read_text(encoding='utf-8'))
+        self.assertIn('P0.H = 0x8d51; P0.L = 0xc708;\n    JUMP (P0);', (PLATFORM / 'mixer_hooks.s').read_text(encoding='utf-8'))
 
     def test_the_shared_handler_runs_the_sends_reset_the_loop_and_the_stage_in_order(self):
         handler = (PLATFORM / 'track_call.s').read_text(encoding='utf-8')
         body = handler[handler.index('sdk_track_call:\n'):handler.index('.size sdk_track_call')]
         calls = re.findall(r'CALL (\S+);', body)
-        self.assertEqual(calls, ['sdk_drum_send_begin', '(P0)', 'sdk_track_stage'])
+        self.assertEqual(calls, ['sdk_mixer_begin', '(P0)', 'sdk_track_stage'])   # the mixer: the studio's block and the sends' reset
         # The engine's R0..R2 are kept in callee-saved registers across the reset and passed
         # to the loop; the loop's count (R0) goes to the stage as its third argument.
         self.assertIn('    LINK 0;\n    [--SP] = (R7:5);\n    SP += -12;\n    R5 = R0;\n    R6 = R1;\n    R7 = R2;\n', body)
@@ -127,7 +128,8 @@ class TrackCall(unittest.TestCase):
     def test_the_track_call_is_used_by_every_user_of_its_services(self):
         services = config()['services']
         self.assertEqual(services['track_stage'], ['trackStage'])
-        self.assertEqual(set(services['track_call']), set(services['drum_sends']) | set(services['track_stage']))
+        self.assertEqual(set(services['track_call']), set(services['mixer']) | set(services['track_stage']))
+        self.assertLessEqual(set(services['drum_sends']), set(services['mixer']))
 
     def test_the_handler_follows_which_services_the_build_has(self):
         profile = config()
@@ -141,10 +143,11 @@ class TrackCall(unittest.TestCase):
                 self.assertEqual(patch_active(patch, services, False), symbol is not None)
                 if symbol:
                     self.assertEqual(hook_symbol(patch, services), symbol)
-        # Every other hook enters its own symbol, whatever is linked.
+        # Every other hook enters its own symbol, whatever is linked, but for the global
+        # parameter receiver's call, which the device identity shares (test_device_identity.py).
         everything = set(profile['services'])
         for p in profile['patches']:
-            if p['kind'] == 'hook' and p['address'] != SITE:
+            if p['kind'] == 'hook' and p['address'] not in (SITE, '0x8d5b145e'):
                 self.assertNotIn('symbols', p)
                 self.assertEqual(hook_symbol(p, everything), p['symbol'])
 
@@ -209,8 +212,9 @@ class Plan(unittest.TestCase):
     def test_without_per_key_sends_the_handler_resets_nothing(self):
         profile = config()
         self.assertEqual(native.service_fallbacks(active_services(profile, ['synth', 'trackStage'])),
-                         {'drum_sends': {'sdk_drum_send_begin': 'kit_absent'}})
-        self.assertNotIn('drum_sends', native.service_fallbacks(active_services(profile, ['drum', 'padMix'])))
+                         {'mixer': {'sdk_mixer_begin': 'kit_absent'}})
+        # with per-key sends the mixer is linked, so its begin needs no fallback
+        self.assertNotIn('mixer', native.service_fallbacks(active_services(profile, ['drum', 'padMix'])))
 
     def test_only_the_stage_synths_record_names_its_stage(self):
         record = records.render(fixture('probestage'))

@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "id": "probeident",
+  "name": "Probe Ident",
+  "parameters": [
+    {"id": "level", "label": "Level", "default": 0.65,
+     "mapping": {"kind": "linear", "minimum": 0, "maximum": 1}, "display": "percent"},
+    {"id": "spare1", "label": "Spare 1", "default": 0,
+     "mapping": {"kind": "linear", "minimum": 0, "maximum": 1}, "display": "percent"},
+    {"id": "spare2", "label": "Spare 2", "default": 0,
+     "mapping": {"kind": "linear", "minimum": 0, "maximum": 1}, "display": "percent"},
+    {"id": "spare3", "label": "Spare 3", "default": 0,
+     "mapping": {"kind": "linear", "minimum": 0, "maximum": 1}, "display": "percent"}
+  ],
+  "presets": {
+    "Init": {"level": 0.65, "spare1": 0, "spare2": 0, "spare3": 0}
+  },
+  "resources": {
+    "voiceBytes": 4, "voiceAlignment": 4, "voiceCapacity": 8, "sharedBytes": 0,
+    "outputPeakQ31": 1073741824,
+    "deviceIdentity": 1,
+    "display": {"stateBytes": 4, "stateAlignment": 4, "paths": 0, "points": 0, "nodes": 1, "texts": 4, "palette": 2}
+  }
+}

@@ -22,6 +22,7 @@
 #include "drum_kit_controls.hpp"
 #include "drum_send.hpp"
 #include "track_stage.hpp"
+#include "audio_owner.hpp"
 #include "barrier.hpp"
 
 static_assert(sizeof(void*) != 4 || opxy::platform::kRecordTableBytes == 192,
@@ -34,7 +35,7 @@ using namespace opxy::platform;
 // What a synth's or a kit's record can hold, the most of any kind, fits the space
 // each record reserves (a sample engine's or an effect's rows are fewer).
 static_assert(sizeof(SynthControls) + sizeof(LfoMachine) + sizeof(CompanionMachine) + sizeof(ControlMachine) +
-              sizeof(track_stage::Stage) <= kRecordTableBytes, "A synth's rows exceed kRecordTableBytes");
+              sizeof(track_stage::Stage) + sizeof(telemetry::Owner) <= kRecordTableBytes, "A synth's rows exceed kRecordTableBytes");
 static_assert(sizeof(SynthControls) + sizeof(LfoMachine) + sizeof(CompanionMachine) + sizeof(DrumMachine) +
               sizeof(DrumModelEdit) + sizeof(DrumKit) + sizeof(DrumSendKit) <= kRecordTableBytes,
               "A kit's rows exceed kRecordTableBytes");
@@ -61,6 +62,8 @@ const DrumSendKit* sdk_drum_send_kits = nullptr;
 u32 sdk_drum_send_kit_count = 0;
 const track_stage::Stage* sdk_track_stages = nullptr;
 u32 sdk_track_stage_count = 0;
+const telemetry::Owner* sdk_audio_owners = nullptr;
+u32 sdk_audio_owner_count = 0;
 namespace {
 // The companion table before its first build: no machines.
 const CompanionMachine kNoCompanions[1] = {};
@@ -152,6 +155,7 @@ void sdk_machine_tables() {
     build(space, &MachineRecord::kit, sdk_drum_kits, sdk_drum_kit_count);
     build(space, &MachineRecord::send, sdk_drum_send_kits, sdk_drum_send_kit_count);
     build(space, &MachineRecord::stage, sdk_track_stages, sdk_track_stage_count);
+    build(space, &MachineRecord::audio, sdk_audio_owners, sdk_audio_owner_count);
     build_companions(space);
     barrier();
     built = 1;

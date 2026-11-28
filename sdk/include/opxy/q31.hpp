@@ -36,6 +36,8 @@ inline i32 multiply(i32 a, i32 b) {
 inline i32 add(i32 a, i32 b) {
 #if defined(__bfin__)
     // Blackfin's saturating add: the same result as the portable path below in one instruction.
+    // Unlike the other helpers it declares only ASTAT changed, as it has since SDK 1.7, and keeps
+    // that so machines built with it keep their code. The others declare CC as well, alike.
     i32 result;
     __asm__("%0 = %1 + %2 (S);" : "=d"(result) : "d"(a), "d"(b) : "ASTAT");
     return result;
@@ -100,6 +102,24 @@ inline i32 shift_right(i32 value, u32 count) {
 #else
     const i64 divisor = static_cast<i64>(1) << count;
     return static_cast<i32>(value >= 0 ? value / divisor : -1 - (-1 - static_cast<i64>(value)) / divisor);
+#endif
+}
+
+// Arithmetic shift by a signed count (SDK 1.29), the processor's ASHIFT: for a
+// count of -31..-1, shift_right by -count; for 0..31, value * 2^count wrapped
+// to 32 bits, as an unsigned shift wraps (shift_left is the saturating one). Other counts are
+// undefined and differ between host and device. One instruction on the device
+// whichever way the count goes; like the helpers above, it never reads, writes
+// or saves ASTAT.
+__attribute__((always_inline)) inline i32 shift(i32 value, i32 count) {
+#if defined(__bfin__)
+    i32 result;
+    __asm__("%0 = ASHIFT %1 BY %2.L;" : "=d"(result) : "d"(value), "d"(count) : "ASTAT", "CC");
+    return result;
+#else
+    if (count < 0) return shift_right(value, static_cast<u32>(-count));
+    const u32 bits = static_cast<u32>(value) << count;
+    return bits > static_cast<u32>(maximum) ? -static_cast<i32>(~bits) - 1 : static_cast<i32>(bits);
 #endif
 }
 

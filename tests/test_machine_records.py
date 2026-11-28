@@ -32,14 +32,25 @@ def variant(name, new_id, **resources):
     return dataclasses.replace(m, id=new_id, definition=definition)
 
 
+def with_audio(name, new_id, words, mode, reset=False):
+    """Fixture `name` as machine `new_id`, its screen showing its own audio (audioTransport)."""
+    m = fixture(name)
+    definition = copy.deepcopy(m.definition)
+    display = definition['resources'].setdefault('display', {})
+    display.update(audioTransport=1, audioWords=words, audioMode=mode, **({'audioReset': 1} if reset else {}))
+    return dataclasses.replace(m, id=new_id, definition=definition)
+
+
 def every_row():
     """Machines that between them fill every table a record can: each kind, kit controls, model
-    edits, per-key sends, track control, a track stage and a player, listed out of record order."""
+    edits, per-key sends, track control, a track stage, a player and audio snapshots (a synth's
+    and an effect's), listed out of record order."""
     return [fixture('probepads'), fixture('probestage'), fixture('probefx'), fixture('probesample'), fixture('probekit23'),
             fixture('probekit25'), variant('probekit21', 'probemix', padMix=1), fixture('probesynth'),
             variant('probesources', 'probeaux', trackControl={'stateBytes': 8, 'stateAlignment': 4, 'unique': True,
                                                               'aux': [12]}),
-            fixture('probecurves')]
+            fixture('probecurves'), with_audio('probefx', 'probefxaudio', 4, 0),
+            with_audio('probesynth', 'probesynthaudio', 2, 2, reset=True)]
 
 
 # Each table's pointer and count (machine_tables.cpp) and the record member holding a machine's row.
@@ -52,7 +63,8 @@ TABLES = (('sample', 'sdk_sample_machines', 'sdk_sample_machine_count'),
           ('model_edit', 'sdk_drum_model_edits', 'sdk_drum_model_edit_count'),
           ('kit', 'sdk_drum_kits', 'sdk_drum_kit_count'),
           ('send', 'sdk_drum_send_kits', 'sdk_drum_send_kit_count'),
-          ('stage', 'sdk_track_stages', 'sdk_track_stage_count'))
+          ('stage', 'sdk_track_stages', 'sdk_track_stage_count'),
+          ('audio', 'sdk_audio_owners', 'sdk_audio_owner_count'))
 
 CHECK = r'''
 #include <cstdio>
@@ -69,6 +81,7 @@ CHECK = r'''
 #include "drum_kit_controls.hpp"
 #include "drum_send.hpp"
 #include "track_stage.hpp"
+#include "audio_owner.hpp"
 using namespace opxy;
 using namespace opxy::platform;
 static int failures = 0;
@@ -198,11 +211,12 @@ class RecordTables(unittest.TestCase):
 class RecordOrder(unittest.TestCase):
     def test_records_list_by_kind_then_id(self):
         ordered = record_order(every_row())
-        self.assertEqual([m.id for m in ordered], ['probeaux', 'probestage', 'probesynth', 'probekit23', 'probekit25',
-                                                   'probemix', 'probesample', 'probecurves', 'probefx', 'probepads'])
+        self.assertEqual([m.id for m in ordered], ['probeaux', 'probestage', 'probesynth', 'probesynthaudio', 'probekit23',
+                                                   'probekit25', 'probemix', 'probesample', 'probecurves', 'probefx',
+                                                   'probefxaudio', 'probepads'])
         text = records.assembly(every_row())
         self.assertEqual(re.findall(r'\.long ([a-z0-9_]+_record)', text), [records.symbol(m) for m in ordered])
-        self.assertIn(f'.space {records.space_bytes(10)}', text)
+        self.assertIn(f'.space {records.space_bytes(12)}', text)
 
     def test_a_record_never_depends_on_the_other_machines(self):
         alone = {m.id: records.render(m) for m in every_row()}

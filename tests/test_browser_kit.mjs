@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {KIT_KEYS, kitChoices, kitGroup, kitHeader, kitKey, kitMix, kitModel, kitSelectedKey, kitWord} from '../builder/core.mjs';
-import {RECORD_TABLE_BYTES, RECORDS_OBJECT, recordOrder, recordsObject, MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readSelection, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, imageSettings, unitSettings, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256, readMachinePack, importMachinePack, presetFiles} from '../builder/core.mjs';
+import {RECORD_TABLE_BYTES, RECORDS_OBJECT, recordOrder, recordsObject, MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readSelection, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, imageSettings, unitSettings, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256, readMachinePack, importMachinePack, hookSymbol, presetFiles} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of firmware and toolchains: one global, `symbol`,
 // at the start of four code bytes.
@@ -389,6 +389,40 @@ test('a pack machine needs every service, define and header unit it uses to be t
   const {base:site, pack:synths} = await packFixture();
   synths.build.unitDefines.player.push(define);
   await importMachinePack(site, synths);
+});
+
+// A synth or effect showing its own audio (audioTransport), a machine of any kind reading the
+// device identity (deviceIdentity) and a note player drawing its own page, as machine_entry
+// writes them: each imports where the site links what it uses, and names the service otherwise.
+test('pack machines with audio snapshots, the device identity or a drawn player page import as the site builds them', async () => {
+  const {base, pack} = await kindsFixture();
+  const {auxPresets, ...synth} = pack.machines[2];
+  const effect = {...synth, id:'fourth', prefix:'fourth', asset:'fourth.svg', kind:'effect',
+    identity:{effect:null, page:21}, controls:['A'], positions:[0], features:['audioTransport', 'deviceIdentity'],
+    catalog:', {"type":"fourth","id":21,"default_params":[0,0,0,0,0,0,0,0]}'};
+  pack.machines.push(effect);
+  pack.objects.push(await capsuleOf('fourth/voice.o', 'fourth', 'fourth_record'));
+  pack.machines[2].features = ['trackControl', 'auxTrack', 'audioTransport'];
+  pack.machines[0].features = ['deviceIdentity'];
+  Object.assign(pack.machines[1], {features:['deviceIdentity'], artwork:'<rect id="panel" width="1" height="1"/>',
+    preview:{wasm:'', sha256:'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', graphics:{},
+      defaults:Array(4).fill(0), player:true}});
+  await assert.rejects(importMachinePack(base, pack), /needs the (telemetry|device_identity|parameter_receive) service/);
+  for (const [service, id] of [['telemetry', 'third'], ['device_identity', 'custom'], ['parameter_receive', 'custom']]) {
+    const {base:site} = await kindsFixture();
+    await withServices(site, ['telemetry', 'device_identity', 'parameter_receive'].filter(s => s !== service));
+    await assert.rejects(importMachinePack(site, pack), new RegExp(`needs the ${service} service`), service);
+  }
+  await withServices(base, ['telemetry', 'device_identity', 'parameter_receive']);
+  const candidate = await importMachinePack(base, pack);
+  assert.deepEqual(candidate.machines.map(m => m.id), ['a', 'custom', 'another', 'third', 'fourth']);
+  // A player's preview is a drawn page's, with its artwork; only a player's is marked one.
+  for (const change of [p => { delete p.machines[1].preview.player; }, p => { delete p.machines[1].artwork; },
+    p => { p.machines[0].preview.player = true; }, p => { p.machines[1].features = ['audioTransport']; },
+    p => { p.machines[0].features = ['audioTransport']; }]) {
+    const changed = structuredClone(pack); change(changed);
+    await assert.rejects(importMachinePack(base, changed), /preview|features/, change.toString());
+  }
 });
 
 test('packs and sites without a valid build record are refused', async () => {
@@ -1057,6 +1091,126 @@ test('one selected extension owns stock Drumline\'s second page, as a claim', ()
   assert.deepEqual(extensionChoices(k), [[], ['filters'], ['observer'], ['filters','observer'], ['grit'], ['observer','grit']]);
 });
 
+// The mixer (service mixer) is shared by the per-key sends (drum_sends) and Sample Studio's player
+// (sample_studio): its object calls both users' entry points, and a selection with one user links the
+// other's to kit_absent, as tooling.native.service_fallbacks lists them.
+function mixerKit() {
+  const k = fixture();
+  k.definitions.kit_absent = k.profile.module_base;
+  const sdk = (name, service, exports, imports = []) => {
+    const o = {...readObject(elf()), name, owner:null, service};
+    o.symbols = o.symbols.filter(s => s.name !== 'entry');
+    for (const n of exports) o.symbols.push({name:n, section:1, value:0, size:0, binding:1, type:2});
+    for (const n of imports) {
+      o.symbols.push({name:n, section:0, value:0, size:0, binding:1, type:0});
+      o.relocations.push({section:1, offset:0, type:18, symbol:o.symbols.length - 1, addend:0});
+    }
+    return o;
+  };
+  const sends = ['sdk_drum_send_begin', 'sdk_drum_send_voice', 'sdk_drum_send_gain', 'sdk_drum_send_own_mix'];
+  const studio = ['sdk_studio_mixer_begin', 'sdk_studio_voice', 'sdk_studio_gain', 'sdk_studio_level'];
+  k.objects.push(sdk('sdk/mixer.o', 'mixer', ['sdk_mixer_voice'], [...sends, ...studio]),
+    sdk('sdk/drum_send.o', 'drum_sends', sends), sdk('sdk/sample_studio_audio.o', 'sample_studio', studio));
+  k.serviceFallbacks = {drum_sends:Object.fromEntries(sends.map(n => [n, 'kit_absent'])),
+    sample_studio:Object.fromEntries(studio.map(n => [n, 'kit_absent']))};
+  k.extensions = [{id:'pages', claims:[], actions:[], drumline_page:true},
+    {id:'studio', claims:[], actions:[], sample_studio:{asset:'sample_studio.svg', artwork:'', sha256:''}}];
+  return {k, sends, studio};
+}
+const linkedNames = linked => linked.objects.map(o => o.name);
+test('the mixer links with only the per-key sends: Sample Studio\'s player resolves to kit_absent', () => {
+  const {k, sends, studio} = mixerKit();
+  k.machines[0].features = ['padMix'];
+  const padMix = linkKit(k, ['a']);
+  assert.ok(padMix.services.has('mixer') && padMix.services.has('drum_sends') && !padMix.services.has('sample_studio'));
+  assert.deepEqual(linkedNames(padMix), ['a.o', 'sdk/mixer.o', 'sdk/drum_send.o']);
+  for (const n of studio) assert.equal(padMix.aliases.get(n), k.definitions.kit_absent);
+  for (const n of sends) assert.equal(padMix.aliases.has(n), false);
+  delete k.machines[0].features;
+  const pages = linkKit(k, ['a'], null, ['pages']);   // a drumline_page extension and no padMix kit
+  assert.ok(pages.services.has('mixer') && pages.services.has('drum_sends') && !pages.services.has('sample_studio'));
+  assert.deepEqual(linkedNames(pages), ['a.o', 'sdk/mixer.o', 'sdk/drum_send.o']);
+  for (const n of studio) assert.equal(pages.aliases.get(n), k.definitions.kit_absent);
+  // Without the fallbacks the player's entry points stay unresolved.
+  delete k.serviceFallbacks.sample_studio;
+  assert.throws(() => linkKit(k, ['a'], null, ['pages']), /Unresolved import/);
+});
+test('the mixer links with only Sample Studio: the sends resolve to kit_absent, and it needs a sample engine', () => {
+  const {k, sends, studio} = mixerKit();
+  assert.throws(() => linkKit(k, ['a'], null, ['studio']), /Sample Studio needs a sample engine or Drumline page 2/);
+  k.machines[0].kind = 'sample';
+  const alone = linkKit(k, ['a'], null, ['studio']);
+  for (const service of ['sample_studio', 'master_bus', 'mixer', 'samples']) assert.ok(alone.services.has(service), service);
+  assert.equal(alone.services.has('drum_sends'), false);
+  assert.deepEqual(linkedNames(alone), ['a.o', 'sdk/mixer.o', 'sdk/sample_studio_audio.o']);
+  for (const n of sends) assert.equal(alone.aliases.get(n), k.definitions.kit_absent);
+  for (const n of studio) assert.equal(alone.aliases.has(n), false);
+  // Neither user: the mixer isn't linked at all.
+  assert.deepEqual(linkedNames(linkKit(k, ['a'])), ['a.o']);
+  // The device identity beside the studio: their B3 parameters are apart (138..145, 146..160).
+  k.machines[0].features = ['deviceIdentity'];
+  assert.ok(linkKit(k, ['a'], null, ['studio']).services.has('device_identity'));
+});
+// Sample Studio beside a master processor (a collection with both): the master bus's shared handler
+// (sdk/master_bus.o, service master_bus) enters each side's entries, and a selection with one of them
+// links the other's to kit_absent, as tooling.native.service_fallbacks lists them with master_shared.
+test('the master bus links one shared handler for the studio and a master processor, or either alone', () => {
+  const {k} = mixerKit();
+  k.machines[0].kind = 'sample';
+  const sdk = (name, service, exports, imports = []) => {
+    const o = {...readObject(elf()), name, owner:null, service};
+    o.symbols = o.symbols.filter(s => s.name !== 'entry');
+    for (const n of exports) o.symbols.push({name:n, section:1, value:0, size:0, binding:1, type:2});
+    for (const n of imports) {
+      o.symbols.push({name:n, section:0, value:0, size:0, binding:1, type:0});
+      o.relocations.push({section:1, offset:0, type:18, symbol:o.symbols.length - 1, addend:0});
+    }
+    return o;
+  };
+  const processor = ['sdk_processor_process', 'sdk_processor_receive'], player = ['sdk_studio_master', 'sdk_studio_receive'];
+  k.objects = k.objects.filter(o => o.name !== 'sdk/sample_studio_audio.o');
+  k.objects.push(sdk('sdk/master_filter_stock.o', 'master_filter', processor),
+    sdk('sdk/sample_studio_audio.o', 'sample_studio', [...player, 'sdk_studio_mixer_begin', 'sdk_studio_voice', 'sdk_studio_gain', 'sdk_studio_level']),
+    sdk('sdk/master_bus.o', 'master_bus', ['sdk_master_process', 'sdk_master_receive'], [...processor, ...player]));
+  k.serviceFallbacks.master_filter = Object.fromEntries(processor.map(n => [n, 'kit_absent']));
+  Object.assign(k.serviceFallbacks.sample_studio, Object.fromEntries(player.map(n => [n, 'kit_absent'])));
+  k.extensions.push({id:'filter', claims:[], actions:[], master_processor:{state_id:'filter'}});
+  const sites = ['0x8d511b80', '0x8d5b145e'].map(a => k.profile.patches.find(p => p.address === a));
+  const both = linkKit(k, ['a'], null, ['studio', 'filter']);
+  for (const service of ['sample_studio', 'master_filter', 'master_bus', 'parameter_receive']) assert.ok(both.services.has(service), service);
+  assert.ok(linkedNames(both).includes('sdk/master_bus.o'));
+  for (const n of [...processor, ...player]) assert.equal(both.aliases.has(n), false, n);
+  assert.deepEqual(sites.map(p => hookSymbol(p, both.services)), ['sdk_master_process', 'sdk_master_receive']);
+  assert.equal(both.globals.get('sdk_master_process'), both.globals.get('sdk_master_receive'));   // master_bus.o's
+  const studio = linkKit(k, ['a'], null, ['studio']);
+  assert.ok(linkedNames(studio).includes('sdk/master_bus.o') && !linkedNames(studio).includes('sdk/master_filter_stock.o'));
+  for (const n of processor) assert.equal(studio.aliases.get(n), k.definitions.kit_absent, n);
+  const filter = linkKit(k, ['a'], null, ['filter']);
+  assert.ok(linkedNames(filter).includes('sdk/master_bus.o') && !linkedNames(filter).includes('sdk/sample_studio_audio.o'));
+  for (const n of player) assert.equal(filter.aliases.get(n), k.definitions.kit_absent, n);
+  // With the device identity too, its receiver runs first and hands the shared handler the rest.
+  k.machines[0].features = ['deviceIdentity'];
+  const all = linkKit(k, ['a'], null, ['studio', 'filter']);
+  assert.ok(all.services.has('device_identity'));
+  assert.equal(hookSymbol(sites[1], all.services), 'sdk_identity_receive');
+});
+test('one selected extension owns Sample Studio, beside a master processor if chosen', () => {
+  const studio = {asset:'sample_studio.svg', artwork:'', sha256:''};
+  const k = {extensions:[{id:'studio', claims:[], sample_studio:studio}, {id:'other', claims:[], sample_studio:studio},
+    {id:'filter', claims:[], master_processor:{state_id:'filter'}}, {id:'observer', claims:[]}]};
+  assert.equal(sharedClaim([k.extensions[0], k.extensions[3]]), null);
+  assert.equal(sharedClaim([k.extensions[0], k.extensions[1]]), 'sample_studio');
+  assert.equal(sharedClaim([k.extensions[0], k.extensions[2]]), null);   // one handler runs both (master_bus.cpp)
+  assert.equal(claimLabel(k.extensions, 'sample_studio'), 'Sample Studio');
+  assert.throws(() => extensionSelection(k, ['studio','other']), /both use Sample Studio\. Choose only one\./);
+  assert.deepEqual(extensionSelection(k, ['filter','studio']), ['studio','filter']);
+  assert.deepEqual(extensionSelection(k, ['observer','studio']), ['studio','observer']);
+  for (const choice of extensionChoices(k)) {
+    assert.ok(choice.filter(id => id === 'studio' || id === 'other').length <= 1, choice.join());
+  }
+  assert.ok(extensionChoices(k).some(choice => choice.includes('filter') && choice.includes('studio')));
+});
+
 test('shared objects name no machine: an unselected machine\'s symbols stay unresolved', () => {
   const k=fixture(), o=k.objects[0];
   k.definitions.fallback=k.profile.module_base;
@@ -1214,6 +1368,24 @@ test('curated profile and object authentication reject modified input', async ()
   k.version='0.0.2';
   k.objects[0].sha256='0'.repeat(64); await assert.rejects(openKit(k),/hash mismatch/);
   k.profile.patches[0].after='0000000000000000'; await assert.rejects(openKit(k),/reviewed profile/);
+});
+test('a Sample Studio extension carries its artwork, checked by its hash, and is never a master processor', async () => {
+  const k=fixture(); k.format='opxy-browser-kit/1'; k.profileSource=profileBytes.toString('base64');
+  k.objects=[{name:'a.o',owner:'a',bytes:Buffer.from(elf()).toString('base64'),sha256:await sha256(elf())}];
+  k.stockCatalog=''; k.screenTemplate=readFileSync(new URL('../sdk/platform/opxy-1.2.1/screen.svg',import.meta.url),'utf8');
+  const artwork=Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>');
+  const studio={asset:'sample_studio.svg', artwork:artwork.toString('base64'), sha256:await sha256(artwork)};
+  k.extensions=[{id:'studio', name:'Sample Studio', description:'An editor.', origin:'personal', claims:[], actions:[],
+    claim_labels:{}, sample_studio:studio}];
+  // Its metadata passes; the kit's next check is the extension's object, which this fixture leaves out.
+  await assert.rejects(openKit(k), /Missing extension accessor: studio/);
+  for (const changed of [{...studio, sha256:'0'.repeat(64)}, {...studio, asset:'other.svg'}, {...studio, extra:1}, true]) {
+    k.extensions[0].sample_studio=changed;
+    await assert.rejects(openKit(k), /Sample Studio/);
+  }
+  k.extensions[0].sample_studio=studio;
+  k.extensions[0].linked=false;
+  await assert.rejects(openKit(k), /Invalid extension/);
 });
 test('SDK 1.5 machines ask for no numbers and the selection gives them', async () => {
   const k=fixture(); k.format='opxy-browser-kit/1'; k.profileSource=profileBytes.toString('base64');

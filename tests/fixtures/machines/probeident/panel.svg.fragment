@@ -1,0 +1,9 @@
+<g id="probeident_panel">
+  <circle id="probeident_node_0" cx="0" cy="0" r="6" fill="#ffffff"/>
+  <text id="probeident_text_0" transform="matrix(1 0 0 1 40 70)" fill="#CBCBCB" font-family="UniversNextPro-Light" font-size="13px">-</text>
+  <text id="probeident_text_1" transform="matrix(1 0 0 1 40 100)" fill="#FFFFFF" font-family="UniversNextPro-Light" font-size="20px">-</text>
+  <text id="probeident_text_2" transform="matrix(1 0 0 1 40 130)" fill="#FFFFFF" font-family="UniversNextPro-Light" font-size="20px">-</text>
+  <text id="probeident_text_3" transform="matrix(1 0 0 1 40 160)" fill="#FFFFFF" font-family="UniversNextPro-Light" font-size="20px">-</text>
+  <circle id="probeident_palette_0" cx="640" cy="0" r="1" fill="#444444" stroke="#444444" stroke-width="1"/>
+  <circle id="probeident_palette_1" cx="640" cy="0" r="1" fill="#ffffff" stroke="#ffffff" stroke-width="1"/>
+</g>
