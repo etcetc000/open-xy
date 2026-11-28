@@ -79,7 +79,7 @@ and requires each other machine to fit beside them, as the builder offers it.
 | Synth controls | 4 positions, at most 8 parameters, and a Shift row of at most 8 (SDK 1.13) | The stock four-knob page and eight-word parameter vector; the row takes two spare track words |
 | Sample and effect controls | 1..8 | The stock eight-word parameter vector |
 | Control labels | 8 characters | The stock parameter page |
-| Display shape | ≤ 4 paths of ≤ 64 points, ≤ 512 nodes (more than 256 need `"sdk": "1.8"`), ≤ 16 text slots (more than 4 need `"sdk": "1.3"`), ≤ 16 palette entries; a synth or effect's [extended drawing](display.md#extended-drawing) (`"sdk": "1.20"`) up to 32 paths sharing 256 points | Fixed-size renderer object and frame |
+| Display shape | ≤ 4 paths of ≤ 64 points, ≤ 512 nodes (more than 256 need `"sdk": "1.8"`), ≤ 16 text slots (more than 4 need `"sdk": "1.3"`), ≤ 16 palette entries; a synth's or effect's [extended drawing](display.md#extended-drawing) (`"sdk": "1.20"`; a drum kit's or a note player's page `"1.28"`) up to 32 paths sharing 256 points | Fixed-size renderer object and frame |
 
 `voiceBytes`, `sharedBytes` and display state have no limit of their own
 beyond whole words and module memory. Browser previews run 8 voices in
@@ -135,9 +135,19 @@ host does fast and the Blackfin does not:
   instructions on the device. All give the same results on the host. None
   reads or sets the rounding mode: `multiply_nearest` rounds an exact tie in
   the processor's current mode (unbiased, to even, after reset; the host
-  always rounds to even), so do not depend on which way a tie falls. The two
-  namespaces share names, so call these qualified (`q15::saturate`,
-  `q31::saturate`).
+  always rounds to even), so do not depend on which way a tie falls. SDK 1.29
+  adds more of the processor's own operations, one instruction each: `q15::half`,
+  `q15::subtract_wrapped` (wraps instead of saturating), `q31::shift` (an
+  arithmetic shift by a signed count, -31..31: right when negative, wrapping
+  left when positive), and pairs, two 1.15 values in one word such as a stereo
+  frame: `q15::pack`, `low`, `high`, `multiply_pair` (both halves times one
+  value, truncating as `multiply` does) and `add_pair` (saturating per half);
+  `low` and `high` are plain C. Call these instead of writing inline assembly:
+  every assembly statement in the two headers declares the arithmetic flags
+  (ASTAT and CC) changed, except `q31::add` (ASTAT only) and `product` (none),
+  so code that moves from the same instruction written out with the same
+  declarations keeps its object code. The two namespaces share names, so call
+  these qualified (`q15::saturate`, `q31::saturate`).
 - **64-bit arithmetic** and floating point may need software helpers. The
   build links only the required authenticated [arithmetic runtime](toolchain.md)
   members; their code counts toward module memory.
@@ -423,7 +433,8 @@ index. Each voice costs the machine's voice size plus the adapter's own state, s
 stock is not known to pass; indirect calls were not traced) gets a shared silent
 object and adds one to `<prefix>_voice_refusals`, an exported per-engine word
 that nothing in the SDK reads: a debugger, a simulator or a build's own code may. It also declares the
-optional [sample services](#sample-engines) it uses. An effect declares no resources (`{}`).
+optional [sample services](#sample-engines) it uses. An effect requires no resources (`{}`). Any kind may
+also declare `deviceIdentity` (SDK 1.30) to read the [device identity](#device-identity).
 A synth declares:
 
 | Field | Required value or meaning |
@@ -436,7 +447,8 @@ A synth declares:
 | `releaseCallback` | Optional integer 0/1 (SDK 1.12): receive the [voice release event](synth-release.md) |
 | `display` | The screen's frame budget; see the [display API](display.md) |
 | `trackControl` | Optional: the [track control](#track-control) state's `stateBytes` and `stateAlignment`, and optionally `unique`, `savedBytes`, `aux` and `sharedLfo` |
-| `trackStage` | Optional (SDK 1.24): the [track stage](#track-stage)'s `stateBytes`, `stateAlignment` and `tailFrames` |
+| `trackStage` | Optional (SDK 1.24): the [track stage](#track-stage)'s `stateBytes`, `stateAlignment` and `tailFrames`, and from SDK 1.27 an optional `audio` |
+| `deviceIdentity` | Optional integer 0/1 (SDK 1.30, the key itself, even as 0): read the [device identity](#device-identity); any kind may declare it |
 
 The SDK never runs constructors or destructors for `Voice`, `Shared` or
 `DisplayState`: their storage starts zeroed and the callbacks set it up.
@@ -552,6 +564,9 @@ void render(Voice& voice, Shared& shared, opxy::u32 owner,
             opxy::Output output, opxy::Parameters parameters, opxy::Pitch pitch);
 ```
 
+A synth declaring [`audioTransport`](display.md#audio-snapshots) (SDK 1.27)
+takes a final `const opxy::AudioContext&` in `render`.
+
 Storage begins zeroed; `owner` is a stable nonzero voice ID, the stock voice
 index plus one. A large voice may declare `static constexpr unsigned
 zeroed_bytes` (a multiple of 4 for word stores) to have only that leading
@@ -634,7 +649,12 @@ aux output and both sends, which all get the processed sum, as from an insert
 before the fader. Stock keeps a synth voice 3 bits below the scale `render`
 writes, so eight voices at half scale sum to about half scale. Keep the stage's
 nominal gain at unity, saturate (the [Q31 helpers](../sdk/include/opxy/q31.hpp)),
-and do not rely on the absolute level.
+and do not rely on the absolute level. A synth's [audio
+snapshots](display.md#audio-snapshots) come from its voices' `render`, before the
+stage. A stage declaring `audio: 1` (SDK 1.27, with the display's `audioTransport`)
+can also publish: `track_process` then takes a final `const opxy::AudioContext&` for
+its track, on the words its voices publish to, after them in the block, so it can
+show the track's own sound on the synth's screen.
 
 `track_process` runs once per block on each instrument track that holds the
 synth, in the same block as its voices: the SDK adds no latency. `track_reset`
@@ -655,6 +675,7 @@ the track's voices stop:
 | --- | --- |
 | `stateBytes`, `stateAlignment` | `TrackState` size (whole words) and alignment (4 or 8), checked against the compiled type |
 | `tailFrames` | Frames the stage can sound after its input stops, at most 2^24 (6.3 minutes), or `"unbounded"` |
+| `audio` | Optional, 0 or 1 (SDK 1.27, needs the display's `audioTransport`): `track_process` takes the synth's `const opxy::AudioContext&` after `voices` ([audio snapshots](display.md#audio-snapshots)) |
 
 While the stage sounds after the track's last voice, stock keeps mixing the
 track as if a voice still played. Once the track has had no voice, and the
@@ -672,6 +693,70 @@ large state costs that block more. The stage runs once for each track that holds
 check to every instrument track's block (whether the track holds a stage); a
 build without one is unchanged. A synth's [CPU record](profiling.md) times its
 stage too, in a run of its own, counted once per track beside a voice. The browser preview does not model the stage.
+
+## Device identity
+
+SDK 1.30. A machine of any kind may read the device identity: 18 bytes that
+the OP-XY's boot information holds for the unit, the same on every boot. A
+machine can derive per-unit values from them, such as a seed that makes each
+unit's instrument sound slightly different, and get the same values on every
+boot. It declares `"deviceIdentity": 1` in `resources` and includes
+[`opxy/device_identity.hpp`](../sdk/include/opxy/device_identity.hpp):
+
+```cpp
+#include <opxy/device_identity.hpp>
+
+opxy::u8 identity[opxy::device_identity_bytes];  // 18
+if (opxy::device_identity(identity, opxy::device_identity_bytes)) {
+    // identity holds the unit's bytes
+}
+```
+
+`device_identity(output, size)` copies the first `size` bytes (at most 18)
+and returns true, or returns false and writes nothing while the identity is not
+known yet. On the device that is the case for a moment after boot: the GUI
+processor reads the identity and then sends it to the audio processor, normally
+within a second. Code on the GUI processor (display code, a track control's
+`control`, `control_save` and `control_load`) reads its copy; sound code on the
+audio processor (`init`, note starts, `render`, `process`) reads that one's, so
+the screen can show the identity while the sound still gets false, briefly or, if
+every message is lost, for good. Don't assume the two agree. From the first
+true it returns the same bytes until the device restarts. Any callback may call it, `render`, `process` and display code
+included; it does not block. It copies up to 18 bytes each time, so a machine that
+reads it often can keep its own copy after the first true. Code that needs the
+identity in `init` or at a note's start must handle false: keep a default and switch once it is known,
+or stay silent until then. It can also stay false for good: the GUI stops
+looking after 600 looks, at least 100 ms apart (a minute or more), and sends the identity only 32 times, so a unit whose
+boot information is not in place, or an audio processor that misses every
+message, never has it. A machine must still work then.
+
+The identity is not secret, but it identifies the unit, like a serial number.
+A machine that declares `deviceIdentity` reads data that can tell one OP-XY
+from another, and its users have only the machine's word for what it does
+with it. Use the bytes on the device, for the machine's own behaviour: don't
+save them in a project, preset or file or send them anywhere, and say in the
+machine's description what it uses them for. An extension cannot include the
+header.
+
+The audio processor's copy arrives in a message that is checked against loss,
+not forgery: don't treat the bytes as a secret or as proof of which unit the
+machine runs on.
+
+The browser preview and host tests give `opxy::preview_device_identity`: the
+bytes `0xa0, 0xa1, ..., 0xb1`. A host test can change it with
+`opxy::configure_preview_device_identity(bytes)`, or pass `nullptr` to make the
+identity unknown, as on the device just after boot; on the device that call
+does nothing and returns false.
+
+A machine that includes the header must declare `"deviceIdentity": 1`. Only a
+firmware with such a machine links the service that reads, sends and receives
+the identity; others are unchanged. The service adds a check to each pass of
+stock's main loop (on the audio processor it returns at once) and to each of
+stock's global parameter messages the audio processor receives, and sends the
+identity 32 times, at most once a second, from when it is read ([firmware
+ABI](abi-1.2.1.md#device-identity)). A machine pack may add a machine
+declaring `"deviceIdentity": 1` only to a site whose own catalog already links
+the service ([machine packs](catalog.md#import-custom-machines)).
 
 ## Track control
 
@@ -853,10 +938,11 @@ audio side but the silenced CV output.
 
 SDK 1.8 adds `"kind": "drum"`: one registered instrument with independent
 model selection and sound controls on 24 keys. It supplies the synth
-lifecycle, a drawing display, and the same resources plus `modelCount`
-(2..64). Each key holds a model and eight 7-bit controls. A kit of more than
-16 models stores them in a prefix code, which holds at most 15 models that use
-all eight controls (`parameter_count` 8); `sdk.py test --machine` counts them
+lifecycle, a drawing display (from SDK 1.28 an [extended](display.md#extended-drawing)
+one, which may [take the whole screen](display.md#a-whole-screen-drum-kit)), and the
+same resources plus `modelCount` (2..64). Each key holds a model and eight 7-bit
+controls. A kit of more than 16 models stores them in a prefix code, which
+holds at most 15 models that use all eight controls (`parameter_count` 8); `sdk.py test --machine` counts them
 and fails a kit with more; on the device such a kit's keys play their defaults
 and turn nothing. The definition declares
 the eight controls: slots 0..3 on the four encoders and slots 4..7 their
@@ -1484,8 +1570,10 @@ many words the sample needs (0 declines), allocates them from the stock heap
 within that machine's budget, and runs `prepare_step` in bounded chunks on the
 stock file worker until `prepared` publishes the immutable result. Nothing is
 prepared while the sample browser is open, and a sample that does not fit stays
-unanalyzed. Results are released before stock frees the sample. A collection's
-analysis budgets together may not exceed 2 MiB.
+unanalyzed. Results are released before stock frees the sample. Whatever their
+budgets add up to, the analysis machines in a firmware hold at most 2 MiB
+together: a sample that would go over waits, as one over its machine's own
+budget does, until a sample is released.
 
 ### Sample kernel
 
@@ -1685,6 +1773,10 @@ and `opxy::division_sixteenths` the length in sixteenths of a quarter note, and
 the send page shows the length's name in place of the number, as for stock
 delay's Size.
 
+An effect whose page shows its own audio ([audio snapshots](display.md#audio-snapshots),
+SDK 1.27) takes `const opxy::AudioContext&` after `parameters` and publishes
+its send's words there.
+
 `process` writes only the wet return. An effect may declare `dryParameter` in
 `machine.json`, naming a control with a linear 0..1 mapping. The adapter returns
 that control's raw Q31 word to the stock source mixer. Raising it restores dry
@@ -1769,7 +1861,7 @@ names the stock file and asks for a rename. An extension's artwork file in
 | Field | Contract |
 | --- | --- |
 | `schema` | 1 |
-| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.25 and builds 1.0 to 1.25 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
+| `sdk` | The SDK version the machine targets, `"<major>.<minor>"`. This SDK is 1.30 and builds 1.0 to 1.30 machines. From 1.19, a synth whose voice pool exceeds 128 KiB keeps its voices on the [heap](#memory-and-limits) |
 | `kind` | `synth`, `drum`, `sample`, `effect` or `player` |
 | `description` | Plain text of at most 160 characters, shown by the builder and preview |
 | `base` | Sample engines only, and required for them: the stock sampler it forks, `"sampler"` or `"drumSampler"` ([sample engines](#sample-engines)) |
@@ -1930,7 +2022,8 @@ passed to a build with `--machine`.
 SDK 1.8 adds `"kind": "player"`. A player transforms live and sequenced notes
 before the track's instrument receives them. Its `machine.json` declares no
 identity or base; the layout assigns an unused player type and its own page.
-Use four parameters (or five to eight, below), `"resources": {}`, `player.cpp` and `panel.svg.fragment`.
+Use four parameters (or five to eight, below), `"resources": {}`, `player.cpp` and `panel.svg.fragment`
+(or, drawing its [own page](#a-players-own-drawn-page-sdk-126), a display in `resources`, `display.h` and `display.cpp`).
 A parameter an encoder doesn't need may be left empty, declared `"absent": true`
 as for a synth's empty slot: its title and value stay empty and its encoder turns nothing.
 A player with five to eight parameters declares `"press": "page"` (SDK 1.16):
@@ -1943,7 +2036,8 @@ Stock keeps all eight parameter words in the project and sets them to the
 declared defaults only when the player is chosen, so a project saved while a
 player had four parameters opens a later version with five to eight with the 0
 its words 4..7 held then, not the new parameters' defaults.
-Its header shows [both pages in place](ux.md#more-than-four-controls).
+Its header shows [both pages in place](ux.md#more-than-four-controls) (on the dot page; a
+[drawn page](#a-players-own-drawn-page-sdk-126) draws it itself).
 Players have no instrument presets, audio-render CPU estimate or browser audio preview.
 
 Include `<opxy/player.hpp>` and implement, in the machine's namespace:
@@ -1955,6 +2049,9 @@ bool press(State&, const opxy::player::Controls&, opxy::u32 note,
 bool release(State&, opxy::u32 note);
 void display(const State&, const opxy::player::Controls&, opxy::player::Display&);
 ```
+
+(`display` is the dot page's; a player [drawing its own page](#a-players-own-drawn-page-sdk-126) supplies its
+`display.cpp` instead.)
 
 `press` returns false to pass a note through, or true with a plan of zero to
 eight tones. Each tone has a MIDI pitch and velocity, and a delay in stock
@@ -2023,6 +2120,50 @@ keys in the lower 444-pixel-wide row at y=174, fitting whole F-to-E octaves
 around the input keyboard and every emitted note. This preserves octaves
 under voicing, spread and simultaneous chords. MIDI endpoints use partial
 octaves. Hidden nodes move beyond the display.
+
+### A player's own drawn page (SDK 1.26)
+
+A player may instead draw its page as a synth draws its screen: declare
+`"resources": {"display": {...}}` with the [display fields](display.md#declaration)
+(from SDK 1.28 also the [extended](display.md#extended-drawing) keys), `"sdk": "1.26"`
+(`"1.28"` for an extended display), and supply `display.h` (the `DisplayState` and
+`Frame` types, as a synth's) and `display.cpp`:
+
+```cpp
+void display_reset(DisplayState&);
+void display(DisplayState&, const State&, const opxy::player::Controls&,
+             const opxy::draw::Input&, Frame&);
+```
+
+The SDK compiles `display.cpp` in the player's one unit, after `player.cpp`, so
+it reads `State` directly: the same advisory GUI read as `display(const State&, ...)`
+above, while the sequencer may be changing it. The frame, its validation and its
+artwork bindings are a synth's ([display](display.md#frame)); the dot page's
+`<id>_dot_*`, `<id>_text`, keyboard and output-keyboard nodes are not used, and
+the SDK fills no `played` notes. `draw::Input` carries the player's eight controls
+in `slots`, the page shown in `shown` and `parameters` (slots 4..7 on a paged
+player's second page, `line` 1 there), `elapsed`, `track`, the track's
+`note_serial` and [note activity](display.md#note-activity-sdk-11), its
+[amp envelope](display.md#amp-envelope-sdk-110), and `shift` as `Controls.shift`;
+the shift row's values and turns are in `Controls`. `reduced_motion` is 0, the
+drum fields 0. The display resets when its page is shown again or the track
+changes, as a synth's does. With `encoderActivity` the input is
+`draw::EncoderInput`, which `display` takes in place of `draw::Input`.
+
+A one-page player keeps the stock header: its labels, and each value the frame's
+`header` caption or else the amount 0..100. A paged player draws the
+[two-page header](display.md#two-page-header) itself, in its own frame and
+artwork, as a paged synth does; the SDK adds none. No fragment is generated for a player: copy the
+header block, with its cover over the stock header, from the `panel.svg.fragment` of an eight-control
+synth (`sdk.py new --controls 8`), or the stock header's values show beneath its own. A `fullCanvas`
+page has no header. `sdk.py test` checks the artwork against the declared display and runs
+the display on the host with `player.cpp` over a held key's frames, refusing
+invalid ones; it also builds the page's browser preview, which the builder shows (with
+Clang's wasm32 target and Node.js, as a synth's preview needs).
+
+Not yet run on a device: the renderer is the dot page's registration and
+compositor path with the synth renderer's frame application, compiled into the
+player's unit.
 
 Player types remain stable when a subsequent build uses the saved layout.
 Stock firmware replaces an unknown saved player with Arpeggio. Project
@@ -2095,7 +2236,7 @@ are not available to players; they need a new hook.
 
 ### A player's track instrument (SDK 1.25)
 
-A player declaring `"sdk": "1.25"` also receives `Controls.instrument`, the
+A player declaring `"sdk": "1.25"` or later also receives `Controls.instrument`, the
 kind of instrument its track holds, as stock classifies it:
 `opxy::player::DrumInstrument` for stock's drum sampler, its drum synth or an
 SDK drum kit, `OtherInstrument` for anything else (a synth, the keyboard

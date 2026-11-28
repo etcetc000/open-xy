@@ -264,6 +264,15 @@ of one to four per-key parameters, with step locks, and processes each hit's
 voice through the SDK's `drumline_page` capability. One extension per build owns
 it; the builder offers it like a claim.
 
+## Sample Studio
+
+A [Sample Studio extension](sample-studio.md) puts an editor in stock's sample
+library: `"sample_studio": {}` in `extension.json`, an editor and a player
+exported from `extension.cpp`, and its artwork, `sample_studio.svg`. One
+extension per build owns it. Beside a master processor, one handler runs both
+on the master bus's sites (`master_bus.cpp`): the master processor's stage, then
+the studio's player.
+
 ## Change the SDK for an extension
 
 Reuse first: read the events table. Most needs are a subscriber that filters an

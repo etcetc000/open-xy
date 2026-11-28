@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import re
 
-from .definitions import (DRUM_KIT_CONTROLS, EXTENDED_SDK, KIT_CONTROLS_SDK, SDK_1_25, extended_display, ANALYSIS_HEAP_LIMIT, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
+from .definitions import (AUDIO_SDK, AUDIO_SDK_KEYS, DEVICE_IDENTITY_SDK, DRUM_KIT_CONTROLS, EXTENDED_SCREENS_SDK, EXTENDED_SDK, KIT_CONTROLS_SDK, SDK_1_25, extended_display, ROOT, SDK_1_2_TEXTS, SDK_1_6_TEXTS, SDK_1_7_NODES, STOCK_VOICES, paged,
                           shift_parameters, stock_name, synth_shift, validate_definition)
 from .contributors import validate_native_assembly
 from .formats import require
@@ -84,7 +84,24 @@ IDLE_SDK = (1, 22)
 # instrument track, processed in place on the track's voice sum once per block.
 # 1.25 gives a note player its track's kind of instrument (Controls.instrument) and lets a
 # drum kit's value editor move the key to another model (resources.modelEdit; SDK_1_25 in definitions.py).
-SDK_VERSION = (1, 25)
+# 1.26 lets a note player draw its own page (resources.display): a draw::Frame from its
+# State and Controls each GUI frame, as a synth draws its screen. PLAYER_DRAWING_SDK is
+# the one place to renumber it, with the "SDK 1.26" text of docs/api.md and docs/display.md.
+PLAYER_DRAWING_SDK = (1, 26)
+# 1.27 adds a screen's own audio (audio snapshots, for synths and effects, and for a synth's
+# track stage), stock's output and input levels on a screen, and glyph atlases
+# (docs/display.md). A renumber changes AUDIO_SDK in definitions.py, this line and the
+# "SDK 1.27" text of the docs.
+# 1.28 extends extended drawing to a drum kit's screen, with a whole-screen kit whose
+# header shows only while Shift is held, and to a note player's own page
+# (EXTENDED_SCREENS_SDK in definitions.py).
+# 1.29 adds more one-instruction helpers to opxy/q15.hpp (half, subtract_wrapped and the pair
+# helpers pack, low, high, multiply_pair, add_pair) and an arithmetic shift by a signed count,
+# shift, to opxy/q31.hpp. A renumber changes this line, SDK_VERSION and the "SDK 1.29" text of
+# those headers, docs/api.md (its CPU notes and the sdk row) and tests/test_fixed_point_helpers.py.
+# 1.30 lets a machine of any kind read the device identity (resources.deviceIdentity,
+# opxy/device_identity.hpp; DEVICE_IDENTITY_SDK in definitions.py).
+SDK_VERSION = (1, 30)
 # The stock samplers a sample engine forks (machine.json `base`), by their stock pages:
 # the keyboard sampler's and the drum sampler's, the profile's sample_pages.
 SAMPLE_BASES = {'sampler': 2, 'drumSampler': 7}
@@ -551,6 +568,16 @@ def reads_sample_overview(root, header='sample_overview'):
                if path.suffix in ('.cc', '.cpp', '.h', '.hpp') and path.relative_to(root).parts[0] not in ('tests', 'tools'))
 
 
+# The device identity's reader by name: code that declares it itself, without the header.
+DEVICE_IDENTITY_READER = re.compile(r'\bopxy_device_identity\b')
+
+
+def reads_device_identity(root):
+    """Whether a machine's own C++, its tests and tools aside, names the device identity's reader."""
+    return any(DEVICE_IDENTITY_READER.search(path.read_text(encoding='utf-8', errors='replace')) for path in tree(root)
+               if path.suffix in ('.cc', '.cpp', '.h', '.hpp') and path.relative_to(root).parts[0] not in ('tests', 'tools'))
+
+
 def machine_at(root, identity=None):
     """The machine in a folder; its definition names it."""
     root = Path(os.path.abspath(root))
@@ -602,6 +629,10 @@ def machine_at(root, identity=None):
         require_sdk(version, IDLE_SDK, "An effect's declared tail (tailFrames)")
     if 'trackStage' in definition['resources']:
         require_sdk(version, track_stage.TRACK_STAGE_SDK, "A synth's track stage (trackStage)")
+        if 'audio' in definition['resources']['trackStage']:
+            require_sdk(version, AUDIO_SDK, "A track stage's audio snapshots (trackStage audio)")
+    if 'deviceIdentity' in definition['resources']:
+        require_sdk(version, DEVICE_IDENTITY_SDK, 'The device identity (deviceIdentity)')
     if any(p['display'] == 'division' for p in definition['parameters']):
         require_sdk(version, (1, 2), 'A division control')
     if kind == 'sample' and definition['resources']['voiceCapacity'] < STOCK_VOICES:
@@ -634,6 +665,10 @@ def machine_at(root, identity=None):
         require_sdk(version, (1, 7), 'More than %d display text slots' % SDK_1_6_TEXTS)
     if 'display' in definition['resources'] and extended_display(definition['resources']['display']):
         require_sdk(version, EXTENDED_SDK, 'Extended drawing (docs/display.md#extended-drawing)')
+        if kind in ('drum', 'player'):
+            require_sdk(version, EXTENDED_SCREENS_SDK, "Extended drawing on a drum kit's screen or a note player's page")
+    if any(k in definition['resources'].get('display', {}) for k in AUDIO_SDK_KEYS):
+        require_sdk(version, AUDIO_SDK, "Glyph atlases, a screen's own audio and output levels (docs/display.md)")
     if definition['resources'].get('display', {}).get('nodes', 0) > SDK_1_7_NODES:
         require_sdk(version, (1, 8), 'More than %d display nodes' % SDK_1_7_NODES)
     require(definition['id'] == identity, 'Machine directory and definition identity disagree')
@@ -661,11 +696,17 @@ def machine_at(root, identity=None):
         require(kind == 'effect' and 'dryParameter' not in value and type(level) in (int, float) and 0 <= level <= 1,
                 'dryLevel is a number from 0 to 1 on an effect without dryParameter')
         dry_level = round(level * 0x7fffffff)
-    # A synth or drum kit draws its own screen, and so may an effect (SDK 1.7) or a sample
-    # engine (SDK 1.8); other sample engines and effects use a stock page.
-    display = 'player' if kind == 'player' else 'drawing' if kind in ('synth', 'drum') or 'display' in definition['resources'] else 'stock'
+    # A synth or drum kit draws its own screen, and so may an effect (SDK 1.7), a sample
+    # engine (SDK 1.8) or a note player (SDK 1.26); other sample engines and effects use
+    # a stock page, and other players the SDK's dot page.
+    drawn = kind in ('synth', 'drum') or 'display' in definition['resources']
+    display = 'drawing' if drawn else 'player' if kind == 'player' else 'stock'
     if kind == 'effect' and display == 'drawing':
         require_sdk(version, (1, 7), "An effect's own page (resources.display)")
+    if kind == 'player' and display == 'drawing':
+        require_sdk(version, PLAYER_DRAWING_SDK, "A note player's own drawn page (resources.display)")
+        require((root / 'display.cpp').is_file() and (root / 'display.h').is_file(),
+                'A player that draws its own page supplies display.h and display.cpp')
     if reads_sample_overview(root):
         require_sdk(version, (1, 8), 'A sample overview (opxy/sample_overview.hpp)')
         require(kind == 'sample' and display == 'drawing', "Only a sample engine's own screen reads a sample overview")
@@ -677,11 +718,16 @@ def machine_at(root, identity=None):
         require(kind == 'synth', "Only a synth's own screen reads opxy/control_interaction.hpp")
     if reads_sample_overview(root, 'sample_kernel'):
         require_sdk(version, (1, 17), 'The sample kernel (opxy/sample_kernel.hpp)')
+    # Only a firmware with a machine declaring it links the identity's device code.
+    if reads_sample_overview(root, 'device_identity') or reads_device_identity(root):
+        require(definition['resources'].get('deviceIdentity', 0) == 1,
+                'A machine that includes opxy/device_identity.hpp declares "deviceIdentity": 1 in its resources')
     native = read_native(root, identity)
     # The native plan compiles extra translation units only into synths.
     if kind not in ('synth', 'drum'):
         require(not sources and not includes,
-                'Sample engines, effects and players compile one sample.cpp, fx.cpp or player.cpp (and an effect its display.cpp)')
+                'Sample engines, effects and players compile one sample.cpp, fx.cpp or player.cpp '
+                '(and an effect or a drawing player its display.cpp)')
     # Pad settings live in the stock drum page's pad records, whose fade the SDK then owns.
     if kind == 'sample' and definition['resources'].get('padSettings', 0):
         require(requested['page'] == SAMPLE_BASES['drumSampler'],
@@ -963,16 +1009,10 @@ def collection(entries=None, layout=None):
     pages = [m.identity['page'] for m in machines if m.display != 'stock']
     require(len(set(engines)) == len(engines) and len(set(effects)) == len(effects) and len(set(pages)) == len(pages),
             'Conflicting engine, effect or page ID')
-    check_analysis_budgets(machines)
-    return machines
-
-
-def check_analysis_budgets(machines):
-    """Every machine's analysis budget comes from one stock-heap allowance; heap voice arenas have their own."""
-    total = sum(m.definition['resources'].get('sampleAnalysis', 0) for m in machines if m.kind == 'sample')
-    require(total <= ANALYSIS_HEAP_LIMIT,
-            'Sample analysis budgets exceed the collection limit of %d bytes' % ANALYSIS_HEAP_LIMIT)
+    # Heap voices are reserved at boot, so their budget is checked here. Sample analyses
+    # come and go: the device shares one allowance among them (sample_cache.cpp).
     voice_heap.check_budget(machines)
+    return machines
 
 
 def by_kind(machines, *kinds):

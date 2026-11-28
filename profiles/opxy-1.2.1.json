@@ -143,6 +143,10 @@
     "master_filter": [
       "master_filter"
     ],
+    "master_bus": [
+      "master_filter",
+      "sampleStudio"
+    ],
     "drums": [
       "drum",
       "drumline_page",
@@ -176,13 +180,19 @@
       "padMix",
       "drumline_page"
     ],
+    "mixer": [
+      "padMix",
+      "drumline_page",
+      "sampleStudio"
+    ],
     "track_stage": [
       "trackStage"
     ],
     "track_call": [
       "padMix",
       "drumline_page",
-      "trackStage"
+      "trackStage",
+      "sampleStudio"
     ],
     "drum_locks": [
       "padMix",
@@ -215,6 +225,20 @@
     ],
     "pitch_constants": [
       "pitch_constants"
+    ],
+    "sample_studio": [
+      "sampleStudio"
+    ],
+    "device_identity": [
+      "deviceIdentity"
+    ],
+    "parameter_receive": [
+      "master_filter",
+      "deviceIdentity",
+      "sampleStudio"
+    ],
+    "telemetry": [
+      "audioTransport"
     ]
   },
   "patches": [
@@ -1089,6 +1113,28 @@
     },
     {
       "kind": "hook",
+      "name": "Audio transport: the audio processor's background service, after stock's",
+      "address": "0x8c0ba4f4",
+      "file_offset": "0xf1730",
+      "length": 8,
+      "before": "00de4d8d106a0000",
+      "symbol": "sdk_telemetry_tick",
+      "service": "telemetry",
+      "call": true
+    },
+    {
+      "kind": "hook",
+      "name": "Audio transport: SDK packets between the processors, before stock's receive",
+      "address": "0x8d5b1af4",
+      "file_offset": "0x1e8d4c",
+      "length": 4,
+      "before": "f9e3d525",
+      "symbol": "sdk_telemetry_receive_hook",
+      "service": "telemetry",
+      "call": true
+    },
+    {
+      "kind": "hook",
       "address": "0x8c08fade",
       "file_offset": "0xc6d1a",
       "length": 8,
@@ -1829,6 +1875,17 @@
     },
     {
       "kind": "hook",
+      "name": "Device identity: the GUI's main loop, after stock's call there",
+      "address": "0x8c0b73a8",
+      "file_offset": "0xee5e4",
+      "length": 8,
+      "before": "00de578df8c00000",
+      "symbol": "sdk_identity_gui_tick",
+      "call": true,
+      "service": "device_identity"
+    },
+    {
+      "kind": "hook",
       "address": "0x8d5ad5ae",
       "file_offset": "0x1e4806",
       "length": 4,
@@ -2465,14 +2522,18 @@
     },
     {
       "kind": "hook",
-      "name": "Master EQ parameter receiver: atomic processor snapshot",
+      "name": "Global parameter receiver: the device identity's numbers, then the master processor's snapshot",
       "address": "0x8d5b145e",
       "file_offset": "0x1e86b6",
       "length": 4,
       "before": "fae397eb",
       "symbol": "sdk_master_receive",
       "call": true,
-      "service": "master_filter"
+      "service": "parameter_receive",
+      "symbols": {
+        "device_identity": "sdk_identity_receive",
+        "master_bus": "sdk_master_receive"
+      }
     },
     {
       "kind": "hook",
@@ -2494,7 +2555,7 @@
       "before": "00dea011102c0000",
       "symbol": "sdk_master_process",
       "call": true,
-      "service": "master_filter"
+      "service": "master_bus"
     },
     {
       "kind": "hook",
@@ -2530,7 +2591,7 @@
       "service": "track_call",
       "symbols": {
         "track_stage": "sdk_track_call",
-        "drum_sends": "sdk_drum_send_track"
+        "mixer": "sdk_drum_send_track"
       }
     },
     {
@@ -2542,7 +2603,7 @@
       "before": "0adab01148150000",
       "symbol": "sdk_drum_send_voice_hook",
       "call": true,
-      "service": "drum_sends"
+      "service": "mixer"
     },
     {
       "kind": "hook",
@@ -2553,7 +2614,7 @@
       "before": "0ada901100360000",
       "symbol": "sdk_drum_send_gain_hook",
       "call": true,
-      "service": "drum_sends"
+      "service": "mixer"
     },
     {
       "kind": "hook",
@@ -2586,7 +2647,7 @@
       "before": "30e51200",
       "symbol": "sdk_drum_send_own",
       "call": true,
-      "service": "drum_sends"
+      "service": "mixer"
     },
     {
       "kind": "hook",
@@ -2751,6 +2812,61 @@
       "after": "00da64000000000000000000",
       "service": "pitch_constants",
       "build": true
+    },
+    {
+      "kind": "hook",
+      "name": "Sample Studio: the sample library controller's press: the studio's label key and, while it is open, its keys",
+      "address": "0x8c0a330a",
+      "file_offset": "0xda546",
+      "length": 8,
+      "before": "083200e80000f505",
+      "symbol": "sdk_sample_studio_press",
+      "call": false,
+      "service": "sample_studio"
+    },
+    {
+      "kind": "hook",
+      "name": "Sample Studio: the sample library controller's Shift press: Shift + M1 opens the studio; undo, compare, save",
+      "address": "0x8c0a2be4",
+      "file_offset": "0xd9e20",
+      "length": 8,
+      "before": "00e80000f405a66f",
+      "symbol": "sdk_sample_studio_shift_press",
+      "call": false,
+      "service": "sample_studio"
+    },
+    {
+      "kind": "hook",
+      "name": "Sample Studio: the sample library controller's release: compare ends",
+      "address": "0x8c0a2d68",
+      "file_offset": "0xd9fa4",
+      "length": 8,
+      "before": "00e80700b8617005",
+      "symbol": "sdk_sample_studio_release",
+      "call": false,
+      "service": "sample_studio"
+    },
+    {
+      "kind": "hook",
+      "name": "Sample Studio: the sample library controller's encoder turns go to the studio while it is open",
+      "address": "0x8c0a24d0",
+      "file_offset": "0xd970c",
+      "length": 8,
+      "before": "00e8000060058064",
+      "symbol": "sdk_sample_studio_turn",
+      "call": false,
+      "service": "sample_studio"
+    },
+    {
+      "kind": "hook",
+      "name": "Sample Studio: the browser screen's frame paints the studio, or the label over the library",
+      "address": "0x8d55341c",
+      "file_offset": "0x18a678",
+      "length": 8,
+      "before": "00e80e00e305666f",
+      "symbol": "sdk_sample_studio_frame",
+      "call": false,
+      "service": "sample_studio"
     }
   ],
   "compiler": "bfin-elf-gcc 8.0.0 (deanm1278/blackfin-plus-gnu e4408a1) + toolchain/gcc patches",

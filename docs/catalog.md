@@ -116,7 +116,9 @@ the SDK builds: synths, drum kits, sample engines, effects, note players and
 machines that take over an aux track. Each must use only what the site's own
 SDK objects were built with: the profile services its kind and features switch
 on (drum kits the samples, drums and octaves services, players the players and
-octaves services, an aux machine the control and aux services), the SDK defines
+octaves services, an aux machine the control and aux services, a synth or effect
+showing its own audio the audio transport, a machine reading the device identity
+that service), the SDK defines
 a 1.25 player, a kit with the drum-kit controls or a `modelEdit` kit adds, and
 header-tied units such as
 `opxy/control_interaction.hpp`. A pack player must also have been compiled as
