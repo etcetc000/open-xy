@@ -32,7 +32,7 @@ inline const i32* words(u32 track) {
 // and its record holds it for the stage table (machine_tables.cpp).
 struct Stage {
     const char* engine;   // the synth's engine number, as a link-time address
-    int (*ready)();       // 1 once the synth is registered (0: not in this build's selection)
+    int (*ready)();       // 1 once the synth is registered (0: not yet, or no longer ours)
     void (*reset)(u32 track);                          // zero the track's state, then track_reset
     void (*process)(u32 track, i32* sum, const i32* words, u32 voices);  // track_process
     u32 hold;             // quiet blocks before it sleeps: its tail in blocks plus 64, or kUnbounded

@@ -409,7 +409,8 @@ kind (synths, drum kits, sample engines, effects, players), then ID, and reserve
 the space the shared tables take. Startup, on each role, first builds the tables
 by copying every record's rows
 ([`machine_tables.cpp`](../sdk/platform/opxy-1.2.1/machine_tables.cpp)), then
-registers effects, then engines, then players' pages, each kind in record order.
+registers effects, then engines, then (on the GUI role) players' pages, each kind
+in record order.
 The second role's build writes the same bytes at the same addresses, so a reader
 on the first never sees a row change; each table's address is published before
 its count. The checks are
