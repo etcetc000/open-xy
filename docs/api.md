@@ -1986,7 +1986,8 @@ from three fixed machines' numbers. Four core machines, which the
 first Open-XY firmware shipped, have fixed numbers held in every firmware
 whether it includes them or not
 (`FIXED_NUMBERS` in [`tooling/machines.py`](../tooling/machines.py)); three of
-them are the only engines on effect numbers (26, 34 and 35).
+them are the only engines on effect numbers (26, 34 and 35), apart from an
+engine an existing layout holds on 23..28, below the engine pool, which keeps it.
 Every other machine is numbered by the firmware's **layout**: its record of
 every number it has given out, including to machines since dropped, which stay
 held so an old project never opens another machine. The builder and
