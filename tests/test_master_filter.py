@@ -209,7 +209,7 @@ class MasterFilter(unittest.TestCase):
         profile=config()
         self.assertEqual(sha(data),profile['stock_sha256'])
         for patch in profile['patches']:
-            if patch.get('service')!='master_filter':continue
+            if patch.get('service')!='master_filter' and 'master_filter' not in patch.get('symbols',{}):continue
             start=int(patch['address'],16)
             offset=mapped_offset(ldr(data),start,patch['length'])
             self.assertEqual(data[offset:offset+patch['length']],bytes.fromhex(patch['before']))

@@ -198,7 +198,7 @@ class KitVariants(unittest.TestCase):
         self.assertEqual(native.machine_build(profile, pack[-1]), dict(defines=[], headers=['control_interaction']))
         carried = native.carried_variants(profile, site)
         self.assertEqual(carried, dict(services=['amp_envelope', 'kit_controls', 'played_pad', 'track_instrument'],
-                                       defines=list(native.DEFINE_ORDER), headers=['control_interaction']))
+                                       defines=[d for d in native.DEFINE_ORDER if d in native.VARIANT_DEFINES], headers=['control_interaction']))
         site_build = native.shared_build(profile, site)
         checked = 0
         for count in range(len(pack) + 1):

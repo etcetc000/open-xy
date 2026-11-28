@@ -168,7 +168,7 @@ class BrowserKitExport(unittest.TestCase):
         kit = json.loads((site_dir / 'kit.json').read_text(encoding='utf-8'))
         self.assertEqual(kit['variants']['build'], dict(services=['amp_envelope', 'kit_controls', 'played_pad',
                                                                   'track_instrument'],
-                                                        defines=list(native.DEFINE_ORDER), headers=['control_interaction']))
+                                                        defines=[d for d in native.DEFINE_ORDER if d in native.VARIANT_DEFINES], headers=['control_interaction']))
         built = {o['name'] for o in kit['variants']['objects']}
         self.assertTrue({'sdk/synth_controls.o', 'sdk/drum_kit_controls.o', 'sdk/drum_amp_envelope.o',
                          'sdk/drum_trigger.o', 'sdk/track_instrument.o', 'sdk/track_instrument_hooks.o'} <= built, built)
@@ -193,6 +193,23 @@ class BrowserKitExport(unittest.TestCase):
         outcome = json.loads(result.stdout)
         self.assertEqual(outcome['compared'], 2 ** 7 - 1)
         self.assertEqual(outcome['build'], {key: whole['build'][key] for key in ('services', 'defines', 'headers')})
+
+    def test_audio_snapshot_machines_export_and_link_in_any_selection(self):
+        # A synth and an effect showing their own audio, beside a machine without: the export's
+        # GNU ld parity check links the whole selection and each machine alone, so each owner is also linked left out.
+        kit_dir = self.export(FIXTURES / 'probescope', FIXTURES / 'probemeter', FIXTURES / 'probesynth')
+        kit = json.loads((kit_dir / 'kit.json').read_text(encoding='utf-8'))
+        machines = {m['id']: m for m in kit['machines']}
+        for owner in ('probescope', 'probemeter'):
+            self.assertIn('audioTransport', machines[owner]['features'])
+            self.assertEqual(machines[owner]['absent'][owner + '_audio_bank'], 'kit_absent')
+        self.assertNotIn('probesynth_audio_bank', machines['probesynth']['absent'])
+        # The transport's objects link only with its service; its hooks continue to stock.
+        services = {o['name']: o.get('service') for o in kit['objects']}
+        self.assertEqual({name for name, service in services.items() if service == 'telemetry'},
+                         {'sdk/telemetry_protocol.o', 'sdk/telemetry_native.o', 'sdk/telemetry_hooks.o',
+                          'sdk/telemetry_registry.o'})
+        self.assertTrue({'stock_telemetry_tick', 'stock_telemetry_receive'} <= set(kit['definitions']))
 
 
 if __name__ == '__main__':

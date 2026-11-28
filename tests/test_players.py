@@ -528,7 +528,7 @@ TRACK_ENGINE = 'inline u32 track_engine(u32 track) { return stock<u32(u32)>(0x8d
 
 
 class PlayerInstrument(unittest.TestCase):
-    """Controls.instrument (resources.trackInstrument, SDK 1.25): the kind of instrument a player's
+    """Controls.instrument (resources.trackInstrument, SDK 1.31): the kind of instrument a player's
     track holds, for a player declaring it. Its own units compile with the define and its build links
     the track_instrument service; every other unit, and every build without such a player, stays as
     it was."""
@@ -538,7 +538,7 @@ class PlayerInstrument(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
 
-    def player(self, sdk='1.25', declared=1, name='probepads', source=None):
+    def player(self, sdk='1.31', declared=1, name='probepads', source=None):
         """The probepads fixture, declaring SDK `sdk` and trackInstrument `declared` (None: no
         such key), its player.cpp replaced by `source` when given."""
         from machine_fixtures import FOLDER
@@ -565,15 +565,15 @@ class PlayerInstrument(unittest.TestCase):
 
     def test_only_a_player_declaring_it_reads_the_instrument(self):
         from tooling.adapters import player_instrument
-        from tooling.definitions import SDK_1_25
+        from tooling.definitions import TRACK_INSTRUMENT_SDK
         from tooling.machines import SDK_VERSION
         from machine_fixtures import fixture
-        self.assertEqual(SDK_1_25, (1, 25))
-        self.assertGreaterEqual(SDK_VERSION, SDK_1_25)
+        self.assertEqual(TRACK_INSTRUMENT_SDK, (1, 31))
+        self.assertGreaterEqual(SDK_VERSION, TRACK_INSTRUMENT_SDK)
         pads = fixture('probepads')
         self.assertEqual(pads.definition['resources'], {'trackInstrument': 1})
         self.assertTrue(player_instrument(pads))
-        # A 1.25 player that does not declare it, one declaring 0, and every other kind do not.
+        # A player that does not declare it, one declaring 0, and every other kind do not.
         from off_path_code import player_folder
         player_folder(self.root / 'probeplayer')
         plain = machine_at(self.root / 'probeplayer')
@@ -612,13 +612,15 @@ class PlayerInstrument(unittest.TestCase):
     def test_the_declaration_is_refused_where_it_does_not_apply(self):
         from tooling.definitions import validate_definition
         from machine_fixtures import fixture
-        # 0 or 1, a player's alone, from SDK 1.25.
+        # 0 or 1, a player's alone, from SDK 1.31: the key itself, even as 0.
         for value in (2, -1, True, '1'):
             with self.assertRaisesRegex(Exception, 'trackInstrument must be 0 or 1|Numeric resource'):
                 self.player(declared=value, name='padsbad')
             shutil.rmtree(self.root / 'padsbad')
         with self.assertRaisesRegex(Exception, r"track instrument \(trackInstrument\)"):
-            self.player(sdk='1.24', name='padsold')
+            self.player(sdk='1.30', name='padsold')
+        with self.assertRaisesRegex(Exception, r"track instrument \(trackInstrument\)"):
+            self.player(sdk='1.30', declared=0, name='padszeroold', source=self.unread())
         for m in (fixture('probesynth'), fixture('probekit25')):
             definition = json.loads(json.dumps(m.definition))
             definition['resources']['trackInstrument'] = 1

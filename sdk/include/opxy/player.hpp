@@ -105,7 +105,7 @@ struct Update {
 // the GUI once per frame and a callback reads the latest, so after the
 // track's instrument changes, press, update and display see the new kind
 // within a frame. The member exists only for a player declaring
-// resources.trackInstrument (SDK 1.25 or later): the SDK compiles that
+// resources.trackInstrument (SDK 1.31 or later): the SDK compiles that
 // player's own units with OPXY_PLAYER_INSTRUMENT and links the track
 // instrument's unit. Every other player keeps the 112-byte Controls, and its
 // code, as it was, whichever players share its build.
@@ -138,6 +138,13 @@ inline u32 choice(i32 value, u32 choices) {
 // text replaces the artwork's <name>_text line; values are the encoder
 // values under the definition's labels, of which the header shows the current
 // page's four. Strings are terminated.
+// A player may instead draw its own page (SDK 1.26, resources.display): in
+// display.cpp, compiled after player.cpp in the player's one unit,
+//   void display_reset(DisplayState& display);
+//   void display(DisplayState& display, const State& state, const Controls& controls,
+//                const draw::Input& input, Frame& frame);
+// as a synth's display draws a draw::Frame (opxy/draw.hpp), on the GUI side
+// once per frame; State is the same advisory read as above. docs/api.md.
 const u32 display_dots = 24;
 struct Display {
     u32 lit;

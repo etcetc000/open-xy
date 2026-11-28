@@ -36,6 +36,7 @@ static const Run unfamiliar_runs[] = {{"unfamiliar", unfamiliar_engine_id, unfam
 static const MachineRecord unfamiliar_record = {
     opxy::platform::machine_kind::kSynth, nullptr, nullptr, unfamiliar_ready, nullptr, nullptr, unfamiliar_engine_id,
     nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+    nullptr,
     unfamiliar_runs, 1};
 const MachineRecord* const sdk_machine_records[] = {&unfamiliar_record};
 const u32 sdk_machine_record_count = 1;

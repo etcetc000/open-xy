@@ -14,8 +14,9 @@ import math
 from pathlib import Path
 from typing import NamedTuple
 
+from . import audio_telemetry
 from .benchmark import append_callback
-from .definitions import (KIT_CONTROLS_SDK, SDK_1_25, extended_display, ROOT, STOCK_VOICES, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
+from .definitions import (KIT_CONTROLS_SDK, TRACK_INSTRUMENT_SDK, extended_display, ROOT, STOCK_VOICES, SYNTH_POSITIONS, SYNTH_SHIFT_ENTRIES, control_positions, hidden_pages, paged,
                           shift_choices, shift_field, shift_parameters, stock_shift_codes, synth_shift,
                           validate_definition)
 
@@ -167,6 +168,7 @@ def generate_voice(directory, m, sweep=False, idle=False):
     values['FADE_OUTPUT'] = ('            for (opxy::i32 i = 0; i < frames; ++i) output[i] = opxy::q31::multiply(output[i], step * (frames - 1 - i));' if values['CHANNELS'] == 1 else
         '            for (opxy::i32 i = 0; i < frames; ++i) for (opxy::i32 channel = 0; channel < 2; ++channel)\n'
         '                output[2 * i + channel] = opxy::q31::multiply(output[2 * i + channel], step * (frames - 1 - i));')
+    values.update(audio_voice_values(m))
     if m.kind == 'drum':
         values['MODEL_COUNT'] = m.definition['resources']['modelCount']
         values['CHOKE'] = 'true' if m.definition['resources'].get('chokeSameKey', 0) else 'false'
@@ -274,6 +276,53 @@ template <> struct IdleLinks<true> {
 }
 
 
+def audio_voice_values(m):
+    """A synth's audio snapshots in its voice adapter: nothing unless it declares audioWords."""
+    count = audio_telemetry.words(m.definition) if m.kind == 'synth' else 0
+    values = dict(AUDIO_INCLUDE='', AUDIO_STORAGE='', AUDIO_CONTEXT='', AUDIO_ARGUMENT='', AUDIO_END='')
+    if not count:
+        return values
+    values['AUDIO_ARGUMENT'] = ', audio_context'
+    shape = audio_telemetry.shape(m.definition)
+    values.update(AUDIO_INCLUDE='#include "audio_transport_native.hpp"\n',
+                  AUDIO_STORAGE=f'''static opxy::platform::telemetry::NativeBank<{shape}> sdk_audio;
+extern "C" opxy::platform::telemetry::wire::Bank* {m.prefix}_audio_bank(opxy::u32) __asm__("{m.prefix}_audio_bank");
+extern "C" opxy::platform::telemetry::wire::Bank* {m.prefix}_audio_bank(opxy::u32 track) {{ return sdk_audio.resolve(track); }}
+''',
+                  AUDIO_CONTEXT='''        const opxy::u32 audio_track = opxy::platform::synth_audio_track(parameters);
+        auto* audio_bank = sdk_audio.resolve(audio_track);
+        const opxy::AudioContext audio_context =
+            sdk_audio.context(audio_track, audio_bank, opxy::platform::synth_prepared_amplitude(parameters));
+        sdk_audio.begin(audio_bank);
+''', AUDIO_END='        sdk_audio.end(audio_bank);\n')
+    return values
+
+
+def audio_preview_values(definition, kind):
+    """A synth's audio snapshots in its browser preview: nothing unless it declares audioWords."""
+    count = audio_telemetry.words(definition) if kind == 'synth' else 0
+    values = dict(AUDIO_STORAGE='', AUDIO_CONTEXT='', AUDIO_ARGUMENT='', AUDIO_EXPORTS='')
+    if not count:
+        return values
+    exports = f'''opxy::u32 opxy_audio_words() {{ return {count}; }}
+void opxy_audio_track(opxy::u32 track) {{ audio_track = track < 8 ? track : 8; }}
+'''
+    d = audio_telemetry.display(definition)
+    reset, capacity = bool(d.get('audioReset')), audio_telemetry.capacity(definition)
+    bank = f"opxy::HostTelemetryBank<{count}, {d['audioMode']}, {str(reset).lower()}, {d.get('audioAccumulators', 1)}>"
+    exports += f'''opxy::u32 opxy_take_audio(opxy::u32 track, opxy::u32* out) {{ return sdk_audio.take(track, out, {capacity}); }}
+opxy::u32 opxy_audio_capacity() {{ return {capacity}; }}
+opxy::u32 opxy_audio_sequence(opxy::u32 track) {{ return sdk_audio.sequence(track); }}
+opxy::u32 opxy_audio_requested(opxy::u32 track) {{ return sdk_audio.requested_command(track); }}
+opxy::u32 opxy_audio_applied(opxy::u32 track) {{ return sdk_audio.applied_command(track); }}
+opxy::u32 opxy_audio_reset_supported() {{ return {int(reset)}; }}
+opxy::u32 opxy_audio_reset(opxy::u32 track, opxy::u32 target) {{ return sdk_audio.request_reset(track, target); }}
+'''
+    return dict(AUDIO_STORAGE=f'#include <opxy/audio_transport.hpp>\nstatic {bank} sdk_audio;\nstatic opxy::u32 audio_track;\n',
+                AUDIO_CONTEXT='const opxy::AudioContext audio_context = sdk_audio.context(audio_track);\n    ',
+                AUDIO_ARGUMENT=', audio_context', AUDIO_EXPORTS=exports)
+
+
 # A synth's Shift row in its voice adapter (SDK 1.13): each entry's default field, its
 # highest one and, for an enum, its bucket, so render's words cost no division.
 SHIFT_ROW = '''#include "synth_shift.hpp"
@@ -353,9 +402,9 @@ def kit_amp_defaults(m):
 
 def player_instrument(m):
     """Whether a note player reads Controls.instrument: one declaring resources.trackInstrument
-    (SDK 1.25). Its own units compile with OPXY_PLAYER_INSTRUMENT and its build links the
+    (SDK 1.31). Its own units compile with OPXY_PLAYER_INSTRUMENT and its build links the
     track_instrument service (native.py); no other unit of its build changes."""
-    return (getattr(m, 'kind', 'synth') == 'player' and getattr(m, 'sdk', (1, 0)) >= SDK_1_25 and
+    return (getattr(m, 'kind', 'synth') == 'player' and getattr(m, 'sdk', (1, 0)) >= TRACK_INSTRUMENT_SDK and
             bool(m.definition['resources'].get('trackInstrument', 0)))
 
 
@@ -481,6 +530,81 @@ opxy::u32 opxy_drum_count(opxy::u32 model) { return @NAMESPACE@::parameter_count
 '''
 
 
+def generate_player_preview(directory, m):
+    """A drawing note player's browser preview (SDK 1.26): its display and player.cpp in one
+    module, as its device unit compiles them, exporting the drawing transport display.mjs
+    reads and a key's press and release and a player step, which run its callbacks."""
+    namespace, display = m.definition['id'], m.definition['resources']['display']
+    row = player_shift_row(m)
+    shift_defaults = ('    static const opxy::i32 shift_defaults[8] = {%s};\n'
+                      '    for (opxy::u32 i = 0; i < 8; ++i) controls.shift_value[i] = shift_defaults[i];\n'
+                      % ', '.join(map(str, row[1]))) if row else ''
+    extension = (f'opxy::u32 opxy_display_extension() {{ return {display_extension(m.definition)}; }}\n'
+                 if extended_display(display) else '')
+    source = f'''// Generated by the SDK: {m.native_name}'s own page in the browser, drawn as on the device.
+#include "player.cpp"
+#include "display.cpp"
+namespace {{
+typedef {player_frame(display)} Frame;
+typedef opxy::draw::{display_input_type(m.definition)} Input;
+{namespace}::State state;
+{namespace}::DisplayState display_state;
+Input input;
+Frame frame;
+opxy::player::Controls controls;
+template <class S> auto next_update(S& s, const opxy::player::Controls& c, opxy::player::Update& u, int)
+    -> decltype(update(s, c, u)) {{ return update(s, c, u); }}
+template <class S> bool next_update(S&, const opxy::player::Controls&, opxy::player::Update&, long) {{ return false; }}
+// The callbacks see the eight controls the page shows, at 120 BPM with the keyboard from F3 (lowest_key 53),
+// and a shift row at its defaults, as the device starts it (not turned in the preview).
+void take_controls() {{
+    for (opxy::u32 i = 0; i < 8; ++i) controls.value[i] = input.slots[i];
+{shift_defaults}
+    controls.lowest_key = 53;
+    controls.bpm_x10 = 1200;
+}}
+// At most eight updates drain per event or step, as on the sequencer role.
+void drain() {{
+    opxy::player::Update change;
+    for (opxy::u32 k = 0; k < 8 && next_update(state, controls, change, 0); ++k) {{}}
+}}
+}}
+extern "C" {{
+opxy::u32 opxy_display_abi() {{ return 7; }}
+{extension}opxy::u32 opxy_display_state_bytes() {{ return sizeof(display_state); }}
+opxy::u32 opxy_display_input_bytes() {{ return sizeof(input); }}
+opxy::u32 opxy_display_frame_bytes() {{ return sizeof(frame); }}
+{namespace}::DisplayState* opxy_display_state() {{ return &display_state; }}
+Input* opxy_display_input() {{ return &input; }}
+Frame* opxy_display_frame() {{ return &frame; }}
+void opxy_display_reset() {{
+    {namespace}::display_reset(display_state);
+    for (opxy::u32 i = 0; i < Frame::path_count; ++i) frame.paths[i].key = 0;
+}}
+void opxy_display_render() {{
+    take_controls();
+    {namespace}::display(display_state, static_cast<const {namespace}::State&>(state),
+                         static_cast<const opxy::player::Controls&>(controls), static_cast<const Input&>(input), frame);
+}}
+opxy::u32 opxy_display_valid() {{ return opxy::draw::valid(frame); }}
+void opxy_player_press(opxy::u32 note, opxy::u32 velocity) {{
+    take_controls();
+    opxy::player::Plan plan;
+    plan.count = 0;
+    if ({namespace}::press(state, controls, note, velocity, plan)) drain();
+}}
+void opxy_player_release(opxy::u32 note) {{
+    {namespace}::release(state, note);
+    drain();
+}}
+void opxy_player_step() {{ drain(); }}
+}}
+'''
+    destination = Path(directory) / 'player_preview.cpp'
+    destination.write_text(source, encoding='utf-8', newline='\n')
+    return destination
+
+
 def generate_voice_preview(directory, definition, *, kind='synth'):
     """Browser preview voices for a synth or drum definition (curated or local)."""
     require(kind in ('synth', 'drum'), 'Browser previews audition synths and drums')
@@ -491,6 +615,7 @@ def generate_voice_preview(directory, definition, *, kind='synth'):
     values['DRUM_SELECT'] = (f"{values['NAMESPACE']}::drum_select(*voice, shared, owner(voice), drum_model < {count} ? drum_model : 0);\n    "
                              if kind == 'drum' else '')
     values['DRUM_KEYS'] = DRUM_KEYS.replace('@NAMESPACE@', values['NAMESPACE']) if kind == 'drum' else ''
+    values.update(audio_preview_values(definition, kind))
     return expand('voice_preview.cpp.in', values, Path(directory) / 'voice_preview.cpp', ROOT / 'sdk/host')
 
 
@@ -510,7 +635,8 @@ def drawing_layout(display):
 
 
 def extended_layout(display):
-    """An extended frame's byte layout (draw.hpp ExtendedFrame): its path and node types."""
+    """An extended frame's byte layout (draw.hpp ExtendedFrame, GlyphFrame): its path and node
+    types, then the glyph selectors after the header."""
     paths, points, nodes, texts, palette = (display[k] for k in ('paths', 'points', 'nodes', 'texts', 'palette'))
     commands = display.get('commands', 0)
     if display.get('quadratic'):
@@ -524,7 +650,8 @@ def extended_layout(display):
     header_at = texts_at + 36 * max(texts, 1)
     return dict(PATHS=paths, POINTS=points, COMMANDS=commands, NODES=nodes, TEXTS=texts, PALETTE=palette,
                 PATH_BYTES=path_bytes, POINTS_AT=points_at, NODE_BYTES=node_bytes, FRAME_NODES_AT=nodes_at,
-                FRAME_TEXTS_AT=texts_at, FRAME_HEADER_AT=header_at, FRAME_BYTES=header_at + 32)
+                FRAME_TEXTS_AT=texts_at, FRAME_HEADER_AT=header_at, FRAME_GLYPHS_AT=header_at + 32,
+                FRAME_BYTES=header_at + 32 + 4 * display.get('glyphs', 0))
 
 
 def extended_frame(display):
@@ -536,17 +663,31 @@ def extended_frame(display):
              f"{display.get('segmentPaths', 0)}u, {flag('quadratic')}, {flag('countedPaths')}>")
     if display.get('rgba'):
         frame = f'opxy::draw::RgbaFrame<{frame} >'
+    if display.get('glyphs'):
+        frame = f"opxy::draw::GlyphFrame<{frame}, {display['glyphs']}, {display['glyphDefinitions']}, {display['glyphStart']}>"
     return frame
+
+
+def player_frame(display):
+    """The C++ type of a note player's frame, as its display.h names it."""
+    if extended_display(display):
+        return extended_frame(display)
+    return 'opxy::draw::Frame<{PATHS}, {POINTS}, {NODES}, {TEXTS}, {PALETTE}>'.format(**drawing_layout(display))
 
 
 def display_extension(definition):
     """What an extended display's input appends to draw::Input, as the browser reads it
-    (display.mjs): 4 the encoders' activity. Bits 1 and 2 are left for later inputs."""
-    return 4 if definition['resources']['display'].get('encoderActivity') else 0
+    (display.mjs): 1 sixteen audio words, 2 the transport's 256 and its handshake, 4 the encoders,
+    8 stock's output and input levels."""
+    display = definition['resources']['display']
+    audio = (2 if audio_telemetry.wide(definition) else 1) if display.get('audioWords') else 0
+    return audio | (4 if display.get('encoderActivity') else 0) | (8 if display.get('outputLevels') else 0)
 
 
 def display_input_type(definition):
-    return 'EncoderInput' if definition['resources']['display'].get('encoderActivity') else 'Input'
+    name = audio_telemetry.input_type(definition)
+    name = 'Encoder' + name if definition['resources']['display'].get('encoderActivity') else name
+    return f'WithOutputLevels<draw::{name}>' if definition['resources']['display'].get('outputLevels') else name
 
 
 def screen_bytes(m):
@@ -558,9 +699,11 @@ def screen_bytes(m):
     texts, paths = max(display['texts'], 1), max(display['paths'], 1)
     words = display['nodes'] + 7 * texts + display['palette'] + 1 + 2 * paths
     if extended_display(display):
-        # extended_drawing.hpp: a palette word even without a palette, and each node's
-        # authored visibility byte (whole words).
+        # extended_drawing.hpp: a palette word even without a palette, each node's authored
+        # visibility byte (whole words), and the glyph atlas's definitions and buffers.
         words += (display['palette'] == 0) + (display['nodes'] + 3) // 4
+        glyphs = display.get('glyphs', 0)
+        return 76 + 4 * words + (1032 * display['glyphDefinitions'] + 28 * glyphs + 4 if glyphs else 0)
     return 76 + 4 * words
 
 
@@ -574,7 +717,8 @@ def generate_display(directory, *, machine=None, definition=None, kind="synth", 
     namespace, prefix = namespace or definition['id'], symbol_prefix or assignment['symbol_prefix']
     display = definition['resources']['display']
     if extended_display(display):
-        return generate_extended_display(Path(directory), definition, namespace, prefix)
+        effect = (machine.kind if machine is not None else kind) == 'effect'
+        return generate_extended_display(Path(directory), definition, namespace, prefix, effect)
     layout = drawing_layout(display)
     frame = 'opxy::draw::Frame<{PATHS}, {POINTS}, {NODES}, {TEXTS}, {PALETTE}>'.format(**layout)
     header = f'''// Generated by the SDK; no renderer addresses in author code.
@@ -640,15 +784,17 @@ extern "C" unsigned {prefix}_display_validate(const Frame* frame) {{
     (directory / 'display_binding.cpp').write_text(source, encoding='utf-8', newline='\n')
 
 
-def generate_extended_display(directory, definition, namespace, prefix):
+def generate_extended_display(directory, definition, namespace, prefix, effect=False):
     """An extended display's binding (docs/display.md#extended-drawing): its frame and input
-    types, and the encoder activity the renderer gives its input."""
+    types, and the audio and encoder snapshots the renderer gives its input."""
     display = definition['resources']['display']
     layout, frame, input_type = extended_layout(display), extended_frame(display), display_input_type(definition)
     header = f'''// Generated by the SDK; no renderer addresses in author code.
 #pragma once
 #include "display.h"
+#include <opxy/audio_transport.hpp>
 #include <opxy/encoder_activity.hpp>
+#include <opxy/output_levels.hpp>
 namespace opxy {{ namespace binding {{
 using DisplayState = {namespace}::DisplayState;
 using DisplayInput = draw::{input_type};
@@ -656,6 +802,7 @@ typedef {frame} Frame;
 const unsigned display_bytes = {display['stateBytes']};
 const unsigned display_alignment = {display['stateAlignment']};
 const bool full_canvas = {'true' if display.get('fullCanvas') else 'false'};
+const unsigned audio_words = {display.get('audioWords', 0)};
 const unsigned display_extension = {display_extension(definition)};
 }}}}
 extern "C" {{
@@ -670,7 +817,9 @@ static inline void display_render(DisplayState* state, const DisplayInput* input
 }}
 static inline bool display_valid(const Frame* frame) {{ return {prefix}_display_validate(frame) != 0; }}
 }}}}
-''' + encoder_binding(display)
+''' + audio_binding(definition, prefix, effect) + encoder_binding(display) + levels_binding(display)
+    glyphs = (f"              __builtin_offsetof(Frame, glyphs) == {layout['FRAME_GLYPHS_AT']} &&\n"
+              if display.get('glyphs') else '')
     member = 'commands' if display.get('quadratic') else 'points'
     source = f'''// Generated translation unit. One display implementation, bounded SDK frame.
 #include "display_binding.hpp"
@@ -688,7 +837,7 @@ static_assert(sizeof(Frame) == {layout['FRAME_BYTES']} &&
               __builtin_offsetof(Frame, nodes) == {layout['FRAME_NODES_AT']} &&
               __builtin_offsetof(Frame, texts) == {layout['FRAME_TEXTS_AT']} &&
               __builtin_offsetof(Frame, header) == {layout['FRAME_HEADER_AT']} &&
-              __builtin_offsetof(opxy::draw::Text, chars) == 12,
+{glyphs}              __builtin_offsetof(opxy::draw::Text, chars) == 12,
               "Drawing frame layout differs from the declared display");
 extern "C" void {prefix}_display_reset(opxy::binding::DisplayState* state, Frame* frame) {{
     {namespace}::display_reset(*state);
@@ -706,6 +855,43 @@ extern "C" unsigned {prefix}_display_validate(const Frame* frame) {{
     (directory / 'display_binding.cpp').write_text(source, encoding='utf-8', newline='\n')
 
 
+def audio_binding(definition, prefix, effect=False):
+    """How the renderer fills an extended display's audio snapshot: through the native transport
+    on the device, and from the browser host in previews. An effect's screen reads its send's
+    words under its effect key (audio_transport_native.hpp effect_key)."""
+    host = 'namespace opxy { namespace binding {\ninline void audio_screen_reset() {}\n' \
+           'inline void snapshot_audio(DisplayInput&) {}\ninline void finish_audio(DisplayInput&) {}\n}}\n'
+    if not audio_telemetry.words(definition):
+        return host
+    wide = audio_telemetry.wide(definition)
+    metadata = ('''    input.audio_sequence = snapshot.sequence;
+    input.audio_requested_command = snapshot.requested;
+    input.audio_applied_command = snapshot.applied;
+    input.audio_reset_request = 0;
+    input.audio_reset_supported = %d;
+''' % int(bool(audio_telemetry.display(definition).get('audioReset')))) if wide else ''
+    symbol = prefix + ('_fx_id' if effect else '_engine_id')
+    key = 'platform::telemetry::effect_key | ' if effect else ''
+    return f'''#if defined(__bfin__)
+#include "audio_transport_native.hpp"
+extern "C" const char {symbol}[] __asm__("{symbol}");
+namespace opxy {{ namespace binding {{
+inline u32 audio_engine() {{ return {key}reinterpret_cast<u32>({symbol}); }}
+inline void audio_screen_reset() {{ platform::telemetry::reset_screen(audio_engine()); }}
+inline void snapshot_audio(DisplayInput& input) {{
+    const platform::telemetry::Snapshot snapshot =
+        platform::telemetry::capture(audio_engine(), input.track, input.audio_words, {audio_telemetry.capacity(definition)});
+    input.audio_count = snapshot.count;
+{metadata}}}
+inline void finish_audio(DisplayInput& input) {{
+    platform::telemetry::frame_end(audio_engine(), input.track, {'input.audio_reset_request' if wide else '0'});
+}}
+}}}}
+#else
+{host}#endif
+'''
+
+
 def encoder_binding(display):
     if not display.get('encoderActivity'):
         return 'namespace opxy { namespace binding { inline void snapshot_encoders(DisplayInput&) {} }}\n'
@@ -716,6 +902,21 @@ inline void snapshot_encoders(DisplayInput& input) { input.encoders = platform::
 }}
 #else
 namespace opxy { namespace binding { inline void snapshot_encoders(DisplayInput&) {} }}
+#endif
+'''
+
+
+def levels_binding(display):
+    """Stock's output and input levels on an extended display's input (outputLevels)."""
+    if not display.get('outputLevels'):
+        return 'namespace opxy { namespace binding { inline void snapshot_levels(DisplayInput&) {} }}\n'
+    return '''#if defined(__bfin__)
+#include "output_levels.hpp"
+namespace opxy { namespace binding {
+inline void snapshot_levels(DisplayInput& input) { input.levels = platform::output_levels(); }
+}}
+#else
+namespace opxy { namespace binding { inline void snapshot_levels(DisplayInput&) {} }}
 #endif
 '''
 
@@ -818,18 +1019,33 @@ OPXY_SCREEN(opxy::screen::Drawing<Machine>, "{m.prefix}", "{m.native_name}.svg",
 
 
 def generate_extended_screen(directory, m, ids, table):
-    """An extended display's renderer (extended_drawing.hpp)."""
+    """An extended display's renderer (extended_drawing.hpp), with its glyph outlines' IDs: a
+    synth's, an effect's or, from SDK 1.28, a drum kit's, which keeps a kit's played-pad
+    snapshot, selected key and Shift cells."""
+    flag = lambda value: 'true' if value else 'false'
+    drum = getattr(m, 'kind', 'synth') == 'drum'
+    from .native import glyph_ids
+    glyphs = glyph_ids(m.prefix, m.definition['resources']['display'])
+    # Only a frame with glyphs names its outlines.
+    names = ', '.join(json.dumps(name) for name in glyphs)
+    declare = f'    static const char* const glyph_ids[{len(glyphs)}];\n' if glyphs else ''
+    define = f'const char* const Machine::glyph_ids[{len(glyphs)}] = {{{names}}};\n' if glyphs else ''
     source = f'''// Generated by the SDK: {m.native_name}'s declared display as renderer data.
 #include "display_binding.hpp"
 #include "extended_drawing.hpp"
 namespace {{
 struct Machine {{
     static const char* const ids[{len(ids)}];
-    static const bool percent_sends = {'true' if getattr(m, 'sdk', (1, 0)) >= (1, 15) else 'false'};
+{declare}    static const bool percent_sends = {'true' if getattr(m, 'sdk', (1, 0)) >= (1, 15) else 'false'};
+    // A drum kit's screen (SDK 1.28): its played-pad snapshot, selected key and Shift cells.
+    static const bool kit = {flag(drum)};
+    static const bool played_pad = {flag(drum and played_pad(m))};
+    static const bool selected_key = {flag(drum and selected_key(m))};
+    static const bool kit_controls = {flag(drum and kit_controls(m) & 3)};
 }};
 const char* const Machine::ids[{len(ids)}] = {{
 {table}}};
-}}
+{define}}}
 OPXY_SCREEN(opxy::screen::ExtendedDrawing<Machine>, "{m.prefix}", "{m.native_name}.svg", {RELOCATED['PAGE_LIMIT']}, {screen_bytes(m)})
 '''
     destination = directory / 'screen.cpp'
@@ -1222,6 +1438,7 @@ def generate_fx_object(directory, m, benchmark=False, idle=False):
     if bytes_ is not None or resources.get('transport') or shift:
         values['OBJECT'] = '#include "stock.hpp"\n' + ('#include "shift_row.hpp"\n' if shift else '') + values['OBJECT']
     values.update(effect_bus_values(m, idle))
+    values.update(effect_audio_values(m, shift))
     if resources.get('busShift') or idle:
         values['OBJECT'] = '#include "send_bus.hpp"\n' + values['OBJECT']
     path = expand('fx_object.cpp.in', dict(values, PREFIX=m.prefix, NAMESPACE=m.definition['id'],
@@ -1230,6 +1447,37 @@ def generate_fx_object(directory, m, benchmark=False, idle=False):
                                            else f'{m.dry_level:#x}' if m.dry_level is not None else '0x7fffffff'),
                   Path(directory) / f'fx_object_{m.prefix}.cpp')
     return append_callback(path, m) if benchmark else path
+
+
+def effect_audio_values(m, shift=()):
+    """An effect's audio snapshots (docs/display.md#audio-snapshots): a bank of its declared
+    words per send, cleared when stock places or resets it in a send, a final AudioContext for
+    process, and the bank the transport reads while the send holds this effect. Empty, leaving
+    the object's source as it was, for an effect without them."""
+    values = dict(AUDIO_STORAGE='', AUDIO_INIT='', AUDIO_BEGIN='', AUDIO_ARGUMENT='', AUDIO_END='', AUDIO_BANK='')
+    if not audio_telemetry.enabled(m.definition):
+        return values
+    p, sends = m.prefix, 'opxy::platform::telemetry::effect_sends'
+    values.update(
+        AUDIO_STORAGE=('#include "audio_transport_native.hpp"\n'
+                       f'static opxy::platform::telemetry::NativeBank<{audio_telemetry.shape(m.definition)}, {sends}> sdk_audio;\n'),
+        AUDIO_INIT='\n    sdk_audio.clear(slot - opxy::platform::telemetry::effect_first_send);',
+        AUDIO_BEGIN=('\n' if shift else '') +
+        '    const opxy::u32 audio_send = opxy::platform::telemetry::effect_send(self);\n'
+        '    opxy::platform::telemetry::wire::Bank* const audio_bank = sdk_audio.resolve(audio_send);\n'
+        '    const opxy::AudioContext audio_context =\n'
+        '        sdk_audio.context(opxy::platform::telemetry::effect_first_send + audio_send, audio_bank);\n'
+        '    sdk_audio.begin(audio_bank);',
+        AUDIO_ARGUMENT=', audio_context',
+        AUDIO_END='\n    sdk_audio.end(audio_bank);',
+        AUDIO_BANK=f'''// The transport's bank for a send (audio_telemetry.owner_row): only while the
+// send's slot holds this effect.
+extern "C" opxy::platform::telemetry::wire::Bank* {p}_audio_bank(opxy::u32) __asm__("{p}_audio_bank");
+extern "C" opxy::platform::telemetry::wire::Bank* {p}_audio_bank(opxy::u32 send) {{
+    return opxy::platform::telemetry::effect_owns(send, {p}_fx_vtable) ? sdk_audio.resolve(send) : nullptr;
+}}
+''')
+    return values
 
 
 def effect_bus_values(m, idle=False):
@@ -1347,7 +1595,8 @@ def catalog_entry(m):
 
 
 def generate_player_object(directory, m):
-    """A player's stock object methods around its press and release, and its own page when it has one."""
+    """A player's stock object methods around its press and release, and its own page: the SDK's
+    dot page (screen_player.hpp), or the one its display draws (SDK 1.26, screen_player_drawing.hpp)."""
     from .native import player_header_ids, player_page_ids
     values = dict(PREFIX=m.prefix, NAMESPACE=m.definition['id'], NAME=m.native_name,
                   PAGE='nullptr', PAGE_READY='nullptr', PAGE_DECLARATIONS='', PAGE_UNIT='',
@@ -1358,17 +1607,35 @@ def generate_player_object(directory, m):
     steps = [1 if p.get('absent') else enum_steps(p) for p in m.definition['parameters']]
     values['STEPS'] = ', '.join(map(str, steps + [1] * (8 - len(steps))))
     values.update(player_shift_values(m))
-    if m.display == 'player':
+    if m.display in ('player', 'drawing'):
         p = m.prefix
-        page = (TEMPLATES / 'player_page.cpp.in').read_text(encoding='utf-8')
         titles = [json.dumps(parameter['label'].lower()) for parameter in m.definition['parameters']]
         titles += ['""'] * (8 - len(titles))
-        # A paged player's page also drives the two-row header in its artwork (native.page_artwork).
-        ids = player_page_ids(p) + (player_header_ids(p + '_header') if paged(m.definition) else [])
-        for key, value in dict(IDS='\n'.join(f'    "{name}",' for name in ids), ID_COUNT=str(len(ids)),
-                               PAGED=values['PAGED'], TITLES=', '.join(titles),
-                               PAGE_LIMIT=RELOCATED['PAGE_LIMIT'], PREFIX=p,
-                               NAMESPACE=m.definition['id'], NAME=m.native_name).items():
+        fields = dict(PAGED=values['PAGED'], TITLES=', '.join(titles), PAGE_LIMIT=RELOCATED['PAGE_LIMIT'], PREFIX=p,
+                      NAMESPACE=m.definition['id'], NAME=m.native_name)
+        if m.display == 'drawing':
+            # Its own drawn page (SDK 1.26): display.cpp in this unit, after player.cpp; from
+            # SDK 1.28 an extended display's frame, input and renderer (extended_retained.hpp).
+            from .native import display_ids
+            display = m.definition['resources']['display']
+            page = (TEMPLATES / 'player_drawing.cpp.in').read_text(encoding='utf-8')
+            ids = display_ids(p, display)
+            extended, encoders = extended_display(display), bool(display.get('encoderActivity'))
+            fields.update(FRAME=player_frame(display), INPUT=display_input_type(m.definition),
+                          RETAINED='ExtendedRetained' if extended else 'RetainedDrawing',
+                          BIND='Retained::bind<Page>(object);' if extended else 'Retained::bind(object, ids);',
+                          FULL_CANVAS='true' if display.get('fullCanvas') else 'false',
+                          SNAPSHOT='input.encoders = opxy::platform::encoder_activity();' if encoders else '(void)input;',
+                          INCLUDES=''.join(f'#include "{name}"\n' for name in
+                                           ('extended_retained.hpp',) * extended + ('encoder_activity.hpp',) * encoders),
+                          STATE_BYTES=str(display['stateBytes']), STATE_ALIGNMENT=str(display['stateAlignment']),
+                          SCREEN_BYTES=str(screen_bytes(m)))
+        else:
+            page = (TEMPLATES / 'player_page.cpp.in').read_text(encoding='utf-8')
+            # A paged player's page also drives the two-row header in its artwork (native.page_artwork).
+            ids = player_page_ids(p) + (player_header_ids(p + '_header') if paged(m.definition) else [])
+        fields.update(IDS='\n'.join(f'    "{name}",' for name in ids), ID_COUNT=str(len(ids)))
+        for key, value in fields.items():
             page = page.replace('@' + key + '@', value)
         values.update(PAGE=f'{p}_page_id', PAGE_READY=f'{p}_screen_ready', PAGE_UNIT=page,
                       PAGE_DECLARATIONS='\n'.join([f'extern const char {p}_page_id[] __asm__("{p}_page_id");',
@@ -1377,12 +1644,12 @@ def generate_player_object(directory, m):
     return expand('player_object.cpp.in', values, Path(directory) / f'player_object_{m.prefix}.cpp')
 
 
-def player_shift_values(m):
-    """A player's shift row (SDK 1.16) as its Player's table, or nothing, which leaves the
-    generated source of a player without one as it was."""
+def player_shift_row(m):
+    """A player's shift row (SDK 1.16): each entry's choice count and its default word, eight
+    of each (0 past the row), or None without one."""
     shift = shift_parameters(m.definition)
     if not shift:
-        return dict(SHIFT_TABLE='', SHIFT='')
+        return None
     choices, defaults = [], []
     for parameter in shift:
         count = len(parameter['mapping']['labels'])
@@ -1391,8 +1658,17 @@ def player_shift_values(m):
         width = 0x7fffffff // count
         choices.append(count)
         defaults.append(bucket * width + width // 2)
-    choices += [0] * (8 - len(shift))
-    defaults += [0] * (8 - len(shift))
+    return choices + [0] * (8 - len(shift)), defaults + [0] * (8 - len(shift))
+
+
+def player_shift_values(m):
+    """A player's shift row (SDK 1.16) as its Player's table, or nothing, which leaves the
+    generated source of a player without one as it was."""
+    row = player_shift_row(m)
+    if not row:
+        return dict(SHIFT_TABLE='', SHIFT='')
+    shift = shift_parameters(m.definition)
+    choices, defaults = row
     table = (f'static const opxy::platform::PlayerShift player_shift = {{{len(shift)}, '
              f'{{{", ".join(map(str, choices))}}}, {{{", ".join(map(str, defaults))}}}}};\n')
     return dict(SHIFT_TABLE=table, SHIFT=', &player_shift')

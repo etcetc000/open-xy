@@ -15,8 +15,15 @@ u32 sdk_master_buttons(void *, const u32 *) __asm__("sdk_master_buttons");
 u32 sdk_master_shift_buttons(void *, const u32 *) __asm__("sdk_master_shift_buttons");
 void sdk_master_turn(void *, u32, const i32 *) __asm__("sdk_master_turn");
 void sdk_master_frame(void *, i32) __asm__("sdk_master_frame");
+#ifdef OPXY_MASTER_SHARED
+// Beside Sample Studio, the master bus's shared handler (master_bus.cpp) owns both calls and
+// enters these.
+void sdk_master_receive(u32, u32, i32) __asm__("sdk_processor_receive");
+void sdk_master_process(void *, i32 *, i32 *) __asm__("sdk_processor_process");
+#else
 void sdk_master_receive(u32, u32, i32) __asm__("sdk_master_receive");
 void sdk_master_process(void *, i32 *, i32 *) __asm__("sdk_master_process");
+#endif
 u32 sdk_master_project() __asm__("sdk_master_project");
 u32 sdk_master_stock_buttons(void *, const u32 *) __asm__("sdk_master_stock_buttons");
 u32 sdk_master_stock_shift_buttons(void *, const u32 *) __asm__("sdk_master_stock_shift_buttons");
