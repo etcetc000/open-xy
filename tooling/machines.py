@@ -790,7 +790,9 @@ def machine_at(root, identity=None):
 # each number still missing from its own place in the pool: preferred(), so a build
 # without a layout gives a machine the same numbers whatever else it holds, unless
 # two machines' places collide. Machines are numbered in ID order, never collection order.
-# builder/core.mjs assignNumbers applies the same rules (tests/fixtures/numbers.json).
+# Engines never take an effect number (number_layout reserved), and a layout's engine number
+# among them, which earlier SDKs gave, is let go once: the machine keeps its page.
+# builder/core.mjs numberLayout applies the same rules (tests/fixtures/numbers.json).
 LAYOUT_FORMAT = 'opxy-layout/1'
 FIXED_NUMBERS = {'fm2op': {'engine': 34, 'page': 82}, 'macroosc': {'engine': 26, 'page': 83},
                  'ringmod': {'effect': 1, 'page': 21}, 'timestretch': {'engine': 35, 'page': 7}}
@@ -896,8 +898,26 @@ def number_layout(rules, fixed, layout, machines):
                     f'{name} and {holders[key]} both hold {key[0]} {key[1]} in this layout')
         numbers[name] = dict(identity)
 
+    # An effect number is also held as an engine number (occupied).
+    keys = lambda slot, n: [(slot, n)] + ([('engine', n)] if slot == 'effect' else [])
+    # The last page is reserved for an SDK overlay screen: in the pool, so every
+    # other machine keeps its own place, never given out, and still valid in a
+    # layout that already gave it (check_identity), as earlier SDKs did. Likewise
+    # an engine is never given an effect number: stock reads a send's effect number
+    # as an engine number (occupied), so effects have their pool to themselves and
+    # only the fixed machines (FIXED_NUMBERS) hold engine numbers in it.
+    reserved = lambda slot, n: (slot == 'page' and n == rules['pages'] - 1) or (slot == 'engine' and n in rules['effects'])
+    free = lambda slot, n: not reserved(slot, n) and not any(k in holders for k in keys(slot, n))
+
+    def take(name, identity, slot, n):
+        identity[slot] = n
+        for key in keys(slot, n):
+            holders[key] = name
+
     for name, _kind, identity in fixed:
         hold(name, identity)
+    fixed_engines = {identity['engine'] for _name, _kind, identity in fixed if 'engine' in identity}
+    moved, released = [], {}
     for name, identity in (layout or {}).items():
         if name in numbers:
             require(numbers[name] == identity, f'{name} has fixed numbers; the layout gives it others')
@@ -905,8 +925,25 @@ def number_layout(rules, fixed, layout, machines):
             # An effect number later found unusable on stock (its controls never
             # moved) is let go: the machine is numbered again like a new one.
             continue
+        elif ('engine' in identity and identity['engine'] in pools['engine'] and identity['engine'] in rules['effects'] and
+              identity['engine'] not in fixed_engines):
+            # An engine number among the effect numbers, which earlier SDKs gave out
+            # (from the engine pool alone), is let go too (below); a fixed machine's is
+            # never another's, and a stock engine's is refused as before.
+            n = identity['engine']
+            require(released.setdefault(n, name) == name, f'{name} and {released[n]} both hold engine {n} in this layout')
+            moved.append(name)
         else:
             hold(name, identity)
+    # Such a machine, in this build or not, keeps its page and is given an engine number
+    # from its own place, in ID order, before any machine new to the layout. A project
+    # saved with its old number reopens through the project's companion (tooling/projects.py).
+    for n, name in released.items():
+        require(('engine', n) not in holders, f'{name} and {holders.get(("engine", n))} both hold engine {n} in this layout')
+    for name in sorted(moved):
+        n = next((n for n in preferred(pools['engine'], name) if free('engine', n)), None)
+        require(n is not None, f'No free engine number for {name}: every one is held in this layout')
+        hold(name, dict(layout[name], engine=n))
     new = []
     for name, kind, requested in sorted(machines, key=lambda machine: machine[0]):
         own_page = owns_page(rules, kind, requested['page'])
@@ -930,18 +967,6 @@ def number_layout(rules, fixed, layout, machines):
             slot = 'player' if kind == 'player' else 'effect' if kind == 'effect' else 'engine'
             slots = (slot, 'page') if kind in ('synth', 'drum', 'player') or own_page else (slot,)
             new.append((name, kind, dict(requested), slots))
-    # An effect number is also held as an engine number (occupied).
-    keys = lambda slot, n: [(slot, n)] + ([('engine', n)] if slot == 'effect' else [])
-    # The last page is reserved for an SDK overlay screen: in the pool, so every
-    # other machine keeps its own place, never given out, and still valid in a
-    # layout that already gave it (check_identity), as earlier SDKs did.
-    free = lambda slot, n: not (slot == 'page' and n == rules['pages'] - 1) and not any(k in holders for k in keys(slot, n))
-
-    def take(name, identity, slot, n):
-        identity[slot] = n
-        for key in keys(slot, n):
-            holders[key] = name
-
     # Requested numbers first, so no machine's preferred place takes one another asks for.
     for name, _kind, identity, slots in new:
         for slot in slots:

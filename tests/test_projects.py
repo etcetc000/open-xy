@@ -94,7 +94,7 @@ class Companions(unittest.TestCase):
 
 
 
-def host_writer(folder, fixture='project_companion.cpp'):
+def host_writer(folder, fixture='project_companion.cpp', flags=()):
     """The real firmware writer and reader built for the host, its stock file calls on host stdio."""
     from test_sample_services import HOST_CXX
     platform = ROOT / 'sdk/platform/opxy-1.2.1'
@@ -109,7 +109,7 @@ def host_writer(folder, fixture='project_companion.cpp'):
     binary = folder / (Path(fixture).stem + ('.exe' if os.name == 'nt' else ''))
     result = subprocess.run([HOST_CXX, '-std=c++11', '-O2', '-Wall', '-Werror', '-I' + str(folder),
                              '-I' + str(ROOT / 'sdk/include'), '-I' + str(platform),
-                             '-I' + str(ROOT / 'tests/fixtures'),
+                             '-I' + str(ROOT / 'tests/fixtures'), *flags,
                              str(ROOT / 'tests/fixtures' / fixture), '-o', str(binary)],
                             capture_output=True, text=True, timeout=120)
     if result.returncode:
@@ -502,6 +502,67 @@ class FirmwareReader(unittest.TestCase):
         hooks = [p for p in config()['patches'] if p.get('symbol') == 'sdk_project_load']
         self.assertEqual([(p['address'], p['file_offset'], p['before'], p['call']) for p in hooks],
                          [('0x8d58913e', '0x1c039a', '00e3e984', True)])
+
+
+class EffectNumbersGivenUp(unittest.TestCase):
+    """Earlier SDKs gave engines effect numbers; a layout now lets those go (tooling.machines
+    number_layout). A project an earlier firmware saved reopens with its machines on the
+    firmware built from that firmware's layout, through the companion the earlier one wrote."""
+
+    def test_a_project_saved_before_the_move_opens_with_the_same_machines(self):
+        from test_sample_services import HOST_CXX
+        from tooling.machines import FIXED_NUMBERS, number_layout
+        if not HOST_CXX:
+            self.skipTest('No working host C++ compiler (set OPXY_TEST_HOST_CXX)')
+        rules = config()['identities']
+        fixed = [(name, None, identity) for name, identity in FIXED_NUMBERS.items()]
+        # The earlier firmware's layout.json, and the machines its companion lists: two synths
+        # and a sample engine at effect numbers, one since dropped, and others outside them.
+        earlier = {'bells': {'engine': 52, 'page': 130}, 'drone': {'engine': 40, 'page': 120},
+                   'echo': {'effect': 23, 'page': 21}, 'fm2op': {'engine': 34, 'page': 82},
+                   'gone': {'engine': 41, 'page': 140}, 'keys': {'engine': 45, 'page': 2},
+                   'pad': {'engine': 98, 'page': 248}}
+        # This build: the same machines less the dropped one, and an effect asking for drone's old
+        # number, as an SDK 1.4 effect may.
+        machines = [('bells', 'synth', {'engine': None, 'page': None}), ('drone', 'synth', {'engine': None, 'page': None}),
+                    ('echo', 'effect', {'effect': None, 'page': 21}), ('fm2op', 'synth', {'engine': None, 'page': None}),
+                    ('keys', 'sample', {'engine': None, 'page': 2}), ('pad', 'synth', {'engine': None, 'page': None}),
+                    ('shimmer', 'effect', {'effect': 40, 'page': 21})]
+        now = number_layout(rules, fixed, earlier, machines)
+        for name in ('bells', 'drone', 'keys', 'gone'):
+            self.assertEqual(now[name]['page'], earlier[name]['page'], name)
+            self.assertNotIn(now[name]['engine'], rules['effects'], name)
+        for name in ('echo', 'fm2op', 'pad'):
+            self.assertEqual(now[name], earlier[name], name)
+        self.assertEqual(now['shimmer'], {'effect': 40, 'page': 21})
+        here = {name: now[name] for name, _kind, _requested in machines}
+        rows = ''.join('{"%s", number(%d), number(%d), %s},\n' % (name, n.get('engine', n.get('effect')), n['page'],
+                                                                  'true' if 'effect' in n else 'false')
+                       for name, n in sorted(here.items()))
+        # Instrument tracks and the CV track hold engines, sends effects (FirmwareReader).
+        tracks = {0: [52, 40, 98, 34, 45, 41], 11: [40, 18], 14: [23, 40]}
+        expected = {0: [here['bells']['engine'], here['drone']['engine'], 98, 34, here['keys']['engine'], PRISM],
+                    11: [here['drone']['engine'], 18],
+                    # Effect 40 was no machine's on the earlier firmware: a send never held it.
+                    14: [23, 40]}
+        with tempfile.TemporaryDirectory(prefix='companion-moved-') as directory:
+            folder = Path(directory)
+            (folder / 'rows.hpp').write_text(rows, encoding='utf-8')
+            reader = host_writer(folder, 'project_load.cpp', ['-DCOMPANION_ROWS=<rows.hpp>'])
+            song = folder / 'song.xy'
+            song.write_bytes(PROJECT)
+            (folder / 'song.oxy').write_bytes(companion(PROJECT, earlier))
+            run = subprocess.run([str(reader), str(song), '1', *[f"{t}:{','.join(map(str, n))}" for t, n in tracks.items()]],
+                                 capture_output=True, text=True, timeout=30)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        loaded = {int(t): [int(n) for n in numbers.split(',')]
+                  for t, numbers in (line.split(':') for line in run.stdout.split())}
+        self.assertEqual(loaded, expected)
+        # tooling/projects.py, the reference reader, agrees.
+        table = translation(earlier, here)
+        slot = lambda track: 'engine' if track < 14 else 'effect'
+        self.assertEqual({t: [n if (slot(t), n) not in table else FALLBACK[slot(t)] if table[(slot(t), n)] is None
+                              else table[(slot(t), n)] for n in numbers] for t, numbers in tracks.items()}, expected)
 
 
 if __name__ == '__main__':

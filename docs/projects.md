@@ -117,8 +117,8 @@ characters; a section with any other is invalid. The firmware lists every
 machine it holds, including ones the project does not use; the host writer
 lists its whole layout.
 
-A reader with the same profile maps each listed engine or effect number,
-0 to 62, to that machine's number in its own layout. A machine missing from
+A reader with the same profile maps each listed engine number (0 to 255) or
+effect number (0 to 62) to that machine's number in its own layout. A machine missing from
 its layout is never replaced by whatever holds its old number: the reader
 opens that track with stock's fallback for a machine it lacks, Prism (engine
 18) on an instrument track or no effect (0) on a send, and does not yet say

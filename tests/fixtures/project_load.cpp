@@ -55,14 +55,19 @@ const char* number(unsigned n) { return reinterpret_cast<const char*>(static_cas
 }
 
 // This firmware: karplus renumbered, pingpong kept, fm2op where the saving firmware had
-// timestretch, ringmod at an effect number equal to karplus's old engine number.
+// timestretch, ringmod at an effect number equal to karplus's old engine number. A test
+// may give another firmware's table instead (-DCOMPANION_ROWS=<rows.hpp>, the same rows).
 static const opxy::platform::CompanionMachine sdk_companion_machines_rows[] = {
+#ifdef COMPANION_ROWS
+#include COMPANION_ROWS
+#else
     {"fm2op", number(35), number(60), false},
     {"karplus", number(41), number(90), false},
     {"macroosc", number(36), number(61), false},
     {"pingpong", number(40), number(21), true},
     {"ringmod", number(36), number(21), true},
     {"skipped", number(0), number(0), false},  // a kit machine left out of the selection
+#endif
     {nullptr, nullptr, nullptr, false}
 };
 const opxy::platform::CompanionMachine* sdk_companion_machines = sdk_companion_machines_rows;

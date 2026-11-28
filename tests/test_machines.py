@@ -559,9 +559,9 @@ class OutsideMachines(unittest.TestCase):
             built = machines.collection(machines.read_collection(None, [self.folder]))[0]
             self.assertEqual((built.identity, built.requested), (own('fmcopy'), m.identity))
         # A layout keeps the numbers it gave; dropped machines' stay held.
-        layout = {'fmcopy': {'engine': 50, 'page': 100}, 'gone': dict(FREE)}
+        layout = {'fmcopy': {'engine': 80, 'page': 100}, 'gone': dict(FREE)}
         built = machines.collection(machines.read_collection(None, [self.folder]), layout)[0]
-        self.assertEqual(built.identity, {'engine': 50, 'page': 100})
+        self.assertEqual(built.identity, {'engine': 80, 'page': 100})
         built = machines.collection(machines.read_collection(None, [self.folder]), {'gone': own('fmcopy')})[0]
         self.assertEqual(built.identity, {'engine': own('fmcopy')['engine'] + 1, 'page': own('fmcopy')['page'] + 1})
         # A machine named like one with fixed numbers gets them.

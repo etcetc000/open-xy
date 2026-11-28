@@ -4,7 +4,7 @@
   "kind": "sample",
   "description": "Test fixture: a drum-page sample player declaring every optional sample service.",
   "identity": {
-    "engine": 47,
+    "engine": 67,
     "page": 7
   },
   "presetDefaults": {
