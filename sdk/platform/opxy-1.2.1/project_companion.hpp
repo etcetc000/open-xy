@@ -12,8 +12,9 @@ struct CompanionMachine {
 };
 }}
 
-// Generated per collection; ends with a null ID.
-extern const opxy::platform::CompanionMachine sdk_companion_machines[];
+// The selected machines, sorted by ID and ending with a null ID: the table startup builds
+// from their records (machine_tables.cpp).
+extern "C" const opxy::platform::CompanionMachine* sdk_companion_machines __asm__("sdk_companion_machines");
 
 // What track control machines keep, written into the open companion: generated in
 // startup.cpp, which reaches the control service (track_control_project.cpp) when the

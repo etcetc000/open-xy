@@ -1,6 +1,7 @@
 // Host contract checks for generated startup glue: two own-page synths
 // (first, second), two stock-page sample engines, one of them (drawn) with its
-// own screen, an own-page effect and a player. Both screen registries must
+// own screen, an own-page effect and a player, as their records (machine_record.hpp)
+// and the selection's list of them describe them. Both screen registries must
 // coexist after SDK integration.
 #include <startup.cpp>
 #include <cstdio>
@@ -50,6 +51,30 @@ u32 sdk_control_kept_write(void* file) { calls += "kept "; return file ? 2 : 0; 
 void sdk_control_kept_load(const char* path) { calls += path; }
 u32 stock_catalog_insert(void*, const void*, u32 id) { inserted = id; return 7; }
 int sdk_stock_engine_known(const void*) { return named && std::string(named) == "prism"; }
+const char effect_fx_id[1] = {};
+
+// The records each machine's objects define, and the selection's list of them by kind,
+// then ID (machine_records.o): first and second, drawn before sampled, the effect, the player.
+using opxy::platform::MachineRecord;
+namespace kind = opxy::platform::machine_kind;
+static const MachineRecord first_record = {kind::kSynth, first_register, first_screen_register, first_ready,
+                                           first_name_matches, nullptr, first_engine_id, first_page_id};
+static const MachineRecord second_record = {kind::kSynth, second_register, second_screen_register, second_ready,
+                                            second_name_matches, nullptr, second_engine_id, second_page_id};
+static const MachineRecord drawn_record = {kind::kSample, drawn_register, drawn_screen_register, drawn_ready,
+                                           drawn_name_matches, drawn_screen_ready, drawn_engine_id, nullptr,
+                                           drawn_screen_page_id};
+static const MachineRecord sampled_record = {kind::kSample, sampled_register, nullptr, sampled_ready,
+                                             sampled_name_matches, nullptr, sampled_engine_id};
+static const MachineRecord effect_record = {kind::kEffect, effect_fx_register, effect_screen_register, effect_ready,
+                                            nullptr, nullptr, effect_fx_id, effect_fx_page_id};
+static const MachineRecord player_record = {kind::kPlayer, nullptr, player_screen_register};
+const MachineRecord* const sdk_machine_records[] = {&first_record, &second_record, &drawn_record, &sampled_record,
+                                                     &effect_record, &player_record};
+const u32 sdk_machine_record_count = 6;
+opxy::u8 sdk_machine_record_space[1];
+const u32 sdk_machine_record_space_bytes = 0;
+void sdk_machine_tables() { calls += "tables "; }
 
 static u32 catalog(const char* name, u32 id) {
     named = name; inserted = 0; calls.clear();
@@ -65,20 +90,21 @@ int main() {
     // The preset scan's engine check: stock engines, then this build's machines by name.
     require(installed("prism") == 1 && installed("first") == 1 && installed("sampled") == 1);
     require(installed("gone") == 0 && installed("effect") == 0 && installed("player") == 0);
-    // Effects register on both roles, before the role check; engines in ledger order on audio.
+    // Both roles build the shared tables first. Effects register on both roles, before the
+    // role check; engines in record order on audio.
     sdk_startup_synth();
-    require(calls == "effect role first second sampled drawn ");
+    require(calls == "tables effect role first second drawn sampled ");
     calls.clear(); gui = true;
     sdk_startup_synth();
-    require(calls == "effect role ");
+    require(calls == "tables effect role ");
     // GUI role: each own page guards only its own engine; stock pages need none.
     calls.clear();
     sdk_startup_screen();
-    require(calls == "effect-page first-page first second-page second sampled drawn-page drawn player-page ");
+    require(calls == "tables effect-page first-page first second-page second drawn-page drawn sampled player-page ");
     // A sample engine plays without its own screen: the screen never holds it back.
     calls.clear(); screens = false; drawn_screen = 0;
     sdk_startup_screen();
-    require(calls == "effect-page first-page second-page second sampled drawn-page drawn player-page ");
+    require(calls == "tables effect-page first-page second-page second drawn-page drawn sampled player-page ");
     drawn_screen = 1;
 
     const u32 first = value(first_engine_id), second = value(second_engine_id);

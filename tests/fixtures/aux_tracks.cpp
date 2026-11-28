@@ -31,13 +31,14 @@ u32 host_telemetry_set(u32 id, u32 value) {
 }
 }
 extern "C" {
-const ControlMachine sdk_control_machines[] = {
+static const ControlMachine sdk_control_machines_rows[] = {
     {reinterpret_cast<const char*>(40), host_ready, nullptr, nullptr, "plain", 0, nullptr, nullptr,
      true, 1u << 11, reinterpret_cast<const char*>(120), {10, 20, 30, 40}, false},
     {reinterpret_cast<const char*>(41), host_ready, nullptr, nullptr, "lfo", 0, nullptr, nullptr,
      true, 1u << 11, reinterpret_cast<const char*>(121), {11, 21, 31, 41}, true}
 };
-const u32 sdk_control_machine_count = 2;
+const ControlMachine* sdk_control_machines = sdk_control_machines_rows;
+u32 sdk_control_machine_count = 2;
 AuxService sdk_aux;
 u32 (*sdk_aux_engine)(u32);
 bool (*sdk_aux_owns_page)(u32);

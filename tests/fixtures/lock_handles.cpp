@@ -35,10 +35,11 @@ namespace sl = opxy::platform::step_locks;
 namespace {
 const char* number(unsigned n) { return reinterpret_cast<const char*>(static_cast<Address>(n)); }
 }
-const opxy::platform::CompanionMachine sdk_companion_machines[] = {
+static const opxy::platform::CompanionMachine sdk_companion_machines_rows[] = {
     {"probe", number(41), number(90), false},
     {nullptr, nullptr, nullptr, false}
 };
+const opxy::platform::CompanionMachine* sdk_companion_machines = sdk_companion_machines_rows;
 
 namespace {
 const u32 kProjectBytes = 0x54076c;
@@ -638,3 +639,7 @@ full:
                 static_cast<unsigned>(text.size()));
     return 0;
 }
+
+// The machine tables are this fixture's own (above); startup would build them on the device.
+extern "C" void sdk_machine_tables() __asm__("sdk_machine_tables");
+void sdk_machine_tables() {}

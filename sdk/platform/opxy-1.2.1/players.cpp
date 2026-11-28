@@ -13,6 +13,7 @@
 //   names   8d5bddd8, 8d5bde60  convert between an owned type and its name
 #include "keyboard_octaves.hpp"
 #include "players.hpp"
+#include "machine_record.hpp"
 #include "player_activity.hpp"
 #include "player_plans.hpp"
 #include "player_controls.hpp"
@@ -83,7 +84,10 @@ u32 track_instrument(u32 track) {
 
 char* bytes(void* object) { return static_cast<char*>(object); }
 
+// Stock builds and names players as it loads a project, which may come before startup
+// has built the machine tables: these lookups build them first (once).
 const Player* owned(u32 type) {
+    sdk_machine_tables();
     for (u32 i = 0; i < sdk_player_count; ++i) {
         const Player* p = sdk_players[i].player();
         if (p && p->type() == type) return p;
@@ -312,6 +316,7 @@ const char* sdk_player_name(u32 type) {
 }
 
 u32 sdk_player_id(const void* name) {
+    sdk_machine_tables();
     for (u32 i = 0; i < sdk_player_count; ++i) {
         const Player* p = sdk_players[i].player();
         if (p && equal(static_cast<const registry::StockString*>(name), p->name)) return p->type();

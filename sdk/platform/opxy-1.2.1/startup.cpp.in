@@ -1,10 +1,11 @@
-// Generated startup for one collection, in ledger order. startup_exit.s calls
-// the two initializer continuations; the menu calls the catalog adapter in
-// place of stock catalog insertion; the compositor asks which pages are ours.
-// In a browser kit, an unselected machine's callbacks resolve to kit_absent,
-// which declines.
+// Startup and catalog glue over the selected machines' records (machine_record.hpp),
+// in their order: by kind, then ID. startup_exit.s calls the two initializer
+// continuations; the menu calls the catalog adapter in place of stock catalog
+// insertion; the compositor asks which pages are ours. Generated only for the
+// services a build links (tooling/startup.py), never for its machines.
 #include <opxy/types.hpp>
 #include "stock.hpp"
+#include "machine_record.hpp"
 
 using opxy::u32;
 using opxy::i32;
@@ -35,8 +36,12 @@ int sdk_stock_engine_known(const void*) __asm__("sdk_stock_engine_known");
 
 namespace {
 typedef __UINTPTR_TYPE__ Address;
-// Only engine, effect and sample rows call it; a collection of players has none.
-__attribute__((unused)) u32 value(const char* symbol) { return static_cast<u32>(reinterpret_cast<Address>(symbol)); }
+using opxy::platform::MachineRecord;
+namespace kind = opxy::platform::machine_kind;
+u32 value(const char* symbol) { return static_cast<u32>(reinterpret_cast<Address>(symbol)); }
+const MachineRecord& record(u32 i) { return *sdk_machine_records[i]; }
+// A synth, kit or sample engine.
+bool is_engine(const MachineRecord& m) { return m.kind == kind::kSynth || m.kind == kind::kDrum || m.kind == kind::kSample; }
 }
 
 int kit_absent() { return 0; }
@@ -48,17 +53,38 @@ int kit_absent() { return 0; }
 @PROJECT_KEPT@
 
 // Effects register on both roles, like stock FX initialisation; engines
-// register here on the audio role only.
+// register here on the audio role only. Both roles build the shared tables first.
 void sdk_startup_synth() {
-@EFFECTS@
+    sdk_machine_tables();
+    for (u32 i = 0; i < sdk_machine_record_count; ++i)
+        if (record(i).kind == kind::kEffect) record(i).register_machine();
     if (stock_gui_role()) return;
-@ENGINES@
+    for (u32 i = 0; i < sdk_machine_record_count; ++i)
+        if (is_engine(record(i))) record(i).register_machine();
 }
 
 // On the GUI role an engine with its own page registers only after its screen
-// is in place; a failed page skips only that engine.
+// is in place; a failed page skips only that engine. Effects register their own
+// pages first (they are registered on both roles already; a page their record
+// names is ready once its screen is in place), then engines, then players' pages.
+// A sample engine shows a stock page: its own screen, if any, never holds it back.
 void sdk_startup_screen() {
-@SCREENS@
+    sdk_machine_tables();
+    for (u32 i = 0; i < sdk_machine_record_count; ++i)
+        if (record(i).kind == kind::kEffect && record(i).register_screen) record(i).register_screen();
+    for (u32 i = 0; i < sdk_machine_record_count; ++i) {
+        const MachineRecord& m = record(i);
+        if (!is_engine(m)) continue;
+        if (m.kind == kind::kSample) {
+            if (m.register_screen) m.register_screen();
+            m.register_machine();
+        } else if (m.register_screen() == 1) {
+            m.register_machine();
+        }
+    }
+    for (u32 i = 0; i < sdk_machine_record_count; ++i)
+        if (record(i).kind == kind::kPlayer) record(i).register_screen();
+@AUX_STARTUP@
 }
 
 // The stock catalog insertion ABI. An own name is admitted only with its
@@ -66,13 +92,21 @@ void sdk_startup_screen() {
 // stock unchanged, except stock's missing-engine ID.
 u32 extensions_catalog_checked(void* catalog, const void* name, u32 id) {
     if (id == @ENGINE_SENTINEL@) return 0;
-@CATALOG@
+    for (u32 i = 0; i < sdk_machine_record_count; ++i) {
+        const MachineRecord& m = record(i);
+        if (is_engine(m) && m.name_matches(name))
+            return id == value(m.number) && m.ready() == 1 ? stock_catalog_insert(catalog, name, id) : 0;
+    }
     return stock_catalog_insert(catalog, name, id);
 }
 
-// 1 when page is the own screen of a machine that is ready (screen_order.cpp.in).
+// 1 when page is the own screen of a machine that is ready (screen_order.cpp.in):
+// a synth's or kit's page, or an effect's own page.
 int sdk_screen_owned(u32 page) {
-@OWNED_SCREENS@
+    for (u32 i = 0; i < sdk_machine_record_count; ++i) {
+        const MachineRecord& m = record(i);
+        if (m.page && page == value(m.page)) return m.ready() == 1;
+    }
     return 0;
 }
 
@@ -84,16 +118,20 @@ u32 sdk_sample_screen(u32 page) {
     const u32 track = opxy::platform::selected_track();
     if (track >= opxy::platform::kTracks) return 0;
     const u32 engine = opxy::platform::track_engine(track);
-@SAMPLE_SCREENS@
-    (void)engine;
+    for (u32 i = 0; i < sdk_machine_record_count; ++i) {
+        const MachineRecord& m = record(i);
+        if (m.kind == kind::kSample && m.screen_ready && engine == value(m.number))
+            return m.ready() == 1 && m.screen_ready() == 1 ? value(m.screen_page) : 0;
+    }
     return 0;
 }
 
 // 1 when this build installs the engine named (presets.cpp): a stock engine, or
 // one of this build's machines by name, since the preset scan can run before
-// they register. An unselected machine's name check is kit_absent.
+// they register.
 int sdk_engine_installed(const void* name) {
     if (sdk_stock_engine_known(name)) return 1;
-@INSTALLED@
+    for (u32 i = 0; i < sdk_machine_record_count; ++i)
+        if (is_engine(record(i)) && record(i).name_matches(name)) return 1;
     return 0;
 }

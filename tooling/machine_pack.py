@@ -1,4 +1,4 @@
-"""A compiled collection for local catalog import, without stock content or firmware."""
+"""Custom machines for local catalog import, without stock content or firmware."""
 import base64
 import json
 from pathlib import Path
@@ -8,27 +8,30 @@ from .formats import require, sha
 
 
 MAX_PACK_BYTES = 64 * 1024 * 1024
-# What the site's own copy of a catalog machine supplies and the importer never compares
-# (builder/core.mjs machineContract): left out of the pack.
-SITE_METADATA = ('preview', 'source', 'cpu', 'keywords')
+FORMAT = 'opxy-machine-pack/2'
 
 
 def write(kit, output, notices=None):
     """Called only after the kit's native/browser verification completes.
 
-    The receiver compares the existing catalog and runtime with its own kit.
-    Collection-specific objects travel together so registration, controls and
-    project companions describe exactly the exported collection. `notices` are the
-    custom machines' own (the site's kit already holds the rest); by default the kit's.
+    A pack carries only its custom machines (the kit's personal ones) and their own
+    objects, records included: no shared object depends on which machines a build
+    holds (tooling/records.py), so the pack extends any site kit of the same release
+    and SDK revision whatever its catalog holds (builder/core.mjs importMachinePack).
+    `notices` are the custom machines' own (the site's kit already holds the rest);
+    by default the kit's.
     """
-    require(any(m['origin'] == 'personal' for m in kit['machines']),
-            'A machine pack needs at least one custom machine')
-    pack = {key: kit[key] for key in ('version', 'definitions', 'fixed', 'objects')}
-    pack['machines'] = [m if m['origin'] == 'personal' else {k: v for k, v in m.items() if k not in SITE_METADATA}
-                        for m in kit['machines']]
-    pack['notices'] = kit['notices'] if notices is None else notices
-    pack.update(format='opxy-machine-pack/1', extensions=kit.get('extensions', []),
-                profileSha256=sha(base64.b64decode(kit['profileSource'], validate=True)))
+    machines = [m for m in kit['machines'] if m['origin'] == 'personal']
+    require(machines, 'A machine pack needs at least one custom machine')
+    # What the builder imports (builder/core.mjs importMachinePack): a pack with anything else never imports.
+    require(all(m.get('kind') in ('synth', 'effect', 'sample') for m in machines),
+            'A machine pack holds synths, effects and sample engines only')
+    owners = {m['id'] for m in machines}
+    pack = dict(format=FORMAT, version=kit['version'], sdk=kit['sdk'],
+                profileSha256=sha(base64.b64decode(kit['profileSource'], validate=True)),
+                definitions=kit['definitions'], fixed=kit['fixed'], machines=machines,
+                objects=[o for o in kit['objects'] if o['owner'] in owners],
+                notices=kit['notices'] if notices is None else notices)
     data = json.dumps(pack, separators=(',', ':'), ensure_ascii=True).encode('utf-8')
     require(len(data) + 124 <= MAX_PACK_BYTES, 'Machine pack exceeds 64 MiB')
     path = Path(output) / 'machines.zip'

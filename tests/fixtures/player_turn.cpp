@@ -46,8 +46,9 @@ const platform::Player* pages() {
 void* build(u32 track,u32 type,u32 flag) { require(track==fake_track && type==4 && !flag); return slot; }
 }
 extern "C" {
-const platform::PlayerEntry sdk_players[]={{enums},{linear},{absent},{pages}};
-const u32 sdk_player_count=4;
+static const platform::PlayerEntry sdk_players_rows[]={{enums},{linear},{absent},{pages}};
+const platform::PlayerEntry* sdk_players = sdk_players_rows;
+u32 sdk_player_count =4;
 u32 (*sdk_screen_substitute)(u32)=nullptr;
 void (*sdk_player_press)(u32)=nullptr;
 }
@@ -140,3 +141,7 @@ int main() {
     for(u32 i=0;i<8;++i) require(delivered.value[i]==values[i]);
     std::puts("owned player controls bypass stock hold mode; enum detents and stock fallback passed");
 }
+
+// The machine tables are this fixture's own (above); startup would build them on the device.
+extern "C" void sdk_machine_tables() __asm__("sdk_machine_tables");
+void sdk_machine_tables() {}

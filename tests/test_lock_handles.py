@@ -74,7 +74,7 @@ class LockHandles(unittest.TestCase):
         self.assertIn('lock_handles', native.SDK_UNITS)
 
     def test_startup_reaches_the_handles_only_when_linked(self):
-        linked, plain = render(['probe'], locks=True), render(['probe'])
+        linked, plain = render(locks=True), render()
         for name in ('size', 'write', 'begin', 'byte', 'loaded'):
             self.assertIn(f'sdk_step_locks_{name}(', linked)
             self.assertNotIn(f'sdk_step_locks_{name}', plain)

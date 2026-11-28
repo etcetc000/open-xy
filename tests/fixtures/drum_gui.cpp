@@ -221,7 +221,7 @@ static const opxy::u8 pad_bits[] = {5, 4};
 static const char* const pad_labels[] = {"FILTER", "SRR"};
 static bool pad_text(opxy::u32, opxy::i32, char*) { return false; }
 static const char* const group_names[] = {"ONE", "TWO"};
-const opxy::platform::DrumMachine sdk_drum_machines[] = {
+static const opxy::platform::DrumMachine sdk_drum_machines_rows[] = {
     {reinterpret_cast<const char*>(34), ready, 2, defaults, label, name, count},
     {reinterpret_cast<const char*>(37), ready, 5, defaults, label, name, count, 2, group_sizes, group_names},
     {reinterpret_cast<const char*>(38), ready, 33, defaults, label, name, count, 0, nullptr, nullptr, 0,
@@ -245,30 +245,33 @@ const opxy::platform::DrumMachine sdk_drum_machines[] = {
     {reinterpret_cast<const char*>(45), ready, 3, defaults, label, name, count},
 #endif
 };
-const opxy::u32 sdk_drum_machine_count = sizeof(sdk_drum_machines) / sizeof(sdk_drum_machines[0]);
+const opxy::platform::DrumMachine* sdk_drum_machines = sdk_drum_machines_rows;
+opxy::u32 sdk_drum_machine_count = sizeof(sdk_drum_machines_rows) / sizeof(sdk_drum_machines_rows[0]);
 #if OPXY_MODEL_EDIT
-const opxy::platform::DrumModelEdit sdk_drum_model_edits[] = {
+static const opxy::platform::DrumModelEdit sdk_drum_model_edits_rows[] = {
     {reinterpret_cast<const char*>(45), dial_edit},
 #if OPXY_KIT_CONTROLS
     // An ampEnvelope kit with a dial keeps its keys' amp values across a turn into another model.
     {reinterpret_cast<const char*>(44), dial_edit},
 #endif
 };
-const opxy::u32 sdk_drum_model_edit_count = sizeof(sdk_drum_model_edits) / sizeof(sdk_drum_model_edits[0]);
+const opxy::platform::DrumModelEdit* sdk_drum_model_edits = sdk_drum_model_edits_rows;
+opxy::u32 sdk_drum_model_edit_count = sizeof(sdk_drum_model_edits_rows) / sizeof(sdk_drum_model_edits_rows[0]);
 #endif
 #if OPXY_KIT_CONTROLS
 static const opxy::i32 kit_amp_words[] = {128 << 16, 8192 << 16, 0x7fff0000, 0x7fff0000};
-const opxy::platform::DrumKit sdk_drum_kits[] = {
+static const opxy::platform::DrumKit sdk_drum_kits_rows[] = {
     {reinterpret_cast<const char*>(43), 3, nullptr},
     {reinterpret_cast<const char*>(44), 7, kit_amp_words},
 };
-const opxy::u32 sdk_drum_kit_count = 2;
+const opxy::platform::DrumKit* sdk_drum_kits = sdk_drum_kits_rows;
+opxy::u32 sdk_drum_kit_count = 2;
 #endif
 // Engine 50: a paged synth with a Shift row of eight amounts (SDK 1.13); engine 51
 // the same synth without one.
 static const char* const probe_shift_titles[] = {"s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7"};
 static const opxy::platform::SynthShift probe_shift = {8, {0, 0, 0, 0, 0, 0, 0, 0}, {10, 11, 12, 13, 14, 15, 16, 17}, probe_shift_titles};
-const opxy::platform::SynthControls sdk_synth_controls[] = {
+static const opxy::platform::SynthControls sdk_synth_controls_rows[] = {
     {reinterpret_cast<const char*>(34), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
     {reinterpret_cast<const char*>(37), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
     {reinterpret_cast<const char*>(38), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
@@ -287,7 +290,8 @@ const opxy::platform::SynthControls sdk_synth_controls[] = {
     {reinterpret_cast<const char*>(45), ready, {4,5,6,7,0,1,2,3}, 0, {}, format, false, true},
 #endif
 };
-const opxy::u32 sdk_synth_control_count = sizeof(sdk_synth_controls) / sizeof(sdk_synth_controls[0]);
+const opxy::platform::SynthControls* sdk_synth_controls = sdk_synth_controls_rows;
+opxy::u32 sdk_synth_control_count = sizeof(sdk_synth_controls_rows) / sizeof(sdk_synth_controls_rows[0]);
 }
 
 namespace {

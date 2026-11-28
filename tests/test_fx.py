@@ -299,7 +299,7 @@ void process(State& state, opxy::Channel left, opxy::Channel right, opxy::Parame
         effect = replace(fixture('probefx'), definition=dict(fixture('probefx').definition, parameters=parameters))
         with tempfile.TemporaryDirectory() as directory:
             text = adapters.generate_synth_controls(Path(directory), [effect]).read_text()
-            body = text[text.index('static bool probefx_format'):text.index('const SynthControls')]
+            body = text[text.index('static bool probefx_format'):text.index('static const opxy::platform::SynthControls')]
             self.assertIn('case 0:\n        control_division(text, value);', body)
             self.assertNotIn('case 1', body)
             self.assertNotIn('control_tenths', body)

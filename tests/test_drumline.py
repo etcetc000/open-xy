@@ -186,8 +186,8 @@ class Drumline(unittest.TestCase):
             self.assertNotIn('sdk_drumline_page_extension', generated)
 
     def test_the_shared_hooks_reach_the_service_through_the_startups_accessor(self):
-        with_page = startup.render(['probesynth'], drumline=True)
-        without = startup.render(['probesynth'])
+        with_page = startup.render(drumline=True)
+        without = startup.render()
         for text in (with_page, without):
             self.assertIn('const void* sdk_drumline_get() __asm__("sdk_drumline_get");', text)
         self.assertIn('const void* sdk_drumline_service() __asm__("sdk_drumline_service");', with_page)

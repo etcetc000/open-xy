@@ -28,6 +28,7 @@
 // section's pool into a staged pool, and the locks service then clears every handle the
 // loaded project holds that a valid, matching section did not give values for.
 #include "project_companion.hpp"
+#include "machine_record.hpp"
 #include "stock.hpp"
 #include "master_processor.hpp"
 namespace master_processor = opxy::platform::master_processor;
@@ -157,6 +158,8 @@ private:
 // What the companion's sections besides open-xy.control and open-xy.locks may take: its
 // envelope, open-xy.master-filter and each machine open-xy.machines lists.
 u32 locks_budget() {
+    // A save may come before startup has built the machine tables; this builds them first.
+    sdk_machine_tables();
     const u32 kFixedBytes = 2048, kEntryBytes = 128, kLimit = 64 * 1024;
     u32 rest = kFixedBytes;
     for (const CompanionMachine* m = sdk_companion_machines; m->id; ++m) rest += kEntryBytes;
@@ -603,6 +606,9 @@ void clear_maps() {
 // The maps from the listed machines, as tooling/projects.py translation() gives them.
 // A number two listed machines claim is trusted for neither: it falls back.
 void fill_maps() {
+    // A project may load before startup has built the machine tables: build them first, so
+    // this selection's machines keep their numbers.
+    sdk_machine_tables();
     clear_maps();
     for (u32 i = 0; i < listed_count; ++i) {
         const Listed& entry = listed[i];
@@ -955,6 +961,9 @@ u32 sdk_project_save(void* project, const char* path) {
 // Stock's deserialize, then the companion's numbers and step locks. The project is the inactive buffer,
 // which nothing reads until stock validates it and makes it pending.
 u32 sdk_project_load(void* project, const char* path) {
+    // A project may load before startup has built the machine tables; stock's deserialize
+    // already asks for this selection's players, so they are built first.
+    sdk_machine_tables();
     master_processor::clear_pending();
     sdk_project_locks_begin();
     const u32 loaded = deserialize(project, path);

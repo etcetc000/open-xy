@@ -1,11 +1,10 @@
-// Synths with track control: generated table (track_control_table.cpp.in);
-// the GUI-tick overlay lives in track_control.cpp.
+// Synths with track control: their table, built at startup from their records
+// (machine_tables.cpp); the GUI-tick overlay lives in track_control.cpp.
 #pragma once
 #include <opxy/track_control.hpp>
 
 namespace opxy { namespace platform {
 
-// In a browser kit an unselected machine's ready resolves to a function returning 0.
 struct ControlMachine {
     const char* id;  // absolute symbol: the engine ID, supplied at link time
     int (*ready)();
@@ -55,8 +54,9 @@ struct AuxService {
 }}
 
 extern "C" {
-extern const opxy::platform::ControlMachine sdk_control_machines[] __asm__("sdk_control_machines");
-extern const opxy::u32 sdk_control_machine_count __asm__("sdk_control_machine_count");
+// The table startup builds from the selected machines' records (machine_tables.cpp).
+extern const opxy::platform::ControlMachine* sdk_control_machines __asm__("sdk_control_machines");
+extern opxy::u32 sdk_control_machine_count __asm__("sdk_control_machine_count");
 void sdk_gui_tick() __asm__("sdk_gui_tick");
 // A project replacement invalidates transient edits/overlays without touching stock's buffers.
 void sdk_control_forget() __asm__("sdk_control_forget");

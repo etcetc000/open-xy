@@ -1,5 +1,6 @@
 #pragma once
 #include <opxy/audio_transport.hpp>
+#include "audio_owner.hpp"
 #include "audio_telemetry.hpp"
 #include "telemetry/protocol.hpp"
 namespace opxy { namespace platform { namespace telemetry {
@@ -73,27 +74,14 @@ template <u32 Words, u32 Mode, bool Reset, u32 Prefix = 1, u32 Slots = 8> struct
     }
 };
 }
-// A machine with audio snapshots, as the generated registry lists it
-// (tooling/audio_telemetry.py generate_registry). Its number is a link-time symbol's
-// value: the native build's, or the number the browser builder gives the selection, 0
-// for a machine the selection leaves out.
-struct Owner {
-    const char* number;
-    bool effect;
-    wire::Bank* (*bank)(u32 slot);
-    u16 words;
-    u8 mode;
-    bool reset;
-    u8 prefix;
-};
 inline u32 link_number(const char* symbol) {
     Address number = reinterpret_cast<Address>(symbol);
-    // A left-out machine's symbol is 0: hide the value so the compiler cannot assume a
+    // A symbol of 0 matches no key: hide the value so the compiler cannot assume a
     // declared object's address is never null and drop the test below.
     __asm__("" : "+r"(number));
     return static_cast<u32>(number);
 }
-// The owner of a wire key: a synth's engine number, or an effect's number with effect_key.
+// The owner of a wire key among `owners` (audio_owner.hpp): a synth's engine number, or an effect's number with effect_key.
 inline const Owner* find_owner(const Owner* owners, u32 count, u32 engine) {
     for (u32 i = 0; i < count; ++i) {
         const u32 number = link_number(owners[i].number);
@@ -101,7 +89,7 @@ inline const Owner* find_owner(const Owner* owners, u32 count, u32 engine) {
     }
     return nullptr;
 }
-// The generated registry's owner of a wire key, or null.
+// The registry's owner of a wire key, or null (telemetry_registry.cpp).
 const Owner* owner(u32 engine);
 // Only a listed synth matching the current audio track owner, or a listed effect its
 // send holds, resolves to a role-local bank. No author-provided pointers.

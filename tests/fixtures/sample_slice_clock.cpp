@@ -28,11 +28,12 @@ static void rate_callback(const SampleSlice* input, SampleSliceRate* output) {
     *output = SampleSliceRate{stationary ? 0u : input->rate * input->bpm_x10, 44100 * input->settings, 4096};
 }
 extern "C" {
-const SampleMachine sdk_sample_machines[] = {
+static const SampleMachine sdk_sample_machines_rows[] = {
     {reinterpret_cast<const char*>(35), 7, ready, defaults, nullptr, nullptr, nullptr,
      0, nullptr, nullptr, nullptr, nullptr, rate_callback}
 };
-const u32 sdk_sample_machine_count = 1;
+const SampleMachine* sdk_sample_machines = sdk_sample_machines_rows;
+u32 sdk_sample_machine_count = 1;
 }
 static const volatile u16* project() { return tempo; }
 static i32 parameter(u32 context, u32 track, u32 index, u32 include_live) {

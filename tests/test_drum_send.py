@@ -405,17 +405,11 @@ class DrumSend(unittest.TestCase):
         self.assertIn('{sender_vtable, sender_drum_send},', source)
         self.assertNotIn('probe_vtable', source)
         self.assertIn('sdk_drum_send_kit_count = 1;', source)
+        # The kit's record holds its row: it alone, so another selection never names it.
+        self.assertNotIn('sender', source.split('sender_vtable, sender_drum_send', 1)[1])
         with tempfile.TemporaryDirectory() as folder:
             source = generate_drum_callbacks(folder, [plain]).read_text(encoding='utf-8')
         self.assertIn('sdk_drum_send_kit_count = 0;', source)
-        machine = SimpleNamespace(**dict(vars(kit(1)), display='drawing'))
-        absent = native.absent_symbols(machine)
-        # The table's declaration has no assembler name, so the object imports _probe_vtable.
-        self.assertEqual(absent['_probe_vtable'], 'kit_absent')
-        self.assertEqual(absent['probe_drum_send'], 'kit_absent')
-        self.assertNotIn('probe_drum_pad_text', absent)
-        machine.definition['resources']['padControls'] = [dict(bits=4, label='TUNE')]
-        self.assertEqual(native.absent_symbols(machine)['probe_drum_pad_text'], 'kit_absent')
 
 
 if __name__ == '__main__':

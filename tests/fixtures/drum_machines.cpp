@@ -12,12 +12,13 @@ void require(bool ok) { if (!ok) std::abort(); }
 }
 
 extern "C" {
-const opxy::platform::DrumMachine sdk_drum_machines[] = {
+static const opxy::platform::DrumMachine sdk_drum_machines_rows[] = {
     {reinterpret_cast<const char*>(34), ready, 12, defaults, label, name, count},
     {reinterpret_cast<const char*>(35), ready, 0, defaults, label, name, count},
     {reinterpret_cast<const char*>(36), ready, 65, defaults, label, name, count}
 };
-const opxy::u32 sdk_drum_machine_count = 3;
+const opxy::platform::DrumMachine* sdk_drum_machines = sdk_drum_machines_rows;
+opxy::u32 sdk_drum_machine_count = 3;
 }
 
 int main() {

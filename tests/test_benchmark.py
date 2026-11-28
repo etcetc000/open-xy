@@ -7,8 +7,22 @@ import struct
 import tempfile
 import unittest
 
-from tooling.benchmark import cases, decode, generate
+from tooling import records
+from tooling.benchmark import cases, decode
 from machine_fixtures import fixture
+
+
+def generate(folder, machines, sweep=False):
+    """The machines' records (tooling/records.py), which carry their diagnostic runs."""
+    path = Path(folder) / 'records.cpp'
+    path.write_text(''.join(records.render(m, sweep) for m in machines), encoding='utf-8')
+    return path
+
+
+def rows(source, name):
+    """The rows of a record's table `name` (benchmark_runs, benchmark_settings)."""
+    body = source.split(f' {name}[] = {{\n', 1)[1].split('\n};', 1)[0]
+    return [line.strip() for line in body.splitlines() if line.strip()]
 from tooling.pipeline import config
 from tooling.firmware import decode_branch
 
@@ -24,17 +38,16 @@ class Benchmark(unittest.TestCase):
     def test_arbitrary_names_and_all_machine_kinds(self):
         synth = replace(fixture('probesynth'), id='unfamiliar', identity=dict(engine=46, page=91))
         selected = [fixture('probefx'), synth, fixture('probesample')]
-        self.assertEqual([c['kind'] for c in cases(selected)[9:]], ['effect', 'synth', 'sample'])
-        self.assertEqual([c['metric'] for c in cases(selected)[9:]], [7, 5, 3])
-        self.assertEqual(cases(selected)[10]['name'], 'unfamiliar')
+        # By kind, then ID, as the records list them (machines.record_order).
+        self.assertEqual([c['kind'] for c in cases(selected)[9:]], ['synth', 'sample', 'effect'])
+        self.assertEqual([c['metric'] for c in cases(selected)[9:]], [5, 3, 7])
+        self.assertEqual(cases(selected)[9]['name'], 'unfamiliar')
         with tempfile.TemporaryDirectory() as folder:
             source = generate(folder, selected).read_text(encoding='utf-8')
             self.assertIn('unfamiliar_ready', source)
             self.assertNotIn('probesynth', source)
             self.assertIn('probefx_benchmark', source)
             self.assertIn('probesample_benchmark', source)
-            empty = generate(folder, []).read_text(encoding='utf-8')
-            self.assertIn('{0, 0, 0, 0, 0, 0, 0}', empty)
 
     def test_a_drum_kit_runs_each_model_and_level_then_the_whole_kit(self):
         from tooling.benchmark import case_label, drum_cases
@@ -50,11 +63,10 @@ class Benchmark(unittest.TestCase):
         self.assertEqual(all(c['benchmark'] == 'opxy-drum-callback-v3' for c in own[:-1]), True)
         self.assertEqual(case_label(own[1]), 'model 0 at 64')
         self.assertEqual(case_label(own[-2]), 'the heaviest model, 8 voices, M3 on (ladder)')
-        # A synth after a kit keeps its sweep: its settings name its own row.
+        # A synth beside a kit keeps its sweep, in its own record; a kit sweeps nothing.
         with tempfile.TemporaryDirectory() as folder:
-            source = generate(folder, [drum, fixture('probesynth')], sweep=True).read_text(encoding='utf-8')
-        row = len(drum_cases(drum))
-        self.assertIn('    {%d, {' % row, source)
+            self.assertIn('benchmark_settings, ', generate(folder, [fixture('probesynth')], sweep=True).read_text(encoding='utf-8'))
+            self.assertNotIn('benchmark_settings', generate(folder, [drum], sweep=True).read_text(encoding='utf-8'))
         with tempfile.TemporaryDirectory() as folder:
             source = generate(folder, [drum]).read_text(encoding='utf-8')
         for run in range(len(drum_cases(drum))):
@@ -72,26 +84,25 @@ class Benchmark(unittest.TestCase):
             self.assertEqual(label, parameters[control]['label'])
             self.assertIn(value, sweep(parameters[control]))
         plain, swept = cases([effect, synth]), cases([effect, synth], sweep=True)
-        self.assertEqual(swept[:len(plain)], plain)
-        extra = swept[len(plain):]
+        # The synth's standard run (its record comes first), its sweep, then the effect's run.
+        self.assertEqual(swept[:10] + swept[-1:], plain)
+        extra = swept[10:-1]
         # Each swept setting, then every control at its heaviest position.
         self.assertEqual([c['benchmark'] for c in extra], [SWEEP] * (len(settings) + 1))
         self.assertEqual([(c['setting']['control'], c['setting']['value']) for c in extra[:-1]],
                          [(control, value) for control, _label, value, _option in settings])
         self.assertTrue(extra[-1]['combined'] and 'setting' not in extra[-1])
         with tempfile.TemporaryDirectory() as folder:
-            source = generate(folder, [effect, synth], sweep=True).read_text(encoding='utf-8')
-            # The synth is machines[1]: a row per setting with its control and value, and
-            # one row of its defaults; the effect sweeps nothing.
-            def table(text, name):
-                body = text.split(f'const {name}[] = {{\n', 1)[1].split('\n};', 1)[0]
-                return [line.strip() for line in body.splitlines() if line.strip()][:-1]
-            self.assertEqual(table(source, 'Setting settings'),
-                             ['{1, %d, %d},' % (c, v) for c, _l, v, _o in settings])
-            self.assertEqual(table(source, 'Defaults defaults'), ['{1, {%s}},' % ', '.join(map(str, defaults))])
-            self.assertIn('sdk_benchmark_parameters = controls;', source)
-            plain_source = generate(folder, [effect, synth]).read_text(encoding='utf-8')
-            self.assertEqual((table(plain_source, 'Setting settings'), table(plain_source, 'Defaults defaults')), ([], []))
+            # The synth's record: a row per setting with its control and value, and its
+            # controls' defaults; the effect sweeps nothing.
+            source = generate(folder, [synth], sweep=True).read_text(encoding='utf-8')
+            self.assertEqual(rows(source, 'benchmark_settings'), ['{%d, %d},' % (c, v) for c, _l, v, _o in settings])
+            self.assertIn('benchmark_defaults[8] = {%s};' % ', '.join(map(str, defaults)), source)
+            self.assertIn(f'benchmark_runs, 1, benchmark_settings, {len(settings)}, benchmark_defaults\n', source)
+            self.assertNotIn('benchmark_settings', generate(folder, [effect], sweep=True).read_text(encoding='utf-8'))
+            self.assertNotIn('benchmark_settings', generate(folder, [synth]).read_text(encoding='utf-8'))
+        runtime = (Path(__file__).resolve().parents[1] / 'sdk/platform/opxy-1.2.1/benchmark.cpp').read_text(encoding='utf-8')
+        self.assertIn('sdk_benchmark_parameters = controls;', runtime)
 
     def test_a_synth_with_a_track_stage_runs_its_stage_after_its_voice_runs(self):
         from tooling.benchmark import STAGE, STAGE_METRIC, case_label
@@ -111,16 +122,13 @@ class Benchmark(unittest.TestCase):
                       source)
         self.assertIn('probestage_stage_benchmark() __asm__("probestage_stage_benchmark");', source)
         self.assertNotIn('stage_benchmark', plain)
-        # A stage synth before a swept one: the stage's row is counted, so the next synth's
-        # settings and defaults name its own row.
+        # A stage synth's record runs its voice, then its stage; its sweep follows the first.
         with tempfile.TemporaryDirectory() as folder:
-            source = generate(folder, [stage, synth], sweep=True).read_text(encoding='utf-8')
-        rows = [line for line in source.split('const Machine machines[] = {\n', 1)[1].split('\n};', 1)[0].splitlines()]
-        self.assertEqual([row.split(',')[0].strip() for row in rows[:-1]], ['{"probestage"', '{"probestage"', '{"probesynth"'])
-        self.assertIn('stage_benchmark', rows[1])
-        self.assertIn('    {0, {', source)
-        self.assertIn('    {2, {', source)
-        self.assertNotIn('    {1, {', source)
+            source = generate(folder, [stage], sweep=True).read_text(encoding='utf-8')
+        runs = rows(source, 'benchmark_runs')
+        self.assertEqual([row.split(',')[0] for row in runs], ['{"probestage"', '{"probestage"'])
+        self.assertIn('stage_benchmark', runs[1])
+        self.assertIn('benchmark_runs, 2, benchmark_settings, ', source)
 
     def test_the_readout_adds_a_synths_stage_once_and_never_as_a_voice(self):
         from tools.benchmark import readout
@@ -129,7 +137,8 @@ class Benchmark(unittest.TestCase):
         def frame(average, peak):
             return dict(command=0x94, route=0x12, payload_hex=(struct.pack('>HHH', peak, average, 1451) * 20).hex())
         frames = [frame(1000, 2000) for _ in expected]
-        frames[-1] = frame(6000, 9000)     # the stage run: heavier than any voice run alone
+        at = next(i for i, c in enumerate(expected) if c.get('stage'))
+        frames[at] = frame(6000, 9000)     # the stage run: heavier than any voice run alone
         lines = readout(decode(dict(complete=True, errors=[], frames=frames), expected))
         text = '\n'.join(lines)
         self.assertIn('| probestage | track stage callback | track stage | 9.155% | 13.733% |', text)
@@ -139,11 +148,11 @@ class Benchmark(unittest.TestCase):
         self.assertIn('- probesynth: heaviest 1.526% at midpoint (stock) in this run.', text)
         self.assertNotIn('at track stage', text)
         # A clipped part makes the sum a lower bound.
-        frames[-1] = frame(6000, 65535)
+        frames[at] = frame(6000, 65535)
         text = '\n'.join(readout(decode(dict(complete=True, errors=[], frames=frames), expected)))
         self.assertIn('- probestage: worst observed block >=103.052% (clipped; exact peak unavailable)', text)
         # A silent stage run is named, and left out of the figures.
-        frames[-1] = frame(0, 0)
+        frames[at] = frame(0, 0)
         text = '\n'.join(readout(decode(dict(complete=True, errors=[], frames=frames), expected)))
         self.assertIn('- probestage: its track stage run failed or was silent', text)
         self.assertIn('- probestage: heaviest 1.526% at midpoint (stock) in this run.', text)

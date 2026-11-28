@@ -419,11 +419,15 @@ stack and one-definition checks run on the value the kit's own build chose.
 The browser links the normalized ELF32 Blackfin objects itself, supporting the
 LUIMM16, HUIMM16, PCREL24, PCREL24_JUMP_L and BYTE4 relocations. Unsupported
 sections, COMMON or weak symbols, unresolved imports, overlapping relocations,
-range overflow, constructors and memory overflow are errors. A deselected
-machine's startup and catalog callbacks resolve to `kit_absent`, which declines:
-startup skips it and its menu name is left to stock. Its audio code and state
-are omitted. Extensions use the same omission mechanism: a generated accessor
-returns their callback descriptor, or resolves to `kit_absent` when deselected.
+range overflow, constructors and memory overflow are errors. No shared object
+names a machine: each machine's objects define its record (its registration
+entry points and its rows in the SDK's shared tables), and the one object a
+selection adds, which the browser writes itself exactly as the pinned assembler
+does, lists the selected machines' records by kind, then ID, and reserves the
+space startup builds the shared tables in. A deselected machine's code, state
+and record are omitted, so its menu name is left to stock. Extensions omit
+themselves differently: a generated accessor returns their callback descriptor,
+or resolves to `kit_absent` when deselected.
 The registry skips absent descriptors and retains collection order. Deselected
 extensions contribute no code or state; shared controller hooks still forward
 stock behavior with an empty extension registry. Export a fresh kit after this

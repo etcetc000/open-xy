@@ -12,6 +12,7 @@ import copy
 import json
 import math
 from pathlib import Path
+from typing import NamedTuple
 
 from . import audio_telemetry
 from .benchmark import append_callback
@@ -38,6 +39,42 @@ def expand(template, values, destination, root=TEMPLATES):
     for key, value in values.items():
         source = source.replace('@' + key + '@', str(value))
     require('@' not in source, 'Unexpanded template ' + template)
+    destination = Path(destination)
+    destination.write_text(source, encoding='utf-8', newline='\n')
+    return destination
+
+class Row(NamedTuple):
+    """A machine's row in one of the SDK's shared tables, which startup builds from the selected
+    machines' records (machine_tables.cpp, tooling/records.py): the C++ it needs first
+    (declarations and static data, inside extern "C"), the row's initializer, and any function
+    it names (outside extern "C")."""
+    declarations: tuple
+    value: str
+    definitions: str = ''
+
+
+def host_tables(destination, headers, tables, machines, usings=()):
+    """For host checks: tables as startup builds them from these machines' records, in their
+    order, as one source defining each table and its count as machine_tables.cpp does. Each
+    table is (C++ type, symbol, count symbol or None for a table that ends with an empty row,
+    row function)."""
+    declarations, definitions, body = [], [], []
+    for type_name, symbol, count, row in tables:
+        rows = [r for r in map(row, machines) if r is not None]
+        for r in rows:
+            declarations += [d for d in r.declarations if d not in declarations]
+            if r.definitions:
+                definitions.append(r.definitions)
+        body.append(f'static const {type_name} {symbol}_rows[] = {{\n' + ''.join(f'    {r.value},\n' for r in rows) +
+                     '    {}\n};')
+        body.append(f'const {type_name}* {symbol} = {symbol}_rows;')
+        if count:
+            body.append(f'opxy::u32 {count} = {len(rows)};')
+    source = ('// Generated for host checks: tables as startup builds them from these machines\' records\n'
+              '// (machine_tables.cpp).\n' + ''.join(f'#include "{h}"\n' for h in headers) +
+              'extern "C" {\n' + ''.join(d + '\n' for d in declarations) + '}\n' +
+              ''.join(f'using {u};\n' for u in usings) + ''.join(d + '\n' for d in definitions) +
+              '\n'.join(body) + '\n')
     destination = Path(destination)
     destination.write_text(source, encoding='utf-8', newline='\n')
     return destination
@@ -142,7 +179,7 @@ def generate_voice(directory, m, sweep=False, idle=False):
         values['PAD_SIGNS'] = sum(1 << i for i, f in enumerate(pads) if f.get('signed'))
         values['TRANSPORT'] = 'true' if drum_transport(m) else 'false'
         values['PARAMETER_EDIT'] = m.definition['resources'].get('parameterEdit', 0)
-        # A modelEdit kit's editor (SDK 1.25), which drum_callbacks.cpp's model-edit table names;
+        # A modelEdit kit's editor (SDK 1.25), which its record's model-edit row names;
         # nothing for any other kit, whose adapter stays as it was.
         values['MODEL_EDIT'] = (
             f'opxy::u32 {m.prefix}_drum_edit_model(opxy::u32, opxy::u32, opxy::u32, opxy::i32, opxy::u32) '
@@ -375,18 +412,16 @@ def model_edit(m):
     return getattr(m, 'kind', 'synth') == 'drum' and bool(m.definition['resources'].get('modelEdit', 0))
 
 
-def model_edit_table(machines):
-    """drum_callbacks.cpp's table of modelEdit kits' editors (drum_model_edit.hpp), or nothing for a
-    build without such a kit, whose shared units never name it (native.py OPXY_MODEL_EDIT)."""
-    kits = [m for m in machines if model_edit(m)]
-    if not kits:
-        return ''
-    declarations = [f'extern "C" opxy::u32 {m.prefix}_drum_edit_model(opxy::u32, opxy::u32, opxy::u32, opxy::i32, '
-                    f'opxy::u32) __asm__("{m.prefix}_drum_edit_model");' for m in kits]
-    rows = [f'    {{{m.prefix}_engine_id, {m.prefix}_drum_edit_model}},' for m in kits]
-    return ('#include "drum_model_edit.hpp"\n' + '\n'.join(declarations) +
-            '\nconst opxy::platform::DrumModelEdit sdk_drum_model_edits[] = {\n' + '\n'.join(rows) + '\n};\n'
-            f'const opxy::u32 sdk_drum_model_edit_count = {len(kits)};\n')
+def model_edit_row(m):
+    """A modelEdit kit's row in the kits' editors (drum_model_edit.hpp), or None. Only a build with
+    such a kit compiles the shared editor's call (native.py OPXY_MODEL_EDIT)."""
+    if not model_edit(m):
+        return None
+    p = m.prefix
+    return Row((f'extern const char {p}_engine_id[] __asm__("{p}_engine_id");',
+                f'opxy::u32 {p}_drum_edit_model(opxy::u32, opxy::u32, opxy::u32, opxy::i32, opxy::u32) '
+                f'__asm__("{p}_drum_edit_model");'),
+               f'{{{p}_engine_id, {p}_drum_edit_model}}')
 
 
 def selected_key(m):
@@ -406,73 +441,75 @@ def sends_per_key(m):
     return m.kind == 'drum' and bool(m.definition['resources'].get('padMix', 0))
 
 
-def kit_table(machines):
-    """drum_callbacks.cpp's table of kits declaring the drum-kit controls (drum_kit_controls.hpp
-    sdk_drum_kits); empty for a build without one, whose source is then as before."""
-    kits = [m for m in machines if kit_controls(m)]
-    if not kits:
-        return ''
-    declarations, rows = [], []
-    for m in kits:
-        amp = kit_controls(m) & 4
-        if amp:
-            declarations.append(f'static const opxy::i32 {m.prefix}_amp[] = {{{", ".join(f"{w:#x}" for w in kit_amp_defaults(m))}}};')
-        rows.append(f'    {{{m.prefix}_engine_id, {kit_controls(m)}, {m.prefix + "_amp" if amp else "nullptr"}}},')
-    return ('#include "drum_kit_controls.hpp"\n' + ''.join(d + '\n' for d in declarations) +
-            'const opxy::platform::DrumKit sdk_drum_kits[] = {\n' + '\n'.join(rows) + '\n};\n'
-            f'const opxy::u32 sdk_drum_kit_count = {len(kits)};\n')
+def kit_row(m):
+    """A kit's row in the drum-kit controls' table (drum_kit_controls.hpp sdk_drum_kits), or None
+    for a kit declaring none of them."""
+    if not kit_controls(m):
+        return None
+    p, amp = m.prefix, kit_controls(m) & 4
+    declarations = [f'extern const char {p}_engine_id[] __asm__("{p}_engine_id");']
+    if amp:
+        declarations.append(f'static const opxy::i32 {p}_amp[] = {{{", ".join(f"{w:#x}" for w in kit_amp_defaults(m))}}};')
+    return Row(tuple(declarations), f'{{{p}_engine_id, {kit_controls(m)}, {p + "_amp" if amp else "nullptr"}}}')
+
+
+def drum_row(m):
+    """A kit's row in the drum table (drum_machines.hpp), or None for another kind."""
+    if m.kind != 'drum':
+        return None
+    p = m.prefix
+    declarations = [f'extern const char {p}_engine_id[] __asm__("{p}_engine_id");',
+                    f'int {p}_record_ready() __asm__("{p}_record_ready");',
+                    f'void {p}_drum_defaults(opxy::u32, opxy::u8*, opxy::u8*) __asm__("{p}_drum_defaults");',
+                    f'const char* {p}_drum_label(opxy::u32, opxy::u32) __asm__("{p}_drum_label");',
+                    f'const char* {p}_drum_model_name(opxy::u32) __asm__("{p}_drum_model_name");',
+                    f'opxy::u32 {p}_drum_count(opxy::u32) __asm__("{p}_drum_count");',
+                    f'void {p}_drum_scramble_range(opxy::u32, opxy::u32, opxy::u8*, opxy::u8*) __asm__("{p}_drum_scramble_range");']
+    groups = m.definition['resources'].get('modelGroups', [])
+    pads = m.definition['resources'].get('padControls', [])
+    if pads:
+        declarations += [f'bool {p}_drum_pad_text(opxy::u32, opxy::i32, char*) __asm__("{p}_drum_pad_text");',
+                         f'static const opxy::u8 {p}_pad_bits[] = {{{", ".join(str(f["bits"]) for f in pads)}}};',
+                         f'static const char* const {p}_pad_labels[] = {{{", ".join(json.dumps(f["label"]) for f in pads)}}};']
+    edit = m.definition['resources'].get('parameterEdit', 0)
+    if edit:
+        declarations.append(f'opxy::u32 {p}_drum_edit_value(opxy::u32, opxy::u32, opxy::u32, opxy::i32, opxy::u32) '
+                            f'__asm__("{p}_drum_edit_value");')
+    if groups:
+        declarations += [f'static const opxy::u8 {p}_group_sizes[] = {{{", ".join(str(g["count"]) for g in groups)}}};',
+                         f'static const char* const {p}_group_names[] = {{{", ".join(json.dumps(g["label"]) for g in groups)}}};']
+    # Audio classification must not require a screen constructed on the GUI role.
+    return Row(tuple(declarations),
+               f'{{{p}_engine_id, {p}_record_ready, {m.definition["resources"]["modelCount"]}, '
+               f'{p}_drum_defaults, {p}_drum_label, {p}_drum_model_name, {p}_drum_count, {len(groups)}, '
+               f'{p + "_group_sizes" if groups else "nullptr"}, {p + "_group_names" if groups else "nullptr"}, '
+               f'{1 if m.definition["resources"].get("padMix", 0) else 0}, {len(pads)}, '
+               f'{p + "_pad_bits" if pads else "nullptr"}, {sum(1 << i for i, f in enumerate(pads) if f.get("signed"))}, '
+               f'{p + "_pad_labels" if pads else "nullptr"}, {p + "_drum_pad_text" if pads else "nullptr"}, '
+               f'{p}_drum_scramble_range, '
+               f'{p + "_drum_edit_value" if edit else "nullptr"}}}')
+
+
+def send_row(m):
+    """A padMix kit's row in the send kits (drum_send.hpp): the mixer's send hooks (drum_send.cpp)
+    know its voices by their method table. None for any other machine."""
+    if not sends_per_key(m):
+        return None
+    p = m.prefix
+    return Row((f'extern const void* const {p}_vtable[];', f'opxy::u32 {p}_drum_send(const void*) __asm__("{p}_drum_send");'),
+               f'{{{p}_vtable, {p}_drum_send}}')
 
 
 def generate_drum_callbacks(directory, machines):
-    declarations, rows, sends = [], [], []
-    for m in machines:
-        if m.kind != 'drum':
-            continue
-        p = m.prefix
-        declarations += [f'extern const char {p}_engine_id[] __asm__("{p}_engine_id");',
-                         f'int {p}_record_ready() __asm__("{p}_record_ready");',
-                         f'void {p}_drum_defaults(opxy::u32, opxy::u8*, opxy::u8*) __asm__("{p}_drum_defaults");',
-                         f'const char* {p}_drum_label(opxy::u32, opxy::u32) __asm__("{p}_drum_label");',
-                         f'const char* {p}_drum_model_name(opxy::u32) __asm__("{p}_drum_model_name");',
-                         f'opxy::u32 {p}_drum_count(opxy::u32) __asm__("{p}_drum_count");',
-                         f'void {p}_drum_scramble_range(opxy::u32, opxy::u32, opxy::u8*, opxy::u8*) __asm__("{p}_drum_scramble_range");']
-        groups = m.definition['resources'].get('modelGroups', [])
-        pads = m.definition['resources'].get('padControls', [])
-        if pads:
-            declarations += [f'bool {p}_drum_pad_text(opxy::u32, opxy::i32, char*) __asm__("{p}_drum_pad_text");',
-                             f'static const opxy::u8 {p}_pad_bits[] = {{{", ".join(str(f["bits"]) for f in pads)}}};',
-                             f'static const char* const {p}_pad_labels[] = {{{", ".join(json.dumps(f["label"]) for f in pads)}}};']
-        edit = m.definition['resources'].get('parameterEdit', 0)
-        if edit:
-            declarations.append(f'opxy::u32 {p}_drum_edit_value(opxy::u32, opxy::u32, opxy::u32, opxy::i32, opxy::u32) '
-                                f'__asm__("{p}_drum_edit_value");')
-        if groups:
-            declarations += [f'static const opxy::u8 {p}_group_sizes[] = {{{", ".join(str(g["count"]) for g in groups)}}};',
-                             f'static const char* const {p}_group_names[] = {{{", ".join(json.dumps(g["label"]) for g in groups)}}};']
-        # Audio classification must not require a screen constructed on the GUI role.
-        rows.append(f'    {{{p}_engine_id, {p}_record_ready, {m.definition["resources"]["modelCount"]}, '
-                    f'{p}_drum_defaults, {p}_drum_label, {p}_drum_model_name, {p}_drum_count, {len(groups)}, '
-                    f'{p + "_group_sizes" if groups else "nullptr"}, {p + "_group_names" if groups else "nullptr"}, '
-                    f'{1 if m.definition["resources"].get("padMix", 0) else 0}, {len(pads)}, '
-                    f'{p + "_pad_bits" if pads else "nullptr"}, {sum(1 << i for i, f in enumerate(pads) if f.get("signed"))}, '
-                    f'{p + "_pad_labels" if pads else "nullptr"}, {p + "_drum_pad_text" if pads else "nullptr"}, '
-                    f'{p}_drum_scramble_range, '
-                    f'{p + "_drum_edit_value" if edit else "nullptr"}}},')
-        if sends_per_key(m):
-            # The mixer's send hooks (drum_send.cpp) know a kit's voices by its method table.
-            declarations += [f'extern const void* const {p}_vtable[];',
-                             f'opxy::u32 {p}_drum_send(const void*) __asm__("{p}_drum_send");']
-            sends.append(f'    {{{p}_vtable, {p}_drum_send}},')
-    source = '#include "drum_machines.hpp"\n#include "drum_send.hpp"\nextern "C" {\n' + '\n'.join(declarations) + '\n}\n'
-    source += 'const opxy::platform::DrumMachine sdk_drum_machines[] = {\n' + ('\n'.join(rows) or '    {},') + '\n};\n'
-    source += f'const opxy::u32 sdk_drum_machine_count = {len(rows)};\n'
-    source += model_edit_table(machines)
-    source += kit_table(machines)
-    source += 'const opxy::platform::DrumSendKit sdk_drum_send_kits[] = {\n' + ('\n'.join(sends) or '    {},') + '\n};\n'
-    source += f'const opxy::u32 sdk_drum_send_kit_count = {len(sends)};\n'
-    destination = Path(directory) / 'drum_callbacks.cpp'
-    destination.write_text(source, encoding='utf-8', newline='\n')
-    return destination
+    """For host checks: the drum tables these machines' records build (drum_row, model_edit_row,
+    kit_row, send_row)."""
+    return host_tables(Path(directory) / 'drum_callbacks.cpp',
+                       ('drum_machines.hpp', 'drum_model_edit.hpp', 'drum_kit_controls.hpp', 'drum_send.hpp'),
+                       [('opxy::platform::DrumMachine', 'sdk_drum_machines', 'sdk_drum_machine_count', drum_row),
+                        ('opxy::platform::DrumModelEdit', 'sdk_drum_model_edits', 'sdk_drum_model_edit_count', model_edit_row),
+                        ('opxy::platform::DrumKit', 'sdk_drum_kits', 'sdk_drum_kit_count', kit_row),
+                        ('opxy::platform::DrumSendKit', 'sdk_drum_send_kits', 'sdk_drum_send_kit_count', send_row)],
+                       machines)
 
 
 # A drum kit's keys and names, as the device's adapter reads them (drum_voice.cpp.in),
@@ -1061,28 +1098,31 @@ def generate_sample_voice(directory, m, benchmark=False):
     return append_callback(path, m) if benchmark else path
 
 
+def sample_row(m):
+    """A sample machine's row in the sample table (sample_machines.hpp), or None for another kind."""
+    if m.kind != 'sample':
+        return None
+    p, resources = m.prefix, m.definition['resources']
+    declarations = [f'int {p}_ready() __asm__("{p}_ready");',
+                    # The engine ID is an absolute symbol the linker supplies; the stock page is the machine's own.
+                    f'extern const char {p}_engine_id[] __asm__("{p}_engine_id");']
+    values = [p + '_engine_id', str(m.sample_page), p + '_ready']
+    for flag, entries in SAMPLE_SERVICES:
+        declared = bool(resources.get(flag, 0))
+        if flag == 'sampleAnalysis':
+            values.append(f'{resources.get(flag, 0)}u')
+        for suffix, result, arguments in entries:
+            if declared:
+                declarations.append(f'{result} {p}{suffix}({arguments}) __asm__("{p}{suffix}");')
+            values.append(p + suffix if declared else 'nullptr')
+    return Row(tuple(declarations), '{' + ', '.join(values) + '}')
+
+
 def generate_sample_callbacks(directory, machines):
-    """The collection's sample machines as one table (sample_machines.hpp) and the stock-page bridge."""
-    declarations, rows = [], []
-    for m in machines:
-        if m.kind != 'sample':
-            continue
-        p, resources = m.prefix, m.definition['resources']
-        declarations.append(f'int {p}_ready() __asm__("{p}_ready");')
-        # The engine ID is an absolute symbol the linker supplies; the stock page is the machine's own.
-        declarations.append(f'extern const char {p}_engine_id[] __asm__("{p}_engine_id");')
-        fields = [p + '_engine_id', str(m.sample_page), p + '_ready']
-        for flag, entries in SAMPLE_SERVICES:
-            declared = bool(resources.get(flag, 0))
-            if flag == 'sampleAnalysis':
-                fields.append(f'{resources.get(flag, 0)}u')
-            for suffix, result, arguments in entries:
-                if declared:
-                    declarations.append(f'{result} {p}{suffix}({arguments}) __asm__("{p}{suffix}");')
-                fields.append(p + suffix if declared else 'nullptr')
-        rows.append('    {' + ', '.join(fields) + '},')
-    return expand('sample_callbacks.cpp.in', dict(CALLBACK_DECLS='\n'.join(declarations), MACHINES='\n'.join(rows)),
-                  Path(directory) / 'sample_callbacks.cpp')
+    """For host checks: the sample table these machines' records build (sample_row)."""
+    return host_tables(Path(directory) / 'sample_table.cpp', ('sample_machines.hpp',),
+                       [('opxy::platform::SampleMachine', 'sdk_sample_machines', 'sdk_sample_machine_count', sample_row)],
+                       machines)
 
 
 def control_cycles(definition):
@@ -1107,110 +1147,134 @@ def enum_steps(parameter):
     return len(labels) if len(labels) < 256 else 0
 
 
-def generate_synth_controls(directory, machines):
-    """Synth ownership, alternate selection and continuous fine controls."""
-    declarations, rows, formatters, lfo_rows = [], [], [], []
-    for m in machines:
-        if m.kind in ('synth', 'drum', 'sample'):
-            declarations.append(f'int {m.prefix}_record_ready() __asm__("{m.prefix}_record_ready");')
-            declarations.append(f'extern const char {m.prefix}_engine_id[] __asm__("{m.prefix}_engine_id");')
-            controls = ', '.join(str((i if position is None else position) % 4) for i, position in enumerate(control_positions(m.definition)))
-            lfo_rows.append(f'    {{{m.prefix}_engine_id, {m.prefix}_record_ready, {len(m.definition["parameters"])}, {{{controls}}}}},')
-        # A sample engine with its own screen pages its eight controls as a paged synth does.
-        own_screen = m.kind == 'sample' and m.display != 'stock'
-        if m.kind not in ('synth', 'drum', 'effect') and not own_screen:
-            continue
-        effect = m.kind == 'effect'
-        count = len(m.definition['parameters'])
-        if own_screen:
-            following = [(i + 4) % 8 if count > 4 and (i + 4) % 8 < count else i for i in range(8)]
-        else:
-            following = control_cycles(m.definition) or list(range(8))
-        continuous = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p['mapping']['kind'] != 'enum' and not p.get('absent'))
-        absent = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p.get('absent'))
-        steps = [enum_steps(p) for p in m.definition['parameters']]
-        steps += [0] * (8 - len(steps))
-        declarations.append(f'int {m.prefix}_ready() __asm__("{m.prefix}_ready");')
-        # The engine or effect ID is an absolute symbol the linker supplies.
-        id_symbol = m.prefix + ('_fx_id' if effect else '_engine_id')
-        if effect:
-            declarations.append(f'extern const char {id_symbol}[] __asm__("{id_symbol}");')
-        body = [f'static bool {m.prefix}_format(opxy::u32 slot, opxy::i32 value, char* text) {{', '    switch (slot) {']
-        # An effect's shift-row controls caption as slots 8..11.
-        captioned = list(enumerate(m.definition['parameters']))
-        captioned += [(SHIFT_SLOT + i, p) for i, p in enumerate(shift_parameters(m.definition) or synth_shift(m.definition))]
-        for i, p in captioned:
-            mapping = p['mapping']
-            if p.get('absent'):
-                continue
-            # The selected choice's label, on synth and send pages alike.
-            if mapping['kind'] == 'enum':
-                labels = ', '.join(json.dumps(label) for label in mapping['labels'])
-                body.extend([f'    case {i}: {{', f'        static const char* const labels[] = {{{labels}}};',
-                             f'        control_label(text, value, labels, {len(mapping["labels"])});',
-                             '        return true;', '    }'])
-                continue
-            # Stock delay's note-length names. Send pages keep stock captions
-            # for every other control.
-            if p['display'] == 'division':
-                body.extend([f'    case {i}:', '        control_division(text, value);', '        return true;'])
-                continue
-            if effect:
-                continue
-            # Compact native ratio captions; unusual/signed ranges retain the
-            # stock normalized display, with an extra decimal place.
-            if p['display'] == 'ratio' and mapping['kind'] == 'anchors' and 0 <= mapping['values'][0] < mapping['values'][-1] <= 1000:
-                anchors = ', '.join(str(math.floor(v * 10 + 0.5)) for v in mapping['values'])
-                body.extend([f'    case {i}: {{', f'        static const opxy::u32 anchors[] = {{{anchors}}};',
-                             f'        control_tenths(text, control_ratio(value, anchors, {len(mapping["values"])}), ":1");',
-                             '        return true;', '    }'])
-            else:
-                body.extend([f'    case {i}:', '        control_tenths(text, value < 0 ? 0 : ((static_cast<opxy::u32>(value) >> 10) * 1000 + (1u << 20)) >> 21, "");',
-                             '        return true;'])
-        body.extend(['    default: return false;', '    }', '}'])
-        formatters.append('\n'.join(body))
-        # A drum kit's press pages its whole row, on a key that has a second row
-        # (synth_controls.cpp second_row).
-        page = m.kind == 'drum' or own_screen and count > 4 or paged(m.definition)
-        # An effect's shift row: its choice counts and titles; other rows leave the fields zero.
-        extra = ''
-        shift = shift_parameters(m.definition)
-        if shift:
-            titles = ', '.join(json.dumps(p['label'].lower()) for p in shift)
-            declarations.append(f'static const char* const {m.prefix}_shift_titles[] = {{{titles}}};')
-            choices = [len(p['mapping']['labels']) for p in shift] + [1] * (SYNTH_POSITIONS - len(shift))
-            extra = f", {len(shift)}, {{{', '.join(map(str, choices))}}}, {m.prefix}_shift_titles"
-        elif synth_shift(m.definition):
-            # A synth's Shift row (SDK 1.13, synth_controls.hpp SynthShift).
-            tables = shift_row_tables(m.definition)
-            titles = ', '.join(json.dumps('' if p.get('absent') else p['label'].lower()) for p in synth_shift(m.definition))
-            declarations.append(f'static const char* const {m.prefix}_shift_titles[] = {{{titles}}};')
-            declarations.append(f'static const opxy::platform::SynthShift {m.prefix}_shift_row = '
-                                f"{{{tables['count']}, {{{tables['choices']}}}, {{{tables['defaults']}}}, {m.prefix}_shift_titles}};")
-            extra = f', 0, {{1, 1, 1, 1}}, nullptr, {{0, 0, 0, 0}}, &{m.prefix}_shift_row'
-        elif own_screen and 'stockShift' in m.definition['resources']:
-            # Shift gives these encoders to the stock sampler page (drum_controls_stock.cpp).
-            codes = ', '.join(map(str, stock_shift_codes(m.definition)))
-            extra = f', 0, {{1, 1, 1, 1}}, nullptr, {{{codes}}}'
-        rows.append(f"    {{{id_symbol}, {m.prefix}_ready, {{{', '.join(map(str, following))}}}, {continuous}, "
-                    f"{{{', '.join(map(str, steps))}}}, {m.prefix}_format, "
-                    f"{'true' if effect else 'false'}, {'true' if page else 'false'}, {hidden_pages(m.definition)}, {absent}{extra}}},")
-    return expand('synth_control_table.cpp.in', dict(READY_DECLS='\n'.join(declarations), MACHINES='\n'.join(rows), FORMATTERS='\n'.join(formatters), LFO_MACHINES='\n'.join(lfo_rows)),
-                  Path(directory) / 'synth_control_table.cpp')
+def lfo_row(m):
+    """An instrument's row in the LFO table (lfo.hpp), or None for an effect or a player."""
+    if m.kind not in ('synth', 'drum', 'sample'):
+        return None
+    controls = ', '.join(str((i if position is None else position) % 4) for i, position in enumerate(control_positions(m.definition)))
+    return Row((f'int {m.prefix}_record_ready() __asm__("{m.prefix}_record_ready");',
+                f'extern const char {m.prefix}_engine_id[] __asm__("{m.prefix}_engine_id");'),
+               f'{{{m.prefix}_engine_id, {m.prefix}_record_ready, {len(m.definition["parameters"])}, {{{controls}}}}}')
 
+
+# What a format function's cases call (synth_controls.hpp).
+CONTROL_USINGS = ('opxy::platform::control_tenths', 'opxy::platform::control_ratio', 'opxy::platform::control_division',
+                  'opxy::platform::control_label')
+
+
+def synth_control_row(m):
+    """Synth ownership, alternate selection and continuous fine controls: a synth's, kit's, effect's
+    or own-screen sample engine's row in the controls table (synth_controls.hpp) with its format
+    function, or None."""
+    declarations = []
+    # A sample engine with its own screen pages its eight controls as a paged synth does.
+    own_screen = m.kind == 'sample' and m.display != 'stock'
+    if m.kind not in ('synth', 'drum', 'effect') and not own_screen:
+        return None
+    effect = m.kind == 'effect'
+    count = len(m.definition['parameters'])
+    if own_screen:
+        following = [(i + 4) % 8 if count > 4 and (i + 4) % 8 < count else i for i in range(8)]
+    else:
+        following = control_cycles(m.definition) or list(range(8))
+    continuous = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p['mapping']['kind'] != 'enum' and not p.get('absent'))
+    absent = sum(1 << i for i, p in enumerate(m.definition['parameters']) if p.get('absent'))
+    steps = [enum_steps(p) for p in m.definition['parameters']]
+    steps += [0] * (8 - len(steps))
+    declarations.append(f'int {m.prefix}_ready() __asm__("{m.prefix}_ready");')
+    # The engine or effect ID is an absolute symbol the linker supplies.
+    id_symbol = m.prefix + ('_fx_id' if effect else '_engine_id')
+    declarations.append(f'extern const char {id_symbol}[] __asm__("{id_symbol}");')
+    body = [f'static bool {m.prefix}_format(opxy::u32 slot, opxy::i32 value, char* text) {{', '    switch (slot) {']
+    # An effect's shift-row controls caption as slots 8..11.
+    captioned = list(enumerate(m.definition['parameters']))
+    captioned += [(SHIFT_SLOT + i, p) for i, p in enumerate(shift_parameters(m.definition) or synth_shift(m.definition))]
+    for i, p in captioned:
+        mapping = p['mapping']
+        if p.get('absent'):
+            continue
+        # The selected choice's label, on synth and send pages alike.
+        if mapping['kind'] == 'enum':
+            labels = ', '.join(json.dumps(label) for label in mapping['labels'])
+            body.extend([f'    case {i}: {{', f'        static const char* const labels[] = {{{labels}}};',
+                         f'        control_label(text, value, labels, {len(mapping["labels"])});',
+                         '        return true;', '    }'])
+            continue
+        # Stock delay's note-length names. Send pages keep stock captions
+        # for every other control.
+        if p['display'] == 'division':
+            body.extend([f'    case {i}:', '        control_division(text, value);', '        return true;'])
+            continue
+        if effect:
+            continue
+        # Compact native ratio captions; unusual/signed ranges retain the
+        # stock normalized display, with an extra decimal place.
+        if p['display'] == 'ratio' and mapping['kind'] == 'anchors' and 0 <= mapping['values'][0] < mapping['values'][-1] <= 1000:
+            anchors = ', '.join(str(math.floor(v * 10 + 0.5)) for v in mapping['values'])
+            body.extend([f'    case {i}: {{', f'        static const opxy::u32 anchors[] = {{{anchors}}};',
+                         f'        control_tenths(text, control_ratio(value, anchors, {len(mapping["values"])}), ":1");',
+                         '        return true;', '    }'])
+        else:
+            body.extend([f'    case {i}:', '        control_tenths(text, value < 0 ? 0 : ((static_cast<opxy::u32>(value) >> 10) * 1000 + (1u << 20)) >> 21, "");',
+                         '        return true;'])
+    body.extend(['    default: return false;', '    }', '}'])
+    # A drum kit's press pages its whole row, on a key that has a second row
+    # (synth_controls.cpp second_row).
+    page = m.kind == 'drum' or own_screen and count > 4 or paged(m.definition)
+    # An effect's shift row: its choice counts and titles; other rows leave them zero.
+    extra = ''
+    shift = shift_parameters(m.definition)
+    if shift:
+        titles = ', '.join(json.dumps(p['label'].lower()) for p in shift)
+        declarations.append(f'static const char* const {m.prefix}_shift_titles[] = {{{titles}}};')
+        choices = [len(p['mapping']['labels']) for p in shift] + [1] * (SYNTH_POSITIONS - len(shift))
+        extra = f", {len(shift)}, {{{', '.join(map(str, choices))}}}, {m.prefix}_shift_titles"
+    elif synth_shift(m.definition):
+        # A synth's Shift row (SDK 1.13, synth_controls.hpp SynthShift).
+        tables = shift_row_tables(m.definition)
+        titles = ', '.join(json.dumps('' if p.get('absent') else p['label'].lower()) for p in synth_shift(m.definition))
+        declarations.append(f'static const char* const {m.prefix}_shift_titles[] = {{{titles}}};')
+        declarations.append(f'static const opxy::platform::SynthShift {m.prefix}_shift_row = '
+                            f"{{{tables['count']}, {{{tables['choices']}}}, {{{tables['defaults']}}}, {m.prefix}_shift_titles}};")
+        extra = f', 0, {{1, 1, 1, 1}}, nullptr, {{0, 0, 0, 0}}, &{m.prefix}_shift_row'
+    elif own_screen and 'stockShift' in m.definition['resources']:
+        # Shift gives these encoders to the stock sampler page (drum_controls_stock.cpp).
+        codes = ', '.join(map(str, stock_shift_codes(m.definition)))
+        extra = f', 0, {{1, 1, 1, 1}}, nullptr, {{{codes}}}'
+    return Row(tuple(declarations),
+               f"{{{id_symbol}, {m.prefix}_ready, {{{', '.join(map(str, following))}}}, {continuous}, "
+               f"{{{', '.join(map(str, steps))}}}, {m.prefix}_format, "
+               f"{'true' if effect else 'false'}, {'true' if page else 'false'}, {hidden_pages(m.definition)}, {absent}{extra}}}",
+               '\n'.join(body))
+
+
+def generate_synth_controls(directory, machines):
+    """For host checks: the controls and LFO tables these machines' records build (synth_control_row,
+    lfo_row)."""
+    return host_tables(Path(directory) / 'synth_control_table.cpp', ('synth_controls.hpp', 'lfo.hpp'),
+                       [('opxy::platform::SynthControls', 'sdk_synth_controls', 'sdk_synth_control_count', synth_control_row),
+                        ('opxy::platform::LfoMachine', 'sdk_lfo_machines', 'sdk_lfo_machine_count', lfo_row)],
+                       machines, CONTROL_USINGS)
+
+
+
+def companion_row(m):
+    """A machine's ID and its number symbols for project companions (docs/projects.md), or None
+    for a player. Numbers are link-time symbols."""
+    if m.kind == 'player':
+        return None
+    number, page = (m.prefix + '_fx_id', m.prefix + '_fx_page_id') if m.kind == 'effect' else \
+        (m.prefix + '_engine_id', m.prefix + '_page_id')
+    return Row(tuple(f'extern const char {name}[] __asm__("{name}");' for name in (number, page)),
+               f'{{"{m.id}", {number}, {page}, {"true" if m.kind == "effect" else "false"}}}')
 
 
 def generate_project_companion_table(directory, machines):
-    """Each machine's ID and its number symbols, sorted by ID as a companion lists them
-    (docs/projects.md). Numbers are link-time symbols; a kit's unselected machines are 0."""
-    declarations, rows = [], []
-    for m in sorted((m for m in machines if m.kind != 'player'), key=lambda m: m.id):
-        number, page = (m.prefix + '_fx_id', m.prefix + '_fx_page_id') if m.kind == 'effect' else \
-            (m.prefix + '_engine_id', m.prefix + '_page_id')
-        declarations += [f'extern const char {name}[] __asm__("{name}");' for name in (number, page)]
-        rows.append(f'    {{"{m.id}", {number}, {page}, {"true" if m.kind == "effect" else "false"}}},')
-    return expand('project_companion_table.cpp.in', dict(DECLARATIONS='\n'.join(declarations), MACHINES='\n'.join(rows)),
-                  Path(directory) / 'project_companion_table.cpp')
+    """For host checks: the companion table these machines' records build, sorted by ID as a
+    companion lists them and ending with an empty row (companion_row)."""
+    return host_tables(Path(directory) / 'project_companion_table.cpp', ('project_companion.hpp',),
+                       [('opxy::platform::CompanionMachine', 'sdk_companion_machines', None, companion_row)],
+                       sorted(machines, key=lambda m: m.id))
 
 # A send slot's stock scratch memory: scratch(slot, bytes) (0x8d50e048), as stock
 # delay and reverb use it, only for the two send slots (docs/abi-1.2.1.md).
@@ -1270,10 +1334,9 @@ def control_callbacks(m):
     return [m.prefix + suffix for suffix in suffixes]
 
 
-def generate_track_controls(directory, machines):
-    """The collection's synths with track control, as one table (track_control.hpp)."""
-    # Shift + M1 on an aux track lists its stock role and every machine that may take
-    # it over (aux_tracks.cpp, kChoices): refuse a build whose list would not fit.
+def check_track_controls(machines):
+    """Shift + M1 on an aux track lists its stock role and every machine that may take it over
+    (aux_tracks.cpp, kChoices): refuse a collection whose list would not fit."""
     for m in machines:
         require(not track_control(m).get('aux') or m.id not in AUX_ROLES.values(),
                 f'A machine that takes over aux tracks is not named as a stock role ({m.id})')
@@ -1281,37 +1344,47 @@ def generate_track_controls(directory, machines):
         holders = [m.id for m in machines if track_control(m) and track in track_control(m).get('aux', ())]
         require(len(holders) <= AUX_CHOICES - 1,
                 f'At most {AUX_CHOICES - 1} machines may take over aux track {track} in one build, not {len(holders)}')
-    declarations, rows = [], []
-    for m in machines:
-        if not track_control(m):
-            continue
-        p, saved = m.prefix, track_control(m).get('savedBytes', 0)
-        declarations += [f'int {p}_ready() __asm__("{p}_ready");',
-                         f'extern const char {p}_engine_id[] __asm__("{p}_engine_id");',
-                         f'void {p}_control_reset(opxy::u32) __asm__("{p}_control_reset");',
-                         f'void {p}_control(opxy::u32, const opxy::control::Input*, opxy::control::Overlay*) '
-                         f'__asm__("{p}_control");']
-        if saved:
-            declarations += [f'opxy::u32 {p}_control_save(opxy::u8*) __asm__("{p}_control_save");',
-                             f'void {p}_control_load(const opxy::u8*, opxy::u32) __asm__("{p}_control_load");']
-        callbacks = f'{p}_control_save, {p}_control_load' if saved else 'nullptr, nullptr'
-        unique = 'true' if track_control(m).get('unique') else 'false'
-        shared_lfo = 'true' if track_control(m).get('sharedLfo') else 'false'
-        # The aux tracks it may take over, by index; there it shows its own page
-        # and starts from its defaults, as stock applies them on tracks 1-8.
-        aux = sum(1 << (t - 1) for t in track_control(m).get('aux', ()))
-        require(not aux or m.display != 'stock', 'A machine that takes over aux tracks needs its own display')
-        page = f'{p}_page_id' if m.display != 'stock' else 'nullptr'
-        if m.display != 'stock':
-            declarations.append(f'extern const char {p}_page_id[] __asm__("{p}_page_id");')
-        defaults = ', '.join(str(d << 16) for d in catalog_defaults(m.definition))
-        # Its presets become files in content/aux_presets (aux_preset_files), named by them.
-        require(not aux or all(len(name) <= 15 for name in m.definition['presets']),
-                'A machine that takes over aux tracks names its presets in at most 15 characters')
-        rows.append(f'    {{{p}_engine_id, {p}_ready, {p}_control_reset, {p}_control, "{m.id}", {saved}, {callbacks}, '
-                    f'{unique}, {aux:#x}u, {page}, {{{defaults}}}, {shared_lfo}}},')
-    return expand('track_control_table.cpp.in', dict(CONTROL_DECLS='\n'.join(declarations), MACHINES='\n'.join(rows)),
-                  Path(directory) / 'track_control_table.cpp')
+
+
+def track_control_row(m):
+    """A synth's row in the track control table (track_control.hpp), or None for one without."""
+    if not track_control(m):
+        return None
+    p, saved = m.prefix, track_control(m).get('savedBytes', 0)
+    declarations = [f'int {p}_ready() __asm__("{p}_ready");',
+                    f'extern const char {p}_engine_id[] __asm__("{p}_engine_id");',
+                    f'void {p}_control_reset(opxy::u32) __asm__("{p}_control_reset");',
+                    f'void {p}_control(opxy::u32, const opxy::control::Input*, opxy::control::Overlay*) '
+                    f'__asm__("{p}_control");']
+    if saved:
+        declarations += [f'opxy::u32 {p}_control_save(opxy::u8*) __asm__("{p}_control_save");',
+                         f'void {p}_control_load(const opxy::u8*, opxy::u32) __asm__("{p}_control_load");']
+    callbacks = f'{p}_control_save, {p}_control_load' if saved else 'nullptr, nullptr'
+    unique = 'true' if track_control(m).get('unique') else 'false'
+    shared_lfo = 'true' if track_control(m).get('sharedLfo') else 'false'
+    # The aux tracks it may take over, by index; there it shows its own page
+    # and starts from its defaults, as stock applies them on tracks 1-8.
+    aux = sum(1 << (t - 1) for t in track_control(m).get('aux', ()))
+    require(not aux or m.display != 'stock', 'A machine that takes over aux tracks needs its own display')
+    page = f'{p}_page_id' if m.display != 'stock' else 'nullptr'
+    if m.display != 'stock':
+        declarations.append(f'extern const char {p}_page_id[] __asm__("{p}_page_id");')
+    defaults = ', '.join(str(d << 16) for d in catalog_defaults(m.definition))
+    # Its presets become files in content/aux_presets (aux_preset_files), named by them.
+    require(not aux or all(len(name) <= 15 for name in m.definition['presets']),
+            'A machine that takes over aux tracks names its presets in at most 15 characters')
+    return Row(tuple(declarations),
+               f'{{{p}_engine_id, {p}_ready, {p}_control_reset, {p}_control, "{m.id}", {saved}, {callbacks}, '
+               f'{unique}, {aux:#x}u, {page}, {{{defaults}}}, {shared_lfo}}}')
+
+
+def generate_track_controls(directory, machines):
+    """For host checks: the track control table these machines' records build (track_control_row),
+    for a collection check_track_controls admits."""
+    check_track_controls(machines)
+    return host_tables(Path(directory) / 'track_control_table.cpp', ('track_control.hpp',),
+                       [('opxy::platform::ControlMachine', 'sdk_control_machines', 'sdk_control_machine_count',
+                         track_control_row)], machines)
 
 
 # An effect's shift row (SDK 1.7): its choices, packed into the send track's
@@ -1395,7 +1468,7 @@ def effect_audio_values(m, shift=()):
         '    sdk_audio.begin(audio_bank);',
         AUDIO_ARGUMENT=', audio_context',
         AUDIO_END='\n    sdk_audio.end(audio_bank);',
-        AUDIO_BANK=f'''// The transport's bank for a send (audio_telemetry.generate_registry): only while the
+        AUDIO_BANK=f'''// The transport's bank for a send (audio_telemetry.owner_row): only while the
 // send's slot holds this effect.
 extern "C" opxy::platform::telemetry::wire::Bank* {p}_audio_bank(opxy::u32) __asm__("{p}_audio_bank");
 extern "C" opxy::platform::telemetry::wire::Bank* {p}_audio_bank(opxy::u32 send) {{
@@ -1599,13 +1672,19 @@ def player_shift_values(m):
     return dict(SHIFT_TABLE=table, SHIFT=', &player_shift')
 
 
+def player_row(m):
+    """A note player's row in the player table (players.hpp), which the stock player hooks look up;
+    None for another kind."""
+    if m.kind != 'player':
+        return None
+    return Row((f'const opxy::platform::Player* {m.prefix}_player() __asm__("{m.prefix}_player");',),
+               f'{{{m.prefix}_player}}')
+
+
 def generate_player_table(directory, machines):
-    """The collection's players, which the stock player hooks look up."""
-    players = [m for m in machines if m.kind == 'player']
-    declarations = [f'const opxy::platform::Player* {m.prefix}_player() __asm__("{m.prefix}_player");' for m in players]
-    rows = [f'    {{{m.prefix}_player}},' for m in players]
-    return expand('player_table.cpp.in', dict(DECLS='\n'.join(declarations), ROWS='\n'.join(rows)),
-                  Path(directory) / 'player_table.cpp')
+    """For host checks: the player table these machines' records build (player_row)."""
+    return host_tables(Path(directory) / 'player_table.cpp', ('players.hpp',),
+                       [('opxy::platform::PlayerEntry', 'sdk_players', 'sdk_player_count', player_row)], machines)
 
 
 # Stock lists Arpeggio, Hold and Maestro (types 2..4) with catalog IDs 6..8.

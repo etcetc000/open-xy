@@ -107,8 +107,9 @@ struct DrumMachine {
 }}
 
 extern "C" {
-extern const opxy::platform::DrumMachine sdk_drum_machines[] __asm__("sdk_drum_machines");
-extern const opxy::u32 sdk_drum_machine_count __asm__("sdk_drum_machine_count");
+// The table startup builds from the selected machines' records (machine_tables.cpp).
+extern const opxy::platform::DrumMachine* sdk_drum_machines __asm__("sdk_drum_machines");
+extern opxy::u32 sdk_drum_machine_count __asm__("sdk_drum_machine_count");
 const opxy::platform::DrumMachine* sdk_drum_machine(opxy::u32 engine) __asm__("sdk_drum_machine");
 opxy::u32 sdk_drum_alias(opxy::u32 engine) __asm__("sdk_drum_alias");
 // Project load's check of a pattern's track object: the alias, after a padMix

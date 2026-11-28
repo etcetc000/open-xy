@@ -29,8 +29,9 @@ void modulate(u32 project, u32 track, u32 index, i32 amount);
 }}
 
 extern "C" {
-extern const opxy::platform::LfoMachine sdk_lfo_machines[] __asm__("sdk_lfo_machines");
-extern const opxy::u32 sdk_lfo_machine_count __asm__("sdk_lfo_machine_count");
+// The table startup builds from the selected machines' records (machine_tables.cpp).
+extern const opxy::platform::LfoMachine* sdk_lfo_machines __asm__("sdk_lfo_machines");
+extern opxy::u32 sdk_lfo_machine_count __asm__("sdk_lfo_machine_count");
 opxy::u32 sdk_lfo_range(opxy::u32 track, opxy::u32 group, opxy::u32 stock_flag) __asm__("sdk_lfo_range");
 opxy::u32 sdk_lfo_icon_slot(opxy::u32 slot, opxy::u32 enabled) __asm__("sdk_lfo_icon_slot");
 const char* sdk_lfo_label(opxy::u32 group, opxy::u32 slot, opxy::u32 flag) __asm__("sdk_lfo_label");

@@ -2,63 +2,65 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {KIT_KEYS, kitChoices, kitGroup, kitHeader, kitKey, kitMix, kitModel, kitSelectedKey, kitWord} from '../builder/core.mjs';
-import {MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readSelection, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, imageSettings, unitSettings, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256, readMachinePack, importMachinePack, hookSymbol} from '../builder/core.mjs';
+import {RECORD_TABLE_BYTES, RECORDS_OBJECT, recordOrder, recordsObject, MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readSelection, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, imageSettings, unitSettings, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256, readMachinePack, importMachinePack, hookSymbol} from '../builder/core.mjs';
 
-// Tiny authored ELF fixture, independent of private firmware/toolchains.
-function elf() {
-  const strings = Buffer.from('\0entry\0'), names = Buffer.from('\0.text\0.symtab\0.strtab\0.shstrtab\0');
-  const table = 128, bytes = new Uint8Array(table + 5 * 40), d = new DataView(bytes.buffer);
+// Tiny authored ELF fixture, independent of firmware and toolchains: one global, `symbol`,
+// at the start of four code bytes.
+function elf(symbol = 'entry') {
+  const strings = Buffer.from('\0' + symbol + '\0'), names = Buffer.from('\0.text\0.symtab\0.strtab\0.shstrtab\0');
+  // The names' last byte may share the null section header's first, which is 0 too.
+  const at = 89 + strings.length, table = Math.max(128, (at + names.length - 1 + 3) & ~3);
+  const bytes = new Uint8Array(table + 5 * 40), d = new DataView(bytes.buffer);
   const w16 = (at, n) => d.setUint16(at, n, true), w32 = (at, n) => d.setUint32(at, n, true);
   bytes.set([127,69,76,70,1,1,1]); w16(16,1); w16(18,106); w32(20,1); w32(32,table);
   w16(40,52); w16(46,40); w16(48,5); w16(50,4);
   bytes.set([0,96,16,0],52); // R0=0; RTS.
   w32(72,1); w32(80,4); bytes[84] = 0x12; w16(86,1);
-  bytes.set(strings,88); bytes.set(names,96);
+  bytes.set(strings,88); bytes.set(names,at);
   const section = (i, fields) => fields.forEach((v,j) => w32(table + i * 40 + j * 4,v));
   section(1,[1,1,6,0,52,4,0,0,4,0]);
   section(2,[7,2,0,0,56,32,3,1,4,16]);
   section(3,[15,3,0,0,88,strings.length,0,0,1,0]);
-  section(4,[23,3,0,0,96,names.length,0,0,1,0]);
+  section(4,[23,3,0,0,at,names.length,0,0,1,0]);
   return bytes;
 }
-function machine(id, engine, page, origin='personal') { return {id, prefix:id, kind:'synth', identity:{engine,page}, absent:{}, origin}; }
+function machine(id, engine, page, origin='personal') { return {id, prefix:id, kind:'synth', identity:{engine,page}, origin}; }
 const FOUR_MIB = 4 * 1024 ** 2;
 const profileBytes = readFileSync(new URL('../profiles/opxy-1.2.1.json',import.meta.url));
 function fixture() {
   const object = {...readObject(elf()), name:'a.o',owner:'a'};
-  return {version:'0.0.2',profile:JSON.parse(profileBytes),definitions:{},fixed:{a:{engine:34,page:82}},machines:[machine('a',34,82)],objects:[object]};
+  return {version:'0.0.2',sdk:'c'.repeat(64),profile:JSON.parse(profileBytes),definitions:{},fixed:{a:{engine:34,page:82}},machines:[machine('a',34,82)],objects:[object]};
 }
 
+const SDK = 'c'.repeat(64);
+async function capsuleOf(name, owner, symbol) {
+  const bytes = elf(symbol);
+  return {name, owner, bytes:Buffer.from(bytes).toString('base64'), sha256:await sha256(bytes)};
+}
+// A site kit as exported and a pack of two custom machines made with the same SDK: each defines
+// its record, as every machine's generated objects do (tooling/records.py).
 async function packFixture() {
   const k = fixture();
-  Object.assign(k, {format:'opxy-browser-kit/1', profileSource:profileBytes.toString('base64'), notices:'SDK',
+  Object.assign(k, {format:'opxy-browser-kit/1', sdk:SDK, profileSource:profileBytes.toString('base64'), notices:'SDK',
     stockCatalog:'', screenTemplate:readFileSync(new URL('../sdk/platform/opxy-1.2.1/screen.svg', import.meta.url), 'utf8')});
-  async function object(name, owner, symbol) {
-    const bytes = elf(); bytes.set(new TextEncoder().encode(symbol), 89);
-    return {name, owner, bytes:Buffer.from(bytes).toString('base64'), sha256:await sha256(bytes)};
-  }
-  k.objects = [await object('a/voice.o', 'a', 'entry'), await object('sdk/memory.o', null, 'share'),
-    await object('sdk/startup.o', null, 'start')];
+  k.objects = [await capsuleOf('a/voice.o', 'a', 'entry'), await capsuleOf('sdk/memory.o', null, 'share'),
+    await capsuleOf('sdk/startup.o', null, 'start')];
   // The site's kit as exported, which the importer opens itself.
   const base = k;
   const custom = id => ({...machine(id, null, null), name:id, description:'A custom machine',
     controls:['A', 'B', 'C', 'D'], positions:[0, 1, 2, 3], pages:false,
     catalog:', {"type":"' + id + '","default_params":[0,0,0,0,0,0,0,0]}',
     artwork:'<rect id="panel" width="1" height="1"/>', asset:id + '.svg'});
-  const pack = {format:'opxy-machine-pack/1', version:k.version, profileSha256:await sha256(profileBytes),
-    definitions:k.definitions, fixed:k.fixed, machines:[...k.machines, custom('custom'), custom('another')],
-    // Separate copies, as a pack read from its ZIP holds.
-    objects:structuredClone([k.objects[0], await object('custom/voice.o', 'custom', 'other'),
-      await object('another/voice.o', 'another', 'third'), ...k.objects.slice(1)]), extensions:[], notices:'Author license'};
+  const pack = {format:'opxy-machine-pack/2', version:k.version, sdk:SDK, profileSha256:await sha256(profileBytes),
+    definitions:structuredClone(k.definitions), fixed:structuredClone(k.fixed), machines:[custom('custom'), custom('another')],
+    objects:[await capsuleOf('custom/voice.o', 'custom', 'custom_record'),
+      await capsuleOf('another/voice.o', 'another', 'another_record')], notices:'Author license'};
   return {base, pack};
 }
-// The site links the objects of these services (a kit's `service` objects), so the pack has them too.
-async function withServices(base, pack, services) {
-  for (const [i, service] of services.entries()) {
-    const bytes = elf(); bytes.set(new TextEncoder().encode('svc' + String(i).padStart(2, '0')), 89);
-    const o = {name:'sdk/' + service + '.o', owner:null, service, bytes:Buffer.from(bytes).toString('base64'), sha256:await sha256(bytes)};
-    base.objects.push(o); pack.objects.push(structuredClone(o));
-  }
+// The site links the objects of these services (a kit's `service` objects); a pack never carries them.
+async function withServices(base, services) {
+  for (const [i, service] of services.entries())
+    base.objects.push({...await capsuleOf('sdk/' + service + '.o', null, 'svc' + String(i).padStart(2, '0')), service});
 }
 
 test('machine ZIP adds several selectable machines without changing the base kit or saved numbers', async () => {
@@ -74,31 +76,34 @@ test('machine ZIP adds several selectable machines without changing the base kit
   const linked = linkKit(candidate, ['a', 'custom', 'another'], layout);
   assert.deepEqual(linked.numbers.custom, layout.custom);
   assert.deepEqual(linked.numbers.removed, layout.removed);
-  assert.ok(linked.globals.has('other') && linked.globals.has('third'));
-  assert.ok(!linkKit(candidate, ['a']).globals.has('other'));
+  assert.ok(linked.globals.has('custom_record') && linked.globals.has('another_record'));
+  assert.ok(!linkKit(candidate, ['a']).globals.has('custom_record'));
+  // Its objects follow the site's machines' and come before the SDK's, as a native build links them.
+  assert.deepEqual(candidate.objects.map(o => o.name),
+    ['a/voice.o', 'custom/voice.o', 'another/voice.o', 'sdk/memory.o', 'sdk/startup.o']);
 });
 
 test('machine packs reject catalog replacement, runtime changes and malformed imported machines atomically', async () => {
   const {base, pack} = await packFixture(), before = structuredClone(base);
   const changes = [
-    p => { p.version = '99.0.0'; }, p => { p.profileSha256 = '0'.repeat(64); },
+    p => { p.version = '99.0.0'; }, p => { p.profileSha256 = '0'.repeat(64); }, p => { p.sdk = 'd'.repeat(64); },
+    p => { delete p.sdk; }, p => { p.format = 'opxy-machine-pack/1'; },
     p => { p.definitions.changed = 123; }, p => { p.fixed.changed = {engine:40, page:90}; },
-    p => { p.extensions.push({id:'injected'}); }, p => { p.stockCatalog = 'injected'; },
-    p => { p.machines[0].name = 'replacement'; }, p => { p.machines.reverse(); },
-    p => { p.machines[1].origin = 'official'; }, p => { p.machines[1].source = {repository:'https://evil.test'}; },
-    p => { p.machines[1].id = 'a'; p.machines[1].catalog = ', {"type":"a","default_params":[0,0,0,0,0,0,0,0]}'; },
-    p => { p.machines[1].prefix = 'a'; },
-    p => { p.machines[1].asset = '../outside.svg'; }, p => { p.machines[1].artwork = '<script>bad()</script>'; },
-    p => { p.machines[1].icon = '\"/><image href="https://evil.test"/>'; },
-    p => { p.machines[1].catalog = ', {"type":"a","default_params":[]}'; },
-    p => { p.machines[1].absent = {sdk_startup_synth:'kit_absent'}; },
+    p => { p.extensions = []; }, p => { p.stockCatalog = 'injected'; },
+    p => { p.machines[0].id = 'a'; p.machines[0].catalog = ', {"type":"a","default_params":[0,0,0,0,0,0,0,0]}'; },
+    p => { p.machines[0].prefix = 'a'; }, p => { p.machines[1] = structuredClone(p.machines[0]); },
+    p => { p.machines[0].origin = 'official'; }, p => { p.machines[0].source = {repository:'https://evil.test'}; },
+    p => { p.machines[0].asset = '../outside.svg'; }, p => { p.machines[0].artwork = '<script>bad()</script>'; },
+    p => { p.machines[0].icon = '\"/><image href="https://evil.test"/>'; },
+    p => { p.machines[0].catalog = ', {"type":"a","default_params":[]}'; },
+    p => { p.machines[0].absent = {custom_ready:'kit_absent'}; },
+    p => { p.machines = []; p.objects = []; },
     p => { p.objects[0].bytes = p.objects[1].bytes; },
-    p => { p.objects[3].sha256 = '0'.repeat(64); }, p => { p.objects[4].owner = 'custom'; },
-    p => { p.objects[1].sha256 = '0'.repeat(64); },
-    p => { p.objects[1].name = 'sdk/injected.o'; },
+    p => { p.objects[0].sha256 = '0'.repeat(64); }, p => { p.objects[1].owner = 'custom'; },
+    p => { p.objects[0].name = 'sdk/injected.o'; }, p => { p.objects[0].owner = null; },
     p => { p.objects.splice(1, 1); }, p => { p.objects.push(p.objects[0]); },
-    p => { p.objects[1].service = 'samples'; },
-    p => { p.objects[1].bytes = p.objects[3].bytes; p.objects[1].sha256 = p.objects[3].sha256; },
+    p => { p.objects[0].service = 'samples'; }, p => { p.objects[0].runtime = true; },
+    p => { p.objects[0].extra = true; },
   ];
   for (const change of changes) {
     const changed = structuredClone(pack); change(changed);
@@ -107,52 +112,64 @@ test('machine packs reject catalog replacement, runtime changes and malformed im
   }
 });
 
-test('only the collection-specific glue may differ in a compatible machine pack', async () => {
+test('a pack imports into any catalog of its release and SDK, matched by ID', async () => {
+  // The site's catalog gained a machine, lost one or lists them in another order since the pack's
+  // author exported it: only the pack's own machines and objects enter.
+  for (const change of [async k => {
+    k.machines.push(machine('b', 35, 83));
+    k.objects.splice(1, 0, await capsuleOf('b/voice.o', 'b', 'other'));
+  }, async k => {
+    k.machines.unshift(machine('b', 35, 83));
+    k.objects.unshift(await capsuleOf('b/voice.o', 'b', 'other'));
+  }]) {
+    const {base, pack} = await packFixture();
+    await change(base);
+    const candidate = await importMachinePack(base, pack);
+    assert.deepEqual(candidate.machines.map(m => m.id), [...base.machines.map(m => m.id), 'custom', 'another']);
+    assert.ok(linkKit(candidate, ['custom', 'b']).globals.has('custom_record'));
+  }
+  // A pack made with another SDK revision is refused.
   const {base, pack} = await packFixture();
-  const bytes = Buffer.from(pack.objects.at(-1).bytes, 'base64'); bytes[52] ^= 1;
-  pack.objects.at(-1).bytes = bytes.toString('base64'); pack.objects.at(-1).sha256 = await sha256(bytes);
-  await importMachinePack(base, pack);
-  pack.objects.at(-1).service = 'samples';
-  await assert.rejects(importMachinePack(base, pack), /SDK runtime \(sdk\/startup\.o\)/);
+  base.sdk = 'd'.repeat(64);
+  await assert.rejects(importMachinePack(base, pack), /different Open-XY release or SDK revision/);
+  delete base.sdk;
+  await assert.rejects(importMachinePack(base, pack), /different Open-XY release or SDK revision/);
 });
 
-test('a pack keeps the site kit unit sources and may differ only in collection tables', async () => {
+test('a pack keeps the site kit unit sources and adds no SDK objects', async () => {
   const {base, pack} = await packFixture();
   // The site's unit capability objects, as exported: the importer opens the kit as it was sent.
-  const unit = Buffer.from(pack.objects.at(-2).bytes, 'base64'); unit[52] ^= 1;
+  const unit = Buffer.from(base.objects[1].bytes, 'base64'); unit[52] ^= 1;
   base.unitSources = {fast_helpers:{0:[{name:'sdk/memory.o', bytes:base.objects[1].bytes, sha256:base.objects[1].sha256}],
     1:[{name:'sdk/memory.o', bytes:unit.toString('base64'), sha256:await sha256(unit)}]}};
   const candidate = await importMachinePack(base, pack);
   assert.equal(candidate.unitSources.fast_helpers['1'][0].path, 'unit-sources/fast_helpers/1/sdk/memory.o');
-  // A generated per-collection table may differ; a runtime member may not be added by a machine.
-  for (const name of ['sdk/track_stage_table.o', 'sdk/drum_callbacks.o']) {
-    const {base, pack} = await packFixture();
-    const table = async code => { const bytes = elf(); bytes.set(new TextEncoder().encode('table'), 89); bytes[52] ^= code;
-      return {name, owner:null, bytes:Buffer.from(bytes).toString('base64'), sha256:await sha256(bytes)}; };
-    base.objects.push(await table(0)); pack.objects.push(await table(1));
-    await importMachinePack(base, pack);
-  }
-  const {base:other, pack:changed} = await packFixture();
-  changed.objects[1].runtime = true;
-  await assert.rejects(importMachinePack(other, changed), /unowned machine objects/);
-  // An arithmetic runtime member the site's collection does not link.
-  const {base:site, pack:extra} = await packFixture(), member = elf();
-  member.set(new TextEncoder().encode('mulsi'), 89);
-  extra.objects.push({name:'sdk/runtime/_mulsi3.o', owner:null, runtime:true,
-    bytes:Buffer.from(member).toString('base64'), sha256:await sha256(member)});
-  await assert.rejects(importMachinePack(site, extra), /SDK runtime \(sdk\/runtime\/_mulsi3\.o\)/);
+  // No SDK object, runtime member included, comes from a pack.
+  const {base:site, pack:extra} = await packFixture();
+  extra.objects.push({...await capsuleOf('sdk/runtime/_mulsi3.o', null, 'mulsi'), runtime:true});
+  await assert.rejects(importMachinePack(site, extra), /unowned machine objects/);
 });
 
-test('every added machine callback the shared objects import needs an absent fallback', async () => {
+test('a pack machine needs its record and may not define what SDK objects use', async () => {
   const {base, pack} = await packFixture();
-  // The pack's startup imports the custom machine's `other` (global, undefined).
-  const startup = elf(); startup.set(new TextEncoder().encode('other'), 89); startup[84] = 0x10; startup[86] = 0;
-  const glue = {name:'sdk/startup.o', owner:null, bytes:Buffer.from(startup).toString('base64'), sha256:await sha256(startup)};
-  pack.objects[pack.objects.length - 1] = glue;
-  await assert.rejects(importMachinePack(base, pack), /custom has no absent fallback for other/);
+  // The site's startup imports `share`, which its memory object defines.
+  const startup = elf('share'); startup[84] = 0x10; startup[86] = 0;
+  base.objects[2] = {name:'sdk/startup.o', owner:null, bytes:Buffer.from(startup).toString('base64'), sha256:await sha256(startup)};
+  pack.objects.push(await capsuleOf('custom/share.o', 'custom', 'share'));
+  await assert.rejects(importMachinePack(base, pack), /custom defines share, which the SDK's objects use/);
+  const {base:site, pack:bare} = await packFixture();
+  bare.objects[0] = await capsuleOf('custom/voice.o', 'custom', 'other');
+  await assert.rejects(importMachinePack(site, bare), /custom has no machine record/);
+  // A symbol a site machine defines too: a native build of both would refuse it.
+  const {base:other, pack:clash} = await packFixture();
+  clash.objects.push(await capsuleOf('custom/helper.o', 'custom', 'entry'));
+  await assert.rejects(importMachinePack(other, clash), /custom defines entry, which a also defines/);
+  const {base:third, pack:twice} = await packFixture();
+  twice.objects.push(await capsuleOf('another/helper.o', 'another', 'custom_record'));
+  await assert.rejects(importMachinePack(third, twice), /defines custom_record, which (custom|another) also defines/);
 });
 
-test('packs extend site kits with aux machines and SDK extensions marked either way', async () => {
+test('packs extend site kits with aux machines and whatever extensions they offer', async () => {
   const {base, pack} = await packFixture();
   // An aux machine has no menu entry; the pack and the site list the same machine.
   base.machines[0].catalog = '';
@@ -160,24 +177,22 @@ test('packs extend site kits with aux machines and SDK extensions marked either 
   // Whether cpu is the SDK's own depends on the exporting checkout (browser_kit.sdk_extension).
   const extension = {id:'cpu', name:'CPU', description:'Settings', origin:'official', claims:[], actions:[],
     claim_labels:{}, capabilities:['boot_log_fix'], linked:false};
-  base.extensions = [extension]; pack.extensions = [{...extension, origin:'personal'}];
-  await importMachinePack(base, pack);
-  pack.extensions = [{...extension, name:'Other'}];
-  await assert.rejects(importMachinePack(base, pack), /different Open-XY release/);
+  base.extensions = [extension];
+  assert.deepEqual((await importMachinePack(base, pack)).extensions.map(e => e.id), ['cpu']);
 });
 
 test('packs refuse menus without an effect number and IDs longer than layouts hold', async () => {
   const cases = [
-    [p => { p.machines[1].kind = 'effect'; p.machines[1].identity = {effect:null, page:21}; }, /menu/],
-    [p => { p.machines[1].catalog = ', {"type":"custom","id":3,"default_params":[0,0,0,0,0,0,0,0]}'; }, /menu/],
+    [p => { p.machines[0].kind = 'effect'; p.machines[0].identity = {effect:null, page:21}; }, /menu/],
+    [p => { p.machines[0].catalog = ', {"type":"custom","id":3,"default_params":[0,0,0,0,0,0,0,0]}'; }, /menu/],
     // An effect number stock does not offer would stay in the menu (catalogEntry replaces digits only).
     ...[-5, 99, 1e21].map(id => [p => {
-      Object.assign(p.machines[1], {kind:'effect', identity:{effect:null, page:21}, controls:['A'], positions:[0],
+      Object.assign(p.machines[0], {kind:'effect', identity:{effect:null, page:21}, controls:['A'], positions:[0],
         catalog:`, {"type":"custom","id":${id},"default_params":[0,0,0,0,0,0,0,0]}`});
     }, /menu/]),
-    [p => { for (const key of ['id', 'prefix']) p.machines[1][key] = 'custommachinelong'; }, /metadata/],
+    [p => { for (const key of ['id', 'prefix']) p.machines[0][key] = 'custommachinelong'; }, /metadata/],
     // Not an object, or not JSON: the same refusal, not a parser error.
-    ...[', null', ', [1]', ', "custom"', ', {"type":'].map(catalog => [p => { p.machines[1].catalog = catalog; }, /Invalid machine menu/]),
+    ...[', null', ', [1]', ', "custom"', ', {"type":'].map(catalog => [p => { p.machines[0].catalog = catalog; }, /Invalid machine menu/]),
   ];
   for (const [change, error] of cases) {
     const {base, pack} = await packFixture(); change(pack);
@@ -186,7 +201,7 @@ test('packs refuse menus without an effect number and IDs longer than layouts ho
 });
 
 test('an imported menu entry is rebuilt from its checked values in the exporter layout', async () => {
-  const {base, pack} = await packFixture(), m = pack.machines[1];
+  const {base, pack} = await packFixture(), m = pack.machines[0];
   Object.assign(m, {kind:'effect', identity:{effect:null, page:21}, controls:['A'], positions:[0],
     // A repeated key: JSON keeps the last, and so does the rebuilt entry.
     catalog:', {"type":"custom","id":21,"default_params":[1,2,3,4,5,6,7,8],"id":23}'});
@@ -199,7 +214,7 @@ test('an imported menu entry is rebuilt from its checked values in the exporter 
 });
 
 test('packs take authored descriptions and artwork comments as the SDK does, and check grayscale artwork', async () => {
-  const {base, pack} = await packFixture(), m = pack.machines[1];
+  const {base, pack} = await packFixture(), m = pack.machines[0];
   // 160 characters as machine.json counts them (code points), and a comment the exporter keeps.
   Object.assign(m, {description:'\u{1F3B9}'.repeat(160), artwork:'<!-- one = first --><rect id="panel" width="1" height="1"/>'});
   await importMachinePack(base, pack);
@@ -228,8 +243,8 @@ test('packs take authored descriptions and artwork comments as the SDK does, and
   // `zz` holds fixed numbers, as Open-XY's own machines do on every site, though this site lacks it.
   for (const id of ['reverb', 'sdk', 'kit_custom', 'zz']) {
     const {base, pack} = await packFixture();
-    base.fixed.zz = {engine:40, page:90};
-    Object.assign(pack.machines[1], {id, prefix:id, asset:id + '.svg',
+    base.fixed.zz = pack.fixed.zz = {engine:40, page:90};
+    Object.assign(pack.machines[0], {id, prefix:id, asset:id + '.svg',
       catalog:`, {"type":"${id}","default_params":[0,0,0,0,0,0,0,0]}`});
     await assert.rejects(importMachinePack(base, pack), /metadata/, id);
   }
@@ -248,23 +263,23 @@ test('packs refuse kinds they cannot import and malformed services or heap voice
       .map(f => [m => { m.features = [f]; }, /features/]),
     [m => { m.features = 'hidePages'; }, /features/],
     [m => { m.kind = 'sample'; m.identity = {engine:null, page:7}; m.features = ['synthShift']; }, /features/]]) {
-    const {base, pack} = await packFixture(); change(pack.machines[1]);
+    const {base, pack} = await packFixture(); change(pack.machines[0]);
     await assert.rejects(importMachinePack(base, pack), error, change.toString());
   }
   const {base, pack} = await packFixture();
-  Object.assign(pack.machines[1], {features:['hidePages', 'synthShift'], shiftRow:true, heapVoices:4096});
+  Object.assign(pack.machines[0], {features:['hidePages', 'synthShift'], shiftRow:true, heapVoices:4096});
   // Each service these features switch on with hooks must be the site's.
   await assert.rejects(importMachinePack(base, pack), /needs the control service/);
-  await withServices(base, pack, ['control', 'drums', 'drum_locks', 'synth_shift']);
+  await withServices(base, ['control', 'drums', 'drum_locks', 'synth_shift']);
   await importMachinePack(base, pack);
-  pack.machines[1].shiftRow = undefined;
+  pack.machines[0].shiftRow = undefined;
   await assert.rejects(importMachinePack(base, pack), /Shift row/);
 });
 
 test('packs accept the SDK control counts, absent synth slots and source filenames', async () => {
   for (const kind of ['effect', 'sample']) for (const count of [1, 2, 3]) {
-    const {base, pack} = await packFixture(), m = pack.machines[1];
-    if (kind === 'sample') await withServices(base, pack, ['samples', 'octaves']);
+    const {base, pack} = await packFixture(), m = pack.machines[0];
+    if (kind === 'sample') await withServices(base, ['samples', 'octaves']);
     Object.assign(m, {kind, identity:kind === 'effect' ? {effect:null, page:21} : {engine:null, page:7},
       controls:m.controls.slice(0, count), positions:m.positions.slice(0, count),
       // An effect's menu entry carries the number its author's collection gave it.
@@ -274,40 +289,23 @@ test('packs accept the SDK control counts, absent synth slots and source filenam
     await assert.rejects(importMachinePack(base, pack), /controls/);
   }
   const {base, pack} = await packFixture();
-  pack.machines[1].positions[1] = null; pack.machines[1].controls[1] = '';
+  pack.machines[0].positions[1] = null; pack.machines[0].controls[1] = '';
   for (const name of ['Wave.o', 'wave.v2.o', 'wave..v3.o']) {
-    pack.objects[1].name = 'custom/' + name;
+    pack.objects[0].name = 'custom/' + name;
     await importMachinePack(base, pack);
   }
   for (const name of ['../Wave.o', 'lib/../../Wave.o', '/Wave.o', 'C:/Wave.o']) {
-    pack.objects[1].name = name;
+    pack.objects[0].name = name;
     await assert.rejects(importMachinePack(base, pack), /unowned machine objects/);
   }
-  pack.objects[1].name = 'custom/../Wave.o';
+  pack.objects[0].name = 'custom/../Wave.o';
   await assert.rejects(importMachinePack(base, pack), /unowned machine objects/);
 });
 
-test('existing effects keep site metadata when the author collection assigns a different number', async () => {
+test('a pack machine the site already has is refused, whatever its metadata', async () => {
   const {base, pack} = await packFixture();
-  const m = base.machines[0];
-  Object.assign(m, {kind:'effect', identity:{effect:21, page:21},
-    catalog:', {"type":"a", "id":21, "default_params":[0,0,0,0,0,0,0,0]}',
-    preview:{trusted:'site'}, origin:'catalog',
-    source:{repository:'https://github.com/author/machine', tag:'v1.0.0', commit:'a'.repeat(40), maintainer:'author'}});
-  // These fixtures ordinarily share metadata; separate the serialized author copy.
-  pack.machines[0] = structuredClone(m);
-  const entry = JSON.parse(m.catalog.slice(1)); entry.id = 23;
-  pack.machines[0].catalog = ', ' + JSON.stringify(entry);
-  pack.machines[0].preview = {untrusted:'pack'};
-  pack.machines[0].source = {untrusted:'pack'};
-  base.fixed.a = {effect:21, page:21};
-  const candidate = await importMachinePack(base, pack);
-  assert.equal(candidate.machines[0], m);
-  assert.equal(candidate.machines[0].catalog, m.catalog);
-  assert.deepEqual(linkKit(candidate, ['a', 'custom']).numbers.a, {effect:21, page:21});
-  entry.default_params[0] = 42;
-  pack.machines[0].catalog = ', ' + JSON.stringify(entry);
-  await assert.rejects(importMachinePack(base, pack), /without replacing/);
+  base.machines.push({...pack.machines[0], origin:'catalog'});
+  await assert.rejects(importMachinePack(base, pack), /custom is already one of this site's machines/);
 });
 
 test('machine ZIP reader rejects corruption, archive ambiguities and source/firmware archives', () => {
@@ -966,19 +964,34 @@ test('one selected extension owns Sample Studio, beside a master processor if ch
   assert.ok(extensionChoices(k).some(choice => choice.includes('filter') && choice.includes('studio')));
 });
 
-test('declared callbacks of unselected machines resolve to fallbacks only for SDK objects', () => {
+test('shared objects name no machine: an unselected machine\'s symbols stay unresolved', () => {
   const k=fixture(), o=k.objects[0];
   k.definitions.fallback=k.profile.module_base;
-  const missing={id:'missing',prefix:'probe',kind:'sample',identity:{engine:46,page:7},absent:{probe_ready:'fallback'}};
-  k.machines.push(missing);
+  k.machines.push({id:'missing',prefix:'probe',kind:'sample',identity:{engine:46,page:7}});
   o.symbols.push({name:'probe_ready',section:0,value:0,size:0,binding:1,type:0});
   o.relocations.push({section:1,offset:0,type:18,symbol:2,addend:0});
-  o.owner=null; assert.doesNotThrow(()=>linkKit(k,['a']));
-  o.owner='a'; assert.throws(()=>linkKit(k,['a']),/Unresolved import/);
-  o.owner=null; o.symbols[2].name='probe_internal';
-  assert.throws(()=>linkKit(k,['a']),/Unresolved import/);
-  o.symbols[2].name='probe_ready'; missing.absent={probe_ready:'undefined_fallback'};
-  assert.throws(()=>linkKit(k,['a']),/absent-machine callback/);
+  for (const owner of [null, 'a']) { o.owner=owner; assert.throws(()=>linkKit(k,['a']),/Unresolved import: probe_ready/); }
+});
+test('the SDK\'s machine tables link the selection\'s records, by kind then ID', () => {
+  const k=fixture(), o=k.objects[0];
+  k.machines.push({...machine('c',35,83),kind:'effect',identity:{effect:21,page:21}}, machine('b',36,84));
+  for (const id of ['b','c']) k.objects.push({...readObject(elf(id+'_record')),name:id+'.o',owner:id});
+  o.symbols[1].name='a_record';
+  const linked=linkKit(k,['c','a']);
+  assert.equal(linked.objects.some(x=>x.name===RECORDS_OBJECT),false);  // nothing reads them
+  o.symbols.push({name:'sdk_machine_records',section:0,value:0,size:0,binding:1,type:0});
+  o.relocations.push({section:1,offset:0,type:18,symbol:2,addend:0});
+  const records=linkKit(k,['c','a']), names=records.objects.map(x=>x.name);
+  assert.deepEqual(names,['a.o','c.o',RECORDS_OBJECT]);
+  const object=records.objects.at(-1);
+  assert.deepEqual(object.elf,recordsObject(k.machines.filter(m=>['a','c'].includes(m.id))));
+  assert.deepEqual(recordOrder(k.machines).map(m=>m.id),['a','b','c']);
+  // Its count, its space and the records, which the selection's own objects define.
+  const at=records.globals.get('sdk_machine_records'), base=k.profile.module_base;
+  const word=address=>new DataView(records.module.buffer,records.module.byteOffset).getUint32(address-base,true);
+  assert.deepEqual([word(at-8),word(at-4),word(at),word(at+4)],
+    [2,3*RECORD_TABLE_BYTES,records.globals.get('a_record'),records.globals.get('c_record')]);
+  assert.equal(records.sizes.bss,3*RECORD_TABLE_BYTES);
 });
 test('SDK objects of a profile service link only when a selected machine uses it', () => {
   const k=fixture();
@@ -1046,7 +1059,7 @@ test('numbers follow the layout, not the selection order, and unselected machine
   assert.deepEqual(linked.numbers.b,{engine:215,page:221});
 });
 test("a sample engine drawing its own screen links its page apart from the sampler's", () => {
-  const k=fixture(); k.machines.push({id:'g',prefix:'g',kind:'sample',identity:{engine:null,page:null},absent:{},origin:'personal'});
+  const k=fixture(); k.machines.push({id:'g',prefix:'g',kind:'sample',identity:{engine:null,page:null},origin:'personal'});
   const numbers=assignNumbers(k,['a','g']);
   assert.ok(numbers.g.page>81 && numbers.g.page<256);
   const linked=linkKit(k,['a','g'],numbers).definitions;
@@ -1133,8 +1146,8 @@ test('SDK 1.5 machines ask for no numbers and the selection gives them', async (
   k.stockCatalog=''; k.screenTemplate=readFileSync(new URL('../sdk/platform/opxy-1.2.1/screen.svg',import.meta.url),'utf8');
   // a has fixed numbers yet asks for none; a sample engine names only its base's page.
   k.machines=[{...machine('a',null,null)},{...machine('b',null,null)},
-    {id:'d',prefix:'d',kind:'sample',identity:{engine:null,page:7},absent:{},origin:'personal'},
-    {id:'e',prefix:'e',kind:'effect',identity:{effect:null,page:21},absent:{},origin:'personal'}];
+    {id:'d',prefix:'d',kind:'sample',identity:{engine:null,page:7},origin:'personal'},
+    {id:'e',prefix:'e',kind:'effect',identity:{effect:null,page:21},origin:'personal'}];
   await openKit(k);
   assert.deepEqual(assignNumbers(k,['a','b','d','e']),
     {a:{engine:34,page:82},b:{engine:215,page:221},d:{engine:179,page:7},e:{effect:47,page:21}});

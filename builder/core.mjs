@@ -645,6 +645,8 @@ export async function openKit(kit) {
   check(kit.format === 'opxy-browser-kit/1', 'Unsupported curated kit');
   // The release version, which every build's boot label shows (tooling.startup_label).
   check(typeof kit.version === 'string' && /^\d+\.\d+\.\d+$/.test(kit.version), 'Unsupported curated kit version');
+  // The SDK revision's own sources (tooling/native.py sdk_digest), which a machine pack must share.
+  check(typeof kit.sdk === 'string' && /^[a-f0-9]{64}$/.test(kit.sdk), 'Unsupported curated kit: export it again with this release');
   const profileBytes = decode64(kit.profileSource);
   check(await sha256(profileBytes) === PROFILE_SHA256 &&
     JSON.stringify(JSON.parse(decoder.decode(profileBytes))) === JSON.stringify(kit.profile),
@@ -726,7 +728,7 @@ export async function openKit(kit) {
   const ids = new Set(kit.machines.map(m => m.id)), names = new Set();
   const objects = [];
   for (const o of kit.objects) {
-    check(!names.has(o.name) && (o.owner === null || ids.has(o.owner)), 'Duplicate or unowned object');
+    check(!names.has(o.name) && o.name !== RECORDS_OBJECT && (o.owner === null || ids.has(o.owner)), 'Duplicate or unowned object');
     check(o.service === undefined || (o.owner === null && Object.hasOwn(kit.profile.services ?? {}, o.service)),
       'Undeclared service: ' + o.service);
     check(o.runtime === undefined || (o.runtime === true && o.owner === null && o.service === undefined &&
@@ -851,6 +853,83 @@ export function selectRuntime(objects, candidates, definitions = {}) {
   return entries.filter(e => chosen.has(e.o)).map(e => e.o);
 }
 
+// Machine records (sdk/platform/opxy-1.2.1/machine_record.hpp, tooling/records.py). Each
+// machine's own objects define its record; a selection's one object of its own lists the
+// selected machines' records by kind, then ID, and reserves the space startup builds the
+// shared tables in, RECORD_TABLE_BYTES per machine and once more (machine_record.hpp
+// kRecordTableBytes). No other object depends on which machines a selection holds.
+export const RECORD_TABLE_BYTES = 208;
+export const RECORDS_OBJECT = 'sdk/machine_records.o';
+const RECORDS_SYMBOLS = new Set(['sdk_machine_records', 'sdk_machine_record_count', 'sdk_machine_record_space',
+  'sdk_machine_record_space_bytes']);
+const RECORD_KINDS = ['synth', 'drum', 'sample', 'effect', 'player'];
+export const recordOrder = machines => [...machines].sort((a, b) =>
+  RECORD_KINDS.indexOf(a.kind) - RECORD_KINDS.indexOf(b.kind) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+// An ELF string table as the GNU assembler writes it (BFD's elf_strtab finalize): names in
+// order, except that a name ending another is not written but points into it. Sorted by
+// their reversed text, each name is merged into the next one it ends. `at` is each name's offset.
+function stringTable(names) {
+  const reversed = s => [...s].reverse().join('');
+  const sorted = [...new Set(names)].sort((x, y) => {
+    const a = reversed(x), b = reversed(y);
+    for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a.charCodeAt(i) - b.charCodeAt(i);
+    return a.length - b.length;
+  });
+  const parent = new Map();
+  let kept = sorted.at(-1);
+  for (let i = sorted.length - 2; i >= 0; i--) {
+    const name = sorted[i];
+    if (kept.endsWith(name)) parent.set(name, kept); else kept = name;
+  }
+  const offsets = new Map();
+  let size = 1;
+  for (const name of names) if (!parent.has(name) && !offsets.has(name)) { offsets.set(name, size); size += name.length + 1; }
+  for (const [name, into] of parent) offsets.set(name, offsets.get(into) + into.length - name.length);
+  const strings = new Uint8Array(size);
+  for (const name of names) if (!parent.has(name)) strings.set(utf8.encode(name), offsets.get(name));
+  return {strings, at:names.map(name => offsets.get(name))};
+}
+// The records object for these machines, byte for byte as the pinned assembler writes
+// tooling/records.py's assembly of them (tests/test_machine_records.py compares the two).
+export function recordsObject(machines) {
+  const ordered = recordOrder(machines), count = ordered.length, space = (count + 1) * RECORD_TABLE_BYTES;
+  check(count > 0 && count <= 256 && ordered.every(m => MACHINE_ID.test(m.prefix)) &&
+    new Set(ordered.map(m => m.prefix)).size === count, 'Invalid machine records');
+  const names = ['sdk_machine_record_count', 'sdk_machine_record_space_bytes', 'sdk_machine_records',
+    ...ordered.map(m => m.prefix + '_record'), 'sdk_machine_record_space'];
+  const {strings, at} = stringTable(names);
+  const sectionNames = utf8.encode('\0.symtab\0.strtab\0.shstrtab\0.text\0.data\0.bss\0.rela.rodata\0');
+  const rodata = 8 + 4 * count, symbols = 5 + names.length;
+  const symtab = align(52 + rodata, 4), strtab = symtab + 16 * symbols, rela = align(strtab + strings.length, 4);
+  const shstrtab = rela + 12 * count, headers = align(shstrtab + sectionNames.length, 4);
+  const bytes = new Uint8Array(headers + 9 * 40), d = view(bytes);
+  const w16 = (o, n) => d.setUint16(o, n, true), w32 = (o, n) => d.setUint32(o, n, true);
+  bytes.set([0x7f, 0x45, 0x4c, 0x46, 1, 1, 1]);
+  w16(16, 1); w16(18, 106); w32(20, 1); w32(32, headers); w16(40, 52); w16(46, 40); w16(48, 9); w16(50, 8);
+  w32(52, count); w32(56, space);
+  const symbol = (i, name, value, info, section) => {
+    w32(symtab + 16 * i, name); w32(symtab + 16 * i + 4, value); bytes[symtab + 16 * i + 12] = info; w16(symtab + 16 * i + 14, section);
+  };
+  for (let s = 1; s <= 4; s++) symbol(s, 0, 0, 3, s);  // the section symbols
+  symbol(5, at[0], 0, 0x10, 4); symbol(6, at[1], 4, 0x10, 4); symbol(7, at[2], 8, 0x10, 4);
+  for (let i = 0; i < count; i++) {
+    symbol(8 + i, at[3 + i], 0, 0x10, 0);
+    w32(rela + 12 * i, 8 + 4 * i); w32(rela + 12 * i + 4, (8 + i) << 8 | 18);
+  }
+  symbol(symbols - 1, at[names.length - 1], 0, 0x10, 3);
+  bytes.set(strings, strtab); bytes.set(sectionNames, shstrtab);
+  const section = (i, words) => words.forEach((v, j) => w32(headers + 40 * i + 4 * j, v));
+  section(1, [0x1b, 1, 6, 0, 52, 0, 0, 0, 4, 0]);
+  section(2, [0x21, 1, 3, 0, 52, 0, 0, 0, 4, 0]);
+  section(3, [0x27, 8, 3, 0, 52, space, 0, 0, 4, 0]);
+  section(4, [0x31, 1, 2, 0, 52, rodata, 0, 0, 4, 0]);
+  section(5, [0x2c, 4, 0x40, 0, rela, 12 * count, 6, 4, 4, 12]);
+  section(6, [0x01, 2, 0, 0, symtab, 16 * symbols, 7, 5, 4, 16]);
+  section(7, [0x09, 3, 0, 0, strtab, strings.length, 0, 0, 1, 0]);
+  section(8, [0x11, 3, 0, 0, shstrtab, sectionNames.length, 0, 0, 1, 0]);
+  return bytes;
+}
+
 // Extensions are linked only when named: omitting them builds none. `settings` are capability
 // settings chosen over the extensions' own; here only the unit capabilities' (unitSettings) count.
 export function linkKit(kit, selection, layout = null, extensionIds = [], settings = {}) {
@@ -884,6 +963,12 @@ export function linkKit(kit, selection, layout = null, extensionIds = [], settin
   const replaced = new Map(Object.entries(units).flatMap(([c, value]) => kit.unitSources[c][String(value)].map(o => [o.name, o])));
   const objects = kit.objects.filter(o => !o.runtime && (o.extension === undefined || extensions.has(o.extension)) &&
     (o.owner === null ? !o.service || services.has(o.service) : selected.has(o.owner))).map(o => replaced.get(o.name) ?? o);
+  // The selection's own object, its machines' records, after the kit's (tooling/native.py links it in
+  // the same place): the SDK's machine tables and startup read it, so every SDK kit links it.
+  if (objects.some(o => o.symbols.some(s => s.binding && !s.section && RECORDS_SYMBOLS.has(s.name)))) {
+    const records = recordsObject(kit.machines.filter(m => selected.has(m.id)));
+    objects.push({name:RECORDS_OBJECT, owner:null, elf:records, ...readObject(records)});
+  }
   objects.push(...selectRuntime(objects, kit.objects.filter(o => o.runtime), definitions));
   const globals = new Map(Object.entries(definitions)), placements = new Map(), segments = [];
   let cursor = kit.profile.module_base, initializedEnd;
@@ -922,8 +1007,8 @@ export function linkKit(kit, selection, layout = null, extensionIds = [], settin
     check(!globals.has(s.name), 'Duplicate global symbol: ' + s.name);
     globals.set(s.name, definedValue(o, s));
   }
-  // SDK objects may import the declared callbacks of unselected machines;
-  // those resolve to the declared fallbacks. Machine objects never do.
+  // Shared objects never name a machine's symbols (the records object names the selected
+  // ones'): only an unselected extension's accessors and a service's entry points fall back.
   const aliases = new Map();
   for (const e of kit.extensions ?? []) if (!extensions.has(e.id) && e.linked !== false) {
     for(const suffix of ['hooks', ...(processorOf(e) ? ['processor','panel','filter'].filter(suffix =>
@@ -931,12 +1016,6 @@ export function linkKit(kit, selection, layout = null, extensionIds = [], settin
       const symbol = 'sdk_extension_' + e.id + '_' + suffix;
       check(!globals.has(symbol) && globals.has('kit_absent'), 'Invalid absent-extension accessor');
       aliases.set(symbol, globals.get('kit_absent'));
-    }
-  }
-  for (const m of kit.machines) if (!selected.has(m.id)) {
-    for (const [symbol, fallback] of Object.entries(m.absent)) {
-      check(!globals.has(symbol) && globals.has(fallback), 'Invalid absent-machine callback');
-      aliases.set(symbol, globals.get(fallback));
     }
   }
   // Shared objects may import a service's entry points, which resolve to their
@@ -1532,29 +1611,11 @@ export async function buildAssets(kit, selection, catalog, numbers, options = {}
 }
 
 export const MACHINE_PACK_LIMIT = 64 * 1024 ** 2;
+export const MACHINE_PACK_FORMAT = 'opxy-machine-pack/2';
 const packFile = 'machines.json';
-// The SDK objects generated from the machines of a collection (tooling.native.build_unit);
-// every other SDK object is the same whichever machines a collection holds.
-const collectionObjects = new Set(['sdk/startup.o', 'sdk/benchmark.o', 'sdk/sample_callbacks.o',
-  'sdk/synth_control_table.o', 'sdk/project_companion_table.o', 'sdk/drum_callbacks.o', 'sdk/player_table.o',
-  'sdk/track_control_table.o', 'sdk/track_stage_table.o']);
 const canonical = value => JSON.stringify(value, (_key, v) => v && typeof v === 'object' && !Array.isArray(v)
   ? Object.fromEntries(Object.keys(v).sort().map(key => [key, v[key]])) : v);
 const sameValue = (a, b) => canonical(a) === canonical(b);
-// Preview compilers can differ between hosts. Existing previews and provenance
-// always come from the site; only its native machine contract must match.
-function machineContract(m) {
-  const contract = Object.fromEntries(Object.entries(m ?? {})
-    .filter(([key]) => !['preview', 'origin', 'source', 'cpu', 'keywords'].includes(key)));
-  // An aux machine has no menu entry ('').
-  if (typeof contract.catalog === 'string' && contract.catalog !== '') {
-    contract.catalog = JSON.parse(contract.catalog.trim().replace(/^,/, ''));
-    // This is the author's collection-assigned number, not the machine's
-    // requested identity. The receiver uses its own saved per-selection layout.
-    if (contract.kind === 'effect') delete contract.catalog.id;
-  }
-  return contract;
-}
 const objectRecord = o => Object.fromEntries(['name', 'owner', 'bytes', 'sha256', 'service', 'extension', 'runtime']
   .filter(key => o[key] !== undefined).map(key => [key, o[key]]));
 const CRC_TABLE = Uint32Array.from({length:256}, (_, n) => {
@@ -1634,7 +1695,7 @@ function safeArtwork(text) {
   return true;
 }
 const PACK_MACHINE_KEYS = new Set(['id', 'name', 'kind', 'prefix', 'description', 'identity', 'controls', 'positions',
-  'pages', 'catalog', 'origin', 'features', 'presetDefaults', 'presets', 'icon', 'absent', 'artwork', 'grayscaleArtwork',
+  'pages', 'catalog', 'origin', 'features', 'presetDefaults', 'presets', 'icon', 'artwork', 'grayscaleArtwork',
   'asset', 'fullCanvas', 'preview', 'shiftRow', 'heapVoices']);
 function checkPackMachine(m, fixed = {}) {
   check(m && typeof m === 'object' && Object.keys(m).every(key => PACK_MACHINE_KEYS.has(key)),
@@ -1656,9 +1717,6 @@ function checkPackMachine(m, fixed = {}) {
     m.positions.every(p => m.kind === 'synth' && p === null || Number.isInteger(p) && p >= 0 && p <= 3) &&
     typeof m.pages === 'boolean',
     'Invalid custom machine controls');
-  check(m.absent && typeof m.absent === 'object' && !Array.isArray(m.absent) &&
-    Object.entries(m.absent).every(([symbol, fallback]) => symbol.startsWith(m.prefix + '_') &&
-      /^[a-z][a-z0-9_]*$/.test(symbol) && fallback === 'kit_absent'), 'Invalid machine callbacks');
   check(m.icon === undefined || typeof m.icon === 'string' && m.icon.length <= 4096 &&
     /^[MmZzLlHhVvCcSsQqTtAa0-9eE+.,\s-]*$/.test(m.icon), 'Invalid machine icon');
   check(typeof m.catalog === 'string' && m.catalog.length < 4096 && m.catalog.trim().startsWith(','),
@@ -1699,31 +1757,34 @@ function checkPackMachine(m, fixed = {}) {
     'Invalid machine heap voices');
 }
 
-// Import a complete compiled extension of the site's collection. Never replace
-// its firmware profile, stock content, fixed numbers, runtime or existing machines.
-// The collection-specific objects (collectionObjects) must accompany the added
-// machines: they carry their registration, controls, callbacks and project identities.
-// `base` is the site's kit as exported, before openKit: the candidate is opened from
-// it, keeping its unit sources and service fallbacks, which a pack cannot change.
+// Import custom machines into the site's collection, matched by ID: a pack carries only
+// its own machines and their objects, their records included, and no shared object
+// depends on which machines a selection holds (machine records), so it extends the site
+// whatever its catalog holds, as long as both come from one release and SDK revision.
+// Never replace the site's firmware profile, stock content, fixed numbers, runtime,
+// SDK objects or machines. `base` is the site's kit as exported, before openKit: the
+// candidate is opened from it, keeping its unit sources and service fallbacks.
 export async function importMachinePack(base, pack) {
-  const keys = ['format', 'version', 'profileSha256', 'definitions', 'fixed', 'machines', 'objects', 'extensions', 'notices'];
-  check(pack && typeof pack === 'object' && Object.keys(pack).sort().join() === keys.sort().join() &&
-    pack.format === 'opxy-machine-pack/1', 'Unsupported machine pack');
-  check(pack.version === base.version && pack.profileSha256 === await sha256(decode64(base.profileSource)) &&
-    sameValue(pack.definitions, base.definitions) && sameValue(pack.fixed, base.fixed) &&
-    // Whether an extension is the SDK's own depends on the exporting checkout, not its contents.
-    Array.isArray(pack.extensions) && sameValue(pack.extensions.map(e => ({...e, origin:undefined})),
-      (base.extensions ?? []).map(e => ({...e, origin:undefined}))),
-    'This pack targets a different Open-XY release or extension collection. Ask its author for a matching pack.');
-  check(Array.isArray(pack.machines) && pack.machines.length > base.machines.length &&
-    pack.machines.length <= base.profile.identities.engines &&
-    base.machines.every((m, i) => sameValue(machineContract(m), machineContract(pack.machines[i]))),
-    'This pack must extend the current catalog without replacing its machines. Ask its author for a matching pack.');
+  const keys = ['format', 'version', 'sdk', 'profileSha256', 'definitions', 'fixed', 'machines', 'objects', 'notices'];
+  check(pack && typeof pack === 'object' && !Array.isArray(pack) && typeof pack.format === 'string' &&
+    pack.format.startsWith('opxy-machine-pack/'), 'Unsupported machine pack');
+  check(pack.format === MACHINE_PACK_FORMAT, 'This pack comes from a different Open-XY release. Ask its author for one ' +
+    'exported with this release.');
+  check(Object.keys(pack).sort().join() === keys.sort().join(), 'Unsupported machine pack');
+  check(pack.version === base.version && typeof base.sdk === 'string' && pack.sdk === base.sdk &&
+    pack.profileSha256 === await sha256(decode64(base.profileSource)) &&
+    sameValue(pack.definitions, base.definitions) && sameValue(pack.fixed, base.fixed),
+    'This pack targets a different Open-XY release or SDK revision. Ask its author for a matching pack.');
+  check(Array.isArray(pack.machines) && pack.machines.length > 0 &&
+    base.machines.length + pack.machines.length <= base.profile.identities.engines, 'Invalid custom machines');
   // The menu entry is rebuilt from its checked values in tooling.adapters.catalog_entry's
   // layout, so the stock menu gets exactly those (an effect's number is the layout's).
   const users = new Set(Object.values(base.profile.services ?? {}).flat());
-  const added = pack.machines.slice(base.machines.length).map(m => {
+  const existing = new Set(base.machines.flatMap(m => [m.id, m.prefix]));
+  const added = pack.machines.map(m => {
     checkPackMachine(m, base.fixed);
+    check(!existing.has(m.id), `${m.id} is already one of this site's machines. Ask its author for a pack ` +
+      'that names it differently, or use the site\'s.');
     check((m.features ?? []).every(f => users.has(f)), 'Invalid machine features');
     const entry = JSON.parse(m.catalog.trim().slice(1)), indent = '\n            ';
     // An effect's menu number is one stock offers (catalogEntry replaces it with the layout's).
@@ -1732,62 +1793,68 @@ export async function importMachinePack(base, pack) {
       (m.kind === 'effect' ? ',' + indent + '"id": ' + entry.id : '') +
       ',' + indent + '"default_params": [' + entry.default_params.join(', ') + ']\n        }' + (m.kind === 'effect' ? '' : '\n')};
   });
-  check(new Set(pack.machines.map(m => m.id)).size === pack.machines.length &&
-    new Set(pack.machines.map(m => m.prefix)).size === pack.machines.length, 'Duplicate machine identity');
+  check(new Set(pack.machines.map(m => m.id)).size === pack.machines.length, 'Duplicate machine identity');
+  const addedIds = new Set(added.map(m => m.id));
   check(Array.isArray(pack.objects) && pack.objects.length <= 4096 &&
     pack.objects.every(o => o && sameValue(o, objectRecord(o)) && typeof o.name === 'string' &&
       typeof o.bytes === 'string' && /^[a-f0-9]{64}$/.test(o.sha256)) &&
     new Set(pack.objects.map(o => o.name)).size === pack.objects.length, 'Invalid machine objects');
-  const existingIds = new Set(base.machines.map(m => m.id));
-  const existingObjects = base.objects.map(objectRecord);
-  const preserved = pack.objects.filter(o => o.owner === null || existingIds.has(o.owner));
-  const changed = [...Array(Math.max(preserved.length, existingObjects.length)).keys()].find(i => {
-    const o = preserved[i], old = existingObjects[i];
-    return !o || !old || !(o.owner === null && collectionObjects.has(o.name)
-      ? sameValue({...o, bytes:'', sha256:''}, {...old, bytes:'', sha256:''}) : sameValue(o, old));
-  });
-  // A custom machine that needs SDK objects the site's machines do not (another service,
-  // arithmetic runtime member or SDK header unit) cannot extend this collection.
-  check(changed === undefined, 'This pack changes the existing machines or SDK runtime (' +
-    (preserved[changed]?.name ?? existingObjects[changed]?.name) + '). Rebuild it with the matching SDK and catalog.');
-  const addedIds = new Set(added.map(m => m.id));
-  check(pack.objects.every(o => o.owner === null || existingIds.has(o.owner) || addedIds.has(o.owner) &&
-    o.name.startsWith(o.owner + '/') && /^[A-Za-z0-9_./-]+\.o$/.test(o.name) && !o.name.split('/').includes('..') &&
+  check(pack.objects.every(o => addedIds.has(o.owner) && o.name.startsWith(o.owner + '/') &&
+    /^[A-Za-z0-9_./-]+\.o$/.test(o.name) && !o.name.split('/').includes('..') &&
     o.service === undefined && o.extension === undefined && o.runtime === undefined) &&
     added.every(m => pack.objects.some(o => o.owner === m.id)), 'Missing or unowned machine objects');
   check(typeof pack.notices === 'string' && pack.notices.length <= 1024 ** 2, 'Invalid machine notices');
-  const candidate = await openKit({...base, linked:undefined, machines:[...base.machines, ...added], objects:pack.objects,
+  // Machine objects before the SDK's, as a native build of the site's collection with these
+  // machines after its own links them (tooling/native.py plan).
+  const first = base.objects.findIndex(o => o.owner === null), shared = first < 0 ? base.objects.length : first;
+  const objects = [...base.objects.slice(0, shared), ...pack.objects, ...base.objects.slice(shared)];
+  const candidate = await openKit({...base, linked:undefined, machines:[...base.machines, ...added], objects,
     notices:base.notices + '\n\nImported machine pack\n\n' + pack.notices});
-  for (const m of added) {
-    if (m.preview) check(await sha256(decode64(m.preview.wasm)) === m.preview.sha256, 'Machine preview hash mismatch');
-    // Catch missing imports, duplicate exports and machines that cannot fit even
-    // alone, in the larger memory a site offers. The user's combined selection is
-    // checked by the normal memory meter.
-    try { linkKit(candidate, [m.id]); }
-    catch (error) {
-      if (error.capacity !== true || !offersExpandedMemory(candidate.profile)) throw error;
-      linkKit(memoryKit(candidate, true), [m.id]);
+  // What the SDK's objects name, and the entry points services fall back from: no machine
+  // object may define one, so a selection links the same shared code with or without it.
+  const named = new Set([...candidate.objects.filter(o => o.owner === null)
+    .flatMap(o => o.symbols.filter(s => s.binding && !s.section && s.name).map(s => s.name)),
+    ...Object.values(candidate.serviceFallbacks ?? {}).flatMap(f => Object.keys(f))]);
+  // What every other machine defines: a native build refuses a collection in which two
+  // machines define the same symbol, so the site's and the pack's must never share one.
+  const definedBy = new Map();
+  for (const o of candidate.objects) if (o.owner !== null)
+    for (const s of o.symbols) if (s.binding === 1 && s.section && s.name) {
+      const owners = definedBy.get(s.name) ?? new Set();
+      owners.add(o.owner); definedBy.set(s.name, owners);
     }
-  }
   for (const m of added) {
+    const own = candidate.objects.filter(o => o.owner === m.id);
+    const defined = own.flatMap(o => o.symbols.filter(s => s.binding === 1 && s.section && s.name).map(s => s.name));
+    check(defined.includes(m.prefix + '_record'), `${m.id} has no machine record: export it with this release's SDK`);
+    const taken = defined.find(name => named.has(name));
+    check(taken === undefined, `${m.id} defines ${taken}, which the SDK's objects use`);
+    const shared = defined.find(name => definedBy.get(name).size > 1);
+    if (shared !== undefined)
+      throw new Error(`${m.id} defines ${shared}, which ${[...definedBy.get(shared)].find(id => id !== m.id)} also defines`);
+    if (m.preview) check(await sha256(decode64(m.preview.wasm)) === m.preview.sha256, 'Machine preview hash mismatch');
     // A service it switches on with hooks must have its objects in this kit (carriedCapability):
     // a pack never adds them, and a build would hook into nothing.
     for (const service of activeServices(base.profile, [m]))
       check(!base.profile.patches.some(edit => edit.service === service && edit.kind === 'hook') ||
         candidate.objects.some(o => o.service === service), `${m.id} needs the ${service} service, which this site does not link`);
-    // Its absent fallbacks name its own callbacks, not another machine's or the SDK's.
-    for (const symbol of Object.keys(m.absent))
-      check(!candidate.objects.some(o => o.owner !== m.id && o.symbols.some(s => s.binding && s.section && s.name === symbol)),
-        `${m.id} lists another object's ${symbol} as its own callback`);
+    // Catch missing imports (an SDK header unit, arithmetic runtime member or service
+    // object the site does not link), duplicate exports and machines that cannot fit even
+    // alone, in the larger memory a site offers. The user's combined selection is
+    // checked by the normal memory meter.
+    try {
+      try { linkKit(candidate, [m.id]); }
+      catch (error) {
+        if (error.capacity !== true || !offersExpandedMemory(candidate.profile)) throw error;
+        linkKit(memoryKit(candidate, true), [m.id]);
+      }
+    } catch (error) {
+      const missing = /^Unresolved import: (.+)$/.exec(error.message ?? '');
+      if (!missing) throw error;
+      throw new Error(`${m.id} needs ${missing[1]}, which this site's SDK objects do not provide. Rebuild it with ` +
+        'the matching SDK and catalog.');
+    }
   }
-  // The pack's shared objects name added machines' callbacks: each one they import must be
-  // in its machine's `absent` list, so every selection without that machine still links.
-  const imported = new Set(candidate.objects.filter(o => o.owner === null)
-    .flatMap(o => o.symbols.filter(s => s.binding && !s.section && s.name).map(s => s.name)));
-  for (const m of added)
-    for (const o of candidate.objects.filter(o => o.owner === m.id))
-      for (const s of o.symbols.filter(s => s.binding && s.section && imported.has(s.name)))
-        check(Object.hasOwn(m.absent, s.name), `${m.id} has no absent fallback for ${s.name}`);
   linkKit(candidate, [base.machines[0].id]);
   return candidate;
 }

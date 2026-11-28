@@ -1,4 +1,5 @@
 #include <sample_callbacks.cpp>
+#include <sample_table.cpp>
 #include <cstdlib>
 #include <cstring>
 #include <initializer_list>

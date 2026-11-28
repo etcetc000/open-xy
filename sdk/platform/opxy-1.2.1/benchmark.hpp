@@ -20,6 +20,23 @@ struct Stats {
     }
 };
 inline u32 cycles() { return sdk_benchmark_cycles(); }
+// One diagnostic run in a machine's record (machine_record.hpp): a machine's isolated
+// callback, one of a drum kit's runs (run, with its argument) or, with neither, a
+// synth through stock's runner; reported at `metric`.
+struct Run {
+    const char* name;
+    const char* id;  // absolute symbol: the engine or effect ID
+    int (*ready)();
+    Stats (*callback)();
+    u32 metric;
+    Stats (*run)(u32);
+    u32 argument;
+};
+// A swept synth control's setting in a sweep build (tooling/benchmark.py sweep_settings).
+struct Setting {
+    u32 control;
+    i32 value;
+};
 // Masks interrupts while it lives, around each timed block, as stock's synth runner
 // masks them around its render loop (8d57c9ee CLI .. 8d57ca88 STI): no handler's time
 // lands in a block's maximum. Anything pending runs between blocks, untimed. The

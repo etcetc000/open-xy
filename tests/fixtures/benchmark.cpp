@@ -2,6 +2,8 @@
 #include <cstring>
 #include <benchmark.cpp>
 
+extern "C" const char unfamiliar_engine_id[];
+
 namespace {
 Test stock_tests[9];
 unsigned calls, available = 1, lose_after_stock;
@@ -29,6 +31,16 @@ const char unfamiliar_engine_id[] = "engine";
 int unfamiliar_ready() { return available && !(lose_after_stock && calls >= 9); }
 }
 
+// One synth's record (machine_record.hpp) and its standard run, as the selection lists it.
+static const Run unfamiliar_runs[] = {{"unfamiliar", unfamiliar_engine_id, unfamiliar_ready, nullptr, 5, nullptr, 0}};
+static const MachineRecord unfamiliar_record = {
+    opxy::platform::machine_kind::kSynth, nullptr, nullptr, unfamiliar_ready, nullptr, nullptr, unfamiliar_engine_id,
+    nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+    nullptr,
+    unfamiliar_runs, 1};
+const MachineRecord* const sdk_machine_records[] = {&unfamiliar_record};
+const u32 sdk_machine_record_count = 1;
+
 namespace opxy { namespace platform {
 Address host_stock_address(Address address) {
     if (address == 0x8c0c7908) return reinterpret_cast<Address>(reset_records);
@@ -50,7 +62,7 @@ int main() {
     sdk_benchmark_run(); need(calls == 9);
     // Publish the callback's exact 64-bit accumulator in the selected record;
     // zero every unrelated record, including those from the preceding synth.
-    const Machine effect = {"effect", 0, 0, measured_callback, 7};
+    const Run effect = {"effect", 0, 0, measured_callback, 7, nullptr, 0};
     result = {300, 100, 0xfffffff0u, 2, 1500, 1};
     std::memset(records, 0xff, sizeof(records));
     callback_report(effect);

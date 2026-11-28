@@ -55,14 +55,15 @@ extern "C" {
 // placeholder; slots 6 and 7 are unused. Engine 42 is paged: every position
 // cycles to its second-page slot 4..7, of which slot 6 is a placeholder.
 // Engine 43 has engine 41's alternates but is not ready (unselected in a kit).
-const opxy::platform::SynthControls sdk_synth_controls[] = {
+static const opxy::platform::SynthControls sdk_synth_controls_rows[] = {
     {reinterpret_cast<const char*>(40), ready, {0, 1, 2, 3, 4, 5, 6, 7}, 0x2, {3, 0, 17, 0, 0, 0, 0, 0}, format, false, false},
     {reinterpret_cast<const char*>(8), ready, {0, 1, 2, 3, 4, 5, 6, 7}, 0xd, {0, 4, 0, 0, 0, 0, 0, 0}, format, true, false},
     {reinterpret_cast<const char*>(41), ready, {4, 5, 2, 3, 0, 1, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, format, false, false, 0, 0x20},
     {reinterpret_cast<const char*>(42), ready, {4, 5, 6, 7, 0, 1, 2, 3}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, format, false, true, 0, 0x40},
     {reinterpret_cast<const char*>(43), unready, {4, 5, 2, 3, 0, 1, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, format, false, false},
     {nullptr, nullptr, {0, 1, 2, 3, 4, 5, 6, 7}, 0, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false}};
-const opxy::u32 sdk_synth_control_count = 5;
+const opxy::platform::SynthControls* sdk_synth_controls = sdk_synth_controls_rows;
+opxy::u32 sdk_synth_control_count = 5;
 }
 
 opxy::platform::Address opxy::platform::host_stock_address(opxy::platform::Address address) {

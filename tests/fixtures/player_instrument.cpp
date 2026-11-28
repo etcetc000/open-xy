@@ -44,8 +44,9 @@ player::Controls on(u32 track) {
 u32 kind(u32 track) { return on(track).instrument; }
 }
 extern "C" {
-const platform::PlayerEntry sdk_players[]={{nullptr}};
-const u32 sdk_player_count=0;
+static const platform::PlayerEntry sdk_players_rows[]={{nullptr}};
+const platform::PlayerEntry* sdk_players = sdk_players_rows;
+u32 sdk_player_count =0;
 u32 (*sdk_screen_substitute)(u32)=nullptr;
 void (*sdk_player_press)(u32)=nullptr;
 }
@@ -100,3 +101,7 @@ int main() {
     std::puts("player instrument kind published per track passed");
     return 0;
 }
+
+// The machine tables are this fixture's own (above); startup would build them on the device.
+extern "C" void sdk_machine_tables() __asm__("sdk_machine_tables");
+void sdk_machine_tables() {}

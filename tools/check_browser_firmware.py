@@ -27,16 +27,17 @@ def check_startup_label(module, symbols, base, expected):
             'Unexpected startup label')
 
 
-# Unselected machines' callbacks resolve to kit_absent (startup.cpp.in): R0 = 0; RTS.
+# An unused service's entry points and an unselected extension's accessors resolve to
+# kit_absent (startup.cpp.in): R0 = 0; RTS.
 ABSENT = bytes.fromhex('0060 1000')
 
 
 def check_fallbacks(module, symbols, base):
-    """The linked absent-machine callback declines without side effects."""
+    """The linked fallback declines without side effects."""
     absent = symbols['kit_absent']
     at = absent['value'] - base
     require(absent['size'] == len(ABSENT) and module[at:at + len(ABSENT)] == ABSENT,
-            'Absent-machine callback differs from its source')
+            'Fallback differs from its source')
 
 
 def expanded_profile(profile):

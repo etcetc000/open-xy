@@ -53,19 +53,21 @@ extern "C" {
 opxy::u32 sdk_sample_alias(opxy::u32) __asm__("sdk_sample_alias");
 opxy::u32 sdk_sample_neutral_engine(opxy::u32) __asm__("sdk_sample_neutral_engine");
 opxy::u32 sdk_screen_sample_page() { return 0; }
-const SampleMachine sdk_sample_machines[] = {
+static const SampleMachine sdk_sample_machines_rows[] = {
     {reinterpret_cast<const char*>(35), 7, owned, defaults, assign, control, nullptr, 0, nullptr, nullptr, nullptr, nullptr, slice_clock},
     {reinterpret_cast<const char*>(36), 2, owned, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr},
     {reinterpret_cast<const char*>(37), 7, owned, defaults, assign, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, slice_clock},
     {reinterpret_cast<const char*>(38), 2, owned, nullptr, nullptr, nullptr, nullptr, 0, nullptr, nullptr, nullptr, nullptr, nullptr}
 };
-const opxy::u32 sdk_sample_machine_count = 4;
+const SampleMachine* sdk_sample_machines = sdk_sample_machines_rows;
+opxy::u32 sdk_sample_machine_count = 4;
 // Only engine 38 draws its own screen. Its stockShift map gives Shift + encoder
 // 1 to the stock end, 2 to the loop window, 4 to gain; 3 keeps its fine turn.
-const SynthControls sdk_synth_controls[] = {
+static const SynthControls sdk_synth_controls_rows[] = {
     {reinterpret_cast<const char*>(38), nullptr, {0, 1, 2, 3, 4, 5, 6, 7}, 0x7, {0, 0, 0, 0, 0, 0, 0, 0}, nullptr, false, false,
      0, 0, 0, {1, 1, 1, 1}, nullptr, {stock_shift::kShifted - 1, stock_shift::kLoopWindow, stock_shift::kNone, stock_shift::kShifted + 3}}};
-const opxy::u32 sdk_synth_control_count = 1;
+const SynthControls* sdk_synth_controls = sdk_synth_controls_rows;
+opxy::u32 sdk_synth_control_count = 1;
 void sdk_synth_shown(opxy::u32, opxy::u8* shown) { for (opxy::u32 i = 0; i < 4; ++i) shown[i] = opxy::u8(i); }
 void sdk_sample_slice_config(SamplePreviewRange* range, unsigned id, unsigned track, const void*) {
     check((id == 35 || id == 37) && track == 0);

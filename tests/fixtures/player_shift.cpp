@@ -87,8 +87,9 @@ const platform::Player* clicker() {
 }
 }
 extern "C" {
-const platform::PlayerEntry sdk_players[]={{shifted},{plain},{gapped},{paged8},{clicker}};
-const u32 sdk_player_count=5;
+static const platform::PlayerEntry sdk_players_rows[]={{shifted},{plain},{gapped},{paged8},{clicker}};
+const platform::PlayerEntry* sdk_players = sdk_players_rows;
+u32 sdk_player_count =5;
 u32 (*sdk_screen_substitute)(u32)=nullptr;
 void (*sdk_player_press)(u32)=nullptr;
 }
@@ -277,3 +278,7 @@ int main() {
     std::puts("player shift row, Shift turn sums, published Shift, clicks and pages passed");
     return 0;
 }
+
+// The machine tables are this fixture's own (above); startup would build them on the device.
+extern "C" void sdk_machine_tables() __asm__("sdk_machine_tables");
+void sdk_machine_tables() {}

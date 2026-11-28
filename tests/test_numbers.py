@@ -10,6 +10,7 @@ from tooling.adapters import (generate_display, generate_fx_object, generate_reg
                               generate_sample_voice, generate_screen, generate_synth_controls, generate_voice)
 from tooling.machines import (FIXED_NUMBERS, LAYOUT_FORMAT, ROOT, by_kind, collection, layout_document, number_layout,
                               read_layout)
+from tooling import records
 from tooling.pipeline import config
 from tooling.startup import generate as generate_startup
 from machine_fixtures import fixture, fixture_entries
@@ -46,8 +47,9 @@ def sources(directory, machines):
     shared.mkdir()
     generate_sample_callbacks(shared, machines)
     generate_synth_controls(shared, machines)
-    generate_startup(shared, [m.prefix for m in by_kind(machines, 'synth', 'sample')],
-                     [m.prefix for m in by_kind(machines, 'effect')], [m.prefix for m in by_kind(machines, 'sample')])
+    generate_startup(shared)
+    for m in machines:
+        records.generate(directory / m.id, m)
     return {p.relative_to(directory).as_posix(): p.read_bytes() for p in sorted(directory.rglob('*')) if p.is_file()}
 
 

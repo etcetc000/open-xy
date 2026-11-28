@@ -308,7 +308,9 @@ class Measurements(unittest.TestCase):
                   [dict(captures[0], complete=False), *captures[1:]],
                   [dict(captures[0], frames=frames[:-1]), *captures[1:]]]
         silent = copy.deepcopy(captures)
-        silent[0]['frames'][-1]['payload_hex'] = '00' * 120
+        # probesample's run (cases list machines by kind, then ID).
+        sample_at = next(i for i, c in enumerate(expected) if c['name'] == 'probesample')
+        silent[0]['frames'][sample_at]['payload_hex'] = '00' * 120
         broken.append(silent)
         # A single capture is refused for the same faults.
         broken += [[dict(captures[0], package={})], [dict(captures[0], errors=['CRC'])],

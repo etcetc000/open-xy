@@ -122,13 +122,14 @@ extern "C" {
 // without pad controls; 34: a kit without padMix.
 static const u8 pad_bits[] = {5, 4};
 static const char* const pad_labels[] = {"FILTER", "SRR"};
-const DrumMachine sdk_drum_machines[] = {
+static const DrumMachine sdk_drum_machines_rows[] = {
     {reinterpret_cast<const char*>(34), ready, 3, defaults, label, name, count},
     {reinterpret_cast<const char*>(40), ready, 3, defaults, label, name, count, 0, nullptr, nullptr, 1},
     {reinterpret_cast<const char*>(41), ready, 3, defaults, label, name, count, 0, nullptr, nullptr, 1,
      2, pad_bits, 1, pad_labels, nullptr}
 };
-const u32 sdk_drum_machine_count = 3;
+const DrumMachine* sdk_drum_machines = sdk_drum_machines_rows;
+u32 sdk_drum_machine_count = 3;
 }
 
 u32 opxy::platform::step_locks::take_step(u32 track) {

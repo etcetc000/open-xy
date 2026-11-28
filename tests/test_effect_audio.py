@@ -7,7 +7,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from tooling import adapters, audio_telemetry, definitions, native
+from tooling import adapters, audio_telemetry, definitions, native, records
 from tooling.firmware import active_services
 from tooling.pipeline import ROOT, config
 from machine_fixtures import fixture
@@ -82,19 +82,20 @@ class EffectAudio(unittest.TestCase):
             header = (Path(temp) / 'display_binding.hpp').read_text()
             self.assertIn('using DisplayInput = draw::AudioInput;', header)
             self.assertIn('return platform::telemetry::effect_key | reinterpret_cast<u32>(probefx_fx_id);', header)
-            # The registry names numbers by link-time symbol, so one compiled registry serves every
-            # selection the browser builder links; a machine without audio snapshots has no row.
+            # Each declaring machine's record names its row by link-time symbol, so its row is the
+            # same whatever else a build holds; a machine without audio snapshots has none.
             synth = scope_synth()
-            registry = audio_telemetry.generate_registry(Path(temp), [m, fixture('probefx'), synth]).read_text()
-            self.assertIn('extern const char probefx_fx_id[] __asm__("probefx_fx_id");', registry)
-            self.assertIn('    {probefx_fx_id, true, probefx_audio_bank, 4, 0, false, 1},', registry)
-            self.assertIn('    {probesynth_engine_id, false, probesynth_audio_bank, 2, 2, true, 1},', registry)
-            self.assertEqual(registry.count('_audio_bank, '), 2)
+            row = audio_telemetry.owner_row(m)
+            self.assertIn('extern const char probefx_fx_id[] __asm__("probefx_fx_id");', row.declarations)
+            self.assertEqual(row.value, '{probefx_fx_id, probefx_audio_bank, 4, 0, false, 1, true}')
+            self.assertEqual(audio_telemetry.owner_row(synth).value,
+                             '{probesynth_engine_id, probesynth_audio_bank, 2, 2, true, 1, false}')
+            self.assertIsNone(audio_telemetry.owner_row(fixture('probefx')))
             for number in (m.identity['effect'], 0x8000 | m.identity['effect'], synth.identity['engine']):
-                self.assertNotIn(f' {number}:', registry)
-            # Left out of a browser selection, the effect's accessor resolves to kit_absent.
-            self.assertEqual(native.absent_symbols(m)['probefx_audio_bank'], 'kit_absent')
-            self.assertNotIn('probefx_audio_bank', native.absent_symbols(fixture('probefx')))
+                self.assertNotIn(str(number), row.value)
+            record = records.render(m)
+            self.assertIn('const opxy::platform::telemetry::Owner audio_row = ' + row.value + ';', record)
+            self.assertNotIn('audio_row', records.render(fixture('probefx')))
 
     def test_a_synth_with_a_track_stage_keeps_both_in_its_adapter(self):
         # Audio snapshots around each voice's render, the stage after the voice loop.
@@ -132,11 +133,11 @@ class EffectAudio(unittest.TestCase):
                 (folder / name).write_bytes((platform / name).read_bytes())
             # A link-time number is a symbol's address on the device; the host maps the symbol to it.
             transport = (folder / 'audio_transport_native.hpp').read_text()
-            for text in ('inline u32 link_number(const char* symbol) {', 'struct Owner {'):
+            for text in ('inline u32 link_number(const char* symbol) {',):
                 self.assertEqual(transport.count(text), 1, text)
             transport = transport.replace('inline u32 link_number(const char* symbol) {',
+                                          'u32 host_link_number(const char*);\n'
                                           'inline u32 link_number(const char* symbol) {\n    return host_link_number(symbol);')
-            transport = transport.replace('struct Owner {', 'u32 host_link_number(const char*);\nstruct Owner {')
             (folder / 'audio_transport_native.hpp').write_text(transport)
             (folder / 'fx.cpp').write_text(FX)
             (folder / 'test.cpp').write_text((ROOT / 'tests/fixtures/effect_audio.cpp').read_text())

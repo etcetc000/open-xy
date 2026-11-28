@@ -1,7 +1,7 @@
 // The drum-kit controls (SDK 1.23): resources.padVolume, padRandom and ampEnvelope,
 // each asked for on its own by a kit without padMix. What they store in a key's pad
-// record, the build's table of kits declaring them (sdk_drum_kits, generated into
-// drum_callbacks.cpp only for a build with such a kit) and the GUI entry points
+// record, the build's table of kits declaring them (sdk_drum_kits, built at startup from
+// their records, machine_tables.cpp) and the GUI entry points
 // drum_kit_controls.cpp defines (the kit_controls profile service).
 //
 // The shared GUI units reach those entry points only through calls compiled with
@@ -96,8 +96,8 @@ struct DrumKit {
 }}
 
 extern "C" {
-extern const opxy::platform::DrumKit sdk_drum_kits[] __asm__("sdk_drum_kits");
-extern const opxy::u32 sdk_drum_kit_count __asm__("sdk_drum_kit_count");
+extern const opxy::platform::DrumKit* sdk_drum_kits __asm__("sdk_drum_kits");
+extern opxy::u32 sdk_drum_kit_count __asm__("sdk_drum_kit_count");
 // A kit's row, or null for a kit without the controls.
 const opxy::platform::DrumKit* sdk_drum_kit(opxy::u32 engine) __asm__("sdk_drum_kit");
 // drum_values.hpp drum_region_values: an ampEnvelope kit's key, unpacked past its amp
