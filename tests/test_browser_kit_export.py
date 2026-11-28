@@ -101,6 +101,9 @@ class BrowserKitExport(unittest.TestCase):
         kit = json.loads((kit_dir / 'kit.json').read_text(encoding='utf-8'))
         declared = json.loads((cpu / 'extension.json').read_text(encoding='utf-8'))['capabilities']
         entry = next(e for e in kit['extensions'] if e['id'] == 'cpu')
+        # A kit without audio snapshots carries the transport's stock calls too, so a machine pack's
+        # addresses equal its site's whatever either's catalog holds.
+        self.assertTrue({'stock_telemetry_tick', 'stock_telemetry_receive'} <= set(kit['definitions']))
         self.assertEqual((entry['capabilities'], entry['origin']), (declared, 'official'))
         self.assertEqual(sorted(o.get('service') for o in kit['objects'] if o.get('service') in
                                 ('idle', 'block_trims', 'output_slack')),
@@ -130,14 +133,14 @@ class BrowserKitExport(unittest.TestCase):
 
     def test_audio_snapshot_machines_export_and_link_in_any_selection(self):
         # A synth and an effect showing their own audio, beside a machine without: the export's
-        # GNU ld parity check links the whole selection and each machine alone, so each owner is also linked left out.
+        # GNU ld parity check links the whole selection and each machine alone, so each owner is also linked left out,
+        # its record and its registry row with it.
         kit_dir = self.export(FIXTURES / 'probescope', FIXTURES / 'probemeter', FIXTURES / 'probesynth')
         kit = json.loads((kit_dir / 'kit.json').read_text(encoding='utf-8'))
         machines = {m['id']: m for m in kit['machines']}
         for owner in ('probescope', 'probemeter'):
             self.assertIn('audioTransport', machines[owner]['features'])
-            self.assertEqual(machines[owner]['absent'][owner + '_audio_bank'], 'kit_absent')
-        self.assertNotIn('probesynth_audio_bank', machines['probesynth']['absent'])
+        self.assertTrue(all('absent' not in m for m in kit['machines']))
         # The transport's objects link only with its service; its hooks continue to stock.
         services = {o['name']: o.get('service') for o in kit['objects']}
         self.assertEqual({name for name, service in services.items() if service == 'telemetry'},

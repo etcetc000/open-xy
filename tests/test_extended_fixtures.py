@@ -107,10 +107,14 @@ class ExtendedFixtures(unittest.TestCase):
             report = (Path(temp) / 'package/analysis/compile-report.json').read_text()
             for unit in ('telemetry_protocol', 'telemetry_native', 'telemetry_hooks', 'telemetry_registry', 'track_stage'):
                 self.assertIn(unit, report)
-            # The registry still tests each owner's number for 0 (a machine a builder selection
-            # leaves out): the compiler may not assume a symbol's address is never null.
+            # The registry's lookup, one unit for every collection (its rows are the records'), still
+            # tests each owner's number for 0: the compiler may not assume a symbol's address is never null.
             registry = (Path(temp) / 'package/analysis/sdk/telemetry_registry.s').read_text()
-            self.assertGreaterEqual(registry.count('==0;'), 3, 'owner numbers are not tested for 0')
+            self.assertGreaterEqual(registry.count('==0;'), 1, 'owner numbers are not tested for 0')
+            # Each declaring machine's record names its registry row.
+            for name in ('probescope', 'probemeter', 'probestagemeter'):
+                record = (Path(temp) / 'package/analysis' / name / 'record.cpp').read_text(encoding='utf-8')
+                self.assertIn(f'{name}_audio_bank', record, name)
 
 
 if __name__ == '__main__':
