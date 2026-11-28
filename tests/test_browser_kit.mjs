@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {KIT_KEYS, kitChoices, kitGroup, kitHeader, kitKey, kitMix, kitModel, kitSelectedKey, kitWord} from '../builder/core.mjs';
-import {RECORD_TABLE_BYTES, RECORDS_OBJECT, recordOrder, recordsObject, MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readSelection, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, imageSettings, unitSettings, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256, readMachinePack, importMachinePack, hookSymbol} from '../builder/core.mjs';
+import {RECORD_TABLE_BYTES, RECORDS_OBJECT, recordOrder, recordsObject, MACHINE_KEYWORDS, keywordsByUse, browseMachines, machineAuthor, CPU_HIGH_PERCENT, cpuWorstCase, cpuHigh, PRESET_NAME_LIMIT, readPresets, savePreset, deletePreset, presetMatches, applyPreset, activeServices, assignNumbers, checkedSelections, chosenByDefault, claimLabel, extensionChoices, extensionSelection, sharedClaim, numberLayout, readLayout, readSelection, readObject, linkKit, moduleBytes, expandedProfile, memoryKit, offersExpandedMemory, openKit, patchFirmware, presentSelections, readLdr, recoverFirmware, imageSettings, unitSettings, RECOVERABLE_ALTERNATIVES, sourceName, sourceUrl, validOrigin, validSource, zipFiles, sha256, readMachinePack, importMachinePack, hookSymbol, presetFiles} from '../builder/core.mjs';
 
 // Tiny authored ELF fixture, independent of firmware and toolchains: one global, `symbol`,
 // at the start of four code bytes.
@@ -45,6 +45,8 @@ async function packFixture() {
     stockCatalog:'', screenTemplate:readFileSync(new URL('../sdk/platform/opxy-1.2.1/screen.svg', import.meta.url), 'utf8')});
   k.objects = [await capsuleOf('a/voice.o', 'a', 'entry'), await capsuleOf('sdk/memory.o', null, 'share'),
     await capsuleOf('sdk/startup.o', null, 'start')];
+  // What shaped the site's objects (tooling.native.shared_build): its synth uses no service.
+  k.build = {services:[], defines:[], headers:[], unitDefines:{player:[]}};
   // The site's kit as exported, which the importer opens itself.
   const base = k;
   const custom = id => ({...machine(id, null, null), name:id, description:'A custom machine',
@@ -52,15 +54,20 @@ async function packFixture() {
     catalog:', {"type":"' + id + '","default_params":[0,0,0,0,0,0,0,0]}',
     artwork:'<rect id="panel" width="1" height="1"/>', asset:id + '.svg'});
   const pack = {format:'opxy-machine-pack/2', version:k.version, sdk:SDK, profileSha256:await sha256(profileBytes),
-    definitions:structuredClone(k.definitions), fixed:structuredClone(k.fixed), machines:[custom('custom'), custom('another')],
+    definitions:structuredClone(k.definitions), fixed:structuredClone(k.fixed),
+    // Its author's build, which shaped its machines' objects: every service, define and header they may use.
+    build:{services:Object.keys(JSON.parse(profileBytes).services), defines:['-DOPXY_PLAYER_INSTRUMENT=1',
+      '-DOPXY_KIT_CONTROLS=1', '-DOPXY_MODEL_EDIT=1'], headers:['control_interaction', 'sample_kernel'], unitDefines:{player:[]}},
+    machines:[custom('custom'), custom('another')],
     objects:[await capsuleOf('custom/voice.o', 'custom', 'custom_record'),
       await capsuleOf('another/voice.o', 'another', 'another_record')], notices:'Author license'};
   return {base, pack};
 }
 // The site links the objects of these services (a kit's `service` objects); a pack never carries them.
 async function withServices(base, services) {
-  for (const [i, service] of services.entries())
-    base.objects.push({...await capsuleOf('sdk/' + service + '.o', null, 'svc' + String(i).padStart(2, '0')), service});
+  for (const service of services)
+    base.objects.push({...await capsuleOf('sdk/' + service + '.o', null, 'svc_' + service), service});
+  base.build.services.push(...services);
 }
 
 test('machine ZIP adds several selectable machines without changing the base kit or saved numbers', async () => {
@@ -250,15 +257,15 @@ test('packs take authored descriptions and artwork comments as the SDK does, and
   }
 });
 
-test('packs refuse kinds they cannot import and malformed services or heap voices', async () => {
-  for (const [change, error] of [[m => { m.kind = 'drum'; }, /metadata/], [m => { m.kind = 'player'; }, /metadata/],
+test('packs refuse unknown kinds and malformed services or heap voices', async () => {
+  for (const [change, error] of [[m => { m.kind = 'master'; }, /metadata/], [m => { m.kind = 'constructor'; }, /metadata/],
     [m => { m.heapVoices = -1; }, /heap voices/], [m => { m.heapVoices = 1.5; }, /heap voices/],
     [m => { m.shiftRow = 'yes'; }, /Shift row/],
     [m => { m.unknown = true; }, /metadata/], [m => { m.keywords = ['bass']; }, /metadata/],
-    [m => { m.auxPresets = {'../../x.json':'{}'}; }, /metadata/], [m => { m.fullCanvas = 'x'; }, /full canvas/],
+    [m => { m.auxPresets = {'../../x.json':'{}'}; }, /aux machine/], [m => { m.fullCanvas = 'x'; }, /full canvas/],
     [m => { m.preview = {wasm:'', sha256:'0'.repeat(64), defaults:[0, 0, 0, 0], kit:{models:1e9}}; }, /preview/],
     [m => { m.preview = {wasm:'', sha256:'0'.repeat(64), defaults:[0, 0, 0, 0], shift:Array(8).fill(0)}; }, /preview/],
-    // Only the features an imported kind declares: never a capability, another kind or an aux track.
+    // Only the features an imported kind declares: never a capability or another kind's.
     ...['Bad', 'control', 'load_governor', 'release_floor', 'extension', 'drum', 'padMix', 'auxTrack', 'kitControls']
       .map(f => [m => { m.features = [f]; }, /features/]),
     [m => { m.features = 'hidePages'; }, /features/],
@@ -306,6 +313,237 @@ test('a pack machine the site already has is refused, whatever its metadata', as
   const {base, pack} = await packFixture();
   base.machines.push({...pack.machines[0], origin:'catalog'});
   await assert.rejects(importMachinePack(base, pack), /custom is already one of this site's machines/);
+});
+
+// A pack's drum kit, note player and aux machine, as tooling.browser_kit.machine_entry writes them.
+const AUX_INIT = JSON.stringify({platform:'OP-XY', type:'cv', version:1}, null, 2) + '\n';
+const auxPreset = (id, value = 0) => JSON.stringify({params:Array(8).fill(value), platform:'OP-XY', type:id, version:1}, null, 2) + '\n';
+const kitPreset = id => ({version:4, platform:'OP-XY', type:id, regions:[], engine:{params:Array(8).fill(0)}});
+function asKind(m, kind) {
+  const id = m.id, menu = params => `, {"type":"${id}",${params}"default_params":[0,0,0,0,0,0,0,0]}`;
+  if (kind === 'drum') Object.assign(m, {kind, controls:Array.from({length:8}, (_, i) => 'K' + i),
+    positions:[0, 1, 2, 3, 0, 1, 2, 3], catalog:menu(''), presets:Object.fromEntries(Array.from({length:20},
+      (_, i) => ['p' + i, kitPreset(id)])),
+    preview:{wasm:'', sha256:'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', graphics:{},
+      defaults:Array(8).fill(0), kit:{models:3, padMix:false, selectedKey:true, groups:[{label:'A', count:1}, {label:'B-2', count:2}]}}});
+  if (kind === 'player') Object.assign(m, {kind, identity:{player:null, page:null}, positions:[0, 1, null, 3],
+    catalog:menu('"id":10,')});
+  if (kind === 'aux') Object.assign(m, {features:['trackControl', 'auxTrack'], catalog:'',
+    auxPresets:{'content/aux_presets/cv/init.json':AUX_INIT, [`content/aux_presets/${id}/warm.json`]:auxPreset(id, 7)}});
+  return m;
+}
+// Every kind a native build makes, with the services each uses linked by the site.
+async function kindsFixture() {
+  const {base, pack} = await packFixture();
+  await withServices(base, ['samples', 'drums', 'octaves', 'players', 'control', 'aux']);
+  pack.machines.push({...pack.machines[0], id:'third', prefix:'third', asset:'third.svg'});
+  pack.objects.push(await capsuleOf('third/voice.o', 'third', 'third_record'));
+  asKind(pack.machines[0], 'drum'); asKind(pack.machines[1], 'player'); asKind(pack.machines[2], 'aux');
+  for (const m of pack.machines) m.catalog = m.catalog.replace('"custom"', `"${m.id}"`);
+  return {base, pack};
+}
+
+test('a pack carries every kind a native build makes, as the site builds them', async () => {
+  const {base, pack} = await kindsFixture();
+  const candidate = await importMachinePack(base, pack);
+  assert.deepEqual(candidate.machines.map(m => [m.id, m.kind]), [['a', 'synth'], ['custom', 'drum'], ['another', 'player'],
+    ['third', 'synth']]);
+  const indent = '\n            ';
+  // A player's menu entry carries its number, as an effect's does; an aux machine has none.
+  assert.equal(candidate.machines[2].catalog, ',\n        {' + indent + '"type": "another",' + indent + '"id": 10,' +
+    indent + '"default_params": [0, 0, 0, 0, 0, 0, 0, 0]\n        }');
+  assert.equal(candidate.machines[3].catalog, '');
+  const linked = linkKit(candidate, ['a', 'custom', 'another', 'third']);
+  for (const id of ['custom', 'another', 'third']) assert.ok(linked.globals.has(id + '_record'));
+  // A kit's presets beyond 16 install with it (presetFiles), and an aux machine's are the aux track's.
+  assert.equal(Object.keys(presetFiles(candidate.machines[1])).length, 21);
+  assert.deepEqual(Object.keys(presetFiles(candidate.machines[3])).sort(),
+    ['content/aux_presets/cv/init.json', 'content/aux_presets/third/warm.json']);
+});
+
+test('a pack machine needs every service, define and header unit it uses to be the site\'s already', async () => {
+  for (const [service, kind] of [['drums', 0], ['players', 1], ['aux', 2], ['control', 2], ['octaves', 0]]) {
+    const {base, pack} = await kindsFixture();
+    base.build.services = base.build.services.filter(s => s !== service);
+    const id = pack.machines[kind].id;
+    await assert.rejects(importMachinePack(base, pack), new RegExp(`${id} needs the ${service} service`), service);
+  }
+  const define = '-DOPXY_PLAYER_INSTRUMENT=1';
+  for (const change of [
+    (b, p) => { p.machines[1].build = {defines:[define], headers:[]}; },
+    (b, p) => { p.machines[0].build = {defines:['-DOPXY_MODEL_EDIT=1'], headers:[]}; b.build.defines.push(define); },
+    (b, p) => { p.machines[2].build = {defines:[], headers:['control_interaction']}; b.build.headers.push('sample_kernel'); },
+    // A player compiled without the site's player define (or with one the site lacks).
+    (b, p) => { b.build.defines.push(define); b.build.unitDefines.player.push(define); },
+    (b, p) => { p.build.unitDefines.player.push(define); },
+  ]) {
+    const {base, pack} = await kindsFixture(); change(base, pack);
+    await assert.rejects(importMachinePack(base, pack), /needs (SDK objects built (with|for)|its objects compiled)/,
+      change.toString());
+  }
+  // The same, once the site has them: its SDK objects then are a native build's with the pack.
+  const {base, pack} = await kindsFixture();
+  pack.machines[1].build = {defines:[define], headers:[]};
+  pack.machines[2].build = {defines:[], headers:['control_interaction']};
+  base.build.defines.push(define); base.build.headers.push('control_interaction');
+  base.build.unitDefines.player.push(define); pack.build.unitDefines.player.push(define);
+  await importMachinePack(base, pack);
+  // Only a pack machine's kind compares its own objects' defines: a synth ignores a player's.
+  const {base:site, pack:synths} = await packFixture();
+  synths.build.unitDefines.player.push(define);
+  await importMachinePack(site, synths);
+});
+
+// A synth or effect showing its own audio (audioTransport), a machine of any kind reading the
+// device identity (deviceIdentity) and a note player drawing its own page, as machine_entry
+// writes them: each imports where the site links what it uses, and names the service otherwise.
+test('pack machines with audio snapshots, the device identity or a drawn player page import as the site builds them', async () => {
+  const {base, pack} = await kindsFixture();
+  const {auxPresets, ...synth} = pack.machines[2];
+  const effect = {...synth, id:'fourth', prefix:'fourth', asset:'fourth.svg', kind:'effect',
+    identity:{effect:null, page:21}, controls:['A'], positions:[0], features:['audioTransport', 'deviceIdentity'],
+    catalog:', {"type":"fourth","id":21,"default_params":[0,0,0,0,0,0,0,0]}'};
+  pack.machines.push(effect);
+  pack.objects.push(await capsuleOf('fourth/voice.o', 'fourth', 'fourth_record'));
+  pack.machines[2].features = ['trackControl', 'auxTrack', 'audioTransport'];
+  pack.machines[0].features = ['deviceIdentity'];
+  Object.assign(pack.machines[1], {features:['deviceIdentity'], artwork:'<rect id="panel" width="1" height="1"/>',
+    preview:{wasm:'', sha256:'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', graphics:{},
+      defaults:Array(4).fill(0), player:true}});
+  await assert.rejects(importMachinePack(base, pack), /needs the (telemetry|device_identity|parameter_receive) service/);
+  for (const [service, id] of [['telemetry', 'third'], ['device_identity', 'custom'], ['parameter_receive', 'custom']]) {
+    const {base:site} = await kindsFixture();
+    await withServices(site, ['telemetry', 'device_identity', 'parameter_receive'].filter(s => s !== service));
+    await assert.rejects(importMachinePack(site, pack), new RegExp(`needs the ${service} service`), service);
+  }
+  await withServices(base, ['telemetry', 'device_identity', 'parameter_receive']);
+  const candidate = await importMachinePack(base, pack);
+  assert.deepEqual(candidate.machines.map(m => m.id), ['a', 'custom', 'another', 'third', 'fourth']);
+  // A player's preview is a drawn page's, with its artwork; only a player's is marked one.
+  for (const change of [p => { delete p.machines[1].preview.player; }, p => { delete p.machines[1].artwork; },
+    p => { p.machines[0].preview.player = true; }, p => { p.machines[1].features = ['audioTransport']; },
+    p => { p.machines[0].features = ['audioTransport']; }]) {
+    const changed = structuredClone(pack); change(changed);
+    await assert.rejects(importMachinePack(base, changed), /preview|features/, change.toString());
+  }
+});
+
+test('a pack machine needs its services, defines and headers in its author build record', async () => {
+  for (const change of [p => { p.build.services = p.build.services.filter(s => s !== 'drums'); },
+    p => { p.machines[1].build = {defines:['-DOPXY_PLAYER_INSTRUMENT=1'], headers:[]}; p.build.defines = []; },
+    p => { p.machines[2].build = {defines:[], headers:['control_interaction']}; p.build.headers = []; }]) {
+    const {base, pack} = await kindsFixture(); change(pack);
+    await assert.rejects(importMachinePack(base, pack), /Invalid machine build/, change.toString());
+  }
+});
+
+test('packs and sites without a valid build record are refused', async () => {
+  for (const [change, error] of [
+    [(b, p) => { delete p.build; }, /earlier Open-XY release/],
+    [(b, p) => { p.build.extra = []; }, /Unsupported machine pack/],
+    [(b, p) => { p.build.services = 'drums'; }, /Unsupported machine pack/],
+    [(b, p) => { p.build.unitDefines = {master:[]}; }, /Unsupported machine pack/],
+    [(b, p) => { p.build.defines = [1]; }, /Unsupported machine pack/],
+    [(b, p) => { delete b.build; }, /Export its kit again/],
+    [(b, p) => { b.build = null; }, /Invalid kit build|Export its kit again/],
+    [(b, p) => { p.machines[0].build = {defines:[], headers:[]}; }, /Invalid machine build/],
+    [(b, p) => { p.machines[0].build = {defines:['x']}; }, /Invalid machine build/],
+  ]) {
+    const {base, pack} = await kindsFixture(); change(base, pack);
+    await assert.rejects(importMachinePack(base, pack), error, change.toString());
+  }
+});
+
+test('pack drum kits, players and aux machines are checked as their kinds are built', async () => {
+  for (const [change, error] of [
+    // A kit has eight controls on positions; a player's menu number is a stock player type's.
+    [p => { p.machines[0].controls.pop(); p.machines[0].positions.pop(); }, /controls/],
+    [p => { p.machines[0].positions[2] = null; }, /controls/],
+    [p => { p.machines[1].catalog = p.machines[1].catalog.replace('"id":10', '"id":4'); }, /menu/],
+    [p => { p.machines[1].catalog = p.machines[1].catalog.replace('"id":10,', ''); }, /menu/],
+    [p => { p.machines[0].catalog = p.machines[0].catalog.replace('{', '{"id":3,'); }, /menu/],
+    // Presets are an instrument's; an aux machine's are its aux track's.
+    [p => { p.machines[1].presets = {a:kitPreset('another')}; }, /presets/],
+    [p => { p.machines[1].presetDefaults = {volume:-1}; }, /preset volume/],
+    [p => { p.machines[2].presetDefaults = {amp:{gate:1}}; }, /preset amp/],
+    [p => { p.machines[2].presets = {a:kitPreset('third')}; }, /aux machine/],
+    [p => { p.machines[2].catalog = ', {"type":"third","default_params":[0,0,0,0,0,0,0,0]}'; }, /aux machine/],
+    [p => { p.machines[1].auxPresets = p.machines[2].auxPresets; }, /aux machine/],
+    [p => { delete p.machines[2].auxPresets; }, /aux machine/],
+    [p => { delete p.machines[2].auxPresets['content/aux_presets/cv/init.json']; }, /aux machine/],
+    [p => { p.machines[2].auxPresets['content/aux_presets/third/x.json'] = auxPreset('custom'); }, /aux machine/],
+    [p => { p.machines[2].auxPresets['content/aux_presets/third/x.json'] = auxPreset('third', 32768); }, /aux machine/],
+    [p => { p.machines[2].auxPresets['content/aux_presets/third/x.json'] = '{"params":[],"x":"<script>"}'; }, /aux machine/],
+    [p => { p.machines[2].auxPresets['content/aux_presets/cv/x.json'] = AUX_INIT; }, /aux machine/],
+    // An aux preset's file stays in its machine's folder, under a preset name (packAuxPresets).
+    ...['content/aux_presets/third/../a/p0.json', 'content/aux_presets/third/../../../x.json',
+      'content/aux_presets/third/sub/x.json'].map(path =>
+      [p => { p.machines[2].auxPresets[path] = auxPreset('third'); }, /aux machine/]),
+    [p => { p.machines[2].auxPresets['content/aux_presets/third/x.json'] = auxPreset('third') + ' '.repeat(2048); }, /aux machine/],
+    [p => { p.machines[2].features = ['auxTrack']; }, /features/],
+    // An aux machine named as the stock role it takes over (tooling.adapters.check_track_controls).
+    [p => { const m = p.machines[2]; Object.assign(m, {id:'cv', prefix:'cv', asset:'cv.svg', auxPresets:{
+      'content/aux_presets/cv/init.json':AUX_INIT}}); p.objects[2] = {...p.objects[2], owner:'cv', name:'cv/voice.o'}; }, /aux machine/],
+    // Only its kind's defines, the kit controls' exactly with that feature, and the shared headers.
+    [p => { p.machines[2].build = {defines:['-DOPXY_PLAYER_INSTRUMENT=1'], headers:[]}; }, /machine build/],
+    [p => { p.machines[0].build = {defines:['-DOPXY_KIT_CONTROLS=1'], headers:[]}; }, /machine build/],
+    [p => { p.machines[0].build = {defines:['-DOPXY_MODEL_EDIT=1', '-DOPXY_MODEL_EDIT=1'], headers:[]}; }, /machine build/],
+    [p => { p.machines[1].build = {defines:[], headers:['other']}; }, /machine build/],
+    // A kit's features are a kit's, and its preview tells its models as its features do.
+    [p => { p.machines[0].features = ['trackStage']; }, /features/],
+    [p => { p.machines[1].features = ['hidePages']; }, /features/],
+    [p => { p.machines[0].features = ['ampEnvelope']; }, /features/],
+    [p => { p.machines[0].preview.kit.padMix = true; }, /preview/],
+    [p => { p.machines[0].preview.kit.models = 65; }, /preview/],
+    [p => { p.machines[0].preview.kit.padVolume = true; }, /preview/],
+    [p => { p.machines[0].preview.kit.groups[0].label = '<b>'; }, /preview/],
+    [p => { p.machines[0].preview.kit.groups[0].count = 2; }, /preview/],
+    [p => { delete p.machines[0].preview.kit; }, /preview/],
+    [p => { p.machines[1].preview = p.machines[0].preview; }, /preview/],
+    [p => { p.machines[0].presets = Object.fromEntries(Array.from({length:65}, (_, i) => ['p' + i, kitPreset('custom')])); }, /presets/],
+  ]) {
+    const {base, pack} = await kindsFixture(); change(pack);
+    await assert.rejects(importMachinePack(base, pack), error, change.toString());
+  }
+  // A kit with the drum-kit controls, an aux machine without presets of its own and 64 presets.
+  const {base, pack} = await kindsFixture();
+  await withServices(base, ['kit_controls', 'amp_envelope']);
+  base.build.defines.push('-DOPXY_KIT_CONTROLS=1');
+  Object.assign(pack.machines[0], {features:['kitControls', 'ampEnvelope'], build:{defines:['-DOPXY_KIT_CONTROLS=1'], headers:[]},
+    presets:Object.fromEntries(Array.from({length:64}, (_, i) => ['p' + i, kitPreset('custom')]))});
+  pack.machines[0].preview.kit.padVolume = true;
+  delete pack.machines[2].auxPresets['content/aux_presets/third/warm.json'];
+  await importMachinePack(base, pack);
+});
+
+test('a pack may not hold more players than stock numbers alongside the site machines', async () => {
+  const {base, pack} = await kindsFixture();
+  for (let i = 0; i < 26; i++) base.machines.push({...machine('q' + i, null, null), kind:'player', identity:{player:null, page:null},
+    catalog:`, {"type":"q${i}","id":10,"default_params":[0,0,0,0,0,0,0,0]}`});
+  await assert.rejects(importMachinePack(base, pack), /cannot all be numbered/);
+  base.machines.pop();
+  await importMachinePack(base, pack);
+});
+
+test('a pack may not take the aux track over more machines than its chooser lists', async () => {
+  const {base, pack} = await kindsFixture();
+  for (let i = 0; i < 31; i++) base.machines.push({...machine('s' + i, null, null), catalog:'',
+    features:['trackControl', 'auxTrack']});
+  await assert.rejects(importMachinePack(base, pack), /32 machines would take over the aux track/);
+  base.machines.pop();
+  await importMachinePack(base, pack);
+  // Nor more aux presets than the device lists, over the site's machines and the pack's together.
+  const {base:site, pack:more} = await kindsFixture();
+  site.machines[0] = {...site.machines[0], features:['trackControl', 'auxTrack'], catalog:'', auxPresets:Object.fromEntries(
+    Array.from({length:63}, (_, i) => [`content/aux_presets/a/p${i}.json`, auxPreset('a')]))};
+  await assert.rejects(importMachinePack(site, more), /aux machines would have 65 presets/);
+  // Nor more heap voices than the stock heap a collection may hold.
+  const {base:heapSite, pack:heapPack} = await kindsFixture();
+  heapSite.machines[0].heapVoices = 1024 * 1024 - 4095;
+  heapPack.machines[2].heapVoices = 4096;
+  await assert.rejects(importMachinePack(heapSite, heapPack), /heap voices would hold 1048577 bytes/);
+  heapPack.machines[2].heapVoices = 4095;
+  await importMachinePack(heapSite, heapPack);
 });
 
 test('machine ZIP reader rejects corruption, archive ambiguities and source/firmware archives', () => {

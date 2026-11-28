@@ -127,12 +127,18 @@ def machine_entry(m, profile, sources, output, preview_cxx):
     uses = sorted(set(native.service_users([m])) - {m.kind, 'extension'})
     if uses:
         entry['features'] = uses
+    # The defines and header-tied units it adds to its build's SDK objects (native.machine_build):
+    # a machine pack's must be its site's already (core.mjs importMachinePack).
+    build = native.machine_build(profile, m)
+    if any(build.values()):
+        entry['build'] = build
     entry['presetDefaults'] = m.preset_defaults
     # A machine that takes over aux tracks: its preset files, which the builder installs as they are.
     aux_presets = aux_preset_files(m)
     if aux_presets:
         entry['auxPresets'] = {path: data.decode('utf-8') for path, data in aux_presets.items()}
-    presets = kit_presets(m)
+    # An aux machine is never an instrument, so it has no instrument presets (core.mjs presetPath).
+    presets = None if aux_presets else kit_presets(m)
     if presets:
         entry['presets'] = presets
     if m.icon:
@@ -259,6 +265,9 @@ def export(package, output, tools, preview_cxx='clang++', *, stock_catalog, pers
                                               extension_origins(native.extensions_of(machines), personal)),
                stockCatalog=base64.b64encode(stock_catalog).decode('ascii'),
                screenTemplate=screen.template().decode('utf-8'))
+    # What shapes its SDK objects and its machines' own beyond the SDK revision (native.shared_build),
+    # which a machine pack's machines may not add to (core.mjs importMachinePack).
+    kit['build'] = native.shared_build(profile, machines)
     fallbacks = native.service_fallbacks(native.active_services(profile, native.service_users(machines)),
                                          native.master_shared(machines))
     if fallbacks:

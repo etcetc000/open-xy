@@ -178,7 +178,7 @@ test("a machine's own presets are checked again before they reach a device", asy
   for (const presets of [{default: own({type: 'x'})}, {'../x': own()}, {'Warm Pad': own()}, {a: own({type: 'fm2op'})},
     {a: own({version: 3})}, {a: own({platform: 'OP-1'})}, {a: own({regions: [{sample: 'kick.wav'}]})},
     {a: own({engine: {params: [0]}})}, {a: own({engine: {params: Array(8).fill(32768)}})}, {a: null},
-    Object.fromEntries(Array.from({length: 17}, (_, i) => ['p' + i, own()])), []]) {
+    Object.fromEntries(Array.from({length: 65}, (_, i) => ['p' + i, own()])), []]) {
     const {kit, catalog} = await fixture([{...machines[0], presets}]);
     await assert.rejects(buildAssets(kit, ['probesynth'], catalog, numbers), /Invalid machine preset/);
   }

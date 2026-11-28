@@ -754,9 +754,10 @@ the identity; others are unchanged. The service adds a check to each pass of
 stock's main loop (on the audio processor it returns at once) and to each of
 stock's global parameter messages the audio processor receives, and sends the
 identity 32 times, at most once a second, from when it is read ([firmware
-ABI](abi-1.2.1.md#device-identity)). A machine pack cannot add a machine
-declaring `"deviceIdentity": 1` to a site yet: the builder's list of features a
-pack machine may use does not include it.
+ABI](abi-1.2.1.md#device-identity)). A machine pack may add a machine
+declaring `"deviceIdentity": 1` only to a site whose own catalog already links
+its `device_identity` and `parameter_receive` services ([machine
+packs](catalog.md#import-custom-machines)).
 
 ## Track control
 
@@ -1888,7 +1889,8 @@ firmware that holds it.
 
 - A name is lowercase letters, digits, `-` and `_`, at most 24. Other files in
   the folder, except `.md` and hidden files, are refused.
-- At most 16 presets, each at most 16 KiB.
+- At most 64 presets, each at most 16 KiB. Stock's preset browser lists a folder of any
+  length (its own factory folders hold up to 28); the limit only bounds a kit's size.
 - Each is a version 4 OP-XY preset whose `type` is the machine's ID, with
   eight engine `params` from 0 to 32767 and no sample `regions`, since a
   preset never points into a user's sample library. A sample engine shipping

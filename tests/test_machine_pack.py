@@ -14,9 +14,13 @@ from tooling.machine_pack import write
 from tooling.formats import sha
 
 
+# What shaped a kit's objects (tooling.native.shared_build), which its pack records.
+BUILD = dict(services=['players'], defines=[], headers=[], unitDefines=dict(player=[]))
+
+
 class MachinePackTests(unittest.TestCase):
     def kit(self):
-        return dict(version='0.0.2', sdk='c' * 64, definitions={}, fixed={}, machines=[dict(id='custom', kind='synth', origin='personal')],
+        return dict(version='0.0.2', sdk='c' * 64, definitions={}, fixed={}, build=BUILD, machines=[dict(id='custom', kind='synth', origin='personal')],
                     objects=[dict(name='custom/voice.o', owner='custom'), dict(name='sdk/startup.o', owner=None)],
                     notices='Author license', profileSource=base64.b64encode(b'profile').decode(),
                     stockCatalog='must not ship', screenTemplate='must not ship', profile={'stock':'must not ship'})
@@ -33,6 +37,7 @@ class MachinePackTests(unittest.TestCase):
                 manifest = json.loads(data)
                 self.assertEqual(manifest['profileSha256'], sha(b'profile'))
                 self.assertEqual(manifest['sdk'], 'c' * 64)
+                self.assertEqual(manifest['build'], BUILD)
                 self.assertEqual(manifest['objects'], [dict(name='custom/voice.o', owner='custom')])
                 self.assertEqual(manifest['notices'], 'Author license')
             other = root / 'other'
@@ -57,8 +62,8 @@ class MachinePackTests(unittest.TestCase):
                 manifest = json.loads(archive.read('machines.json'))
         self.assertEqual(manifest['machines'], [dict(id='custom', kind='synth', origin='personal')])
         self.assertEqual(manifest['objects'], [dict(name='custom/voice.o', owner='custom')])
-        self.assertEqual(set(manifest), {'format', 'version', 'sdk', 'profileSha256', 'definitions', 'fixed', 'machines',
-                                         'objects', 'notices'})
+        self.assertEqual(set(manifest), {'format', 'version', 'sdk', 'profileSha256', 'definitions', 'fixed', 'build',
+                                         'machines', 'objects', 'notices'})
         self.assertEqual(manifest['notices'], 'Custom only')
 
     def test_archive_size_is_bounded(self):
@@ -74,13 +79,26 @@ class MachinePackTests(unittest.TestCase):
                 machine_pack.MAX_PACK_BYTES = limit
             self.assertFalse((Path(directory) / 'machines.zip').exists())
 
-    def test_export_refuses_kinds_the_builder_cannot_import(self):
-        for kind in ('drum', 'player'):
+    def test_export_takes_every_kind(self):
+        # The exporter writes every kind's metadata as the kit lists it; the builder's import of
+        # each kind is tested in tests/test_browser_kit.mjs.
+        for kind in ('synth', 'drum', 'sample', 'effect', 'player', 'aux'):
             kit = self.kit()
-            kit['machines'][0]['kind'] = kind
+            # An aux machine is a synth taking over an aux track, with that track's presets.
+            kit['machines'][0].update(dict(kind=kind) if kind != 'aux' else dict(
+                kind='synth', features=['auxTrack', 'trackControl'], catalog='',
+                auxPresets={'content/aux_presets/cv/init.json': json.dumps(dict(platform='OP-XY', type='cv', version=1))}))
             with tempfile.TemporaryDirectory() as directory:
-                with self.assertRaisesRegex(ValueError, 'synths, effects and sample engines only'):
-                    write(kit, directory)
+                with zipfile.ZipFile(write(kit, directory)) as archive:
+                    machine = json.loads(archive.read('machines.json'))['machines'][0]
+                    self.assertEqual(machine, kit['machines'][0])
+
+    def test_export_refuses_a_kind_the_builder_cannot_import(self):
+        kit = self.kit()
+        kit['machines'][0]['kind'] = 'master'
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, 'a master machine, which a machine pack cannot carry'):
+                write(kit, directory)
 
     def test_export_requires_a_custom_machine(self):
         kit = self.kit()
@@ -103,3 +121,32 @@ class MachinePackTests(unittest.TestCase):
             self.assertIn('Machine author terms', text)
             self.assertIn('Vendor attribution', text)
             self.assertIn('OP-XY SDK modules', text)
+
+
+class SharedBuildTests(unittest.TestCase):
+    """A kit's build record (tooling.native.shared_build) is its machines' contributions together,
+    each as tooling.native.machine_build and its services give it, which is what the builder
+    compares a pack machine's with (builder/core.mjs importMachinePack)."""
+
+    def test_a_build_is_the_union_of_its_machines(self):
+        from machine_fixtures import fixture
+        from tooling import native
+        from tooling.firmware import active_services
+        from tooling.pipeline import config
+        profile = config()
+        machines = [fixture(name) for name in ('probesynth', 'probefx', 'probesample', 'probepads', 'probekit23',
+                                               'probekit25')]
+        whole = native.shared_build(profile, machines)
+        services = set().union(*(active_services(profile, native.service_users([m])) for m in machines))
+        self.assertEqual(whole['services'], sorted(services))
+        self.assertEqual(set(whole['defines']), {d for m in machines for d in native.machine_build(profile, m)['defines']})
+        self.assertEqual(set(whole['defines']), {native.KIT_CONTROLS_DEFINE, native.PLAYER_INSTRUMENT_DEFINE,
+                                                 native.MODEL_EDIT_DEFINE})
+        self.assertEqual(whole['headers'], sorted({h for m in machines for h in native.machine_build(profile, m)['headers']}))
+        self.assertEqual(whole['unitDefines'], {'player': [native.PLAYER_INSTRUMENT_DEFINE]})
+        # Each machine names only what it adds: a 1.25 player its define, a plain synth nothing.
+        self.assertEqual(native.machine_build(profile, fixture('probepads')),
+                         dict(defines=[native.PLAYER_INSTRUMENT_DEFINE], headers=[]))
+        self.assertEqual(native.machine_build(profile, fixture('probesynth')), dict(defines=[], headers=[]))
+        # A build without such machines compiles every unit as before.
+        self.assertEqual(native.shared_build(profile, [fixture('probesynth')])['unitDefines'], {'player': []})

@@ -111,9 +111,21 @@ extends the site's collection whatever the site's catalog holds: machines the
 catalog has added, removed or reordered since the pack was exported do not
 matter. It must come from the site's release and SDK revision. It cannot
 replace existing machines (a machine whose ID the site already has is refused),
-change the SDK runtime or add extensions, and it adds synths, effects and
-sample engines only: drum kits, players and aux machines cannot be imported
-yet. A machine published to the catalog after the site's release is exported as
+change the SDK runtime or add extensions. It may hold machines of every kind
+the SDK builds: synths, drum kits, sample engines, effects, note players and
+machines that take over an aux track. Each must use only what the site's own
+SDK objects were built with: the profile services its kind and features switch
+on (drum kits the samples, drums and octaves services, players the players and
+octaves services, an aux machine the control and aux services, a synth or effect
+showing its own audio the `telemetry` service, a machine reading the device
+identity the `device_identity` and `parameter_receive` services), the SDK defines
+a 1.25 player, a kit with the drum-kit controls or a `modelEdit` kit adds, and
+header-tied units such as
+`opxy/control_interaction.hpp`. A pack player must also have been compiled as
+the site compiles its players (with or without the 1.25 player define). A
+site's collection decides these, so a pack machine extends only a site whose
+catalog already uses them; otherwise the importer names what is missing.
+A machine published to the catalog after the site's release is exported as
 a catalog machine, not a custom one, and cannot be imported. A pack that imports
 replaces the previous one, so export the desired custom machines together; a
 refused one leaves it. **Remove imported machines** restores the site's collection. Both operations
@@ -139,9 +151,9 @@ the firmware profile, the linker script and the extensions profile
 that revision's catalog, then export the site's collection with the SDK's own
 extensions (one `--extension` per folder under `extensions/` at that revision,
 in name order, as `sdk.py release` adds them) and your custom machine folders
-appended (repeat `--machine` for more): the pack keeps only your machines, and
-the collection decides only which profile services the export's own checks
-link. The export rebuilds every machine's
+appended (repeat `--machine` for more): the pack keeps only your machines and
+records what the collection built them with (its services and SDK defines),
+which the site's must match where your machines depend on it. The export rebuilds every machine's
 browser preview, so it also needs Clang++ for wasm32 (`--preview-cxx`, as for
 any [kit](builder.md#export-a-kit)):
 
@@ -163,12 +175,15 @@ The importer rejects packs from another release or SDK revision (including
 earlier pack formats), machines whose ID or prefix the site already has,
 duplicate identities, IDs holding Open-XY's fixed numbers, objects that are not
 the pack's own machines', machine objects without their record or defining a
-symbol the site's SDK objects use, damaged objects and machines that cannot
-link or fit individually. A custom machine that needs SDK objects the site does
-not link (a profile service its features switch on, an arithmetic runtime
-member or an SDK header unit such as `opxy/sample_kernel.hpp` or
-`opxy/control_interaction.hpp`) cannot extend that site: the importer names the
-service or the first missing symbol. The normal memory meter checks the
+symbol the site's SDK objects use, damaged objects, more machines taking over
+the aux track than its chooser lists (31), aux presets beyond what the device
+lists (64 in 16 folders), heap voices beyond the stock heap a collection may
+hold (1 MiB) and machines that cannot link or fit individually. Sample
+engines' combined analysis budget is not checked at import. A custom machine that needs SDK objects the site does not link or
+build its way (a profile service its kind or features switch on, an SDK define,
+an arithmetic runtime member or an SDK header unit such as
+`opxy/sample_kernel.hpp` or `opxy/control_interaction.hpp`) cannot extend that
+site: the importer names the service, define, unit or first missing symbol. The normal memory meter checks the
 combined selection. After a site release, its author needs to export a matching
 pack. Checks do not certify an author's native code, measure CPU or establish
 device recovery. The format is a single stored `machines.json` entry in ZIP,

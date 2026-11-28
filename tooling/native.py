@@ -297,6 +297,17 @@ PLAYER_INSTRUMENT_DEFINE = '-DOPXY_PLAYER_INSTRUMENT=1'
 MODEL_EDIT_DEFINE = '-DOPXY_MODEL_EDIT=1'
 
 
+# The defines a kind's own units take when its build's SDK units compile with them: a
+# player's, Controls.instrument (opxy/player.hpp), which its build's players and SDK units
+# share. Other kinds' units take none.
+OWN_UNIT_DEFINES = {'player': (PLAYER_INSTRUMENT_DEFINE,)}
+
+
+def own_unit_defines(defines, kind):
+    """The defines a `kind` machine's own units compile with, in a build whose SDK units compile with `defines`."""
+    return tuple(d for d in defines if d in OWN_UNIT_DEFINES.get(kind, ()))
+
+
 def sdk_defines(machines):
     """The SDK 1.25 defines a build's machines ask for, in a fixed order: none for a build
     without a 1.25 player or a modelEdit kit."""
@@ -337,6 +348,28 @@ def includes_header(machines, header):
     """Whether a machine's own C++ (its tests and tools aside) includes opxy/<header>.hpp."""
     from .machines import reads_sample_overview
     return any(reads_sample_overview(m.root, header) for m in machines if getattr(m, 'root', None))
+
+
+def shared_build(profile, machines):
+    """What, beyond the SDK revision's sources, shapes a build's SDK objects and its machines'
+    own: the profile services it links (their units, startup's calls into them and the
+    fallbacks), the defines every SDK unit compiles with, the header-tied units its
+    machines include and the defines each kind's own units compile with. Each is the union
+    of its machines' (machine_build) and its extensions' contributions. A machine pack
+    records its own (tooling/machine_pack.py), and a site imports a pack machine only when
+    the machine adds nothing to the site's (builder/core.mjs importMachinePack): its
+    objects then link as a native build of the site's collection with that machine does."""
+    defines = sdk_unit_defines(profile, machines)
+    return dict(services=sorted(active_services(profile, service_users(machines))), defines=list(defines),
+                headers=[h for h in SHARED_HEADERS if includes_header(machines, h)],
+                unitDefines={kind: list(own_unit_defines(defines, kind)) for kind in sorted(OWN_UNIT_DEFINES)})
+
+
+def machine_build(profile, m):
+    """What machine `m` alone adds to shared_build beyond its services, which its kind and
+    features name (tooling/browser_kit.py machine_entry): defines and header-tied units."""
+    return dict(defines=list(sdk_unit_defines(profile, [m])),
+                headers=[h for h in SHARED_HEADERS if includes_header([m], h)])
 
 
 def host_units(m):
@@ -413,6 +446,10 @@ UNIT_SERVICES['keyboard_octaves'] = 'octaves'
 UNIT_HEADERS = {'sample_kernel': 'sample_kernel'}
 # Their host builds, which a machine's host tests link in place of the device unit.
 UNIT_HOST = {'sample_kernel': 'sdk/host/sample_kernel.cpp'}
+# The header-tied SDK units: each changes the build's SDK objects when a machine's own C++
+# includes its header (opxy/<header>.hpp): sample_kernel links a unit, control_interaction
+# compiles synth_controls with the last control touched (control_interaction_unit).
+SHARED_HEADERS = tuple(sorted({*UNIT_HEADERS.values(), 'control_interaction'}))
 UNIT_SERVICES.update(dict.fromkeys(('extension_runtime', 'extension_collection', 'extension_stock', 'usb_host'), 'extensions'))
 UNIT_SERVICES['drum_hooks'] = 'drums'
 UNIT_SERVICES['drum_synthesis_stock'] = 'drums'
@@ -797,12 +834,9 @@ def compile_collection(directory, toolchain, compiler, profile, machines, defini
     # Controls.instrument, which every player of its build shares with the SDK units (a
     # player's own units see that define alone), and a modelEdit kit's editor.
     defines = sdk_unit_defines(profile, machines)
-    player_defines = tuple(d for d in defines if d == PLAYER_INSTRUMENT_DEFINE)
 
     def cxx(source, obj, m=None):
-        unit_defines = defines if m is None else ()
-        if m is not None and m.kind == 'player':
-            unit_defines = player_defines
+        unit_defines = defines if m is None else own_unit_defines(defines, m.kind)
         compile_cxx(gcc['cxx'], tools['as'], source, obj, includes(m), unit_defines)
 
     def build_unit(obj, m, step):

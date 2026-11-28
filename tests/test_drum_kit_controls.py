@@ -423,7 +423,11 @@ class Services(unittest.TestCase):
     def test_only_a_build_with_such_a_kit_compiles_the_shared_units_with_the_define(self):
         source = (ROOT / 'tooling/native.py').read_text(encoding='utf-8')
         self.assertIn("defines = (KIT_CONTROLS_DEFINE,) if 'kit_controls' in active_services(", source)
-        self.assertIn("defines if m is None else ()", source)
+        self.assertIn("defines if m is None else own_unit_defines(defines, m.kind)", source)
+        # A machine's own units never see it, a player's included.
+        from tooling import native
+        for kind in ('synth', 'drum', 'sample', 'effect', 'player'):
+            self.assertNotIn(native.KIT_CONTROLS_DEFINE, native.own_unit_defines((native.KIT_CONTROLS_DEFINE,), kind))
         for name in ('drum_values.hpp', 'drum_synthesis_stock.cpp', 'sample_cache.cpp'):
             text = (PLATFORM / name).read_text(encoding='utf-8')
             self.assertIn('#if OPXY_KIT_CONTROLS', text)
