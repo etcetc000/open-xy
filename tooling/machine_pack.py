@@ -25,6 +25,10 @@ def write(kit, output, notices=None):
     """
     machines = [m for m in kit['machines'] if m['origin'] == 'personal']
     require(machines, 'A machine pack needs at least one custom machine')
+    # The kinds the builder imports (builder/core.mjs PACK_CONTROLS).
+    for m in machines:
+        require(m['kind'] in ('synth', 'drum', 'sample', 'effect', 'player'),
+                f"{m['id']} is a {m['kind']} machine, which a machine pack cannot carry")
     owners = {m['id'] for m in machines}
     # Every kind a native build makes. `build` is what shaped the objects (native.shared_build):
     # the site's must match it where the pack's machines depend on it (core.mjs importMachinePack).
