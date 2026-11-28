@@ -28,7 +28,7 @@ from .definitions import device_identity as declares_device_identity, extended_d
 from .firmware import active_services, assemble, hook_instruction, hook_symbol, hook_target, patch_active
 from .formats import elf32, elf_sections, require, sha
 from .machines import FIXED_NUMBERS, by_kind, collection, layout_document, read_collection, read_layout, sample_path, tree
-from .pipeline import (PROFILE, ROOT, add_overwrite_argument, check_patch_boundaries, child, config, document, execute,
+from .pipeline import (NO_WINDOW, PROFILE, ROOT, add_overwrite_argument, check_patch_boundaries, child, config, document, execute,
                        fresh_output, host_pins, host_platform,
                        hidden_process, read, require_release_host, resolve_toolchain, save_json, tool_paths)
 from .startup import LOCK_CALLS, generate as generate_startup
@@ -216,9 +216,19 @@ def sdk_sources():
     """The SDK's own inputs to every build, by path: profiles, linker script, headers, platform
     sources and tooling (which pins the compiler)."""
     paths = {PROFILE, LINKER, extensions.PROFILE}
-    for folder in ('sdk/include', 'sdk/platform', 'tooling'):
-        paths |= {p.relative_to(ROOT).as_posix() for p in (ROOT / folder).rglob('*')
-                  if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.md'}
+    folders = ('sdk/include', 'sdk/platform', 'tooling')
+    # A checkout's tracked files alone, so a stray local file changes nothing (.gitattributes
+    # keeps their line endings LF); a release archive, which holds only those, is read whole.
+    tracked = None
+    if (ROOT / '.git').exists():
+        listed = subprocess.run(['git', '-C', str(ROOT), 'ls-files', '-z', '--', *folders],
+                                capture_output=True, check=False, timeout=60, creationflags=NO_WINDOW)
+        if listed.returncode == 0:
+            tracked = {name for name in listed.stdout.decode('utf-8').split(chr(0)) if name}
+    for folder in folders:
+        paths |= {name for name in (p.relative_to(ROOT).as_posix() for p in (ROOT / folder).rglob('*')
+                                    if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.md')
+                  if tracked is None or name in tracked}
     return {name: sha(read(child(ROOT, name))) for name in paths}
 
 
